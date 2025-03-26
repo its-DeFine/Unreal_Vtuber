@@ -841,9 +841,24 @@ $llmProcess = Start-Process -FilePath "py" -ArgumentList "$projectDir\NeuroSync_
 # Wait for services to initialize
 Log-Message "Waiting for services to initialize (10 seconds)..."
 Start-Sleep -Seconds 10
-
 # Download and install all necessary Visual C++ Runtimes
 Log-Message "Checking for Visual C++ Runtime packages..."
+
+# ADDED: Helper function to check if a Visual C++ package is already installed.
+function Is-VCRedistInstalled {
+    param(
+        [string]$partialName
+    )
+    try {
+        # Using Win32_Product can be slow, so some environments prefer registry checks,
+        # but Win32_Product is simpler in a quick script scenario.
+        $products = Get-WmiObject -Class Win32_Product -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -like "*$partialName*" }
+        return ($products -ne $null)
+    } catch {
+        return $false
+    }
+}
 
 # Define all Visual C++ Runtime versions to install
 $vcRedistPackages = @(
@@ -851,49 +866,57 @@ $vcRedistPackages = @(
         Name = "Visual C++ 2015-2022 Redistributable (x64)";
         Url = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
         Filename = "vc_redist.2022.x64.exe";
-        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2022_x64_install.log"
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2022_x64_install.log";
+        CheckName = "Microsoft Visual C++ 2015-2022 Redistributable (x64)"
     },
     @{
         Name = "Visual C++ 2015-2022 Redistributable (x86)";
         Url = "https://aka.ms/vs/17/release/vc_redist.x86.exe";
         Filename = "vc_redist.2022.x86.exe";
-        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2022_x86_install.log"
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2022_x86_install.log";
+        CheckName = "Microsoft Visual C++ 2015-2022 Redistributable (x86)"
     },
     @{
         Name = "Visual C++ 2013 Redistributable (x64)";
         Url = "https://aka.ms/highdpimfc2013x64enu";
         Filename = "vcredist_2013_x64.exe";
-        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2013_x64_install.log"
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2013_x64_install.log";
+        CheckName = "Microsoft Visual C++ 2013 Redistributable (x64)"
     },
     @{
         Name = "Visual C++ 2013 Redistributable (x86)";
         Url = "https://aka.ms/highdpimfc2013x86enu";
         Filename = "vcredist_2013_x86.exe";
-        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2013_x86_install.log"
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2013_x86_install.log";
+        CheckName = "Microsoft Visual C++ 2013 Redistributable (x86)"
     },
     @{
         Name = "Visual C++ 2012 Redistributable (x64)";
         Url = "https://download.microsoft.com/download/1/6/B/16B06F60-3B20-4FF2-B699-5E9B7962F9AE/VSU_4/vcredist_x64.exe";
         Filename = "vcredist_2012_x64.exe";
-        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2012_x64_install.log"
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2012_x64_install.log";
+        CheckName = "Microsoft Visual C++ 2012 Redistributable (x64)"
     },
     @{
         Name = "Visual C++ 2012 Redistributable (x86)";
         Url = "https://download.microsoft.com/download/1/6/B/16B06F60-3B20-4FF2-B699-5E9B7962F9AE/VSU_4/vcredist_x86.exe";
         Filename = "vcredist_2012_x86.exe";
-        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2012_x86_install.log"
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2012_x86_install.log";
+        CheckName = "Microsoft Visual C++ 2012 Redistributable (x86)"
     },
     @{
         Name = "Visual C++ 2010 Redistributable (x64)";
         Url = "https://download.microsoft.com/download/1/6/5/165255E7-1014-4D0A-B094-B6A430A6BFFC/vcredist_x64.exe";
         Filename = "vcredist_2010_x64.exe";
-        Args = "/q /norestart"
+        Args = "/q /norestart";
+        CheckName = "Microsoft Visual C++ 2010  x64 Redistributable"
     },
     @{
         Name = "Visual C++ 2010 Redistributable (x86)";
         Url = "https://download.microsoft.com/download/1/6/5/165255E7-1014-4D0A-B094-B6A430A6BFFC/vcredist_x86.exe";
         Filename = "vcredist_2010_x86.exe";
-        Args = "/q /norestart"
+        Args = "/q /norestart";
+        CheckName = "Microsoft Visual C++ 2010  x86 Redistributable"
     }
 )
 
@@ -901,28 +924,42 @@ Log-Message "Installing all required Visual C++ Runtime packages..."
 
 foreach ($package in $vcRedistPackages) {
     Log-Message "Processing $($package.Name)..."
+    
+    # Check if already installed
+    if (Is-VCRedistInstalled $package.CheckName) {
+        Log-Message "$($package.Name) appears to be already installed. Skipping."
+        continue
+    }
+    
     $installerPath = "$tempDir\$($package.Filename)"
     
-    # Download the installer
+    # FIXED: Properly structure the conditional to check file existence first, then check size
+    if ((Test-Path $installerPath) -and ((Get-Item $installerPath).Length -gt 1000000)) {
+        Log-Message "$($package.Name) installer found locally. Skipping download."
+    } else {
+        # Download the installer
+        try {
+            if ($null -ne (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
+                Log-Message "Downloading $($package.Name) with curl..."
+                Start-Process -FilePath "curl.exe" -ArgumentList "-L", "-o", $installerPath, "--retry", "3", $($package.Url) -Wait -NoNewWindow
+            } else {
+                Log-Message "Downloading $($package.Name) with Invoke-WebRequest..."
+                Invoke-WebRequest -Uri $package.Url -OutFile $installerPath -UseBasicParsing
+            }
+            
+            if (-not (Test-Path $installerPath)) {
+                throw "Download failed - installer not found"
+            }
+        } catch {
+            Log-Message "WARNING: Failed to download $($package.Name): $_"
+            continue
+        }
+    }
+    
+    # Install the package
+    Log-Message "Installing $($package.Name)..."
     try {
-        if ($null -ne (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
-            Log-Message "Downloading $($package.Name) with curl..."
-            Start-Process -FilePath "curl.exe" -ArgumentList "-L", "-o", $installerPath, "--retry", "3", $($package.Url) -Wait -NoNewWindow
-        } else {
-            Log-Message "Downloading $($package.Name) with Invoke-WebRequest..."
-            Invoke-WebRequest -Uri $package.Url -OutFile $installerPath -UseBasicParsing
-        }
-        
-        if (-not (Test-Path $installerPath)) {
-            throw "Download failed - installer not found"
-        }
-        
-        # Install the package
-        Log-Message "Installing $($package.Name)..."
         $process = Start-Process -FilePath $installerPath -ArgumentList $package.Args -Wait -PassThru -NoNewWindow -ErrorAction SilentlyContinue
-        
-        # Don't check exit code too strictly as some installers may return non-zero even on success
-        # or if the component is already installed
         Log-Message "$($package.Name) installation completed with exit code: $($process.ExitCode)"
     } catch {
         Log-Message "WARNING: Failed to install $($package.Name): $_"
@@ -930,23 +967,67 @@ foreach ($package in $vcRedistPackages) {
 }
 
 # Special case for DirectX which is often needed
-Log-Message "Installing DirectX Runtime..."
-$dxUrl = "https://download.microsoft.com/download/1/7/1/1718CCC4-6315-4D8E-9543-8E28A4E18C4C/dxwebsetup.exe"
-$dxPath = "$tempDir\dxwebsetup.exe"
+Log-Message "Checking for DirectX Runtime..."
 
-try {
-    if ($null -ne (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
-        Start-Process -FilePath "curl.exe" -ArgumentList "-L", "-o", $dxPath, "--retry", "3", $dxUrl -Wait -NoNewWindow
+# Check if DirectX is already installed by looking for common DirectX components
+function Is-DirectXInstalled {
+    try {
+        # Check for presence of key DirectX files
+        $dxdiagPath = "$env:SystemRoot\System32\dxdiag.exe"
+        $d3d9Path = "$env:SystemRoot\System32\d3d9.dll"
+        $dxgiPath = "$env:SystemRoot\System32\dxgi.dll"
+        
+        # If critical DirectX files exist, assume it's installed
+        if ((Test-Path $dxdiagPath) -and (Test-Path $d3d9Path) -and (Test-Path $dxgiPath)) {
+            # Get file version of key component as additional check
+            $dxgiInfo = Get-Item $dxgiPath -ErrorAction SilentlyContinue
+            if ($dxgiInfo) {
+                Log-Message "DirectX appears to be installed (dxgi.dll version: $($dxgiInfo.VersionInfo.FileVersion))"
+                return $true
+            }
+        }
+        return $false
+    } catch {
+        return $false
+    }
+}
+
+if (Is-DirectXInstalled) {
+    Log-Message "DirectX Runtime appears to be already installed. Skipping."
+} else {
+    Log-Message "Installing DirectX Runtime..."
+    $dxUrl = "https://download.microsoft.com/download/1/7/1/1718CCC4-6315-4D8E-9543-8E28A4E18C4C/dxwebsetup.exe"
+    $dxPath = "$tempDir\dxwebsetup.exe"
+
+    # Check if installer is already downloaded
+    if ((Test-Path $dxPath) -and ((Get-Item $dxPath).Length -gt 1000000)) {
+        Log-Message "DirectX installer found locally. Skipping download."
     } else {
-        Invoke-WebRequest -Uri $dxUrl -OutFile $dxPath -UseBasicParsing
+        try {
+            if ($null -ne (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
+                Log-Message "Downloading DirectX with curl..."
+                Start-Process -FilePath "curl.exe" -ArgumentList "-L", "-o", $dxPath, "--retry", "3", $dxUrl -Wait -NoNewWindow
+            } else {
+                Log-Message "Downloading DirectX with Invoke-WebRequest..."
+                Invoke-WebRequest -Uri $dxUrl -OutFile $dxPath -UseBasicParsing
+            }
+        } catch {
+            Log-Message "WARNING: Failed to download DirectX installer: $_"
+        }
     }
     
-    if (Test-Path $dxPath) {
-        Start-Process -FilePath $dxPath -ArgumentList "/Q" -Wait -NoNewWindow
-        Log-Message "DirectX Runtime installation completed."
+    # Verify download and install
+    if ((Test-Path $dxPath) -and ((Get-Item $dxPath).Length -gt 1000000)) {
+        try {
+            Log-Message "Running DirectX installer..."
+            Start-Process -FilePath $dxPath -ArgumentList "/Q" -Wait -NoNewWindow
+            Log-Message "DirectX Runtime installation completed."
+        } catch {
+            Log-Message "WARNING: Failed to install DirectX Runtime: $_"
+        }
+    } else {
+        Log-Message "WARNING: DirectX installer not found or invalid. Skipping installation."
     }
-} catch {
-    Log-Message "WARNING: Failed to install DirectX Runtime: $_"
 }
 
 # Repair VCRuntime dependencies
@@ -960,7 +1041,6 @@ try {
 }
 
 Log-Message "All Visual C++ Runtime packages installation completed."
-
 # Launch the game
 Log-Message "Launching NeuroSync..."
 $gameExePath = "$projectDir\Game\NEUROSYNC_Demo_Build\Windows\NEUROSYNC.exe"
