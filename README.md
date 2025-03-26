@@ -1,6 +1,26 @@
-# NeuroSync Docker Container
+# Purpose 
+It is now possible using this repo to install the whole NeuroSync projest, either directly on your windows computer or inside a docker container. The powershell script provided here automates the entire installation processes as seen in the Youtube video, handling all dependencies and configurations automatically. Then it starts the game, scripts and servers.
 
-This repository contains a Dockerfile to build and run a full NeuroSync project in a Windows container.
+P.S. We are using a custom fork for NeuroSync_Player that uses Livepeer Pipelines in llm_to_face to produce text inference. You can change the github url if you prefer the original Player.
+
+# NeuroSync: Real-Time Audio-to-Face Animation
+
+NeuroSync is a cutting-edge transformer-based neural network system that generates real-time facial animations from audio input. It enables lifelike character animations by converting audio features into facial blendshapes at 60fps, creating dynamic and expressive facial movements synchronized with speech.
+
+[![NeuroSync Demo](https://img.youtube.com/vi/eQPtJWLIElk/0.jpg)](https://www.youtube.com/watch?v=eQPtJWLIElk)
+
+## Key Features
+
+- **Real-Time Animation**: Transform audio into facial animations at 60fps with low latency
+- **MetaHuman Integration**: Stream facial blendshapes directly to MetaHuman characters in Unreal Engine 5 via LiveLink
+- **Full-Face Expression**: Generates complete facial animations including emotional expressions, not just lip movements
+- **LLM Integration**: Includes utilities like `llm_to_face.py` for creating interactive AI characters with facial expressions
+- **Local Processing**: Option to run everything locally for privacy and reduced latency
+
+## Components
+
+- **NeuroSync Player**: Collection of scripts and utilites that power up real time inference
+- **Neurosync Local API**: Processes audio locally to generate facial animations and streams that to the metahuman via LiveLink
 
 ## Installation Options
 
@@ -135,7 +155,7 @@ Since NeuroSync is a GUI application, there are several options for accessing th
 ## Notes
 
 - The container is several GB in size due to the dependencies required by NeuroSync.
-- The script automatically downloads game files and model data during execution.
+- The script automatically downloads all required components and model data during execution.
 - Windows containers with GPU support have specific requirements and limitations.
 - Create a `data` directory in the project root for persistent storage when using docker-compose.
 
@@ -159,8 +179,13 @@ docker-compose run --entrypoint powershell neurosync
 - If the script fails, check the log file created in the same directory.
 - For Python or CUDA issues, try installing those components manually before running the script again.
 
+## Resources
+
+- [NeuroSync Player Repository](https://github.com/AnimaVR/NeuroSync_Player)
+- [YouTube Demo & Tutorials](https://www.youtube.com/@animaai_mai)
+
 ## License
 
-This Docker configuration is provided for NeuroSync users and is subject to the licensing terms of the included software components.
+Subject to licensing terms of the included software components.
 
 **Please open an issue if you need to report any bug.**
