@@ -1,7 +1,11 @@
 # Purpose 
-It is now possible using this repo to install the whole NeuroSync projest, either directly on your windows computer or inside a docker container. The powershell script provided here automates the entire installation processes as seen in the Youtube video, handling all dependencies and configurations automatically. Then it starts the game, scripts and servers.
-
-P.S. We are using a custom fork for NeuroSync_Player that uses Livepeer Pipelines in llm_to_face to produce text inference. You can change the github url if you prefer the original Player.
+-**What it does**:
+It is now possible using this repo to install the whole NeuroSync project, either directly on your windows computer or inside a docker container. The powershell script provided here automates the entire installation processes as seen in the Youtube video, handling all dependencies and configurations automatically. After the setup is being done, the script then initializes the all the required components of the project. 
+-**Future Updates**: 
+a) Add Vtuber specific utitlities.
+b) Add ability to directly stream to twitch.
+c) Integrate as Pipeline.
+-**Please Note** We are using a custom fork for NeuroSync_Player that uses Livepeer Pipelines in llm_to_face to produce text inference. You can change the github url if you prefer the original Player.
 
 # NeuroSync: Real-Time Audio-to-Face Animation
 
