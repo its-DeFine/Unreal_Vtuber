@@ -498,7 +498,6 @@ try {
 } catch {
     Log-Message "Failed to detect GPU: $_"
 }
-# Install CUDA and cuDNN only if NVIDIA GPU is detected and not already installed
 
 if ($hasNvidiaGPU) {
     # Check if CUDA is installed by looking for nvcc in Program Files
@@ -538,95 +537,52 @@ if ($hasNvidiaGPU) {
         $cudaUrl = "https://developer.download.nvidia.com/compute/cuda/12.4.1/local_installers/cuda_12.4.1_551.78_windows.exe"
         $cudaInstaller = "$tempDir\cuda_12.4.1_551.78_windows.exe"
         
-        # Download CUDA installer using curl
-        Log-Message "Downloading CUDA installer with curl..."
-        $curlArgs = "-L", "-o", $cudaInstaller, "--progress-bar", "--retry", "3", "--retry-delay", "2", "--retry-max-time", "60", $cudaUrl
-        $curlProcess = Start-Process -FilePath "curl" -ArgumentList $curlArgs -NoNewWindow -Wait -PassThru
-        
-        if ($curlProcess.ExitCode -ne 0) {
-            Log-Message "curl download failed with exit code $($curlProcess.ExitCode). Falling back to Invoke-WebRequest..."
-            Invoke-WebRequest -Uri $cudaUrl -OutFile $cudaInstaller
+        # Check if CUDA installer already exists
+        if (Test-Path $cudaInstaller) {
+            Log-Message "CUDA installer already downloaded, skipping download..."
+        } else {
+            Log-Message "Downloading CUDA installer with curl..."
+            $maxRetries = 3
+            $retryCount = 0
+            $downloadSuccess = $false
+
+            while (-not $downloadSuccess -and $retryCount -lt $maxRetries) {
+                $curlArgs = "-L", "-o", $cudaInstaller, "--progress-bar", "--retry", "3", "--retry-delay", "2", "--retry-max-time", "60", $cudaUrl
+                $curlProcess = Start-Process -FilePath "curl" -ArgumentList $curlArgs -NoNewWindow -Wait -PassThru
+                
+                if ($curlProcess.ExitCode -eq 0) {
+                    $downloadSuccess = $true
+                    Log-Message "CUDA installer downloaded successfully."
+                } else {
+                    $retryCount++
+                    Log-Message "curl download failed with exit code $($curlProcess.ExitCode). Attempt $retryCount of $maxRetries..."
+                    Start-Sleep -Seconds 2
+                }
+            }
+
+            if (-not $downloadSuccess) {
+                Log-Message "Failed to download CUDA installer after $maxRetries attempts."
+                throw "Failed to download CUDA installer"
+            }
         }
         
-        # Silent install for CUDA with specific version only
+        # Use correct format for CUDA 12.4 components installation
         Log-Message "Installing CUDA 12.4 (this may take a while)..."
-        Start-Process -FilePath $cudaInstaller -ArgumentList "-s", "CUDA_VERSION=12.4" -Wait
+        Start-Process -FilePath $cudaInstaller -ArgumentList "-s nvcc_12.4 cudart_12.4 visual_studio_integration_12.4" -Wait
         Log-Message "CUDA Toolkit installation completed."
         
         # Verify installation by checking path again
         if (Test-Path $nvccPath) {
-            Log-Message "CUDA 12.4 installation verified successfully."
+            try {
+                $cudaVersionInfo = & $nvccPath --version | Out-String
+                Log-Message "CUDA installation verified successfully. Version info: $cudaVersionInfo"
+            } catch {
+                Log-Message "CUDA 12.4 installation verified, but unable to check version details."
+            }
         } else {
             Log-Message "Warning: CUDA installation completed but nvcc.exe not found at expected path."
         }
     }
-    
-    # Check if cuDNN is installed (more difficult to check directly)
-    # For simplicity, we'll check for a common cuDNN file
-    $cudnnInstalled = Test-Path "$env:CUDA_PATH\bin\cudnn*"
-    if (-not $cudnnInstalled) {
-        # Install cuDNN
-        Log-Message "Downloading cuDNN with curl..."
-        $cuDnnUrl = "https://developer.download.nvidia.com/compute/cudnn/9.8.0/local_installers/cudnn_9.8.0_windows.exe"
-        $cuDnnInstaller = "$tempDir\cudnn_9.8.0_windows.exe"
-        
-        # Download cuDNN installer using curl
-        $curlArgs = "-L", "-o", $cuDnnInstaller, "--progress-bar", "--retry", "3", "--retry-delay", "2", "--retry-max-time", "60", $cuDnnUrl
-        $curlProcess = Start-Process -FilePath "curl" -ArgumentList $curlArgs -NoNewWindow -Wait -PassThru
-        
-        if ($curlProcess.ExitCode -ne 0) {
-            Log-Message "curl download failed with exit code $($curlProcess.ExitCode). Falling back to Invoke-WebRequest..."
-            Invoke-WebRequest -Uri $cuDnnUrl -OutFile $cuDnnInstaller
-        }
-        
-        Log-Message "Installing cuDNN silently..."
-        # Use silent installation flags to avoid the interactive interface
-        # /s for silent mode, /norestart to prevent automatic restart
-        Start-Process -FilePath $cuDnnInstaller -ArgumentList "/s /norestart /qn" -Wait
-        Log-Message "cuDNN installed successfully."
-    } else {
-        Log-Message "cuDNN is already installed."
-    }
-}
-
-# Check if FFmpeg is installed
-$ffmpegInstalled = $null -ne (Get-Command ffmpeg -ErrorAction SilentlyContinue)
-if (-not $ffmpegInstalled) {
-    Log-Message "FFmpeg not found. Downloading and installing..."
-    
-    $ffmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-    $ffmpegZip = "$tempDir\ffmpeg.zip"
-    $ffmpegExtractPath = "$tempDir\ffmpeg"
-    
-    # Download FFmpeg using curl
-    Log-Message "Downloading FFmpeg with curl..."
-    $curlArgs = "-L", "-o", $ffmpegZip, "--progress-bar", "--retry", "3", "--retry-delay", "2", "--retry-max-time", "60", $ffmpegUrl
-    $curlProcess = Start-Process -FilePath "curl" -ArgumentList $curlArgs -NoNewWindow -Wait -PassThru
-    
-    if ($curlProcess.ExitCode -ne 0) {
-        Log-Message "curl download failed with exit code $($curlProcess.ExitCode). Falling back to Invoke-WebRequest..."
-        Invoke-WebRequest -Uri $ffmpegUrl -OutFile $ffmpegZip
-    }
-    
-    Expand-Archive -Path $ffmpegZip -DestinationPath $ffmpegExtractPath -Force
-    
-    # Move FFmpeg to script directory and add to PATH
-    $ffmpegBinPath = (Get-ChildItem -Path $ffmpegExtractPath -Filter "bin" -Recurse -Directory).FullName
-    $ffmpegDestination = "$PSScriptRoot\FFmpeg"
-    New-Item -ItemType Directory -Force -Path $ffmpegDestination | Out-Null
-    Copy-Item -Path "$ffmpegBinPath\*" -Destination $ffmpegDestination -Recurse -Force
-    
-    # Add FFmpeg to PATH if not already there
-    $currentPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-    if (-not $currentPath.Contains($ffmpegDestination)) {
-        [Environment]::SetEnvironmentVariable("Path", "$currentPath;$ffmpegDestination", "Machine")
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
-        Log-Message "Added FFmpeg to system PATH."
-    }
-    
-    Log-Message "FFmpeg installed successfully."
-} else {
-    Log-Message "FFmpeg is already installed."
 }
 
 # Check and install Python packages
@@ -678,6 +634,170 @@ if (-not $pytorchInstalled) {
     Log-Message "PyTorch is already installed."
 }
 
+# *** MOVED: cuDNN check and installation after PyTorch is installed ***
+if ($hasNvidiaGPU) {
+    # Improved cuDNN installation check and verification
+    Log-Message "Checking for cuDNN installation..."
+    $cudnnInstalled = $false
+    
+    # First check by looking for cuDNN files in CUDA path
+    if ($env:CUDA_PATH) {
+        if (Test-Path "$env:CUDA_PATH\bin\cudnn*.dll") {
+            $cudnnInstalled = $true
+            Log-Message "cuDNN found in CUDA path: $env:CUDA_PATH\bin"
+        }
+    }
+    
+    # Secondary check for common installation locations
+    if (-not $cudnnInstalled) {
+        $commonPaths = @(
+            "C:\Program Files\NVIDIA\CUDNN\*\bin\cudnn*.dll",
+            "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.*\bin\cudnn*.dll"
+        )
+        
+        foreach ($path in $commonPaths) {
+            if (Test-Path $path) {
+                $cudnnInstalled = $true
+                $foundFile = Get-Item $path -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($foundFile) {
+                    Log-Message "cuDNN found at $(Split-Path $foundFile.Directory.FullName -Parent)"
+                }
+                break
+            }
+        }
+    }
+
+    # Python-based cuDNN check now that PyTorch is installed
+    try {
+        $cudnnAvailable = py -c "import torch; print(torch.backends.cudnn.is_available())" 2>$null
+        if ($cudnnAvailable -eq 'True') {
+            $cudnnInstalled = $true
+            Log-Message "Python-based check: cuDNN is available to PyTorch."
+        } else {
+            Log-Message "Python check indicates cuDNN is not available to PyTorch."
+            $cudnnInstalled = $false
+        }
+    } catch {
+        Log-Message "WARNING: Could not run Python-based cuDNN check. Continuing with installation."
+    }
+
+    # Install cuDNN if not found
+    if (-not $cudnnInstalled) {
+        Log-Message "cuDNN not found or not available. Downloading with curl..."
+        $cuDnnUrl = "https://developer.download.nvidia.com/compute/cudnn/9.8.0/local_installers/cudnn_9.8.0_windows.exe"
+        $cuDnnInstaller = "$tempDir\cudnn_9.8.0_windows.exe"
+        $downloadSuccess = $false
+        
+        # Download cuDNN installer using curl with retry logic
+        $maxRetries = 3
+        $retryCount = 0
+        
+        while (-not $downloadSuccess -and $retryCount -lt $maxRetries) {
+            $curlArgs = "-L", "-o", $cuDnnInstaller, "--progress-bar", "--retry", "3", "--retry-delay", "2", "--retry-max-time", "60", $cuDnnUrl
+            $curlProcess = Start-Process -FilePath "curl" -ArgumentList $curlArgs -NoNewWindow -Wait -PassThru
+            
+            if ($curlProcess.ExitCode -eq 0 -and (Test-Path $cuDnnInstaller) -and (Get-Item $cuDnnInstaller).Length -gt 10000000) {
+                $downloadSuccess = $true
+                Log-Message "cuDNN installer downloaded successfully."
+            } else {
+                $retryCount++
+                Log-Message "curl download failed or resulted in invalid file. Attempt $retryCount of $maxRetries..."
+                if (Test-Path $cuDnnInstaller) {
+                    $fileSize = (Get-Item $cuDnnInstaller).Length
+                    Log-Message "Downloaded file size: $fileSize bytes (expected >10MB)"
+                }
+                Start-Sleep -Seconds 2
+            }
+        }
+        
+        # If curl failed after retries, try Invoke-WebRequest
+        if (-not $downloadSuccess) {
+            Log-Message "curl download failed after $maxRetries attempts. Falling back to Invoke-WebRequest..."
+            try {
+                Invoke-WebRequest -Uri $cuDnnUrl -OutFile $cuDnnInstaller -TimeoutSec 300
+                if ((Test-Path $cuDnnInstaller) -and (Get-Item $cuDnnInstaller).Length -gt 10000000) {
+                    $downloadSuccess = $true
+                    Log-Message "cuDNN installer downloaded successfully with Invoke-WebRequest."
+                } else {
+                    Log-Message "WARNING: Downloaded file seems too small or is missing."
+                }
+            } catch {
+                Log-Message "ERROR: Invoke-WebRequest failed: $_"
+            }
+        }
+        
+        # If download was successful, install cuDNN
+        if ($downloadSuccess) {
+            Log-Message "Installing cuDNN silently..."
+            # Use silent installation flags to avoid the interactive interface
+            Start-Process -FilePath $cuDnnInstaller -ArgumentList "/s /norestart /qn" -Wait
+            
+            # Verify installation
+            Start-Sleep -Seconds 10
+            $cudnnVerified = $false
+            
+            # Repeat the file-based checks
+            if ($env:CUDA_PATH -and (Test-Path "$env:CUDA_PATH\bin\cudnn*.dll")) {
+                $cudnnVerified = $true
+                Log-Message "cuDNN installation verified successfully in CUDA path."
+            } else {
+                # Check common installation paths again
+                foreach ($path in $commonPaths) {
+                    if (Test-Path $path) {
+                        $cudnnVerified = $true
+                        $foundFile = Get-Item $path -ErrorAction SilentlyContinue | Select-Object -First 1
+                        if ($foundFile) {
+                            Log-Message "cuDNN installation verified at $(Split-Path $foundFile.Directory.FullName -Parent)"
+                        }
+                        break
+                    }
+                }
+            }
+            
+            # Final verification with PyTorch
+            try {
+                $cudnnAvailable = py -c "import torch; print(torch.backends.cudnn.is_available())" 2>$null
+                if ($cudnnAvailable -eq 'True') {
+                    $cudnnVerified = $true
+                    Log-Message "PyTorch confirms cuDNN is available after installation."
+                } else {
+                    Log-Message "WARNING: PyTorch reports cuDNN is still not available after installation."
+                }
+            } catch {
+                Log-Message "WARNING: Could not verify cuDNN with PyTorch after installation."
+            }
+            
+            if ($cudnnVerified) {
+                Log-Message "cuDNN installed and verified successfully."
+            } else {
+                Log-Message "WARNING: cuDNN installation completed but verification failed."
+                
+                # Offer manual installation option
+                Log-Message "You may need to manually install cuDNN. Please visit the NVIDIA cuDNN download page:"
+                Log-Message "https://developer.nvidia.com/cudnn-downloads"
+                
+                $userResponse = Read-Host "Would you like to open the NVIDIA cuDNN download page in a browser? (y/n)"
+                if ($userResponse -eq "y") {
+                    Start-Process "https://developer.nvidia.com/cudnn-downloads"
+                }
+            }
+        } else {
+            Log-Message "ERROR: Failed to download cuDNN installer after multiple attempts."
+            
+            # Offer manual download option
+            Log-Message "Please download cuDNN manually from the NVIDIA website:"
+            Log-Message "https://developer.nvidia.com/cudnn-downloads"
+            
+            $userResponse = Read-Host "Would you like to open the NVIDIA cuDNN download page in a browser? (y/n)"
+            if ($userResponse -eq "y") {
+                Start-Process "https://developer.nvidia.com/cudnn-downloads"
+            }
+        }
+    } else {
+        Log-Message "cuDNN is already installed and available to PyTorch."
+    }
+}
+
 # Install remaining packages
 $morePackages = @(
     "librosa",
@@ -721,84 +841,159 @@ $llmProcess = Start-Process -FilePath "py" -ArgumentList "$projectDir\NeuroSync_
 # Wait for services to initialize
 Log-Message "Waiting for services to initialize (10 seconds)..."
 Start-Sleep -Seconds 10
-# Download and install Visual C++ Runtime
-Log-Message "Checking for Visual C++ Runtime..."
 
-# Better check for Visual C++ Runtime using multiple files
-$vcRuntimeFiles = @(
-    "C:\Windows\System32\vcruntime140.dll",
-    "C:\Windows\System32\msvcp140.dll",
-    "C:\Windows\System32\vcruntime140_1.dll"
+# Download and install all necessary Visual C++ Runtimes
+Log-Message "Checking for Visual C++ Runtime packages..."
+
+# Define all Visual C++ Runtime versions to install
+$vcRedistPackages = @(
+    @{
+        Name = "Visual C++ 2015-2022 Redistributable (x64)";
+        Url = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
+        Filename = "vc_redist.2022.x64.exe";
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2022_x64_install.log"
+    },
+    @{
+        Name = "Visual C++ 2015-2022 Redistributable (x86)";
+        Url = "https://aka.ms/vs/17/release/vc_redist.x86.exe";
+        Filename = "vc_redist.2022.x86.exe";
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2022_x86_install.log"
+    },
+    @{
+        Name = "Visual C++ 2013 Redistributable (x64)";
+        Url = "https://aka.ms/highdpimfc2013x64enu";
+        Filename = "vcredist_2013_x64.exe";
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2013_x64_install.log"
+    },
+    @{
+        Name = "Visual C++ 2013 Redistributable (x86)";
+        Url = "https://aka.ms/highdpimfc2013x86enu";
+        Filename = "vcredist_2013_x86.exe";
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2013_x86_install.log"
+    },
+    @{
+        Name = "Visual C++ 2012 Redistributable (x64)";
+        Url = "https://download.microsoft.com/download/1/6/B/16B06F60-3B20-4FF2-B699-5E9B7962F9AE/VSU_4/vcredist_x64.exe";
+        Filename = "vcredist_2012_x64.exe";
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2012_x64_install.log"
+    },
+    @{
+        Name = "Visual C++ 2012 Redistributable (x86)";
+        Url = "https://download.microsoft.com/download/1/6/B/16B06F60-3B20-4FF2-B699-5E9B7962F9AE/VSU_4/vcredist_x86.exe";
+        Filename = "vcredist_2012_x86.exe";
+        Args = "/install /quiet /norestart /log:$tempDir\vc_redist_2012_x86_install.log"
+    },
+    @{
+        Name = "Visual C++ 2010 Redistributable (x64)";
+        Url = "https://download.microsoft.com/download/1/6/5/165255E7-1014-4D0A-B094-B6A430A6BFFC/vcredist_x64.exe";
+        Filename = "vcredist_2010_x64.exe";
+        Args = "/q /norestart"
+    },
+    @{
+        Name = "Visual C++ 2010 Redistributable (x86)";
+        Url = "https://download.microsoft.com/download/1/6/5/165255E7-1014-4D0A-B094-B6A430A6BFFC/vcredist_x86.exe";
+        Filename = "vcredist_2010_x86.exe";
+        Args = "/q /norestart"
+    }
 )
 
-$vcRuntimeInstalled = ($vcRuntimeFiles | ForEach-Object { Test-Path $_ }) -notcontains $false
+Log-Message "Installing all required Visual C++ Runtime packages..."
 
-if (-not $vcRuntimeInstalled) {
-    Log-Message "Visual C++ Runtime not fully installed. Downloading and installing..."
-    
-    # Use a more reliable Visual C++ 2015-2022 Redistributable link
-    $vcRedistUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
-    $vcRedistPath = "$tempDir\vc_redist.x64.exe"
+foreach ($package in $vcRedistPackages) {
+    Log-Message "Processing $($package.Name)..."
+    $installerPath = "$tempDir\$($package.Filename)"
     
     # Download the installer
     try {
         if ($null -ne (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
-            Log-Message "Downloading Visual C++ Runtime with curl..."
-            Start-Process -FilePath "curl.exe" -ArgumentList "-L", "-o", $vcRedistPath, "--retry", "3", $vcRedistUrl -Wait -NoNewWindow
+            Log-Message "Downloading $($package.Name) with curl..."
+            Start-Process -FilePath "curl.exe" -ArgumentList "-L", "-o", $installerPath, "--retry", "3", $($package.Url) -Wait -NoNewWindow
         } else {
-            Log-Message "Downloading Visual C++ Runtime with Invoke-WebRequest..."
-            Invoke-WebRequest -Uri $vcRedistUrl -OutFile $vcRedistPath -UseBasicParsing
+            Log-Message "Downloading $($package.Name) with Invoke-WebRequest..."
+            Invoke-WebRequest -Uri $package.Url -OutFile $installerPath -UseBasicParsing
         }
         
-        if (-not (Test-Path $vcRedistPath)) {
+        if (-not (Test-Path $installerPath)) {
             throw "Download failed - installer not found"
         }
         
-        # Use stronger silent installation flags
-        Log-Message "Installing Visual C++ Runtime silently..."
-        $process = Start-Process -FilePath $vcRedistPath -ArgumentList "/install", "/quiet", "/norestart", "/log", "$tempDir\vc_redist_install.log" -Wait -PassThru -NoNewWindow
+        # Install the package
+        Log-Message "Installing $($package.Name)..."
+        $process = Start-Process -FilePath $installerPath -ArgumentList $package.Args -Wait -PassThru -NoNewWindow -ErrorAction SilentlyContinue
         
-        if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) {
-            Log-Message "WARNING: Visual C++ Runtime installer returned exit code $($process.ExitCode). Installation might have failed."
-            Log-Message "Checking if installation was successful despite error..."
-            
-            # Re-check if the files exist now
-            $vcRuntimeInstalled = ($vcRuntimeFiles | ForEach-Object { Test-Path $_ }) -notcontains $false
-            
-            if ($vcRuntimeInstalled) {
-                Log-Message "Visual C++ Runtime files found. Installation appears to be successful."
-            } else {
-                Log-Message "WARNING: Visual C++ Runtime files not found. You may need to install manually."
-                Log-Message "For manual installation, visit: https://aka.ms/vs/17/release/vc_redist.x64.exe"
-                
-                # Optionally show a message to the user for manual installation
-                $userResponse = Read-Host "Would you like to attempt manual installation now? (y/n)"
-                if ($userResponse -eq 'y') {
-                    Start-Process -FilePath $vcRedistPath
-                    Read-Host "Press Enter after completing the manual installation"
-                }
-            }
-        } else {
-            Log-Message "Visual C++ Runtime installed successfully."
-        }
+        # Don't check exit code too strictly as some installers may return non-zero even on success
+        # or if the component is already installed
+        Log-Message "$($package.Name) installation completed with exit code: $($process.ExitCode)"
     } catch {
-        Log-Message "ERROR: Failed to install Visual C++ Runtime: $_"
-        Log-Message "You may need to install Visual C++ Runtime manually."
-        Log-Message "For manual installation, visit: https://aka.ms/vs/17/release/vc_redist.x64.exe"
+        Log-Message "WARNING: Failed to install $($package.Name): $_"
     }
-} else {
-    Log-Message "Visual C++ Runtime is already installed."
 }
+
+# Special case for DirectX which is often needed
+Log-Message "Installing DirectX Runtime..."
+$dxUrl = "https://download.microsoft.com/download/1/7/1/1718CCC4-6315-4D8E-9543-8E28A4E18C4C/dxwebsetup.exe"
+$dxPath = "$tempDir\dxwebsetup.exe"
+
+try {
+    if ($null -ne (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
+        Start-Process -FilePath "curl.exe" -ArgumentList "-L", "-o", $dxPath, "--retry", "3", $dxUrl -Wait -NoNewWindow
+    } else {
+        Invoke-WebRequest -Uri $dxUrl -OutFile $dxPath -UseBasicParsing
+    }
+    
+    if (Test-Path $dxPath) {
+        Start-Process -FilePath $dxPath -ArgumentList "/Q" -Wait -NoNewWindow
+        Log-Message "DirectX Runtime installation completed."
+    }
+} catch {
+    Log-Message "WARNING: Failed to install DirectX Runtime: $_"
+}
+
+# Repair VCRuntime dependencies
+Log-Message "Running system file checker to repair any corrupted system files..."
+try {
+    # This requires admin privileges, but we'll try anyway
+    Start-Process -FilePath "sfc.exe" -ArgumentList "/scannow" -Wait -NoNewWindow -ErrorAction SilentlyContinue
+    Log-Message "System file check completed."
+} catch {
+    Log-Message "WARNING: System file checker could not be run: $_"
+}
+
+Log-Message "All Visual C++ Runtime packages installation completed."
 
 # Launch the game
 Log-Message "Launching NeuroSync..."
 $gameExePath = "$projectDir\Game\NEUROSYNC_Demo_Build\Windows\NEUROSYNC.exe"
 if (Test-Path $gameExePath) {
+    Log-Message "Attempting to launch the game..."
     $gameProcess = Start-Process -FilePath $gameExePath -PassThru
-    Log-Message "NeuroSync launched successfully."
     
-    # Wait for the game to exit
-    $gameProcess.WaitForExit()
+    # Wait a bit to see if the game starts properly
+    Start-Sleep -Seconds 5
+    
+    if ($gameProcess.HasExited -and $gameProcess.ExitCode -ne 0) {
+        Log-Message "WARNING: Game seems to have crashed or failed to start properly."
+        Log-Message "Exit code: $($gameProcess.ExitCode)"
+        
+        $userResponse = Read-Host "Would you like to try installing additional Visual C++ Runtime libraries manually? (y/n)"
+        if ($userResponse -eq 'y') {
+            Log-Message "Opening Microsoft's Visual C++ Runtime download page..."
+            Start-Process "https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist"
+            
+            $userConfirm = Read-Host "After manually installing required libraries, would you like to try launching the game again? (y/n)"
+            if ($userConfirm -eq 'y') {
+                $gameProcess = Start-Process -FilePath $gameExePath -PassThru
+            }
+        }
+    } else {
+        Log-Message "NeuroSync launched successfully."
+    }
+    
+    # Wait for the game to exit (if it didn't already)
+    if (-not $gameProcess.HasExited) {
+        $gameProcess.WaitForExit()
+    }
+    
     Log-Message "Game closed. Shutting down services..."
     Stop-Process -Id $apiProcess.Id -Force -ErrorAction SilentlyContinue
     Stop-Process -Id $llmProcess.Id -Force -ErrorAction SilentlyContinue
