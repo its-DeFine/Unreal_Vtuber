@@ -1,10 +1,13 @@
 # Purpose 
 -**What it does**:
 It is now possible using this repo to install the whole NeuroSync project, either directly on your windows computer or inside a docker container. The powershell script provided here automates the entire installation processes as seen in the Youtube video, handling all dependencies and configurations automatically. After the setup is being done, the script then initializes the all the required components of the project. 
--**Future Updates**: 
-a) Add Vtuber specific utitlities.
-b) Add ability to directly stream to twitch.
-c) Integrate as Pipeline.
+
+
+ **Future Updates**: 
+- a) Add Vtuber specific utitlities.
+- b) Add ability to directly stream to twitch.
+- c) Integrate as Pipeline.
+
 -**Please Note** We are using a custom fork for NeuroSync_Player that uses Livepeer Pipelines in llm_to_face to produce text inference. You can change the github url if you prefer the original Player.
 
 # NeuroSync: Real-Time Audio-to-Face Animation
@@ -23,8 +26,8 @@ NeuroSync is a cutting-edge transformer-based neural network system that generat
 
 ## Components
 
-- **NeuroSync Player**: Collection of scripts and utilites that power up real time inference
-- **Neurosync Local API**: Processes audio locally to generate facial animations and streams that to the metahuman via LiveLink
+**NeuroSync Local API** – Handles real-time facial data processing.
+**NeuroSync Player** – Sends the animation data to Unreal Engine or any LiveLink-compatible software.
 
 ## Installation Options
 
