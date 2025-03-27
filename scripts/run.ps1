@@ -55,10 +55,10 @@ if (-not $gitInstalled) {
 Set-Location -Path $projectDir
 
 # Check and clone NeuroSync Player repository
-$playerRepoPath = "$projectDir\NeuroSync_Player_Vt"
+$playerRepoPath = "$projectDir\NeuroSync_Player"
 if (-not (Test-Path $playerRepoPath)) {
     Log-Message "Cloning NeuroSync Player repository..."
-    Start-Process -FilePath "git" -ArgumentList "clone https://github.com/UD1sto/NeuroSync_Player_Vt" -Wait -NoNewWindow
+    Start-Process -FilePath "git" -ArgumentList "clone https://github.com/AnimaVR/NeuroSync_Player" -Wait -NoNewWindow
     Log-Message "NeuroSync Player repository cloned successfully."
 } else {
     Log-Message "NeuroSync Player repository already exists. Updating..."
@@ -819,8 +819,8 @@ foreach ($package in $morePackages) {
 
 # Install requirements from the cloned repositories
 Log-Message "Checking requirements from NeuroSync Player..."
-if (Test-Path "$projectDir\NeuroSync_Player_Vt\requirements.txt") {
-    py -m pip install -r "$projectDir\NeuroSync_Player_Vt\requirements.txt"
+if (Test-Path "$projectDir\NeuroSync_Player\requirements.txt") {
+    py -m pip install -r "$projectDir\NeuroSync_Player\requirements.txt"
     Log-Message "NeuroSync Player requirements installed."
 }
 
@@ -836,7 +836,7 @@ $apiProcess = Start-Process -FilePath "py" -ArgumentList "$projectDir\NeuroSync_
 
 # Initialize the face to LLM setup
 Log-Message "Initializing LLM to face integration..."
-$llmProcess = Start-Process -FilePath "py" -ArgumentList "$projectDir\NeuroSync_Player_Vt\llm_to_face.py" -PassThru -WindowStyle Hidden
+$llmProcess = Start-Process -FilePath "py" -ArgumentList "$projectDir\NeuroSync_Player\llm_to_face.py" -PassThru -WindowStyle Hidden
 
 # Wait for services to initialize
 Log-Message "Waiting for services to initialize (10 seconds)..."
