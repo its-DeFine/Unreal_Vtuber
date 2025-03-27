@@ -1083,3 +1083,67 @@ if (Test-Path $gameExePath) {
 }
 
 Log-Message "NeuroSync shutdown complete."
+
+# 1. Define your .env file path
+$envFilePath = Join-Path $PSScriptRoot ".env"
+
+# 2. Check if .env exists
+if (Test-Path $envFilePath) {
+    # 3. Read .env file line by line
+    $lines = Get-Content $envFilePath
+    foreach ($line in $lines) {
+        # Ignore empty lines or comments starting with #
+        if (-not [string]::IsNullOrWhiteSpace($line) -and -not $line.StartsWith("#")) {
+            if ($line -match "^(.*?)=(.*?)$") {
+                $key   = $matches[1].Trim()
+                $value = $matches[2].Trim()
+
+                # 4. Set environment variable in the current process scope
+                [System.Environment]::SetEnvironmentVariable($key, $value, "Process")
+            }
+        }
+    }
+
+    Write-Host "Loaded environment variables from .env"
+} else {
+    Write-Host ".env file not found at $envFilePath. Skipping .env loading."
+}
+
+# ------------------------------------------------------------------------------
+# Now you can access the loaded environment variables using $env:
+# e.g. $env:TWITCH_STREAM_KEY, $env:FRAMERATE, $env:BITRATE, etc.
+# ------------------------------------------------------------------------------
+Write-Host "Twitch key is: $($env:TWITCH_STREAM_KEY)"
+Write-Host "Framerate is: $($env:FRAMERATE)"
+Write-Host "Bitrate is: $($env:BITRATE)"
+
+# Example: Using loaded environment variables in an FFmpeg command
+$twitchStreamKey = $env:TWITCH_STREAM_KEY
+$frameRate       = $env:FRAMERATE
+$bitRate         = $env:BITRATE
+
+$ffmpegArgs = @(
+    "-y",
+    "-f", "gdigrab",
+    "-draw_cursor", "1",
+    "-framerate", "$frameRate",
+    "-i", "desktop",
+    "-f", "dshow",
+    "-i", "audio=Stereo Mix (Realtek High Definition Audio)",
+    "-c:v", "libx264",
+    "-preset", "veryfast",
+    "-b:v", "$bitRate",
+    "-maxrate", "$bitRate",
+    "-bufsize", "2*$bitRate",   # e.g. double the bitrate
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
+    "-b:a", "160k",
+    "-ar", "44100",
+    "-f", "flv",
+    "rtmp://live.twitch.tv/app/$twitchStreamKey"
+)
+
+Write-Host "Starting FFmpeg with the following arguments:"
+Write-Host "$($ffmpegArgs -join ' ')"
+
+Start-Process -FilePath "ffmpeg" -ArgumentList $ffmpegArgs -NoNewWindow
