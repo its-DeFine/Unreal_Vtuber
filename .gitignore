@@ -7,3 +7,4 @@ NeuroSync_Real-Time_API/
 *.tmp
 .DS_Store
 .vscode/ 
+.env
