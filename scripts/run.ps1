@@ -1127,7 +1127,7 @@ $ffmpegArgs = @(
     "-f", "gdigrab",
     "-draw_cursor", "1",
     "-framerate", "$frameRate",
-    "-i", "desktop",
+    "-i", "title=NEUROSYNC-Win64-Shipping.exe",
     "-f", "dshow",
     "-i", "audio=Stereo Mix (Realtek High Definition Audio)",
     "-c:v", "libx264",
