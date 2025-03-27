@@ -68,17 +68,17 @@ if (-not (Test-Path $playerRepoPath)) {
 }
 
 # Check and clone NeuroSync Local API repository
-$apiRepoPath = "$projectDir\NeuroSync_Local_API"
+$apiRepoPath = "$projectDir\NeuroSync_Real-Time_API"
 if (-not (Test-Path $apiRepoPath)) {
-    Log-Message "Cloning NeuroSync Local API repository..."
+    Log-Message "Cloning NeuroSync Real-Time API repository..."
     Set-Location -Path $projectDir
-    Start-Process -FilePath "git" -ArgumentList "clone https://github.com/AnimaVR/NeuroSync_Local_API" -Wait -NoNewWindow
-    Log-Message "NeuroSync Local API repository cloned successfully."
+    Start-Process -FilePath "git" -ArgumentList "clone https://github.com/AnimaVR/NeuroSync_Real-Time_API" -Wait -NoNewWindow
+    Log-Message "NeuroSync Real-Time API repository cloned successfully."
 } else {
-    Log-Message "NeuroSync Local API repository already exists. Updating..."
+    Log-Message "NeuroSync Real-Time API repository already exists. Updating..."
     Set-Location -Path $apiRepoPath
     Start-Process -FilePath "git" -ArgumentList "pull" -Wait -NoNewWindow
-    Log-Message "NeuroSync Local API repository updated."
+    Log-Message "NeuroSync Real-Time API repository updated."
 }
 
 # Check if Python is installed with proper version
@@ -374,7 +374,7 @@ if (-not (Test-Path $gameExePath)) {
 }
 
 # Download and verify model.pth file
-$modelPath = "$projectDir\NeuroSync_Local_API\utils\model\model.pth"
+$modelPath = "$projectDir\NeuroSync_Real-Time_API\utils\model\model.pth"
 $modelDir = Split-Path -Parent $modelPath
 
 # Create model directory if it doesn't exist
@@ -824,15 +824,15 @@ if (Test-Path "$projectDir\NeuroSync_Player_Vt\requirements.txt") {
     Log-Message "NeuroSync Player requirements installed."
 }
 
-Log-Message "Checking requirements from NeuroSync Local API..."
-if (Test-Path "$projectDir\NeuroSync_Local_API\requirements.txt") {
-    py -m pip install -r "$projectDir\NeuroSync_Local_API\requirements.txt"
-    Log-Message "NeuroSync Local API requirements installed."
+Log-Message "Checking requirements from NeuroSync Real-Time API..."
+if (Test-Path "$projectDir\NeuroSync_Real-Time_API\requirements.txt") {
+    py -m pip install -r "$projectDir\NeuroSync_Real-Time_API\requirements.txt"
+    Log-Message "NeuroSync Real-Time API requirements installed."
 }
 
-# Initialize the local API
-Log-Message "Starting NeuroSync Local API..."
-$apiProcess = Start-Process -FilePath "py" -ArgumentList "$projectDir\NeuroSync_Local_API\neurosync_local_api.py" -PassThru -WindowStyle Hidden
+# Initialize the Real-Time API
+Log-Message "Starting NeuroSync Real-Time API..."
+$apiProcess = Start-Process -FilePath "py" -ArgumentList "$projectDir\NeuroSync_Real-Time_API\main.py" -PassThru -WindowStyle Hidden
 
 # Initialize the face to LLM setup
 Log-Message "Initializing LLM to face integration..."
