@@ -55,7 +55,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip && \
 # Clone repositories (this will be overridden by the script but setting up structure)
 RUN git config --global core.autocrlf false && \
     git clone --depth 1 https://github.com/UD1sto/NeuroSync_Player_Vt C:/app/scripts/NeuroSync/NeuroSync_Player_Vt && \
-    git clone --depth 1 https://github.com/AnimaVR/NeuroSync_Local_API C:/app/scripts/NeuroSync/NeuroSync_Local_API
+    git clone --depth 1 https://github.com/AnimaVR/NeuroSync_Real-Time_API C:/app/scripts/NeuroSync/NeuroSync_Real-Time_API
 
 # Set environment variables
 ENV PYTHONIOENCODING=UTF-8
