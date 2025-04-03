@@ -2,11 +2,33 @@
 -**What it does**:
 It is now possible using this repo to install the whole NeuroSync project, either directly on your windows computer or inside a docker container. The powershell script provided here automates the entire installation processes as seen in the Youtube video, handling all dependencies and configurations automatically. After the setup is being done, the script then initializes the all the required components of the project. 
 
+**How to use**:
+## Quick Start Guide
 
- **Future Updates**: 
-- a) Add Vtuber specific utitlities.
-- b) Add ability to directly stream to twitch.
-- c) Integrate as Pipeline.
+### Automated Setup
+1. Run the `setup.ps1` script with administrator privileges to automatically install all required components:
+   ```powershell
+   # Right-click PowerShell and select "Run as Administrator"
+   .\setup.ps1
+   ```
+   This script will:
+   - Install all dependencies
+   - Download necessary models
+   - Configure the environment
+
+### Running the Project
+After setup is complete, you have two options:
+
+#### Option 1: All-in-One Launch
+Use the `stream_and_run.ps1` script to:
+- Launch the game executable
+- Start streaming to Twitch using your configured settings in the `.env` file
+
+
+
+ **Coming Soon**: 
+- Eliza Os Integration.
+
 
 -**Please Note** We are using a custom fork for NeuroSync_Player that uses Livepeer Pipelines in llm_to_face to produce text inference. You can change the github url if you prefer the original Player.
 
