@@ -1,0 +1,16 @@
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Temporary files
+*.log
+*.tmp
+*~
+
+# Exclude everything except the setup.ps1 script
+*
+!../scripts/setup.ps1 
