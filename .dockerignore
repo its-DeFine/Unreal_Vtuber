@@ -1,27 +1,17 @@
-# Git files
+# Git
 .git
 .gitignore
 
-# Docker files
+# Docker
+Dockerfile
 .dockerignore
-docker-compose.yml
 
-# Logs and temp files
+# Temporary files
 *.log
 *.tmp
-neurosync_setup_log.txt
+*~
 
-# Downloaded files that will be handled by the script
-NeuroSync_Setup_Temp
-NeuroSync
-Game
-
-# Markdown files except README.md
-*.md
-!README.md
-
-# Other unnecessary files
-.vscode
-.idea
-__pycache__
-*.pyc 
+# Exclude everything except the setup.ps1 script
+*
+!scripts/
+!scripts/setup.ps1 

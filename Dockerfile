@@ -1,81 +1,124 @@
-# Use Windows Server Core as the base image
-FROM mcr.microsoft.com/windows/servercore:ltsc2022
+# Multi-platform Dockerfile for NeuroSync VTuber Project
+# This will detect the OS environment and use the appropriate base image
 
-# Set labels for the image
-LABEL maintainer="NeuroSync Team"
-LABEL description="Windows container for running NeuroSync with PowerShell automation"
-LABEL version="1.0"
+# Windows-specific build
+FROM mcr.microsoft.com/windows/server:ltsc2022 AS windows-build
 
-# Set PowerShell as the default shell with optimized settings
-SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+# Set working directory
+WORKDIR /app
 
-# Create working directory
-WORKDIR C:/app
+# Copy the setup.ps1 script into the container
+COPY scripts/setup.ps1 /app/setup.ps1
 
-# Copy the PowerShell script to the container
-COPY scripts/run.ps1 C:/app/scripts/
+# Enable verbose progress display for Docker build
+ENV POWERSHELL_PROGRESS_PREFERENCE="Continue"
+ENV DOCKER_BUILDKIT=1
 
-# Set execution policy to allow script execution
-RUN Set-ExecutionPolicy Bypass -Scope Process -Force
+# Run the setup script
+# Assuming setup.ps1 contains Write-Host or other output commands for progress
+RUN powershell -ExecutionPolicy Bypass -File /app/setup.ps1
 
-# Install Chocolatey package manager
-RUN Set-ExecutionPolicy Bypass -Scope Process -Force; \
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; \
-    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+# ===== Linux distributions below =====
 
-# Install Git using Chocolatey with optimized settings
-RUN choco install git -y --no-progress --limit-output
+# Distribution not tested yet
+FROM debian:bullseye-slim AS debian-build
 
-# Install Python 3.13.1 with optimized download
-RUN $pythonUrl = "https://www.python.org/ftp/python/3.13.1/python-3.13.1-amd64.exe"; \
-    $tempFile = "C:\python-installer.exe"; \
-    # Use WebClient for faster downloads
-    $webClient = New-Object System.Net.WebClient; \
-    $webClient.DownloadFile($pythonUrl, $tempFile); \
-    # Install with optimized settings
-    Start-Process -FilePath $tempFile -ArgumentList "/quiet", "InstallAllUsers=1", "PrependPath=1", "Include_test=0" -Wait; \
-    Remove-Item -Path $tempFile -Force; \
-    # Verify installation
-    python --version
+WORKDIR /app
 
-# Install Visual C++ Redistributables needed by the application (minimize layers)
-RUN choco install vcredist140 vcredist2015 vcredist2013 vcredist2012 vcredist2010 directx -y --no-progress --limit-output
+# Install PowerShell on Debian
+RUN apt-get update && \
+    apt-get install -y curl wget apt-transport-https software-properties-common && \
+    wget -q https://packages.microsoft.com/config/debian/11/packages-microsoft-prod.deb && \
+    dpkg -i packages-microsoft-prod.deb && \
+    apt-get update && \
+    apt-get install -y powershell && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* packages-microsoft-prod.deb
 
-# Create required directories
-RUN New-Item -ItemType Directory -Force -Path C:/app/scripts/NeuroSync_Setup_Temp | Out-Null; \
-    New-Item -ItemType Directory -Force -Path C:/app/scripts/NeuroSync | Out-Null; \
-    New-Item -ItemType Directory -Force -Path C:/app/data | Out-Null
+# Copy the setup script
+COPY scripts/setup.ps1 /app/setup.ps1
 
-# Install Python packages in a single layer
-RUN python -m pip install --no-cache-dir --upgrade pip && \
-    python -m pip install --no-cache-dir gdown flask numpy librosa pygame pandas timecode pydub audioop-lts && \
-    # Install PyTorch without CUDA (will be installed by script if needed)
-    python -m pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+# Run the setup script
+RUN pwsh -ExecutionPolicy Bypass -File /app/setup.ps1
 
-# Clone repositories (this will be overridden by the script but setting up structure)
-RUN git config --global core.autocrlf false && \
-    git clone --depth 1 https://github.com/UD1sto/NeuroSync_Player_Vt C:/app/scripts/NeuroSync/NeuroSync_Player_Vt && \
-    git clone --depth 1 https://github.com/AnimaVR/NeuroSync_Real-Time_API C:/app/scripts/NeuroSync/NeuroSync_Real-Time_API
+# Distribution not tested yet
+FROM ubuntu:22.04 AS ubuntu-build
 
-# Set environment variables
-ENV PYTHONIOENCODING=UTF-8
-ENV PATH="C:\Program Files\Git\bin;C:\Program Files\Git\cmd;C:\Python313\Scripts;C:\Python313;${PATH}"
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+WORKDIR /app
 
-# Configure container to support running with GPU if available
-LABEL com.nvidia.volumes.needed="nvidia_driver"
+# Install PowerShell on Ubuntu
+RUN apt-get update && \
+    apt-get install -y curl wget apt-transport-https software-properties-common && \
+    wget -q https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb && \
+    dpkg -i packages-microsoft-prod.deb && \
+    apt-get update && \
+    apt-get install -y powershell && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* packages-microsoft-prod.deb
 
-# Add volume for persistent data
-VOLUME C:/app/data
+# Copy the setup script
+COPY scripts/setup.ps1 /app/setup.ps1
 
-# Health check to verify container is running correctly
-HEALTHCHECK --interval=60s --timeout=15s --start-period=60s --retries=3 \
-    CMD powershell -Command "if (Get-Process -Name 'NEUROSYNC' -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
+# Run the setup script
+RUN pwsh -ExecutionPolicy Bypass -File /app/setup.ps1
 
-# Set the entry point to execute the PowerShell script
-ENTRYPOINT ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", "C:/app/scripts/run.ps1"]
+# Distribution not tested yet
+FROM fedora:latest AS fedora-build
 
-# Note: This container runs a Windows GUI application requiring:
-# - For graphics output: Use with Windows containers on a Windows host with GPU passthrough
-# - For NVIDIA GPU acceleration: Use with appropriate Windows container NVIDIA support 
+WORKDIR /app
+
+# Install PowerShell on Fedora
+RUN dnf update -y && \
+    dnf install -y curl wget && \
+    curl https://packages.microsoft.com/config/rhel/8/prod.repo | tee /etc/yum.repos.d/microsoft.repo && \
+    dnf install -y powershell && \
+    dnf clean all
+
+# Copy the setup script
+COPY scripts/setup.ps1 /app/setup.ps1
+
+# Run the setup script
+RUN pwsh -ExecutionPolicy Bypass -File /app/setup.ps1
+
+# OS detection and selection script
+FROM alpine:latest AS detector
+WORKDIR /detector
+RUN apk add --no-cache bash
+COPY <<EOF detector.sh
+#!/bin/bash
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    case "$ID" in
+        debian)
+            echo "debian-build"
+            ;;
+        ubuntu)
+            echo "ubuntu-build"
+            ;;
+        fedora)
+            echo "fedora-build"
+            ;;
+        *)
+            echo "Unsupported Linux distribution: $ID"
+            exit 1
+            ;;
+    esac
+elif [ "$(uname)" == "Windows_NT" ]; then
+    echo "windows-build"
+else
+    echo "Unsupported operating system"
+    exit 1
+fi
+EOF
+RUN chmod +x detector.sh
+ENTRYPOINT ["./detector.sh"]
+
+# Final stage - this will be selected at build time based on the OS
+FROM ${PLATFORM:-windows-build}
+
+# This allows us to pass the platform explicitly:
+# docker build --build-arg PLATFORM=debian-build -t neurosync-setup .
+ARG PLATFORM
+# The default is windows-build if not specified
+
+# Build progress should be controlled via `docker build --progress=plain`
