@@ -13,4 +13,5 @@ Dockerfile
 
 # Exclude everything except the setup.ps1 script
 *
-!../scripts/setup.ps1 
+!scripts/
+!scripts/setup.ps1 
