@@ -4,12 +4,17 @@ Welcome to the NeuroSync VTuber project! This repository contains tools and reso
 
 ## What is this project?
 
-This project combines Unreal Engine's MetaHuman technology with NeuroSync's audio-to-face animation capabilities to create responsive, autonomous virtual characters that can:
+This project combines Unreal Engine's MetaHuman technology with NeuroSync's audio-to-face animation capabilities to create responsive, autonomous virtual characters. Our goal extends beyond simple VTubers to develop **Live Autonomous Virtual Agents** built upon a modular and extensible design. This foundational infrastructure aims to serve diverse industry verticals with a single, adaptable software solution.
 
-- Stream live on platforms like Twitch
-- Interact with viewers in real-time
-- Respond naturally with appropriate facial expressions
-- Run completely locally for privacy and low latency
+We work towards agents capable of:
+
+- **Self-Sustainability:** Operating in ways that generate positive value, enabling their continued operation and development.
+- **Self-Improvement:** Learning and adapting over time to enhance their performance and capabilities.
+- **Adaptable Presence:** Modifying their virtual appearance and persona as needed.
+- Streaming live on platforms like Twitch
+- Interacting with viewers in real-time
+- Responding naturally with appropriate facial expressions
+- Running completely locally for privacy and low latency
 
 ## Quick Navigation
 
@@ -72,21 +77,28 @@ NeuroSync is a cutting-edge transformer-based neural network system that generat
 # - Select "Switch to Windows containers..."
 # - Wait for Docker to restart
 
-# 2. Build the Docker image
-cd Unreal_Vtuber/Docker
-docker build -t neurosync-setup .
+# 2. Navigate to the project's root directory in your terminal
+git clone https://github.com/UD1sto/Unreal_Vtuber
+cd path/Unreal_Vtuber
 
-# 3. Run the container
-docker run --name neurosync-container --gpus all neurosync-setup
+# 3. Build the Docker image. This executes the setup.ps1 script inside the container.
+#    By default, it builds for Windows. Use --build-arg for other platforms (e.g., debian-build, ubuntu-build).
+#    This step can take a significant amount of time, especially on the first run.
+#    Monitor Docker's output or network activity for progress.
+docker build --progress=plain --build-arg PLATFORM=windows-build -t neurosync-setup .
+
+# 4. (Optional) After the build completes successfully (meaning setup ran):
+#    You can explore the resulting container environment if needed.
+#    docker run --rm -it neurosync-setup powershell # Or pwsh for Linux builds
 ```
 
-> **Note:** If you encounter errors about "no matching manifest for linux/amd64", this indicates Docker is still in Linux container mode. Follow step 1 to switch to Windows containers.
+> **Note:** The primary purpose of this Dockerfile currently is to provide a reliable *environment* for executing the `setup.ps1` script. The final product (the running agent) might be launched differently post-setup, potentially using the installed components directly or via a separate runtime container image (to be defined). If you encounter errors about "no matching manifest", double-check that Docker Desktop is set to the correct container type (Windows or Linux) for the `PLATFORM` you are targeting.
 
 ### Method 2: Direct Installation
 
 ```powershell
 # 1. Clone the repository (if you haven't already)
-git clone https://github.com/your-org/NeuroSync.git
+git clone https://github.com/UD1sto/Unreal_Vtuber
 cd NeuroSync
 
 # 2. Run the setup script as Administrator
