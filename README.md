@@ -1,6 +1,6 @@
-# NeuroSync VTuber Project
+# Unreal VTuber Project
 
-Welcome to the NeuroSync VTuber project! This repository contains tools and resources for building **Live Autonomous Virtual Agents** using the NeuroSync real-time facial animation system.
+Welcome to the Unreal VTuber project! This repository contains tools and resources for launching and building **Live Autonomous Virtual Agents** using the NeuroSync real-time facial animation system.
 
 ## What is this project?
 
