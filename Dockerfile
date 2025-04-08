@@ -2,7 +2,7 @@
 # This will detect the OS environment and use the appropriate base image
 
 # Windows-specific build
-FROM mcr.microsoft.com/windows/server:ltsc2022 AS windows-build
+FROM mcr.microsoft.com/windows:1809 AS windows-build
 
 # Set working directory
 WORKDIR /app
