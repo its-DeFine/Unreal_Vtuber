@@ -2,7 +2,16 @@ import { TokenResponse, ProcessJobRequest, JobPayment, SignatureData, TicketPara
 import { ethers } from 'ethers';
 
 // Capability identifier for orchestrator registration
-const CAPABILITY = 'text-echo';
+const CAPABILITY = 'start-echo-test';
+
+// Interface for the new request structure
+export interface NeuroSyncVtuberRequestData {
+  job_id: string;
+  character: string;
+  prompt: string;
+  knowledge_source_url?: string;
+  model_time_seconds?: number;
+}
 
 // ===== Shared state (copied from api.ts) ===================================
 let cachedSignature: string | null = null;
@@ -70,15 +79,15 @@ export async function getProcessToken(
 export async function processText(
   baseUrl: string,
   tokenData: TokenResponse,
-  textPrompt: string,
+  requestData: NeuroSyncVtuberRequestData,
   ethAddress: string,
   signMessage: (msg: Uint8Array) => Promise<string>,
 ): Promise<any> {
   // 1. Build jobRequest
   const jobRequest: ProcessJobRequest = {
     id: randomId(10),
-    request: JSON.stringify({ run: 'text-echo' }),
-    parameters: JSON.stringify({}),
+    request: JSON.stringify({ run: CAPABILITY, prompt_summary: requestData.prompt?.substring(0, 50) || 'N/A' }),
+    parameters: JSON.stringify({ character: requestData.character }),
     capability: CAPABILITY,
     sender: ethAddress,
     timeout_seconds: 300,
@@ -115,7 +124,7 @@ export async function processText(
       'Livepeer-Job-Payment': btoa(JSON.stringify(payment)),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ text: textPrompt }),
+    body: JSON.stringify(requestData),
   });
 
   if (!res.ok) {
