@@ -7,25 +7,32 @@ services:
       context: .
       dockerfile: ./NeuroSync-Core/dockerfile
     container_name: neurosync_s1  # keep same name so Eliza keeps working
+    mem_limit: 12g # Add memory limit
+    entrypoint: ["/app/combined_entrypoint.sh"] # Ensure combined entrypoint for full functionality
     environment:
       - SERVER_PORT=9876
       - ORCH_URL=https://orchestrator:9995
-      - ORCH_SECRET=${BYOC_ORCH_SECRET}
-      - CAPABILITY_NAME=${BYOC_NEUROSYNC_CAPABILITY_NAME}
-      - CAPABILITY_DESCRIPTION=${BYOC_NEUROSYNC_CAPABILITY_DESCRIPTION}
-      - CAPABILITY_URL=${BYOC_NEUROSYNC_CAPABILITY_URL}
-      - CAPABILITY_PRICE_PER_UNIT=${BYOC_NEUROSYNC_CAPABILITY_PRICE_PER_UNIT}
-      - CAPABILITY_PRICE_SCALING=${BYOC_NEUROSYNC_CAPABILITY_PRICE_SCALING}
-      - CAPABILITY_CAPACITY=${BYOC_NEUROSYNC_CAPABILITY_CAPACITY}
+      - ORCH_SECRET=orch-secret
+      - CAPABILITY_NAME=start-echo-test
+      - CAPABILITY_DESCRIPTION=simple text echo capability
+      - CAPABILITY_URL=http://neurosync:9876
+      - CAPABILITY_PRICE_PER_UNIT=1
+      - CAPABILITY_PRICE_SCALING=1
+      - CAPABILITY_CAPACITY=1
     networks:
       - scb_bridge_net  # original network for Eliza bridge
       - byoc            # new network for orchestrator/gateway
-    runtime: nvidia
+    deploy: # Add deploy configuration for GPU access
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1 # or 'all'
+              capabilities: [gpu]
     depends_on:
       - orchestrator
     env_file:
       - ./env_files/.neurosync.env
-      - ./env_files/.byoc.env
     volumes: []
 
   # === Orchestrator ===
@@ -37,19 +44,17 @@ services:
     ports:
       - 9995:9995
     command: ["-orchestrator",
-          "-orchSecret=${BYOC_ORCH_SECRET}",
+          "-orchSecret=orch-secret",
           "-serviceAddr=0.0.0.0:9995",
           "-v=6",
           "-network=arbitrum-one-mainnet",
           "-ethUrl=https://arb1.arbitrum.io/rpc",
-          "-ethPassword=${BYOC_ORCHESTRATOR_ETH_PASSWORD}",
+          "-ethPassword=<your eth pass here>",
           "-dataDir=/data",
-          "-ethOrchAddr=${ORCHESTRATOR_ADDRESS}",
-          "-pricePerUnit=${BYOC_ORCHESTRATOR_PRICE_PER_UNIT}"]
+          "-ethOrchAddr=<your orch address here>",
+          "-pricePerUnit=1"]
     networks:
       - byoc
-    env_file:
-      - ./env_files/.byoc.env
 
   # === Gateway (optional for on-chain) ===
   gateway:

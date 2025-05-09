@@ -22,29 +22,31 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <header className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Text Echo App</h1>
+    <div className="min-h-screen bg-slate-100 p-4 sm:p-6 selection:bg-sky-200 selection:text-sky-900">
+      <header className="flex justify-between items-center mb-8 pb-4 border-b border-slate-300">
+        <h1 className="text-3xl font-bold text-sky-700">Vtuber Manager</h1>
         
-        <div className="flex space-x-2">
+        <div className="flex space-x-3">
           <button
             onClick={() => setIsSettingsModalOpen(true)}
-            className="p-2 bg-white rounded-full shadow hover:bg-gray-50"
+            className="p-2 bg-white rounded-lg shadow-md hover:bg-slate-50 text-slate-600 hover:text-sky-600 transition-colors duration-150"
             aria-label="Settings"
           >
-            <SettingsIcon size={20} />
+            <SettingsIcon size={22} />
           </button>
           
           <button
             onClick={() => setIsWalletModalOpen(true)}
-            className={`p-2 rounded-full shadow flex items-center ${
-              wallet.isConnected ? 'bg-green-100 text-green-800' : 'bg-white hover:bg-gray-50'
+            className={`p-2 rounded-lg shadow-md flex items-center transition-all duration-150 ${
+              wallet.isConnected 
+                ? 'bg-emerald-500 text-white hover:bg-emerald-600' 
+                : 'bg-white hover:bg-slate-50 text-slate-600 hover:text-sky-600'
             }`}
             aria-label="Wallet"
           >
-            <WalletIcon size={20} />
+            <WalletIcon size={22} />
             {wallet.isConnected && (
-              <span className="ml-2 text-xs hidden sm:inline">
+              <span className="ml-2 text-xs font-medium hidden sm:inline">
                 {wallet.address?.substring(0, 6)}...{wallet.address?.substring(wallet.address.length - 4)}
               </span>
             )}
@@ -52,16 +54,15 @@ function App() {
         </div>
       </header>
       
-      <main className="max-w-2xl mx-auto">
+      <main className="max-w-3xl mx-auto space-y-6">
         <TextEcho />
-        {/* Simple BYOC integration test */}
         <ByocTest />
       </main>
       
       {/* Wallet Modal */}
       {isWalletModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 sm:p-8 max-w-md w-full">
             <WalletConnect
               wallet={wallet}
               onConnect={connectWallet}
@@ -74,8 +75,8 @@ function App() {
       
       {/* Settings Modal */}
       {isSettingsModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 sm:p-8 max-w-md w-full">
             <Settings
               settings={settings}
               onUpdateSettings={updateSettings}
