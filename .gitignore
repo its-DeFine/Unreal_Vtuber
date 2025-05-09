@@ -7,8 +7,6 @@ data/
 # Ignore all .txt files
 *.txt
 
-# Ignore all .md files
-*.md
 # --- but not README.md
 !README.md
 
