@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  # Override existing NeuroSync service to launch BOTH core API & BYOC worker
+  neurosync:
+    build:
+      context: .
+      dockerfile: ./NeuroSync-Core/dockerfile
+    container_name: neurosync_s1  # keep same name so Eliza keeps working
+    environment:
+      - SERVER_PORT=9876
+      - ORCH_URL=https://orchestrator:9995
+      - ORCH_SECRET=${BYOC_ORCH_SECRET}
+      - CAPABILITY_NAME=${BYOC_NEUROSYNC_CAPABILITY_NAME}
+      - CAPABILITY_DESCRIPTION=${BYOC_NEUROSYNC_CAPABILITY_DESCRIPTION}
+      - CAPABILITY_URL=${BYOC_NEUROSYNC_CAPABILITY_URL}
+      - CAPABILITY_PRICE_PER_UNIT=${BYOC_NEUROSYNC_CAPABILITY_PRICE_PER_UNIT}
+      - CAPABILITY_PRICE_SCALING=${BYOC_NEUROSYNC_CAPABILITY_PRICE_SCALING}
+      - CAPABILITY_CAPACITY=${BYOC_NEUROSYNC_CAPABILITY_CAPACITY}
+    networks:
+      - scb_bridge_net  # original network for Eliza bridge
+      - byoc            # new network for orchestrator/gateway
+    runtime: nvidia
+    depends_on:
+      - orchestrator
+    env_file:
+      - ./env_files/.neurosync.env
+      - ./env_files/.byoc.env
+    volumes: []
+
+  # === Orchestrator ===
+  orchestrator:
+    image: adastravideo/go-livepeer:dynamic-capabilities-2
+    container_name: byoc-orchestrator
+    volumes:
+      - ./data/orchestrator:/data
+    ports:
+      - 9995:9995
+    command: ["-orchestrator",
+          "-orchSecret=${BYOC_ORCH_SECRET}",
+          "-serviceAddr=0.0.0.0:9995",
+          "-v=6",
+          "-network=arbitrum-one-mainnet",
+          "-ethUrl=https://arb1.arbitrum.io/rpc",
+          "-ethPassword=${BYOC_ORCHESTRATOR_ETH_PASSWORD}",
+          "-dataDir=/data",
+          "-ethOrchAddr=${ORCHESTRATOR_ADDRESS}",
+          "-pricePerUnit=${BYOC_ORCHESTRATOR_PRICE_PER_UNIT}"]
+    networks:
+      - byoc
+    env_file:
+      - ./env_files/.byoc.env
+
+  # === Gateway (optional for on-chain) ===
+  gateway:
+    image: adastravideo/go-livepeer:dynamic-capabilities-2
+    container_name: byoc-gateway
+    command: ["-gateway", "-orchAddr=https://orchestrator:9995", "-httpAddr=0.0.0.0:9999", "-network=offchain"]
+    ports:
+      - "9999:9999"
+    volumes:
+      - ./data/gateway:/data
+    networks:
+      - byoc
+
+  # === Caddy ===
+  caddy:
+    image: caddy:latest
+    container_name: byoc-caddy
+    volumes:
+      - ./webapp/Caddyfile:/etc/caddy/Caddyfile
+      - ./webapp/dist:/var/www/html/app
+    ports:
+      - "8088:8088"
+    networks:
+      - byoc
+
+networks:
+  byoc:
+    driver: bridge 

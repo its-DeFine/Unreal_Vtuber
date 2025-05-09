@@ -1,0 +1,93 @@
+version: '3.8'
+
+# Docker Compose for running NeuroSync (S1) and Eliza/the-org (S2)
+# in a shared network for local development and testing the SCB bridge.
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.bridge.yml up --build
+
+services:
+  eliza_the_org:
+    build:
+      context: ./eliza-livepeer-integration
+      dockerfile: Dockerfile
+    container_name: eliza_the_org_s2
+    working_dir: /app/packages/the-org
+    env_file:
+      - ./env_files/.eliza.env
+    command: >
+      bash -c "set -x; \
+      echo '>>> [Eliza] Starting dev server with auto-selection of pglite...'; \
+      cd /app/packages/the-org && echo -e '\n' | bun run dev"
+    ports:
+      - "3000:3000" # Expose port 3000 (host:container)
+    environment:
+      - NEUROSYNC_URL=http://neurosync:5000    # point at API container
+      - SCB_TOKENS=600
+      - LOG_LEVEL=debug # Enable debug logs for testing
+      # Add other Eliza/the-org env vars as needed (e.g., Discord tokens)
+      # Ensure the correct agent(s) are enabled via env or config
+      - DATABASE_ADAPTER="pglite"
+      - PGLITE_PROMPT=false # Skip the database selection prompt
+    networks:
+      - scb_bridge_net
+    depends_on:
+      - neurosync
+      - redis
+  neurosync:
+    build:
+      context: ./NeuroSync-Core
+      dockerfile: dockerfile  # Custom image builds NeuroSync runtime
+    container_name: neurosync_s1
+    command: >
+      bash -c "set -x; echo '>>> [NeuroSync] Starting server...'; python -m neurosync.server.app"
+    ports:
+      - "5000:5000" # Expose Flask API port
+    environment:
+      - FLASK_HOST=0.0.0.0
+      - PYTHONUNBUFFERED=1
+      - ALLOWED_ORIGINS=*
+      # SCB storage
+      - USE_REDIS_SCB=true
+      - REDIS_URL=redis://redis:6379/0
+      # - LIVELINK_UDP_IP=your_host_ip_address_here # Commented out to use default 'host.docker.internal'
+      # Add other NeuroSync env vars as needed (e.g., USE_REDIS_SCB)
+    deploy: # Add deploy configuration for GPU access
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1 # or 'all'
+              capabilities: [gpu]
+    networks:
+      - scb_bridge_net
+    volumes:
+      # Mount NeuroSync code for easier development (optional)
+      - ./NeuroSync-Core:/app/NeuroSync-Core
+    env_file:
+      - ./env_files/.neurosync.env
+    # Default CMD in image already starts Flask + client
+    # Add healthcheck if desired
+    # healthcheck:
+    #   test: ["CMD", "curl", "--fail", "http://localhost:5000/scb/ping"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+  redis:
+    image: redis:7-alpine
+    container_name: redis_scb
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - scb_bridge_net
+    restart: unless-stopped
+
+networks:
+  scb_bridge_net:
+    driver: bridge
+
+volumes:
+  redis_data:
+    driver: local
+ 
