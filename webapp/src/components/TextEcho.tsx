@@ -62,7 +62,7 @@ const TextEcho: React.FC = () => {
 
   return (
     <div className="p-4 bg-white rounded-lg shadow-md">
-      <h2 className="text-lg font-semibold mb-4">VTuber Request Echo</h2>
+      <h2 className="text-lg font-semibold mb-4">Create Vtuber Job</h2>
 
       <div className="space-y-4 mb-4">
         <div>
@@ -149,7 +149,7 @@ const TextEcho: React.FC = () => {
       {error && <div className="mt-4 p-3 bg-red-100 text-red-700 rounded-md">{error}</div>}
       {response && !error && (
         <div className="mt-4 p-3 bg-green-100 text-green-700 rounded-md whitespace-pre-wrap break-words">
-          <h3 className="font-semibold mb-1">Echoed Response:</h3>
+          <h3 className="font-semibold mb-1">Server Response:</h3>
           <code>{response}</code>
         </div>
       )}
