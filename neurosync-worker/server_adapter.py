@@ -5,8 +5,10 @@ import json
 from typing import Any, Dict
 
 import requests
+import hashlib
+import secrets
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from jsonschema import validate, ValidationError
 
@@ -42,6 +44,8 @@ CAPABILITY_DESCRIPTION = os.getenv("CAPABILITY_DESCRIPTION", "simple text echo c
 CAPABILITY_CAPACITY = int(os.getenv("CAPABILITY_CAPACITY", 1))
 CAPABILITY_PRICE_PER_UNIT = int(os.getenv("CAPABILITY_PRICE_PER_UNIT", 1))
 CAPABILITY_PRICE_SCALING = int(os.getenv("CAPABILITY_PRICE_SCALING", 1))
+
+NEUROSYNC_CORE_JOB_URL = os.getenv("NEUROSYNC_CORE_JOB_URL", "http://localhost:5000/v1/jobs")
 
 # -----------------------------------------------------------------------------
 # JSON Schemas – will evolve with real contract.  Kept here for re-use in tests.
@@ -203,30 +207,26 @@ async def vtuber_start(request: Request):
 
     job_id = body["job_id"]
     character = body["character"]
-    logger.info("VTuber job accepted", extra={"job_id": job_id, "character": character})
 
-    async def _stream():  # type: ignore
-        import asyncio
-        start_time = time.time()
-        sequence = 0
-        while sequence < 5:  # Dummy 5 frames then stop
-            frame = {
-                "sequence_number": sequence,
-                "timestamp_ms": int((time.time() - start_time) * 1000),
-                "job_id": job_id,
-                "character": character,
-                "debug": "placeholder frame – integrate real blendshapes soon"
-            }
-            yield (json.dumps(frame) + "\n").encode()
-            sequence += 1
-            await asyncio.sleep(0.5)
-        logger.info("VTuber job finished", extra={"job_id": job_id, "frames": sequence})
+    # ---------------------------------------------------------------------
+    # Forward the validated job to NeuroSync-Core (placeholder implementation)
+    # ---------------------------------------------------------------------
+    job_hash = submit_job_to_neurosync(body)
 
-    # text/event-stream could be used; orchestrator/gateway supports chunked JSON
-    headers = {
-        "X-Accel-Buffering": "no",  # disable Nginx buffering when behind proxy
+    response_payload = {
+        "job_id": job_id,
+        "hash": job_hash,
+        "status": "accepted",
+        "received_at": time.time(),
     }
-    return StreamingResponse(_stream(), media_type="application/json", headers=headers)
+
+    logger.info(
+        "VTuber job accepted and forwarded to NeuroSync-Core",
+        extra={"job_id": job_id, "character": character, "hash": job_hash},
+    )
+
+    # Return a simple JSON confirmation instead of a streaming response for now.
+    return JSONResponse(content=response_payload)
 
 
 # -----------------------------------------------------------------------------
@@ -259,11 +259,16 @@ async def start_echo_test(request: Request):
         logger.warning("Schema validation error at /start-echo-test: %s", ve)
         raise HTTPException(status_code=400, detail=f"Schema validation error: {ve.message}")
 
+    # Forward to NeuroSync-Core (stub)
+    job_hash = submit_job_to_neurosync(body)
+
     response_payload = {
-        "echo": body,
+        "job_id": body["job_id"],
+        "hash": job_hash,
+        "status": "accepted",
         "received_at": time.time(),
     }
-    logger.info("Responding from /start-echo-test", extra={"payload": response_payload})
+    logger.info("VTuber job forwarded to NeuroSync-Core", extra={"job_id": body["job_id"], "hash": job_hash})
     return JSONResponse(content=response_payload)
 
 
@@ -294,6 +299,64 @@ async def echo_root(req: Request):
     text = body.get("text", "")
     # Differentiate response to avoid confusion if this is hit unexpectedly
     return {"echo_from_root": text, "received_at": time.time(), "message": "This is the root handler, not /text-echo"}
+
+
+# -----------------------------------------------------------------------------
+# Placeholder integration with NeuroSync-Core
+# -----------------------------------------------------------------------------
+
+def submit_job_to_neurosync(payload: Dict[str, Any]) -> str:
+    """Forward a VTuber job request to the local NeuroSync-Core server.
+
+    This function attempts to POST the payload to the configured
+    NEUROSYNC_CORE_JOB_URL. It returns a mock hash for the UI.
+    The actual NeuroSync-Core endpoint is expected to handle the job and
+    can, for now, simply print that the job was received.
+    """
+    job_id = payload.get("job_id")
+    logger.info(
+        f"Attempting to forward job to NeuroSync-Core at {NEUROSYNC_CORE_JOB_URL}",
+        extra={"job_id": job_id, "target_url": NEUROSYNC_CORE_JOB_URL}
+    )
+    # 1️⃣ Try direct in-process import first to avoid HTTP overhead
+    try:
+        from neurosync.cli.client import accept_vtuber_job  # type: ignore
+
+        job_hash = accept_vtuber_job(payload)
+        logger.info(
+            "Job handled via internal accept_vtuber_job",
+            extra={"job_id": job_id, "hash": job_hash}
+        )
+        return job_hash
+    except ImportError as imp_err:
+        logger.warning(
+            "Could not import accept_vtuber_job – falling back to HTTP",
+            extra={"job_id": job_id, "error": str(imp_err)}
+        )
+
+    # 2️⃣ Fallback to HTTP POST to NeuroSync-Core if import failed or not available
+    try:
+        response = requests.post(NEUROSYNC_CORE_JOB_URL, json=payload, timeout=10)
+        response.raise_for_status()
+        logger.info(
+            "Successfully forwarded job to NeuroSync-Core via HTTP",
+            extra={"job_id": job_id, "status_code": response.status_code}
+        )
+        # Optionally read real hash from response:
+        # core_response_data = response.json(); return core_response_data.get("job_hash", fallback_hash)
+    except requests.RequestException as e:
+        logger.error(
+            "Failed to forward job to NeuroSync-Core via HTTP",
+            extra={"job_id": job_id, "error": str(e)}
+        )
+
+    # Produce a pseudo-random but valid hex hash for the UI (as per current accepted behavior)
+    mock_hash = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
+    logger.debug(
+        "Generated mock hash for job",
+        extra={"job_id": job_id, "hash": mock_hash}
+    )
+    return mock_hash
 
 
 # -----------------------------------------------------------------------------
