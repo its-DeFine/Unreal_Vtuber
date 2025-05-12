@@ -34,6 +34,7 @@ services:
       - neurosync
       - redis
   neurosync:
+    mem_limit: 12g
     build:
       context: ./NeuroSync-Core
       dockerfile: dockerfile  # Custom image builds NeuroSync runtime
