@@ -5,10 +5,9 @@ services:
   neurosync:
     build:
       context: .
-      dockerfile: ./NeuroSync-Core/dockerfile
+      dockerfile: ./NeuroBridge/dockerfile
     container_name: neurosync_s1  # keep same name so Eliza keeps working
     mem_limit: 12g # Add memory limit
-    entrypoint: ["/app/combined_entrypoint.sh"] # Ensure combined entrypoint for full functionality
     environment:
       - SERVER_PORT=9876
       - ORCH_URL=https://orchestrator:9995
@@ -19,6 +18,12 @@ services:
       - CAPABILITY_PRICE_PER_UNIT=1
       - CAPABILITY_PRICE_SCALING=1
       - CAPABILITY_CAPACITY=1
+      # Ensure PulseAudio environment variables are set
+      - PULSE_SERVER="tcp:host.docker.internal:4713"
+      - PULSE_COOKIE=""          # cookie not needed for tcp on Windows/WSL
+      - USE_CUDA=false # Keeping this as per user's instruction
+      - NEUROSYNC_BLENDSHAPES_URL=http://neurosync:5000/audio_to_blendshapes
+      - AUDIO_PLAYBACK_DEVICE=auto
     networks:
       - scb_bridge_net  # original network for Eliza bridge
       - byoc            # new network for orchestrator/gateway
@@ -33,7 +38,12 @@ services:
       - orchestrator
     env_file:
       - ./env_files/.neurosync.env
-    volumes: []
+    volumes:
+      # - ${XDG_RUNTIME_DIR}/pulse:/run/user/1000/pulse      # socket + cookie. Commented out to prefer TCP.
+      - /etc/machine-id:/etc/machine-id:ro                 # libpulse wants this
+    # devices: # Commented out as /dev/snd might not be available in WSL2
+    group_add:
+      - "29"   # 29 == audio on Debian/Ubuntu; adjust if different
 
   # === Orchestrator ===
   orchestrator:
