@@ -2,7 +2,8 @@ import os
 import logging
 import time
 import json
-from typing import Any, Dict
+import threading
+from typing import Any, Dict, Union
 
 import requests
 import hashlib
@@ -32,7 +33,7 @@ if not logger.handlers:
     logger.addHandler(handler)
 
 # -----------------------------------------------------------------------------
-# Environment Configuration
+# Environment Configuration & Global Constants
 # -----------------------------------------------------------------------------
 
 ORCH_URL = os.getenv("ORCH_URL", "")
@@ -47,6 +48,15 @@ CAPABILITY_PRICE_PER_UNIT = int(os.getenv("CAPABILITY_PRICE_PER_UNIT", 1))
 CAPABILITY_PRICE_SCALING = int(os.getenv("CAPABILITY_PRICE_SCALING", 1))
 
 NEUROSYNC_CORE_JOB_URL = os.getenv("NEUROSYNC_CORE_JOB_URL", "http://localhost:5000/v1/jobs")
+
+WINDOW_DURATION_SEC = int(os.getenv("REQUEST_WINDOW_MINUTES", "60")) * 60
+WINDOW_ACTIVE_FLAG_PATH = "/app/neurosync_window_active.flag" # Shared flag file path
+
+_window_expiry: Union[float, None] = None
+_window_lock = threading.Lock()
+
+# Define paths that are allowed to initiate a job window
+WINDOW_INITIATING_PATHS = ["/start-echo-test", "/v1/vtuber/start"]
 
 # -----------------------------------------------------------------------------
 # JSON Schemas – will evolve with real contract.  Kept here for re-use in tests.
@@ -77,6 +87,71 @@ NEUROSYNC_REALTIME_FRAME_SCHEMA: Dict[str, Any] = {
     "required": ["sequence_number", "timestamp_ms"],
     "additionalProperties": True,
 }
+
+# -----------------------------------------------------------------------------
+# Rolling Window Flag and State Management
+# -----------------------------------------------------------------------------
+
+def _delete_window_flag():
+    """Safely delete the window active flag file."""
+    if os.path.exists(WINDOW_ACTIVE_FLAG_PATH):
+        try:
+            os.remove(WINDOW_ACTIVE_FLAG_PATH)
+            logger.info(f"Rolling window active flag deleted: {WINDOW_ACTIVE_FLAG_PATH}")
+        except OSError as e:
+            logger.error(f"Error deleting rolling window active flag {WINDOW_ACTIVE_FLAG_PATH}: {e}")
+    else:
+        logger.debug(f"Attempted to delete rolling window flag, but it did not exist: {WINDOW_ACTIVE_FLAG_PATH}")
+
+def _create_window_flag():
+    """Create the window active flag file, storing the current time for info."""
+    try:
+        with open(WINDOW_ACTIVE_FLAG_PATH, "w") as f:
+            f.write(str(time.monotonic()))
+        logger.info(f"Rolling window active flag created/updated: {WINDOW_ACTIVE_FLAG_PATH}")
+    except OSError as e:
+        logger.error(f"Error creating/updating rolling window active flag {WINDOW_ACTIVE_FLAG_PATH}: {e}")
+
+def open_job_window():
+    """Opens the job window, sets expiry, and creates the flag.
+    Called by job submission endpoints upon success."""
+    global _window_expiry
+    with _window_lock:
+        _window_expiry = time.monotonic() + WINDOW_DURATION_SEC
+        _create_window_flag()
+        logger.info(f"Job window opened. Expires at: {_window_expiry:.2f}. Flag created.")
+
+def extend_job_window():
+    """Extends the current job window's expiry if it's active."""
+    global _window_expiry
+    with _window_lock:
+        if _window_expiry is not None and time.monotonic() < _window_expiry:
+            _window_expiry = time.monotonic() + WINDOW_DURATION_SEC
+            _create_window_flag() # Re-touch the flag with new timestamp
+            logger.info(f"Job window extended. New expiry: {_window_expiry:.2f}. Flag updated.")
+        elif _window_expiry is not None: # Was set, but current time is past expiry
+            logger.info("Attempted to extend window, but it was already expired. Closing it.")
+            _window_expiry = None
+            _delete_window_flag()
+        # If _window_expiry is None, extend_job_window does nothing; window must be opened first.
+
+def close_job_window_if_expired():
+    """Checks if the window is expired; if so, marks as closed and deletes the flag."""
+    global _window_expiry
+    with _window_lock:
+        if _window_expiry is not None and time.monotonic() >= _window_expiry:
+            logger.info(f"Job window expired at {_window_expiry:.2f}. Closing now and deleting flag.")
+            _window_expiry = None
+            _delete_window_flag()
+            return True # Window was closed
+    return False # Window was not closed (either not open or not expired)
+
+def is_job_window_active() -> bool:
+    """Checks if the job window is currently considered active."""
+    with _window_lock:
+        # Primary check is on the _window_expiry variable.
+        # The flag file is a secondary signal for other processes.
+        return _window_expiry is not None and time.monotonic() < _window_expiry
 
 # -----------------------------------------------------------------------------
 # Orchestrator Registration
@@ -149,10 +224,17 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def _startup_event():
-    """Register with orchestrator on container start."""
+    """Register with orchestrator on container start and ensure window flag is cleared."""
+    logger.info("Application startup: Ensuring rolling window flag is initially deleted.")
+    _delete_window_flag() # Clear any stale flag from a previous run
     success = register_to_orchestrator()
     if not success:
         logger.error("Registration failed – continuing to run but orchestrator will not dispatch work")
+
+@app.on_event("shutdown")
+async def _shutdown_event():
+    logger.info("Application shutdown: Ensuring rolling window flag is deleted.")
+    _delete_window_flag()
 
 
 @app.get("/healthz", status_code=status.HTTP_200_OK)
@@ -227,6 +309,8 @@ async def vtuber_start(request: Request):
     )
 
     # Return a simple JSON confirmation instead of a streaming response for now.
+    # Open the rolling window now that a job is successfully accepted
+    open_job_window()
     return JSONResponse(content=response_payload)
 
 
@@ -270,6 +354,9 @@ async def start_echo_test(request: Request):
         "received_at": time.time(),
     }
     logger.info("VTuber job forwarded to NeuroSync-Core", extra={"job_id": body["job_id"], "hash": job_hash})
+
+    # Job successfully accepted – open rolling window
+    open_job_window()
     return JSONResponse(content=response_payload)
 
 
@@ -358,6 +445,47 @@ def submit_job_to_neurosync(payload: Dict[str, Any]) -> str:
         extra={"job_id": job_id, "hash": mock_hash}
     )
     return mock_hash
+
+
+# -----------------------------------------------------------------------------
+# FastAPI middleware – gate all endpoints (except /healthz) behind the window
+# -----------------------------------------------------------------------------
+
+from starlette.responses import JSONResponse as _StarletteJSON
+
+
+@app.middleware("http")
+async def _window_guard(request: Request, call_next):
+    # Allow healthz regardless
+    if request.url.path == "/healthz":
+        return await call_next(request)
+
+    close_job_window_if_expired() # Check for and handle expirations first
+
+    request_path = request.url.path
+
+    if request_path in WINDOW_INITIATING_PATHS:
+        # These paths are allowed to proceed to attempt to open a window.
+        # The handler for these paths MUST call open_job_window() on success.
+        logger.debug(f"Request to window-initiating path {request_path} allowed to proceed.")
+        # No explicit window extension here; handler is responsible for opening.
+    elif not is_job_window_active():
+        # For non-initiating paths, window must be active.
+        with _window_lock:
+            current_expiry_for_log = _window_expiry
+        flag_exists_for_log = os.path.exists(WINDOW_ACTIVE_FLAG_PATH)
+        logger.warning(
+            f"Access denied to {request_path}: Job window not active. "
+            f"Current expiry state: {current_expiry_for_log}, Flag exists: {flag_exists_for_log}"
+        )
+        return _StarletteJSON({"error": "Worker is idle – no active job window"}, status_code=403)
+    else:
+        # Window is active, and it's not an initiating path (or we don't care if it is, window is already open)
+        # Extend its life on any activity.
+        extend_job_window()
+        logger.debug(f"Window active, request to {request_path} allowed. Window extended.")
+
+    return await call_next(request)
 
 
 # -----------------------------------------------------------------------------
