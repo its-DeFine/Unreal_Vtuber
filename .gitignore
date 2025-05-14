@@ -1,8 +1,9 @@
 # Ignore everything in the data directory
 data/
 
-# Ignore all .env files
+# Ignore all .env files except .example.env
 *.env
+!.example.env
 
 # Ignore all .txt files
 *.txt

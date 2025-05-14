@@ -6,18 +6,21 @@ services:
     build:
       context: .
       dockerfile: ./NeuroBridge/dockerfile
-    container_name: neurosync_s1  # keep same name so Eliza keeps working
+    container_name: neurosync_byoc
     mem_limit: 12g # Add memory limit
     environment:
-      - SERVER_PORT=9876
+      # --- BYOC worker ---
       - ORCH_URL=https://orchestrator:9995
-      - ORCH_SECRET=orch-secret
-      - CAPABILITY_NAME=start-echo-test
-      - CAPABILITY_DESCRIPTION=simple text echo capability
+      - ORCH_SECRET=orch-secret            # must match orchestrator flag -orchSecret
+      - CAPABILITY_NAME=start-echo-test    # matches server_adapter default
+      - CAPABILITY_DESCRIPTION=NeuroSync bridge demo
       - CAPABILITY_URL=http://neurosync:9876
-      - CAPABILITY_PRICE_PER_UNIT=1
-      - CAPABILITY_PRICE_SCALING=1
       - CAPABILITY_CAPACITY=1
+      - CAPABILITY_PRICE_PER_UNIT=1000
+      - CAPABILITY_PRICE_SCALING=1
+      - SERVER_PORT=9876                   # port the worker binds
+      # --- NeuroSync Local API ---
+      - FLASK_HOST=0.0.0.0
       # Ensure PulseAudio environment variables are set
       - PULSE_SERVER="tcp:host.docker.internal:4713"
       - PULSE_COOKIE=""          # cookie not needed for tcp on Windows/WSL
@@ -36,6 +39,8 @@ services:
               capabilities: [gpu]
     depends_on:
       - orchestrator
+      - gateway
+      - redis
     env_file:
       - ./env_files/.neurosync.env
     volumes:
@@ -44,6 +49,9 @@ services:
     # devices: # Commented out as /dev/snd might not be available in WSL2
     group_add:
       - "29"   # 29 == audio on Debian/Ubuntu; adjust if different
+    ports:
+      - "5000:5000"    # Local API
+      - "9876:9876"    # BYOC worker (handy for curl)
 
   # === Orchestrator ===
   orchestrator:
@@ -53,15 +61,17 @@ services:
       - ./data/orchestrator:/data
     ports:
       - 9995:9995
+    env_file:
+      - ./env_files/.byoc.env
     command: ["-orchestrator",
-          "-orchSecret=orch-secret",
+          "-orchSecret=${ORCH_SECRET}",
           "-serviceAddr=0.0.0.0:9995",
           "-v=6",
           "-network=arbitrum-one-mainnet",
           "-ethUrl=https://arb1.arbitrum.io/rpc",
-          "-ethPassword=<your eth pass here>",
+          "-ethPassword=${ETH_PASSWORD}",
           "-dataDir=/data",
-          "-ethOrchAddr=<your orch address here>",
+          "-ethOrchAddr=",
           "-pricePerUnit=1"]
     networks:
       - byoc
