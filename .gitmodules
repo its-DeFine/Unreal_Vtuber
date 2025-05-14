@@ -1,0 +1,3 @@
+[submodule "NeuroBridge"]
+	path = NeuroBridge
+	url = https://github.com/its-DeFine/NeuroSync-Core/tree/NeuroBridge
