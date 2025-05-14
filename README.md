@@ -11,6 +11,11 @@ Please be aware that this is an early release. We are actively working on simpli
 Before you begin, ensure you have the following installed:
 *   Git
 *   Node.js and npm (Node Package Manager)
+*   Minimum 20GB of RAM
+*   Python 3.10
+*   Docker Desktop
+*   Unreal Engine Metahuman with LiveLink enabled
+*   A topped-up Livepeer Gateway account (you can top up any account at [gwid.io](https://gwid.io/))
 
 ## 🚀 Getting Started
 
@@ -36,6 +41,8 @@ Navigate to the `env_files/` directory within this main project folder. Inside t
 
 *   You will need to create and populate two `.env` files based on the provided examples. These files contain critical configuration details, such as API keys and service endpoints.
     *   **(TODO: Specify the names of the example .env files and what the final .env files should be named, e.g., `neurosync.env.example` -> `neurosync.env` and `eliza.env.example` -> `eliza.env`)**
+    *   Note: Eliza-specific variables in the `.env` files can be left blank if you are not using those features.
+    *   For orchestrator-relevant variables, please refer to the information available at [https://github.com/ad-astra-video/livepeer-app-pipelines](https://github.com/ad-astra-video/livepeer-app-pipelines).
 *   Carefully fill in the required values in your newly created `.env` files.
 
 ```bash
@@ -71,7 +78,27 @@ The user interface for managing and interacting with the VTuber capabilities is 
 
 ### 4. Running the System
 
-**(TODO: Add instructions on how to run the different components - NeuroSync-Core, Eliza integration, webapp, etc. This might involve `docker-compose up` or specific python/node commands.)**
+Once your repositories are cloned and environment variables are configured, follow these steps:
+
+1.  **Launch the Docker Containers**:
+    Open your terminal in the directory where you cloned the repositories (e.g., inside `livepeer-vtuber-byoc/` if you followed the recommendation, ensuring `docker-compose.bridge.yml` and `docker-compose.byoc.yml` are accessible or correctly pathed) and run the following command. This command will build the necessary Docker images and then start the services. The build process can take some time, and logs will be saved to `build_logs.txt`.
+    ```bash
+    docker compose -f docker-compose.bridge.yml -f docker-compose.byoc.yml build --progress=plain > build_logs.txt 2>&1 && docker compose -f docker-compose.bridge.yml -f docker-compose.byoc.yml up
+    ```
+
+2.  **Access the User Interface**:
+    Once the containers are up and running, you can access the web UI by navigating to `http://localhost:8088` in your web browser.
+
+3.  **Submit Transactions**:
+    Follow the instructions in the UI to submit the necessary transactions from your wallet to interact with the Livepeer network.
+
+4.  **Send Prompts to Your Metahuman**:
+    After the job is successfully initiated and running, you can send prompts to your Metahuman. For example, you can change the text value in the following `curl` POST request to send a new prompt:
+    ```bash
+    curl -X POST -H "Content-Type: application/json" -d '{"text":"Hello from curl"}' http://localhost:5001/process_text
+    ```
+
+Enjoy your VTubing experience!
 
 ## 🛠️ Simplifying Installation
 
