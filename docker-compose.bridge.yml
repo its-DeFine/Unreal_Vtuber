@@ -13,7 +13,7 @@ services:
     container_name: eliza_the_org_s2
     working_dir: /app/packages/the-org
     env_file:
-      - ./env_files/.eliza.env
+      - .env
     command: >
       bash -c "set -x; \
       echo '>>> [Eliza] Starting dev server with auto-selection of pglite...'; \
@@ -66,7 +66,7 @@ services:
       # Mount NeuroBridge code for live editing (optional)
       - ./NeuroBridge:/app/NeuroBridge
     env_file:
-      - ./env_files/.neurosync.env
+      - .env
     # Default CMD in image already starts Flask + client
     # Add healthcheck if desired
     # healthcheck:

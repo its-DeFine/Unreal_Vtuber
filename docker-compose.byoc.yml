@@ -42,7 +42,7 @@ services:
       - gateway
       - redis
     env_file:
-      - ./env_files/.neurosync.env
+      - .env
     volumes:
       # - ${XDG_RUNTIME_DIR}/pulse:/run/user/1000/pulse      # socket + cookie. Commented out to prefer TCP.
       - /etc/machine-id:/etc/machine-id:ro                 # libpulse wants this
@@ -62,7 +62,7 @@ services:
     ports:
       - 9995:9995
     env_file:
-      - ./env_files/.byoc.env
+      - .env
     command: ["-orchestrator",
           "-orchSecret=${ORCH_SECRET}",
           "-serviceAddr=0.0.0.0:9995",
