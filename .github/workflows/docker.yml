@@ -47,6 +47,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive # To ensure all code, including submodules, is checked out
 
       - name: Log in to ${{ env.REGISTRY }}
         uses: docker/login-action@v3
@@ -78,6 +80,10 @@ jobs:
           df -h
 
       - name: Build and push ${{ matrix.service }}
+        # Only run if the event is not a pull_request AND the commit message doesn't contain '[skip-servicename]'
+        if: |-
+          github.event_name != 'pull_request' &&
+          !contains(github.event.head_commit.message, format('[skip-{0}]', matrix.service))
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -88,4 +94,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false # Temporarily disable provenance to see if it helps checksum issue
+          # platforms: linux/amd64,linux/arm64 # Uncomment for multi-arch builds 
+
+      - name: Build and push ${{ matrix.service }} (for PRs - no push, no skip logic)
+        # Only run for pull_requests to build but not push, and skip logic doesn't apply here
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false # Ensure push is false for PRs
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
           # platforms: linux/amd64,linux/arm64 # Uncomment for multi-arch builds 
