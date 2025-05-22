@@ -45,8 +45,12 @@ RUN python -c "import sys; print(f'Python version: {sys.version}'); import keybo
     rm -rf /root/.cache/pip
 
 # ---------- Entrypoint ----------
-COPY ./NeuroBridge/entrypoint_bridge.sh /app/entrypoint_bridge.sh
-RUN chmod +x /app/entrypoint_bridge.sh
+# entrypoint_bridge.sh is already inside /app/NeuroBridge from the earlier COPY.
+# Copy it within the image context to the top-level /app directory and ensure it
+# is executable. Doing the copy in an image layer avoids referencing the file
+# twice from the build context, which was causing checksum issues in CI.
+RUN cp /app/NeuroBridge/entrypoint_bridge.sh /app/entrypoint_bridge.sh \
+    && chmod +x /app/entrypoint_bridge.sh
 
 EXPOSE 5000 9876
 
