@@ -37,34 +37,28 @@ This will download the necessary codebases into your local environment. We recom
 
 ### 2. Configure Environment Variables
 
-Navigate to the `env_files/` directory within this main project folder. Inside this directory, you will find template/example `.env` files.
+An example environment file is provided in the project root as `.example.env`.
 
-*   You will need to create and populate two `.env` files based on the provided examples. These files contain critical configuration details, such as API keys and service endpoints.
-    *   **(TODO: Specify the names of the example .env files and what the final .env files should be named, e.g., `neurosync.env.example` -> `neurosync.env` and `eliza.env.example` -> `eliza.env`)**
-    *   Note: Eliza-specific variables in the `.env` files can be left blank if you are not using those features.
+*   Copy this file to `.env` and populate the values as needed. This single file covers both the NeuroSync and Eliza configuration options.
+    *   Note: Eliza-specific variables can be left blank if you are not using those features.
     *   For orchestrator-relevant variables, please refer to the information available at [https://github.com/ad-astra-video/livepeer-app-pipelines](https://github.com/ad-astra-video/livepeer-app-pipelines).
-*   Carefully fill in the required values in your newly created `.env` files.
+*   Carefully fill in the required values in your newly created `.env` file.
 
 ```bash
 # Example:
-# cd env_files
-# cp neurosync.env.example neurosync.env
-# cp eliza.env.example eliza.env
-# nano neurosync.env  # Or use your preferred editor
-# nano eliza.env      # Or use your preferred editor
+cp .example.env .env
+# Edit the file to add your values
+nano .env  # Or use your preferred editor
 ```
 
 ### 3. Build the Web Application
 
 The user interface for managing and interacting with the VTuber capabilities is provided as a web application.
 
-*   Navigate to the `webapp/` directory:
+*   Navigate to the `webapp/` directory in this repository:
     ```bash
-    cd path/to/your/cloned/repositories/eliza-livepeer-integration/packages/app # Adjust path if necessary, or to the main webapp folder if structure is different
-    # Or, if the webapp is at the root of this project:
-    # cd webapp
+    cd webapp
     ```
-    **(TODO: Confirm the correct path to the webapp that needs `npm i` and `npm run build`)**
 
 *   Install the necessary dependencies:
     ```bash
@@ -112,7 +106,7 @@ Contributions are welcome! If you encounter any issues, have suggestions for imp
 
 This project and its components are distributed under their respective licenses. Please refer to the `LICENSE` files within each cloned repository for detailed information.
 *   [NeuroSync-Core License](https://github.com/its-DeFine/NeuroSync-Core/blob/BYOC/LICENCE)
-*   **(TODO: Add link to eliza-livepeer-integration license if available)**
+*   [eliza-livepeer-integration License](https://github.com/its-DeFine/eliza-livepeer-integration/blob/scb-org/LICENSE)
 
 ---
 
