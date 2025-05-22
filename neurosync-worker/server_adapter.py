@@ -40,6 +40,9 @@ ORCH_URL = os.getenv("ORCH_URL", "")
 ORCH_SECRET = os.getenv("ORCH_SECRET", "")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "9876"))
 
+VTUBER_PAYMENT_ENABLED = os.getenv("VTUBER_PAYMENT_ENABLED", "true").lower() == "true"
+logger.info(f"VTuber payment requirement is {'ENABLED' if VTUBER_PAYMENT_ENABLED else 'DISABLED'}")
+
 CAPABILITY_NAME = os.getenv("CAPABILITY_NAME", "start-echo-test")
 CAPABILITY_URL = os.getenv("CAPABILITY_URL", f"http://localhost:{SERVER_PORT}")
 CAPABILITY_DESCRIPTION = os.getenv("CAPABILITY_DESCRIPTION", "simple text echo capability")
@@ -227,7 +230,7 @@ async def _startup_event():
     """Register with orchestrator on container start and ensure window flag is cleared."""
     logger.info("Application startup: Ensuring rolling window flag is initially deleted.")
     _delete_window_flag() # Clear any stale flag from a previous run
-    success = register_to_orchestrator()
+    success = register_to_orchestrator(max_retries=60, delay=5)
     if not success:
         logger.error("Registration failed – continuing to run but orchestrator will not dispatch work")
 
@@ -458,34 +461,60 @@ from starlette.responses import JSONResponse as _StarletteJSON
 async def _window_guard(request: Request, call_next):
     # Allow healthz regardless
     if request.url.path == "/healthz":
+        logger.debug("Healthz request, bypassing window guard.")
         return await call_next(request)
 
-    close_job_window_if_expired() # Check for and handle expirations first
-
     request_path = request.url.path
+    logger.debug(f"Window guard processing request to: {request_path}")
 
-    if request_path in WINDOW_INITIATING_PATHS:
-        # These paths are allowed to proceed to attempt to open a window.
-        # The handler for these paths MUST call open_job_window() on success.
-        logger.debug(f"Request to window-initiating path {request_path} allowed to proceed.")
-        # No explicit window extension here; handler is responsible for opening.
-    elif not is_job_window_active():
-        # For non-initiating paths, window must be active.
-        with _window_lock:
-            current_expiry_for_log = _window_expiry
-        flag_exists_for_log = os.path.exists(WINDOW_ACTIVE_FLAG_PATH)
-        logger.warning(
-            f"Access denied to {request_path}: Job window not active. "
-            f"Current expiry state: {current_expiry_for_log}, Flag exists: {flag_exists_for_log}"
-        )
-        return _StarletteJSON({"error": "Worker is idle – no active job window"}, status_code=403)
+    # Always check for and handle expirations first
+    if close_job_window_if_expired():
+        logger.info(f"Window was found expired and closed prior to processing {request_path}")
+    
+    if not VTUBER_PAYMENT_ENABLED:
+        # Payment is DISABLED.
+        # For any relevant path (not /healthz), ensure a window is open or extend it.
+        if not is_job_window_active():
+            logger.info(
+                f"Payment DISABLED. No active window. Opening window for request to {request_path}."
+            )
+            open_job_window() # This will create the flag file
+        else:
+            extend_job_window()
+            logger.debug(
+                f"Payment DISABLED. Window already active. Extended window for request to {request_path}."
+            )
+        logger.debug(f"Payment DISABLED. Proceeding with request to {request_path}.")
+        return await call_next(request)
     else:
-        # Window is active, and it's not an initiating path (or we don't care if it is, window is already open)
-        # Extend its life on any activity.
-        extend_job_window()
-        logger.debug(f"Window active, request to {request_path} allowed. Window extended.")
-
-    return await call_next(request)
+        # Payment is ENABLED. Original logic structure applies.
+        logger.debug(f"Payment ENABLED. Evaluating window status for {request_path}.")
+        if request_path in WINDOW_INITIATING_PATHS:
+            # These paths are allowed to proceed. Their handlers MUST call open_job_window() on success.
+            logger.info(
+                f"Payment ENABLED. Request to window-initiating path {request_path}. "
+                "Handler is responsible for opening window."
+            )
+            # No explicit window extension here before handler; handler opens or it's an error.
+        elif not is_job_window_active():
+            # For non-initiating paths, window must be active if payment is enabled.
+            with _window_lock: # Read current_expiry safely
+                current_expiry_for_log = _window_expiry
+            flag_exists_for_log = os.path.exists(WINDOW_ACTIVE_FLAG_PATH)
+            logger.warning(
+                f"Payment ENABLED. Access DENIED to {request_path}: Job window not active. "
+                f"Current expiry state: {current_expiry_for_log}, Flag exists: {flag_exists_for_log}"
+            )
+            return _StarletteJSON({"error": "Worker is idle – no active job window"}, status_code=403)
+        else:
+            # Window is active, and payment is enabled. Extend its life.
+            extend_job_window()
+            logger.info(
+                f"Payment ENABLED. Window active. Request to {request_path} allowed. Window extended."
+            )
+        
+        logger.debug(f"Payment ENABLED. Proceeding with request to {request_path}.")
+        return await call_next(request)
 
 
 # -----------------------------------------------------------------------------
