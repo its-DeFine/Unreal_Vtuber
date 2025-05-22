@@ -1,5 +1,5 @@
 FROM node:23.3.0-slim AS builder
-# dev: we will jsut skip eliza deployment from now and we will come up later with an existing container
+# dev: we will jsut skip eliza deployment from now and we will come up later with an existing container.
 WORKDIR /app
 
 RUN apt-get update && \
