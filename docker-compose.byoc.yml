@@ -90,7 +90,7 @@ services:
 
   # === Caddy ===
   caddy:
-    image: ghcr.io/its-DeFine/webapp:latest
+    image: ghcr.io/its-define/webapp:main
     container_name: byoc-webapp
     ports:
       - "8088:8088"

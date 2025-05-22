@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 # Docker Compose for running NeuroSync (S1) and Eliza/the-org (S2)
 # in a shared network for local development and testing the SCB bridge.
