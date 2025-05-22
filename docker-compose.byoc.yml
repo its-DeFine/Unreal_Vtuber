@@ -90,15 +90,13 @@ services:
 
   # === Caddy ===
   caddy:
-    image: caddy:latest
-    container_name: byoc-caddy
-    volumes:
-      - ./webapp/Caddyfile:/etc/caddy/Caddyfile
-      - ./webapp/dist:/var/www/html/app
+    image: ghcr.io/its-DeFine/webapp:latest
+    container_name: byoc-webapp
     ports:
       - "8088:8088"
     networks:
       - byoc
+    restart: unless-stopped
 
 networks:
   byoc:
