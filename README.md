@@ -98,6 +98,27 @@ Enjoy your VTubing experience!
 
 We are actively working on streamlining this setup process. Future updates will aim to provide a more straightforward installation experience, potentially through unified scripts or enhanced Docker configurations.
 
+## 📊 Analytics Integration
+
+The repository now ships with a flexible analytics module in `analytics/`.
+It defines an abstract interface and two concrete providers:
+
+* **`InMemoryAnalytics`** – a simple backend used by the tests.
+* **`MetabaseAnalytics`** – communicates with a Metabase server over HTTP.
+
+Autonomous agents can leverage this API to create analytics boards, import data, and query dashboards programmatically. To use the Metabase provider:
+
+```python
+from analytics import MetabaseAnalytics
+
+analytics = MetabaseAnalytics("http://metabase.local", "user", "pass")
+board_id = analytics.create_board("Demo")
+analytics.import_data(board_id, [{"value": 1}, {"value": 2}])
+```
+
+Boards can then be inspected in Metabase's dashboard UI.
+
+
 ## 🤝 Contributing
 
 Contributions are welcome! If you encounter any issues, have suggestions for improvements, or would like to contribute to the development, please feel free to open an issue or submit a pull request on the respective GitHub repositories.
