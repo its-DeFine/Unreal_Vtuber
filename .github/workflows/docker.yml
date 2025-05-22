@@ -24,16 +24,12 @@ jobs:
         include:
           - service: neurobridge
             dockerfile: ./NeuroBridge/dockerfile
-            context: ./NeuroBridge
+            context: .
             image_suffix: neurobridge
           - service: webapp
             dockerfile: ./webapp/Dockerfile # Assuming Dockerfile path
             context: ./webapp
             image_suffix: webapp
-          - service: neurosync-worker
-            dockerfile: ./NeuroBridge/dockerfile # This points to the same Dockerfile as neurobridge
-            context: .                            # Context is repo root
-            image_suffix: neurosync-worker
           # Add other services here
           # - service: autonomous-starter
           #   dockerfile: ./autonomous-starter/Dockerfile
