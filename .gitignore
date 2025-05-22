@@ -7,6 +7,7 @@ data/
 
 # Ignore all .txt files
 *.txt
+!**/requirements.txt
 
 # --- but not README.md
 !README.md
