@@ -30,6 +30,14 @@ jobs:
             dockerfile: ./webapp/Dockerfile # Assuming Dockerfile path
             context: ./webapp
             image_suffix: webapp
+          - service: eliza-the-org
+            dockerfile: ./eliza-livepeer-integration/Dockerfile
+            context: ./eliza-livepeer-integration
+            image_suffix: eliza-the-org
+          - service: nginx-rtmp
+            dockerfile: ./files_docker_rtmp/docker/rtmp/Dockerfile
+            context: ./files_docker_rtmp/docker/rtmp
+            image_suffix: nginx-rtmp
           # Add other services here
           # - service: autonomous-starter
           #   dockerfile: ./autonomous-starter/Dockerfile
