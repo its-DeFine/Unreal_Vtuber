@@ -22,7 +22,7 @@ COPY package.json turbo.json tsconfig.json lerna.json renovate.json .npmrc ./
 COPY scripts ./scripts
 COPY packages ./packages
 
-RUN bun install --no-cache
+RUN bun install --no-cache --trust-all-scripts
 
 # Ensure the target directory for version.sh exists and is writable
 RUN mkdir -p /app/packages/client/src/lib && chmod -R ugo+w /app/packages/client/src
