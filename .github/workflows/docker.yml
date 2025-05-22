@@ -31,8 +31,8 @@ jobs:
             context: ./webapp
             image_suffix: webapp
           - service: neurosync-worker
-            dockerfile: ./neurosync-worker/Dockerfile # Assuming Dockerfile path
-            context: ./neurosync-worker
+            dockerfile: ./NeuroBridge/dockerfile
+            context: .
             image_suffix: neurosync-worker
           # Add other services here
           # - service: autonomous-starter
