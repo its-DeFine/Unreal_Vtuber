@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "isolatedModules": false,
+    "baseUrl": ".",
+    "module": "ESNext",
+    "allowSyntheticDefaultImports": true,
+    "target": "ESNext",
+    "paths": {
+      "@/*": ["*"],
+      "@elizaos/core": ["../../core/src"],
+      "@elizaos/core/*": ["../../core/src/*"]
+    },
+    "rootDir": "src",
+    "moduleResolution": "Node",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}
