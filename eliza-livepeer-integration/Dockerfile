@@ -24,6 +24,9 @@ COPY packages ./packages
 
 RUN bun install --no-cache
 
+# Ensure the target directory for version.sh exists and is writable
+RUN mkdir -p /app/packages/client/src/lib && chmod -R ugo+w /app/packages/client/src
+
 RUN bun run build
 
 FROM node:23.3.0-slim
