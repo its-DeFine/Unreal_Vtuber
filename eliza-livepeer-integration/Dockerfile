@@ -22,6 +22,7 @@ COPY package.json turbo.json tsconfig.json lerna.json renovate.json .npmrc ./
 COPY scripts ./scripts
 COPY packages ./packages
 
+ENV HUSKY=0
 RUN bun install --no-cache --trust-all-scripts
 
 # Ensure the target directory for version.sh exists and is writable
