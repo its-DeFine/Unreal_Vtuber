@@ -27,6 +27,8 @@ RUN apt-get update && \
         # For building Python packages with C extensions (like PyAudio if no wheel isfound)
         build-essential \
         python3-dev && \
+    # Add ffmpeg and pkg-config, ensure system is updated first
+    apt-get update && apt-get install -y ffmpeg pkg-config && \
     rm -rf /var/lib/apt/lists/*
 
 # ---------- Copy source (Copy after system deps for better caching of above layer) ----------
@@ -34,7 +36,9 @@ COPY ./NeuroBridge /app/NeuroBridge
 COPY ./neurosync-worker /app/neurosync-worker
 
 # ---------- Python deps ----------
-RUN pip install --no-cache-dir flask flask-cors numpy pygame jsonschema && \
+RUN pip install --no-cache-dir flask flask-cors numpy jsonschema && \
+    # Install PyAudio and pygame separately first, as they can be tricky
+    pip install --no-cache-dir PyAudio==0.2.14 pygame==2.6.1 && \
     pip install --no-cache-dir -r /app/NeuroBridge/NeuroSync_Player/requirements.txt && \
     pip install --no-cache-dir fastapi uvicorn httpx
 
