@@ -1,4 +1,3 @@
-
 services:
   postgres:
     image: ankane/pgvector:latest
@@ -40,8 +39,8 @@ services:
       - POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
       - DB_TYPE=postgres
       
-      # VTuber Integration
-      - VTUBER_ENDPOINT_URL=http://neurosync:5001/process_text
+      # VTuber Integration (using localhost for testing)
+      - VTUBER_ENDPOINT_URL=http://localhost:5001/process_text
       
       # Autonomous Agent Settings
       - AUTONOMOUS_LOOP_INTERVAL=30000
@@ -63,7 +62,6 @@ services:
     restart: unless-stopped
     networks:
       - autonomous-network
-      - external-network  # For VTuber communication
     volumes:
       - ./data/uploads:/app/data/uploads:rw
       - ./logs:/app/logs:rw
@@ -77,9 +75,6 @@ networks:
   autonomous-network:
     driver: bridge
     name: autonomous-network
-  external-network:
-    external: true
-    name: docker-vt_default  # Connect to the main VTuber network
 
 volumes:
   postgres-data:

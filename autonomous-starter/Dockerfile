@@ -21,9 +21,11 @@ RUN apt-get update && \
 RUN npm install -g bun@1.2.5
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
-# Copy package files
+# Copy package files and build configuration
 COPY package.json ./
 COPY tsconfig.json ./
+COPY tsconfig.build.json ./
+COPY tsup.config.ts ./
 
 # Install dependencies
 ENV HUSKY=0
@@ -78,4 +80,4 @@ RUN echo '#!/bin/bash\necho "Starting autonomous agent with database connection.
     && chmod +x /app/entrypoint.sh
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["bun", "run", "start"] 
+CMD ["bun", "run", "dist/index.js"] 
