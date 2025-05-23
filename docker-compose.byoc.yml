@@ -3,9 +3,7 @@ version: "3.9"
 services:
   # Override existing NeuroSync service to launch BOTH core API & BYOC worker
   neurosync:
-    build:
-      context: .
-      dockerfile: ./NeuroBridge/dockerfile
+    image: ghcr.io/its-define/neurobridge:main
     container_name: neurosync_byoc
     mem_limit: 12g # Add memory limit
     environment:
