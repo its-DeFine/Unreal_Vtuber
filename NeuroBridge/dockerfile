@@ -28,7 +28,7 @@ RUN apt-get update && \
         build-essential \
         python3-dev && \
     # Add ffmpeg and pkg-config, ensure system is updated first
-    apt-get update && apt-get install -y ffmpeg pkg-config && \
+    apt-get update && apt-get install -y ffmpeg pkg-config gfortran libblas-dev liblapack-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # ---------- Copy source (Copy after system deps for better caching of above layer) ----------

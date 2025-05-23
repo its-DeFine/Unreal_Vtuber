@@ -1,5 +1,3 @@
-
-
 # Docker Compose for running NeuroSync (S1) and Eliza/the-org (S2)
 # in a shared network for local development and testing the SCB bridge.
 #
@@ -112,27 +110,30 @@ services:
       - scb_bridge_net
     restart: unless-stopped
 
-  # autonomous_starter:
-  #   build:
-  #     context: ./autonomous-starter          # directory with its Dockerfile
-  #     dockerfile: Dockerfile                 # or omit if named "Dockerfile"
-  #   container_name: autonomous_starter_s3
-  #   command: >
-  #     bash -c "bun install && bun run dev"
-  #   working_dir: /app                        # adjust if your code lives elsewhere
-  #   ports:
-  #     # inside the container it still binds to 3000,
-  #     # but we publish it on 3100 so it doesn't fight with eliza_the_org
-  #     - "3100:3000"
-  #   environment:
-  #     - PORT=3000                            # what the app listens on
-  #     - LOG_LEVEL=debug
-  #     - VTUBER_ENDPOINT_URL=http://neurosync:5001/process_text
-  #     - NEUROSYNC_URL=http://neurosync:5000   # in case any other actions need it
-  #   networks:
-  #     - scb_bridge_net
-  #   depends_on:
-  #     - neurosync
+  autonomous_starter:
+    build:
+      context: ./autonomous-starter          # directory with its Dockerfile
+      dockerfile: Dockerfile                 # or omit if named "Dockerfile"
+    container_name: autonomous_starter_s3
+    working_dir: /app                        # adjust if your code lives elsewhere
+    env_file:
+      - .env
+    ports:
+      # inside the container it still binds to 3000,
+      # but we publish it on 3100 so it doesn't fight with eliza_the_org
+      - "3100:3000"
+    environment:
+      - PORT=3000                            # what the app listens on
+      - LOG_LEVEL=debug
+      - OPENAI_API_KEY=${OPENAI_API_KEY}     # OpenAI API key for autonomous agent
+      - VTUBER_ENDPOINT_URL=http://neurosync:5001/process_text
+      - NEUROSYNC_URL=http://neurosync:5000   # in case any other actions need it
+      - NEUROSYNC_SCB_URL=http://neurosync:5000/scb/update
+      - AUTONOMOUS_LOOP_INTERVAL=30000        # 30 seconds between iterations
+    networks:
+      - scb_bridge_net
+    depends_on:
+      - neurosync
 
 networks:
   scb_bridge_net:
