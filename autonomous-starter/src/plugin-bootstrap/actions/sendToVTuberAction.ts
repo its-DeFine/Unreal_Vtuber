@@ -151,21 +151,39 @@ export const sendToVTuberAction: Action = {
     }
 
     try {
-      logger.info(`[sendToVTuberAction] Sending text to VTuber: "${vtuberMessageText}" at ${vtuberUrl}`);
+      logger.info(`[sendToVTuberAction] 🎯 SENDING TO VTUBER: "${vtuberMessageText}" at ${vtuberUrl}`);
+      
+      // Add timing information for VTuber context awareness
+      const autonomousLoopInterval = parseInt(runtime.getSetting('AUTONOMOUS_LOOP_INTERVAL') || '30000');
+      const nextCycleSeconds = Math.round(autonomousLoopInterval / 1000);
+      
+      const requestPayload = { 
+        text: vtuberMessageText,
+        autonomous_context: {
+          next_cycle_seconds: nextCycleSeconds,
+          agent_name: "Autoliza",
+          cycle_type: "autonomous_decision",
+          timestamp: Date.now()
+        }
+      };
+      logger.debug(`[sendToVTuberAction] Request payload:`, JSON.stringify(requestPayload, null, 2));
+      
       const response = await runtime.fetch(vtuberUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: vtuberMessageText }),
+        body: JSON.stringify(requestPayload),
       });
+
+      logger.info(`[sendToVTuberAction] VTuber API Response Status: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error(`[sendToVTuberAction] VTuber API request failed with status ${response.status}: ${errorText}`);
+        logger.error(`[sendToVTuberAction] ❌ VTUBER API FAILED - Status: ${response.status}, Error: ${errorText}`);
         throw new Error(`VTuber API request failed: ${response.status} ${errorText}`);
       }
 
       const responseData = await response.json();
-      logger.info('[sendToVTuberAction] VTuber response received:', responseData);
+      logger.info(`[sendToVTuberAction] ✅ VTUBER RESPONSE RECEIVED:`, JSON.stringify(responseData, null, 2));
 
       const responseContent: Content = {
         text: `Successfully sent to VTuber: "${vtuberMessageText}". VTuber responded: ${JSON.stringify(responseData)}`,
@@ -173,14 +191,23 @@ export const sendToVTuberAction: Action = {
         source: message.content.source,
         values: responseData, // Pass through the response from VTuber endpoint
       };
+      
+      logger.info(`[sendToVTuberAction] 📤 CALLBACK RESPONSE:`, JSON.stringify({
+        text: responseContent.text,
+        actions: responseContent.actions,
+        values: responseContent.values
+      }, null, 2));
+      
       await callback(responseContent); 
     } catch (error) {
-      logger.error('[sendToVTuberAction] Error during API call:', error);
+      logger.error(`[sendToVTuberAction] ❌ VTUBER ERROR:`, error);
       const errorContent: Content = {
         text: `Failed to send message to VTuber. Error: ${error instanceof Error ? error.message : String(error)}`,
         source: message.content.source,
         actions: ['SEND_TO_VTUBER_ERROR']
       };
+      
+      logger.error(`[sendToVTuberAction] 📤 ERROR CALLBACK:`, JSON.stringify(errorContent, null, 2));
       await callback(errorContent); 
     }
   },

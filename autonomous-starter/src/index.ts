@@ -29,9 +29,33 @@ export const character: Character = {
   ],
   settings: {
     secrets: {
-      // GROQ_API_KEY: process.env.GROQ_API_KEY,
-      // GROQ_SMALL_MODEL: 'llama-3.1-8b-instant',
-      // GROQ_LARGE_MODEL: 'llama-3.1-8b-instant',
+      // Database Configuration - Use Postgres by default
+      DATABASE_URL: process.env.DATABASE_URL || process.env.POSTGRES_URL || 'postgresql://postgres:postgres@localhost:5433/autonomous_agent',
+      POSTGRES_URL: process.env.POSTGRES_URL || process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5433/autonomous_agent',
+      
+      // VTuber Integration
+      VTUBER_ENDPOINT_URL: process.env.VTUBER_ENDPOINT_URL || 'http://neurosync:5001/process_text',
+      
+      // Autonomous Agent Settings
+      AUTONOMOUS_LOOP_INTERVAL: process.env.AUTONOMOUS_LOOP_INTERVAL || '30000',
+      
+      // AI Provider Keys
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      GROQ_API_KEY: process.env.GROQ_API_KEY,
+      
+      // Optional service integrations
+      DISCORD_APPLICATION_ID: process.env.DISCORD_APPLICATION_ID,
+      DISCORD_API_TOKEN: process.env.DISCORD_API_TOKEN,
+      TWITTER_USERNAME: process.env.TWITTER_USERNAME,
+      TWITTER_PASSWORD: process.env.TWITTER_PASSWORD,
+      TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
+    },
+    // Database-specific settings for SQL plugin
+    database: {
+      type: 'postgres', // Force Postgres instead of PGLite
+      connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL || 'postgresql://postgres:postgres@localhost:5433/autonomous_agent',
+      logging: process.env.DB_LOGGING === 'true',
     },
   },
   system:

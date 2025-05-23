@@ -9,71 +9,60 @@ import {
   logger,
   composePromptFromState,
   ModelType,
-  parseJSONObjectFromText,
 } from '@elizaos/core';
 
 const contextUpdateTemplate = `# Task: Extract Context Update Information
 
+## User Message/Context:
+{{recentMessages}}
+
 ## Current Context:
 {{content}}
 
-## Recent Messages:
-{{recentMessages}}
-
 ## Instructions:
-Analyze the current situation and determine what context updates the agent should make to improve future decision-making.
-Context updates can include:
-- Learning new facts or insights
-- Updating goals or priorities
-- Revising understanding of situations
-- Remembering important patterns or relationships
-- Storing preferences or successful strategies
-- Recording outcomes of actions
+Based on the conversation and recent activities, determine what important information should be stored in the agent's context for future reference.
 
-Extract information that should be added to the agent's context for future reference.
+Context updates can include:
+- Strategic insights about VTuber management
+- Successful interaction patterns
+- User preferences and behaviors
+- Technical discoveries or improvements
+- Performance metrics and outcomes
+- Learning from successful/failed actions
+
+Extract the key information that should be preserved for future autonomous decisions.
 
 Return a JSON object with:
 \`\`\`json
 {
-  "updateType": "fact|goal|strategy|preference|pattern|outcome",
-  "content": "the specific information to remember",
-  "importance": "high|medium|low",
-  "category": "descriptive category for organization",
-  "reasoning": "why this information is important to remember"
+  "type": "strategy|pattern|preference|technical|metric|learning",
+  "key": "short descriptive key for this knowledge",
+  "value": "the information to store", 
+  "context": "why this is important for future decisions",
+  "tags": ["tag1", "tag2", "tag3"]
 }
 \`\`\`
 
-Example outputs:
-1. For learning a fact:
+Examples:
+1. Strategy insight:
 \`\`\`json
 {
-  "updateType": "fact",
-  "content": "VTuber responds better to specific emotional prompts rather than generic messages",
-  "importance": "high",
-  "category": "vtuber_interaction",
-  "reasoning": "This pattern improves VTuber engagement and response quality"
+  "type": "strategy",
+  "key": "gaming_discussion_success",
+  "value": "Gaming topic discussions generate 40% more VTuber engagement than general topics",
+  "context": "Use gaming topics for higher viewer engagement in VTuber prompts",
+  "tags": ["gaming", "engagement", "vtuber_strategy"]
 }
 \`\`\`
 
-2. For updating a goal:
+2. Technical learning:
 \`\`\`json
 {
-  "updateType": "goal",
-  "content": "Maintain regular research on AI developments to stay current",
-  "importance": "medium",
-  "category": "self_improvement",
-  "reasoning": "Staying informed helps make better autonomous decisions"
-}
-\`\`\`
-
-3. For recording a strategy:
-\`\`\`json
-{
-  "updateType": "strategy",
-  "content": "When updating SCB, always include emotional context for better avatar coherence",
-  "importance": "high",
-  "category": "scb_management",
-  "reasoning": "Emotional context makes VTuber behavior more natural and engaging"
+  "type": "technical",
+  "key": "scb_update_frequency",
+  "value": "SCB updates work best when sent every 2-3 VTuber interactions",
+  "context": "Optimal timing for maintaining coherent VTuber emotional state",
+  "tags": ["scb", "timing", "optimization"]
 }
 \`\`\`
 
@@ -83,20 +72,18 @@ export const updateContextAction: Action = {
   name: 'UPDATE_CONTEXT',
   similes: [
     'update context',
-    'remember this',
-    'learn from this',
-    'add to memory',
-    'store information',
-    'update knowledge',
-    'record insight',
-    'save strategy',
-    'remember pattern'
+    'store knowledge',
+    'remember insight',
+    'save learning',
+    'record pattern',
+    'store strategy',
+    'update memory'
   ],
   description: 'Updates the agent\'s own context by storing important facts, insights, strategies, or patterns for future reference. Used for continuous learning and improvement.',
   
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    // Always allow context updates as they are core to autonomous learning
-    logger.debug(`[updateContextAction] Validating context update for message: "${message.content.text?.substring(0, 50)}..."`);
+    // Allow context updates as part of autonomous learning
+    logger.debug(`[updateContextAction] Validating context update request for message: "${message.content.text?.substring(0, 50)}..."`);
     return true;
   },
 
@@ -110,111 +97,126 @@ export const updateContextAction: Action = {
     logger.info(`[updateContextAction] Processing context update request`);
 
     try {
-      // Generate context update using LLM
+      // Generate context update data using LLM
       const prompt = composePromptFromState({
         state,
         template: contextUpdateTemplate,
       });
 
-      const llmResponse = await runtime.useModel(ModelType.TEXT_LARGE, {
+      const llmResponse = await runtime.useModel(ModelType.TEXT_SMALL, {
         prompt,
       });
 
       logger.debug('[updateContextAction] LLM Response for context update:', llmResponse);
 
-      const contextData = parseJSONObjectFromText(llmResponse);
+      // Parse context update data
+      let contextData;
+      try {
+        // Try to extract JSON from LLM response
+        const jsonMatch = llmResponse.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch && jsonMatch[1]) {
+          contextData = JSON.parse(jsonMatch[1].trim());
+          logger.info('[updateContextAction] Successfully extracted context data from LLM response');
+        } else {
+          // Fallback - try to parse the whole response
+          const jsonRegex = /\{[\s\S]*?\}/;
+          const possibleJson = llmResponse.match(jsonRegex);
+          if (possibleJson) {
+            contextData = JSON.parse(possibleJson[0]);
+            logger.info('[updateContextAction] Successfully parsed context data from regex match');
+          }
+        }
+      } catch (parseError) {
+        logger.error('[updateContextAction] Failed to parse context data:', parseError);
+        
+        // Create a fallback context update
+        contextData = {
+          type: "learning",
+          key: "autonomous_iteration",
+          value: "Autonomous agent completed another iteration cycle",
+          context: "General operational learning for system improvement",
+          tags: ["autonomous", "iteration", "system"]
+        };
+        logger.info('[updateContextAction] Using fallback context update');
+      }
 
-      if (!contextData || !contextData.updateType || !contextData.content) {
-        logger.warn('[updateContextAction] Could not extract valid context update data', contextData);
+      if (!contextData || !contextData.key || !contextData.value) {
+        logger.error('[updateContextAction] Could not determine context update');
         await callback({
-          text: "I couldn't determine what context update to make from the current situation.",
+          text: "I couldn't determine what context information to store.",
           actions: ['UPDATE_CONTEXT_ERROR'],
           source: message.content.source,
         });
         return;
       }
 
-      logger.info(`[updateContextAction] Updating context with ${contextData.updateType}:`, contextData.content);
+      logger.info('[updateContextAction] ✅ CONTEXT UPDATE EXTRACTED:', JSON.stringify(contextData, null, 2));
 
-      // Create different types of memories based on update type
-      let memoryTable = 'facts';
-      let memoryContent = contextData.content;
-
-      switch (contextData.updateType) {
-        case 'goal':
-          memoryTable = 'goals';
-          break;
-        case 'strategy':
-          memoryTable = 'strategies';
-          break;
-        case 'pattern':
-          memoryTable = 'patterns';
-          break;
-        case 'outcome':
-          memoryTable = 'outcomes';
-          break;
-        case 'preference':
-          memoryTable = 'preferences';
-          break;
-        default:
-          memoryTable = 'facts';
-      }
-
-      // Create the memory with full context
-      const contextMemory = {
-        content: {
-          text: memoryContent,
-          type: contextData.updateType,
-          importance: contextData.importance,
-          category: contextData.category,
-          reasoning: contextData.reasoning,
-          timestamp: Date.now(),
-          source: 'autonomous_context_update'
-        },
-        entityId: runtime.agentId,
-        roomId: message.roomId,
-        worldId: message.worldId,
-      };
-
-      // Store in appropriate memory table
+      // Store the context update as a memory
       try {
-        await runtime.createMemory(contextMemory, memoryTable);
-        logger.info(`[updateContextAction] Context stored in ${memoryTable} table`);
-      } catch (error) {
-        // If specialized table doesn't exist, fall back to facts
-        logger.warn(`[updateContextAction] Failed to store in ${memoryTable}, using facts table:`, error);
+        const contextMemory = {
+          content: {
+            text: `Context Update: ${contextData.key} - ${contextData.value}`,
+            type: 'context_update',
+            contextType: contextData.type,
+            key: contextData.key,
+            value: contextData.value,
+            context: contextData.context,
+            tags: contextData.tags || [],
+            timestamp: Date.now(),
+            source: 'autonomous_agent'
+          },
+          entityId: runtime.agentId,
+          roomId: message.roomId || 'autonomous_context',
+          worldId: message.worldId || 'autonomous_world',
+        };
+
+        // Store in both memories and facts for different retrieval patterns
+        await runtime.createMemory(contextMemory, 'memories');
         await runtime.createMemory(contextMemory, 'facts');
+
+        logger.info(`[updateContextAction] ✅ CONTEXT STORED: ${contextData.key}`);
+
+        // Also update runtime settings if it's a strategic insight
+        if (contextData.type === 'strategy' || contextData.type === 'technical') {
+          try {
+            const settingKey = `context_${contextData.key}`;
+            runtime.setSetting(settingKey, JSON.stringify({
+              value: contextData.value,
+              context: contextData.context,
+              timestamp: Date.now(),
+              tags: contextData.tags
+            }));
+            logger.info(`[updateContextAction] Strategic context also stored in settings: ${settingKey}`);
+          } catch (settingError) {
+            logger.warn('[updateContextAction] Could not store in settings:', settingError);
+          }
+        }
+
+      } catch (memoryError) {
+        logger.error('[updateContextAction] Failed to store context memory:', memoryError);
+        throw memoryError;
       }
-
-      // Also store a summary in the agent's general memory for easy access
-      const summaryMemory = {
-        content: {
-          text: `[CONTEXT UPDATE] ${contextData.updateType.toUpperCase()}: ${contextData.content}`,
-          type: 'context_summary',
-          category: contextData.category,
-          importance: contextData.importance,
-        },
-        entityId: runtime.agentId,
-        roomId: message.roomId,
-        worldId: message.worldId,
-      };
-
-      await runtime.createMemory(summaryMemory, 'messages');
 
       const responseContent: Content = {
-        text: `Context updated successfully: Added ${contextData.updateType} to ${contextData.category} category. Reasoning: ${contextData.reasoning}`,
+        text: `Context updated: Stored "${contextData.key}" - ${contextData.value}. This knowledge will improve future autonomous decisions.`,
         actions: ['REPLY'],
         source: message.content.source,
         values: { 
           contextUpdate: contextData,
-          memoryTable: memoryTable,
-          timestamp: Date.now()
+          stored: true,
+          memoryTable: 'memories_and_facts'
         },
       };
 
-      await callback(responseContent);
+      logger.info(`[updateContextAction] 📤 CALLBACK RESPONSE:`, JSON.stringify({
+        text: responseContent.text,
+        actions: responseContent.actions,
+        key: contextData.key,
+        type: contextData.type
+      }, null, 2));
 
-      logger.info('[updateContextAction] Context update completed successfully');
+      await callback(responseContent);
 
     } catch (error) {
       logger.error('[updateContextAction] Error during context update:', error);
@@ -232,13 +234,13 @@ export const updateContextAction: Action = {
       {
         name: 'agent',
         content: {
-          text: 'I need to remember that emotional prompts work better with the VTuber',
+          text: 'I learned that gaming topics work well for VTuber engagement',
         }
       },
       {
         name: 'agent',
         content: {
-          text: 'Context updated successfully: Added strategy to vtuber_interaction category. Reasoning: This pattern improves VTuber engagement and response quality.',
+          text: 'Context updated: Stored "gaming_engagement_pattern" - Gaming topics generate higher VTuber engagement than general topics. This knowledge will improve future autonomous decisions.',
           actions: ['REPLY'],
         }
       },
@@ -247,13 +249,13 @@ export const updateContextAction: Action = {
       {
         name: 'agent',
         content: {
-          text: 'I should record this successful research approach for future use',
+          text: 'SCB updates work better when timed with VTuber interactions',
         }
       },
       {
         name: 'agent',
         content: {
-          text: 'Context updated successfully: Added strategy to research_methods category. Reasoning: Successful approaches should be remembered for consistent results.',
+          text: 'Context updated: Stored "scb_timing_optimization" - SCB updates are most effective when synchronized with VTuber interaction cycles. This knowledge will improve future autonomous decisions.',
           actions: ['REPLY'],
         }
       }
