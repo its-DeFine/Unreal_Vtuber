@@ -22,33 +22,41 @@ const scbUpdateTemplate = `# Task: Extract SCB Update Information
 
 ## Instructions:
 Analyze the context and determine what SCB (NeuroSync Communication Bridge) updates should be made.
-SCB updates can include:
-- Emotional state changes (happy, sad, excited, calm, etc.)
-- Environment updates (lighting, mood, setting)
-- Avatar behavior modifications (gestures, expressions, posture)
+
+Choose the appropriate SCB endpoint and update type:
+
+**SCB EVENT (/scb/event)**: For emotional and environmental state changes
+- Emotional state changes (happy, sad, excited, calm, curious, etc.)
+- Environment updates (lighting, mood, setting, atmosphere)
 - Scene context (time of day, location, activity)
 
-Extract relevant information and format as an SCB update object.
+**SCB DIRECTIVE (/scb/directive)**: For direct behavior commands and actions
+- Avatar behavior modifications (gestures, expressions, posture)
+- Specific actions (wave, nod, point, dance)
+- Direct commands (look at camera, change pose, interact)
 
 Return a JSON object with:
 \`\`\`json
 {
-  "updateType": "emotion|environment|behavior|scene",
+  "endpointType": "event|directive",
+  "updateType": "emotion|environment|behavior|scene|action|command",
   "data": {
     // Specific data for the update type
     // For emotion: { "emotion": "happy", "intensity": 0.8 }
     // For environment: { "lighting": "dim", "mood": "cozy" }
     // For behavior: { "gesture": "wave", "expression": "smile" }
-    // For scene: { "timeOfDay": "evening", "location": "office", "activity": "working" }
+    // For action: { "action": "wave", "target": "audience" }
   },
   "description": "Human readable description of the update"
 }
 \`\`\`
 
-Example outputs:
-1. For emotional update:
+Examples:
+
+1. Emotional update (SCB EVENT):
 \`\`\`json
 {
+  "endpointType": "event",
   "updateType": "emotion",
   "data": {
     "emotion": "excited",
@@ -58,9 +66,24 @@ Example outputs:
 }
 \`\`\`
 
-2. For environment update:
+2. Behavior directive (SCB DIRECTIVE):
 \`\`\`json
 {
+  "endpointType": "directive", 
+  "updateType": "behavior",
+  "data": {
+    "gesture": "wave",
+    "expression": "smile",
+    "duration": 3
+  },
+  "description": "Wave and smile at the audience"
+}
+\`\`\`
+
+3. Environment update (SCB EVENT):
+\`\`\`json
+{
+  "endpointType": "event",
   "updateType": "environment", 
   "data": {
     "lighting": "bright",
@@ -116,77 +139,102 @@ export const updateScbAction: Action = {
 
       // Improved JSON parsing - handle code blocks and extract JSON properly
       let updateData;
-      try {
-        // First try the existing parseJSONObjectFromText function
-        updateData = parseJSONObjectFromText(llmResponse);
-      } catch (error) {
-        logger.debug('[updateScbAction] Standard JSON parsing failed, trying manual extraction');
-        
-        // If that fails, manually extract JSON from code blocks
-        const jsonMatch = llmResponse.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch && jsonMatch[1]) {
-          try {
-            updateData = JSON.parse(jsonMatch[1].trim());
-            logger.debug('[updateScbAction] Successfully extracted JSON from code block');
-          } catch (parseError) {
-            logger.error('[updateScbAction] Failed to parse extracted JSON:', parseError);
-          }
+      
+      // Method 1: Extract from ```json code blocks (most reliable)
+      const jsonMatch = llmResponse.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMatch && jsonMatch[1]) {
+        try {
+          const cleanJson = jsonMatch[1].trim();
+          updateData = JSON.parse(cleanJson);
+          logger.info('[updateScbAction] ✅ SUCCESS: Extracted JSON from ```json``` code block');
+        } catch (parseError) {
+          logger.error('[updateScbAction] Failed to parse JSON from code block:', parseError);
         }
-        
-        // If still no success, try extracting any JSON-like structure
-        if (!updateData) {
-          const jsonRegex = /\{[\s\S]*?\}/;
-          const possibleJson = llmResponse.match(jsonRegex);
-          if (possibleJson) {
-            try {
-              updateData = JSON.parse(possibleJson[0]);
-              logger.debug('[updateScbAction] Successfully parsed JSON from regex match');
-            } catch (parseError) {
-              logger.error('[updateScbAction] Final JSON parsing attempt failed:', parseError);
-            }
+      }
+      
+      // Method 2: Try parseJSONObjectFromText as fallback
+      if (!updateData) {
+        try {
+          updateData = parseJSONObjectFromText(llmResponse);
+          if (updateData) {
+            logger.info('[updateScbAction] ✅ SUCCESS: parseJSONObjectFromText worked');
           }
+        } catch (error) {
+          logger.debug('[updateScbAction] parseJSONObjectFromText failed:', error);
+        }
+      }
+      
+      // Method 3: Direct JSON parsing if response looks like pure JSON
+      if (!updateData && llmResponse.trim().startsWith('{')) {
+        try {
+          updateData = JSON.parse(llmResponse.trim());
+          logger.info('[updateScbAction] ✅ SUCCESS: Direct JSON parsing worked');
+        } catch (error) {
+          logger.debug('[updateScbAction] Direct JSON parsing failed:', error);
         }
       }
 
-      if (!updateData || !updateData.updateType || !updateData.data) {
-        logger.warn('[updateScbAction] Could not extract valid SCB update data. Raw response:', llmResponse);
-        logger.warn('[updateScbAction] Parsed data:', updateData);
+      // Validate the extracted data
+      if (!updateData || !updateData.endpointType || !updateData.updateType || !updateData.data) {
+        logger.error('[updateScbAction] ❌ JSON PARSING FAILED - Raw LLM response:', llmResponse);
+        logger.error('[updateScbAction] Extracted data:', updateData);
+        
         await callback({
-          text: "I couldn't determine what SCB update to make from the current context.",
+          text: "I couldn't determine what SCB update to make from the current context. The LLM response format was invalid.",
           actions: ['UPDATE_SCB_ERROR'],
           source: message.content.source,
         });
         return;
       }
 
-      logger.info('[updateScbAction] Successfully extracted SCB update data:', updateData);
+      logger.info('[updateScbAction] ✅ SUCCESSFULLY EXTRACTED SCB UPDATE DATA:', JSON.stringify(updateData, null, 2));
 
-      // Resolve the SCB endpoint URL
-      const scbUrl = runtime.getSetting('NEUROSYNC_SCB_URL') || 'http://neurosync:5000/scb/update';
+      // Determine the correct SCB endpoint based on agent selection
+      const baseUrl = runtime.getSetting('NEUROSYNC_BASE_URL') || 'http://neurosync:5000';
+      let scbUrl;
       
-      logger.info(`[updateScbAction] Sending SCB update to: ${scbUrl}`, updateData);
+      if (updateData.endpointType === 'directive') {
+        scbUrl = `${baseUrl}/scb/directive`;
+      } else {
+        scbUrl = `${baseUrl}/scb/event`; // default to event
+      }
+      
+      const scbPayload = {
+        type: updateData.endpointType === 'directive' ? 'scb_directive' : 'scb_event',
+        actor: 'autonomous_agent',
+        source: 'autoliza_controller',
+        text: `Autonomous Agent SCB ${updateData.endpointType.toUpperCase()}: ${updateData.description}`,
+        timestamp: Date.now(),
+        metadata: {
+          endpointType: updateData.endpointType,
+          updateType: updateData.updateType,
+          data: updateData.data,
+          description: updateData.description,
+          agent_iteration: 'auto',
+          system_component: 'scb_manager'
+        }
+      };
+      
+      logger.info(`[updateScbAction] 🎯 SENDING SCB ${updateData.endpointType.toUpperCase()} to: ${scbUrl}`);
+      logger.info(`[updateScbAction] SCB Payload:`, JSON.stringify(scbPayload, null, 2));
 
       // Send the update to SCB
       const response = await runtime.fetch(scbUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'scb_update',
-          updateType: updateData.updateType,
-          data: updateData.data,
-          timestamp: Date.now(),
-          source: 'autonomous_agent'
-        }),
+        body: JSON.stringify(scbPayload),
       });
+
+      logger.info(`[updateScbAction] SCB API Response Status: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error(`[updateScbAction] SCB API request failed with status ${response.status}: ${errorText}`);
+        logger.error(`[updateScbAction] ❌ SCB API FAILED - Status: ${response.status}, Error: ${errorText}`);
         throw new Error(`SCB API request failed: ${response.status} ${errorText}`);
       }
 
       const responseData = await response.json();
-      logger.info('[updateScbAction] SCB update response received:', responseData);
+      logger.info(`[updateScbAction] ✅ SCB RESPONSE RECEIVED:`, JSON.stringify(responseData, null, 2));
 
       const responseContent: Content = {
         text: `Successfully updated SCB space: ${updateData.description}. SCB responded: ${JSON.stringify(responseData)}`,
@@ -194,6 +242,12 @@ export const updateScbAction: Action = {
         source: message.content.source,
         values: { scbUpdate: updateData, scbResponse: responseData },
       };
+
+      logger.info(`[updateScbAction] 📤 CALLBACK RESPONSE:`, JSON.stringify({
+        text: responseContent.text,
+        actions: responseContent.actions,
+        values: responseContent.values
+      }, null, 2));
 
       await callback(responseContent);
 

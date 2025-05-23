@@ -97,7 +97,16 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "format": "prettier --write ./src",
-    "format:check": "prettier --check ./src"
+    "format:check": "prettier --check ./src",
+    "migrate-to-postgres": "node scripts/migrate-to-postgres.js",
+    "docker:build": "docker build -t autonomous-agent .",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f autonomous-agent",
+    "docker:postgres": "docker-compose up postgres -d",
+    "docker:postgres-logs": "docker-compose logs -f postgres",
+    "docker:restart": "docker-compose restart autonomous-agent",
+    "docker:psql": "docker exec -it autonomous-postgres psql -U postgres -d autonomous_agent"
   },
   "publishConfig": {
     "access": "public"

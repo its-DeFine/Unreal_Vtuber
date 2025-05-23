@@ -1,0 +1,82 @@
+# =================================
+# AUTONOMOUS AGENT CONFIGURATION
+# =================================
+
+# Database Configuration - Postgres (instead of PGLite)
+# Format: postgresql://username:password@hostname:port/database
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/autonomous_agent
+POSTGRES_URL=postgresql://postgres:postgres@localhost:5433/autonomous_agent
+DB_TYPE=postgres
+
+# VTuber Integration
+VTUBER_ENDPOINT_URL=http://localhost:5001/process_text
+
+# Autonomous Agent Settings
+AUTONOMOUS_LOOP_INTERVAL=30000
+AGENT_NAME=Autoliza
+
+# =================================
+# AI PROVIDER API KEYS
+# =================================
+
+# OpenAI (Required for most functionality)
+OPENAI_API_KEY=sk-your-openai-api-key-here
+
+# Anthropic (Alternative AI provider)
+ANTHROPIC_API_KEY=sk-ant-your-anthropic-key-here
+
+# Groq (Fast inference alternative)
+GROQ_API_KEY=gsk_your-groq-api-key-here
+
+# =================================
+# SOCIAL MEDIA INTEGRATIONS (Optional)
+# =================================
+
+# Discord
+DISCORD_APPLICATION_ID=your-discord-app-id
+DISCORD_API_TOKEN=your-discord-bot-token
+
+# Twitter/X
+TWITTER_USERNAME=your-twitter-username
+TWITTER_PASSWORD=your-twitter-password
+TWITTER_EMAIL=your-twitter-email
+
+# Telegram
+TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+
+# =================================
+# LOGGING AND MONITORING
+# =================================
+
+# Log levels: debug, info, warn, error
+LOG_LEVEL=info
+
+# Enable database query logging
+DB_LOGGING=false
+
+# =================================
+# DEVELOPMENT SETTINGS
+# =================================
+
+# Node environment
+NODE_ENV=development
+
+# Port for the autonomous agent
+PORT=3001
+
+# Enable development mode features
+DEV_MODE=true
+
+# =================================
+# DOCKER NETWORK SETTINGS
+# =================================
+
+# For docker-compose networking
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=autonomous_agent
+
+# External network connections
+EXTERNAL_NETWORK=docker-vt_default 
