@@ -83,6 +83,33 @@ services:
       - scb_bridge_net
     restart: unless-stopped
 
+  # PostgreSQL database for autonomous agent
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: autonomous_postgres_bridge
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=autonomous_agent
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - autonomous_postgres_data:/var/lib/postgresql/data:rw
+    ports:
+      - '127.0.0.1:5434:5432'  # Different port to avoid conflicts with other postgres instances
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - scb_bridge_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 # --- RTMP server for low-latency audio/video sync ---
 # Old block commented out due to indentation fix
 #nginx-rtmp:
@@ -130,10 +157,23 @@ services:
       - NEUROSYNC_URL=http://neurosync:5000   # in case any other actions need it
       - NEUROSYNC_SCB_URL=http://neurosync:5000/scb/update
       - AUTONOMOUS_LOOP_INTERVAL=30000        # 30 seconds between iterations
+      # Database Configuration - Connect to the postgres service in this network
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
+      - POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
+      - DB_TYPE=postgres
     networks:
       - scb_bridge_net
     depends_on:
-      - neurosync
+      postgres:
+        condition: service_healthy
+      neurosync:
+        condition: service_started
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   scb_bridge_net:
@@ -142,3 +182,6 @@ networks:
 volumes:
   redis_data:
     driver: local
+  autonomous_postgres_data:
+    driver: local
+    name: autonomous_postgres_bridge_data
