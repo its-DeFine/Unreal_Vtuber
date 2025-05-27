@@ -23,6 +23,7 @@ NC='\033[0m' # No Color
 
 # Create log directory
 mkdir -p "$LOG_DIR"
+mkdir -p "$SESSION_LOG"
 
 echo -e "${GREEN}🚀 Starting Autonomous VTuber System Monitoring${NC}"
 echo -e "${BLUE}📊 Session: ${TIMESTAMP}${NC}"
@@ -35,6 +36,7 @@ log_with_timestamp() {
     local service=$1
     local message=$2
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    mkdir -p "$SESSION_LOG"  # Ensure directory exists
     echo "[$timestamp] [$service] $message" | tee -a "$SESSION_LOG/master.log"
 }
 
@@ -65,7 +67,7 @@ monitor_scb() {
     
     while true; do
         # Check Redis for SCB updates
-        if docker exec redis_scb redis-cli --scan --pattern "*scb*" 2>/dev/null | while read key; do
+        docker exec redis_scb redis-cli --scan --pattern "*scb*" 2>/dev/null | while read key; do
             if [ -n "$key" ]; then
                 value=$(docker exec redis_scb redis-cli get "$key" 2>/dev/null || echo "")
                 if [ -n "$value" ]; then
