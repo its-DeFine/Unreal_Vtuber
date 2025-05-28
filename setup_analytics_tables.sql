@@ -17,11 +17,17 @@ CREATE TABLE IF NOT EXISTS tool_usage (
     success BOOLEAN NOT NULL DEFAULT true,
     impact_score FLOAT DEFAULT 0.5,
     embedding VECTOR(1536),
-    metadata JSONB DEFAULT '{}',
-    
-    -- Foreign key to existing agents table
-    CONSTRAINT fk_tool_usage_agent FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    metadata JSONB DEFAULT '{}'
 );
+
+-- Add foreign key constraint only if agents table exists
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'agents') THEN
+        ALTER TABLE tool_usage ADD CONSTRAINT fk_tool_usage_agent 
+        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
 -- Decision patterns table
 CREATE TABLE IF NOT EXISTS decision_patterns (
@@ -34,11 +40,17 @@ CREATE TABLE IF NOT EXISTS decision_patterns (
     pattern_effectiveness FLOAT DEFAULT 0.5,
     usage_frequency INTEGER DEFAULT 1,
     embedding VECTOR(1536),
-    metadata JSONB DEFAULT '{}',
-    
-    -- Foreign key to existing agents table
-    CONSTRAINT fk_decision_patterns_agent FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    metadata JSONB DEFAULT '{}'
 );
+
+-- Add foreign key constraint only if agents table exists
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'agents') THEN
+        ALTER TABLE decision_patterns ADD CONSTRAINT fk_decision_patterns_agent 
+        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
 -- Context archive table for intelligent memory management
 CREATE TABLE IF NOT EXISTS context_archive (
@@ -51,11 +63,17 @@ CREATE TABLE IF NOT EXISTS context_archive (
     retrieval_count INTEGER DEFAULT 0,
     last_accessed TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     archive_reason VARCHAR(100) DEFAULT 'automatic',
-    metadata JSONB DEFAULT '{}',
-    
-    -- Foreign key to existing agents table
-    CONSTRAINT fk_context_archive_agent FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    metadata JSONB DEFAULT '{}'
 );
+
+-- Add foreign key constraint only if agents table exists
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'agents') THEN
+        ALTER TABLE context_archive ADD CONSTRAINT fk_context_archive_agent 
+        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
 -- Performance indexes for efficient queries
 CREATE INDEX IF NOT EXISTS idx_tool_usage_agent_time ON tool_usage(agent_id, timestamp DESC);
@@ -76,32 +94,45 @@ CREATE INDEX IF NOT EXISTS idx_tool_usage_embedding ON tool_usage USING ivfflat 
 CREATE INDEX IF NOT EXISTS idx_decision_patterns_embedding ON decision_patterns USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -- Views for common analytics queries
-CREATE OR REPLACE VIEW tool_effectiveness AS
-SELECT 
-    tool_name,
-    COUNT(*) as total_uses,
-    AVG(execution_time_ms) as avg_execution_time,
-    AVG(impact_score) as avg_impact_score,
-    (COUNT(*) FILTER (WHERE success = true))::float / COUNT(*) as success_rate,
-    MAX(timestamp) as last_used
-FROM tool_usage 
-GROUP BY tool_name
-ORDER BY avg_impact_score DESC;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tool_usage') THEN
+        CREATE OR REPLACE VIEW tool_effectiveness AS
+        SELECT 
+            tool_name,
+            COUNT(*) as total_uses,
+            AVG(execution_time_ms) as avg_execution_time,
+            AVG(impact_score) as avg_impact_score,
+            (COUNT(*) FILTER (WHERE success = true))::float / COUNT(*) as success_rate,
+            MAX(timestamp) as last_used
+        FROM tool_usage 
+        GROUP BY tool_name
+        ORDER BY avg_impact_score DESC;
+    END IF;
+END $$;
 
-CREATE OR REPLACE VIEW agent_performance AS
-SELECT 
-    a.id as agent_id,
-    COUNT(tu.id) as total_tool_uses,
-    COUNT(DISTINCT tu.tool_name) as unique_tools_used,
-    AVG(tu.impact_score) as avg_impact_score,
-    AVG(dp.pattern_effectiveness) as avg_pattern_effectiveness,
-    COUNT(m.id) as total_memories,
-    MAX(tu.timestamp) as last_activity
-FROM agents a
-LEFT JOIN tool_usage tu ON a.id = tu.agent_id
-LEFT JOIN decision_patterns dp ON a.id = dp.agent_id
-LEFT JOIN memories m ON a.id = m."agentId"
-GROUP BY a.id;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'agents') 
+       AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tool_usage')
+       AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'decision_patterns')
+       AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'memories') THEN
+        CREATE OR REPLACE VIEW agent_performance AS
+        SELECT 
+            a.id as agent_id,
+            COUNT(tu.id) as total_tool_uses,
+            COUNT(DISTINCT tu.tool_name) as unique_tools_used,
+            AVG(tu.impact_score) as avg_impact_score,
+            AVG(dp.pattern_effectiveness) as avg_pattern_effectiveness,
+            COUNT(m.id) as total_memories,
+            MAX(tu.timestamp) as last_activity
+        FROM agents a
+        LEFT JOIN tool_usage tu ON a.id = tu.agent_id
+        LEFT JOIN decision_patterns dp ON a.id = dp.agent_id
+        LEFT JOIN memories m ON a.id = m."agentId"
+        GROUP BY a.id;
+    END IF;
+END $$;
 
 -- Function to archive old memories based on importance and age
 CREATE OR REPLACE FUNCTION archive_old_memories(
@@ -247,43 +278,59 @@ $$ LANGUAGE plpgsql;
 DO $$
 DECLARE
     current_agent_id UUID;
+    memories_exists BOOLEAN;
 BEGIN
-    -- Get the current agent ID from existing data
-    SELECT DISTINCT "agentId" INTO current_agent_id FROM memories LIMIT 1;
+    -- Check if memories table exists
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_name = 'memories'
+    ) INTO memories_exists;
     
-    IF current_agent_id IS NOT NULL THEN
-        -- Log some initial tool usage based on existing memories
-        PERFORM log_tool_usage(
-            current_agent_id,
-            'vtuber_prompter',
-            jsonb_build_object('context', 'VR features discussion'),
-            jsonb_build_object('success', true, 'engagement', 'high'),
-            250,
-            true,
-            0.8
-        );
+    IF memories_exists THEN
+        -- Get the current agent ID from existing data
+        SELECT DISTINCT "agentId" INTO current_agent_id FROM memories LIMIT 1;
         
-        PERFORM log_tool_usage(
-            current_agent_id,
-            'context_manager',
-            jsonb_build_object('action', 'store', 'type', 'vr_learning'),
-            jsonb_build_object('stored', true, 'importance', 0.7),
-            100,
-            true,
-            0.7
-        );
-        
-        -- Create initial decision pattern
-        PERFORM update_decision_pattern(
-            current_agent_id,
-            jsonb_build_object('topic', 'VR', 'engagement_level', 'high'),
-            ARRAY['vtuber_prompter', 'context_manager'],
-            jsonb_build_object('engagement_improvement', 0.25, 'learning_value', 0.8),
-            0.75
-        );
-        
-        RAISE NOTICE 'Analytics tables initialized with sample data for agent: %', current_agent_id;
+        IF current_agent_id IS NOT NULL THEN
+            -- Log some initial tool usage based on existing memories
+            PERFORM log_tool_usage(
+                current_agent_id,
+                'vtuber_prompter',
+                jsonb_build_object('context', 'VR features discussion'),
+                jsonb_build_object('success', true, 'engagement', 'high'),
+                250,
+                true,
+                0.8
+            );
+            
+            PERFORM log_tool_usage(
+                current_agent_id,
+                'context_manager',
+                jsonb_build_object('action', 'store', 'type', 'vr_learning'),
+                jsonb_build_object('stored', true, 'importance', 0.7),
+                100,
+                true,
+                0.7
+            );
+            
+            -- Create initial decision pattern
+            PERFORM update_decision_pattern(
+                current_agent_id,
+                jsonb_build_object('topic', 'VR', 'engagement_level', 'high'),
+                ARRAY['vtuber_prompter', 'context_manager'],
+                jsonb_build_object('engagement_improvement', 0.25, 'learning_value', 0.8),
+                0.75
+            );
+            
+            RAISE NOTICE 'Analytics tables initialized with sample data for agent: %', current_agent_id;
+        ELSE
+            RAISE NOTICE 'No existing agent found in memories table - analytics tables created without sample data';
+        END IF;
+    ELSE
+        RAISE NOTICE 'Memories table does not exist yet - analytics tables created without sample data';
     END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Error initializing sample data: %. Analytics tables created successfully.', SQLERRM;
 END $$;
 
 -- Grant permissions (adjust as needed)
@@ -291,9 +338,20 @@ END $$;
 -- GRANT SELECT, INSERT, UPDATE ON decision_patterns TO autonomous_agent_role;
 -- GRANT SELECT, INSERT, UPDATE ON context_archive TO autonomous_agent_role;
 
-COMMENT ON TABLE tool_usage IS 'Tracks usage and effectiveness of autonomous agent tools';
-COMMENT ON TABLE decision_patterns IS 'Stores and analyzes decision-making patterns for learning';
-COMMENT ON TABLE context_archive IS 'Archives old context for efficient memory management';
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'tool_usage') THEN
+        COMMENT ON TABLE tool_usage IS 'Tracks usage and effectiveness of autonomous agent tools';
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'decision_patterns') THEN
+        COMMENT ON TABLE decision_patterns IS 'Stores and analyzes decision-making patterns for learning';
+    END IF;
+    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'context_archive') THEN
+        COMMENT ON TABLE context_archive IS 'Archives old context for efficient memory management';
+    END IF;
+END $$;
 
 -- Success message
 SELECT 'Analytics tables successfully created and initialized!' as status; 
