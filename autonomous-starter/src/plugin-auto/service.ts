@@ -1,13 +1,23 @@
 import { createUniqueUuid, Entity, IAgentRuntime, Memory, Service, logger } from '@elizaos/core';
 import { EventType } from './types';
+import { MemoryArchivingEngine, type MemoryArchivingConfig } from '../memory';
 
 export default class AutonomousService extends Service {
   static serviceType = 'autonomous';
-  capabilityDescription = 'Autonomous agent service, maintains the autonomous agent loop with context awareness';
+  capabilityDescription = 'Autonomous agent service, maintains the autonomous agent loop with context awareness and memory archiving';
   private contextStore: Map<string, any> = new Map();
   private iterationCount: number = 0;
+  private memoryArchivingEngine: MemoryArchivingEngine | null = null;
 
   async stop(): Promise<void> {
+    logger.info('[AutonomousService] Stopping service...');
+    
+    // Stop memory archiving
+    if (this.memoryArchivingEngine) {
+      await this.memoryArchivingEngine.stopContinuousArchiving();
+      logger.info('[AutonomousService] Memory archiving stopped');
+    }
+    
     logger.info('[AutonomousService] Service stopped');
     return;
   }
@@ -27,10 +37,48 @@ export default class AutonomousService extends Service {
     this.runtime = runtime;
 
     this.setupWorld().then(() => {
-      this.initializeContext().then(() => {
-        this.loop();
+      this.initializeMemoryArchiving().then(() => {
+        this.initializeContext().then(() => {
+          this.loop();
+        });
       });
     });
+  }
+
+  async initializeMemoryArchiving(): Promise<void> {
+    logger.info('[AutonomousService] Initializing memory archiving system');
+    
+    try {
+      // Configure memory archiving for autonomous agent
+      const archivingConfig: MemoryArchivingConfig = {
+        activeMemoryLimit: 200,           // Keep 200 active memories max
+        archiveThresholds: {
+          timeBasedHours: 48,             // Archive memories older than 48 hours
+          importanceScore: 0.3,           // Archive if importance < 0.3
+          accessFrequency: 14 * 24        // Archive if not accessed in 14 days (in hours)
+        },
+        archivingBatchSize: 50,           // Process 50 memories per batch
+        archivingIntervalMinutes: 30      // Run archiving every 30 minutes
+      };
+
+      this.memoryArchivingEngine = new MemoryArchivingEngine(this.runtime, archivingConfig);
+      
+      // Start continuous archiving
+      await this.memoryArchivingEngine.startContinuousArchiving();
+      
+      // Get initial archive stats
+      const stats = await this.memoryArchivingEngine.getArchiveStats();
+      logger.info('[AutonomousService] Memory archiving initialized:', {
+        totalArchived: stats.totalArchived,
+        averageImportance: stats.averageImportance,
+        config: archivingConfig
+      });
+      
+    } catch (error) {
+      logger.error('[AutonomousService] Failed to initialize memory archiving:', error);
+      // Continue without archiving if it fails
+      this.memoryArchivingEngine = null;
+    }
   }
 
   async setupWorld() {
@@ -155,10 +203,23 @@ export default class AutonomousService extends Service {
       contextSummary += '\n';
     }
 
+    // Add memory archiving status
+    if (this.memoryArchivingEngine) {
+      try {
+        const archiveStats = await this.memoryArchivingEngine.getArchiveStats();
+        contextSummary += '### Memory Management:\n';
+        contextSummary += `- Total archived memories: ${archiveStats.totalArchived}\n`;
+        contextSummary += `- Average importance: ${archiveStats.averageImportance.toFixed(2)}\n`;
+        contextSummary += `- Memory archiving: Active\n\n`;
+      } catch (error) {
+        logger.debug('[AutonomousService] Could not get archive stats:', error);
+      }
+    }
+
     // Add current state summary
     contextSummary += '### Current State:\n';
     contextSummary += `- Autonomous loop iteration: ${this.iterationCount}\n`;
-    contextSummary += `- Available actions: SEND_TO_VTUBER, UPDATE_SCB_SPACE, DO_RESEARCH, UPDATE_CONTEXT\n`;
+    contextSummary += `- Available actions: SEND_TO_VTUBER, UPDATE_SCB, DO_RESEARCH, UPDATE_CONTEXT\n`;
     contextSummary += `- Agent role: Autonomous VTuber management and learning system\n\n`;
 
     return contextSummary;
@@ -167,6 +228,22 @@ export default class AutonomousService extends Service {
   async updateContextStore(key: string, value: any) {
     this.contextStore.set(key, value);
     logger.debug(`[AutonomousService] Context updated: ${key}`);
+  }
+
+  async retrieveArchivedContext(query: string): Promise<any[]> {
+    if (!this.memoryArchivingEngine) {
+      logger.debug('[AutonomousService] Memory archiving not available for context retrieval');
+      return [];
+    }
+
+    try {
+      const archivedMemories = await this.memoryArchivingEngine.retrieveFromArchive(query, 5);
+      logger.debug(`[AutonomousService] Retrieved ${archivedMemories.length} archived memories for query: "${query}"`);
+      return archivedMemories;
+    } catch (error) {
+      logger.error('[AutonomousService] Error retrieving archived context:', error);
+      return [];
+    }
   }
 
   async loop() {
@@ -183,7 +260,7 @@ You are an autonomous agent managing a VTuber system. Based on your context abov
 
 Available actions:
 - SEND_TO_VTUBER: Send specific prompts to the VTuber for speech/interaction
-- UPDATE_SCB_SPACE: Update the VTuber's emotional state, environment, or behavior 
+- UPDATE_SCB: Update the VTuber's emotional state, environment, or behavior 
 - DO_RESEARCH: Conduct research on topics to expand knowledge
 - UPDATE_CONTEXT: Store new insights, strategies, or facts for future reference
 
