@@ -9,6 +9,7 @@ import {
   logger,
   composePromptFromState,
   ModelType,
+  parseJSONObjectFromText,
 } from '@elizaos/core';
 
 const contextUpdateTemplate = `# Task: Extract Context Update Information
@@ -20,49 +21,37 @@ const contextUpdateTemplate = `# Task: Extract Context Update Information
 {{content}}
 
 ## Instructions:
-Based on the conversation and recent activities, determine what important information should be stored in the agent's context for future reference.
+Based on the context and conversation, extract information that should be stored for future autonomous decision-making.
 
-Context updates can include:
+Context updates might include:
 - Strategic insights about VTuber management
 - Successful interaction patterns
-- User preferences and behaviors
-- Technical discoveries or improvements
-- Performance metrics and outcomes
-- Learning from successful/failed actions
+- Research findings and facts
+- User preferences and feedback
+- Performance metrics and observations
+- Goals and objectives
 
-Extract the key information that should be preserved for future autonomous decisions.
+Extract the specific information that should be stored and categorize it appropriately.
 
 Return a JSON object with:
 \`\`\`json
 {
-  "type": "strategy|pattern|preference|technical|metric|learning",
-  "key": "short descriptive key for this knowledge",
-  "value": "the information to store", 
-  "context": "why this is important for future decisions",
-  "tags": ["tag1", "tag2", "tag3"]
+  "updateType": "goal|strategy|pattern|fact|insight|preference",
+  "content": "the information to store",
+  "category": "vtuber_management|research|user_interaction|performance|general",
+  "importance": "high|medium|low",
+  "context": "additional context about when/why this is relevant"
 }
 \`\`\`
 
-Examples:
-1. Strategy insight:
+Example:
 \`\`\`json
 {
-  "type": "strategy",
-  "key": "gaming_discussion_success",
-  "value": "Gaming topic discussions generate 40% more VTuber engagement than general topics",
-  "context": "Use gaming topics for higher viewer engagement in VTuber prompts",
-  "tags": ["gaming", "engagement", "vtuber_strategy"]
-}
-\`\`\`
-
-2. Technical learning:
-\`\`\`json
-{
-  "type": "technical",
-  "key": "scb_update_frequency",
-  "value": "SCB updates work best when sent every 2-3 VTuber interactions",
-  "context": "Optimal timing for maintaining coherent VTuber emotional state",
-  "tags": ["scb", "timing", "optimization"]
+  "updateType": "pattern",
+  "content": "Emotional prompts generate 40% more viewer engagement than factual statements",
+  "category": "vtuber_management", 
+  "importance": "high",
+  "context": "Discovered during VR discussion streams"
 }
 \`\`\`
 
@@ -71,18 +60,19 @@ Make sure to include the \`\`\`json\`\`\` tags around the JSON object.`;
 export const updateContextAction: Action = {
   name: 'UPDATE_CONTEXT',
   similes: [
-    'update context',
-    'store knowledge',
-    'remember insight',
-    'save learning',
+    'store context',
+    'save insight',
+    'remember this',
+    'update knowledge',
+    'store information',
+    'save strategy',
     'record pattern',
-    'store strategy',
-    'update memory'
+    'store fact'
   ],
-  description: 'Updates the agent\'s own context by storing important facts, insights, strategies, or patterns for future reference. Used for continuous learning and improvement.',
+  description: 'Stores strategic knowledge, insights, patterns, or facts in the agent\'s context for future autonomous decision-making. Used to build up the agent\'s knowledge base over time.',
   
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    // Allow context updates as part of autonomous learning
+    // Allow context updates when the autonomous agent decides it's needed
     logger.debug(`[updateContextAction] Validating context update request for message: "${message.content.text?.substring(0, 50)}..."`);
     return true;
   },
@@ -97,7 +87,7 @@ export const updateContextAction: Action = {
     logger.info(`[updateContextAction] Processing context update request`);
 
     try {
-      // Generate context update data using LLM
+      // Generate context update using LLM
       const prompt = composePromptFromState({
         state,
         template: contextUpdateTemplate,
@@ -112,38 +102,26 @@ export const updateContextAction: Action = {
       // Parse context update data
       let contextData;
       try {
-        // Try to extract JSON from LLM response
-        const jsonMatch = llmResponse.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch && jsonMatch[1]) {
-          contextData = JSON.parse(jsonMatch[1].trim());
-          logger.info('[updateContextAction] Successfully extracted context data from LLM response');
-        } else {
-          // Fallback - try to parse the whole response
-          const jsonRegex = /\{[\s\S]*?\}/;
-          const possibleJson = llmResponse.match(jsonRegex);
-          if (possibleJson) {
-            contextData = JSON.parse(possibleJson[0]);
-            logger.info('[updateContextAction] Successfully parsed context data from regex match');
-          }
-        }
+        contextData = parseJSONObjectFromText(llmResponse);
+        logger.info('[updateContextAction] Successfully extracted context update from LLM response');
       } catch (parseError) {
-        logger.error('[updateContextAction] Failed to parse context data:', parseError);
+        logger.error('[updateContextAction] Failed to parse context update:', parseError);
         
-        // Create a fallback context update
+        // Create a fallback context update based on recent context
         contextData = {
-          type: "learning",
-          key: "autonomous_iteration",
-          value: "Autonomous agent completed another iteration cycle",
-          context: "General operational learning for system improvement",
-          tags: ["autonomous", "iteration", "system"]
+          updateType: "insight",
+          content: "General autonomous agent learning update",
+          category: "general",
+          importance: "medium",
+          context: "Autonomous learning cycle"
         };
         logger.info('[updateContextAction] Using fallback context update');
       }
 
-      if (!contextData || !contextData.key || !contextData.value) {
+      if (!contextData || !contextData.content) {
         logger.error('[updateContextAction] Could not determine context update');
         await callback({
-          text: "I couldn't determine what context information to store.",
+          text: "I couldn't determine what context information to store from the current situation.",
           actions: ['UPDATE_CONTEXT_ERROR'],
           source: message.content.source,
         });
@@ -152,68 +130,62 @@ export const updateContextAction: Action = {
 
       logger.info('[updateContextAction] ✅ CONTEXT UPDATE EXTRACTED:', JSON.stringify(contextData, null, 2));
 
-      // Store the context update as a memory
+      // Store the context update as a fact in ElizaOS
+      const factMemory = {
+        content: {
+          text: contextData.content,
+          type: contextData.updateType,
+          category: contextData.category,
+          importance: contextData.importance,
+          context: contextData.context,
+          source: 'autonomous_context_update',
+          timestamp: Date.now()
+        },
+        entityId: runtime.agentId,
+        roomId: message.roomId,
+        worldId: message.worldId,
+      };
+
+      // Store as a fact in ElizaOS
+      await runtime.createMemory(factMemory, 'facts');
+
+      logger.info(`[updateContextAction] ✅ CONTEXT STORED: "${contextData.content}" (${contextData.category})`);
+
+      // Also log to tool_usage analytics table if available
       try {
-        const contextMemory = {
-          content: {
-            text: `Context Update: ${contextData.key} - ${contextData.value}`,
-            type: 'context_update',
-            contextType: contextData.type,
-            key: contextData.key,
-            value: contextData.value,
-            context: contextData.context,
-            tags: contextData.tags || [],
-            timestamp: Date.now(),
-            source: 'autonomous_agent'
-          },
-          entityId: runtime.agentId,
-          roomId: message.roomId || 'autonomous_context',
-          worldId: message.worldId || 'autonomous_world',
-        };
-
-        // Store in both memories and facts for different retrieval patterns
-        await runtime.createMemory(contextMemory, 'memories');
-        await runtime.createMemory(contextMemory, 'facts');
-
-        logger.info(`[updateContextAction] ✅ CONTEXT STORED: ${contextData.key}`);
-
-        // Also update runtime settings if it's a strategic insight
-        if (contextData.type === 'strategy' || contextData.type === 'technical') {
-          try {
-            const settingKey = `context_${contextData.key}`;
-            runtime.setSetting(settingKey, JSON.stringify({
-              value: contextData.value,
-              context: contextData.context,
-              timestamp: Date.now(),
-              tags: contextData.tags
-            }));
-            logger.info(`[updateContextAction] Strategic context also stored in settings: ${settingKey}`);
-          } catch (settingError) {
-            logger.warn('[updateContextAction] Could not store in settings:', settingError);
-          }
-        }
-
-      } catch (memoryError) {
-        logger.error('[updateContextAction] Failed to store context memory:', memoryError);
-        throw memoryError;
+        await runtime.databaseAdapter.db.query(`
+          INSERT INTO tool_usage (
+            agent_id, tool_name, input_context, output_result, 
+            execution_time_ms, success, impact_score
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [
+          runtime.agentId,
+          'context_manager',
+          JSON.stringify({ action: 'store', type: contextData.updateType }),
+          JSON.stringify({ stored: true, category: contextData.category, importance: contextData.importance }),
+          100, // execution time
+          true,
+          contextData.importance === 'high' ? 0.8 : contextData.importance === 'medium' ? 0.6 : 0.4
+        ]);
+      } catch (analyticsError) {
+        logger.debug('[updateContextAction] Analytics logging failed (table may not exist):', analyticsError);
       }
 
       const responseContent: Content = {
-        text: `Context updated: Stored "${contextData.key}" - ${contextData.value}. This knowledge will improve future autonomous decisions.`,
+        text: `Context updated: Stored "${contextData.content}" in ${contextData.category} category with ${contextData.importance} importance. Context: ${contextData.context}`,
         actions: ['REPLY'],
         source: message.content.source,
         values: { 
           contextUpdate: contextData,
           stored: true,
-          memoryTable: 'memories_and_facts'
+          memoryType: 'facts'
         },
       };
 
       logger.info(`[updateContextAction] 📤 CALLBACK RESPONSE:`, JSON.stringify({
         text: responseContent.text,
         actions: responseContent.actions,
-        key: contextData.key,
-        type: contextData.type
+        category: contextData.category
       }, null, 2));
 
       await callback(responseContent);
@@ -234,13 +206,13 @@ export const updateContextAction: Action = {
       {
         name: 'agent',
         content: {
-          text: 'I learned that gaming topics work well for VTuber engagement',
+          text: 'I should store the insight that emotional prompts work better than factual ones',
         }
       },
       {
         name: 'agent',
         content: {
-          text: 'Context updated: Stored "gaming_engagement_pattern" - Gaming topics generate higher VTuber engagement than general topics. This knowledge will improve future autonomous decisions.',
+          text: 'Context updated: Stored "Emotional prompts generate better engagement than factual statements" in vtuber_management category with high importance.',
           actions: ['REPLY'],
         }
       },
@@ -249,13 +221,13 @@ export const updateContextAction: Action = {
       {
         name: 'agent',
         content: {
-          text: 'SCB updates work better when timed with VTuber interactions',
+          text: 'Need to remember that VR topics generate high viewer interest',
         }
       },
       {
         name: 'agent',
         content: {
-          text: 'Context updated: Stored "scb_timing_optimization" - SCB updates are most effective when synchronized with VTuber interaction cycles. This knowledge will improve future autonomous decisions.',
+          text: 'Context updated: Stored "VR topics generate high viewer interest and engagement" in research category with high importance.',
           actions: ['REPLY'],
         }
       }

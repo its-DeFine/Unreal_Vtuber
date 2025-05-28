@@ -75,6 +75,44 @@ BEGIN
     END IF;
 END $$;
 
+-- Memory Lifecycle Tracking Table (for memory archiving system)
+CREATE TABLE IF NOT EXISTS memory_lifecycle (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_id UUID NOT NULL,
+    memory_id UUID NOT NULL,
+    lifecycle_stage VARCHAR(50) NOT NULL, -- 'active', 'archived', 'deleted'
+    importance_score DECIMAL(3,2) DEFAULT 0.5,
+    access_count INTEGER DEFAULT 0,
+    last_accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    archived_at TIMESTAMP NULL,
+    archive_reason VARCHAR(100) NULL,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for memory lifecycle tracking
+CREATE INDEX IF NOT EXISTS idx_memory_lifecycle_agent_id ON memory_lifecycle(agent_id);
+CREATE INDEX IF NOT EXISTS idx_memory_lifecycle_memory_id ON memory_lifecycle(memory_id);
+CREATE INDEX IF NOT EXISTS idx_memory_lifecycle_stage ON memory_lifecycle(lifecycle_stage);
+CREATE INDEX IF NOT EXISTS idx_memory_lifecycle_importance ON memory_lifecycle(importance_score);
+CREATE INDEX IF NOT EXISTS idx_memory_lifecycle_last_accessed ON memory_lifecycle(last_accessed_at);
+CREATE INDEX IF NOT EXISTS idx_memory_lifecycle_archived_at ON memory_lifecycle(archived_at);
+
+-- Update trigger for memory_lifecycle
+CREATE OR REPLACE FUNCTION update_memory_lifecycle_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER memory_lifecycle_update_timestamp
+    BEFORE UPDATE ON memory_lifecycle
+    FOR EACH ROW
+    EXECUTE FUNCTION update_memory_lifecycle_timestamp();
+
 -- Performance indexes for efficient queries
 CREATE INDEX IF NOT EXISTS idx_tool_usage_agent_time ON tool_usage(agent_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_tool_usage_tool_name ON tool_usage(tool_name);
