@@ -157,13 +157,18 @@ export const sendToVTuberAction: Action = {
       const autonomousLoopInterval = parseInt(runtime.getSetting('AUTONOMOUS_LOOP_INTERVAL') || '30000');
       const nextCycleSeconds = Math.round(autonomousLoopInterval / 1000);
       
+      // FIXED: Use lower authority level to avoid conflicts with swarm directives
       const requestPayload = { 
         text: vtuberMessageText,
         autonomous_context: {
           next_cycle_seconds: nextCycleSeconds,
           agent_name: "Autoliza",
-          cycle_type: "autonomous_decision",
-          timestamp: Date.now()
+          cycle_type: "autonomous_suggestion",  // Changed from "autonomous_decision"
+          timestamp: Date.now(),
+          is_directive: false,  // Changed from true to avoid conflicts
+          authority_level: "assistant",  // Changed from "manager" to lower authority
+          source: "autonomous_agent",
+          priority: "normal"  // Added priority level
         }
       };
       logger.debug(`[sendToVTuberAction] Request payload:`, JSON.stringify(requestPayload, null, 2));

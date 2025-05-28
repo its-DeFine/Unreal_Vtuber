@@ -33,6 +33,7 @@ import sendMessageAction from './actions/sendMessage';
 import { updateSettingsAction } from './actions/settings';
 import { makeApiPostAction } from './actions/makeApiPostAction';
 import { sendToVTuberAction } from './actions/sendToVTuberAction';
+import { directVTuberSpeechAction } from './actions/directVTuberSpeechAction';
 import { updateScbAction } from './actions/updateScbAction';
 import { doResearchAction } from './actions/doResearchAction';
 import { updateContextAction } from './actions/updateContextAction';
@@ -746,6 +747,7 @@ export const bootstrapPlugin: Plugin = {
     updateSettingsAction,
     makeApiPostAction,
     sendToVTuberAction,
+    directVTuberSpeechAction,
     updateScbAction,
     doResearchAction,
     updateContextAction,

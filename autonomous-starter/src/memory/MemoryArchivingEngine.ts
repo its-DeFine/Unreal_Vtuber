@@ -229,9 +229,9 @@ export class MemoryArchivingEngine {
         }
       };
 
-      // Store using ElizaOS database adapter
+      // Store using ElizaOS database adapter - Fixed database access
       // Note: This assumes the context_archive table exists from setup_analytics_tables.sql
-      await this.elizaRuntime.databaseAdapter.db.query(`
+      await this.elizaRuntime.db.query(`
         INSERT INTO context_archive (
           agent_id, archived_content, importance_score, archive_reason, metadata
         ) VALUES ($1, $2, $3, $4, $5)
@@ -251,8 +251,8 @@ export class MemoryArchivingEngine {
 
   private async removeFromActiveMemories(memoryId: string): Promise<void> {
     try {
-      // Remove from memories table
-      await this.elizaRuntime.databaseAdapter.db.query(
+      // Remove from memories table - Fixed database access
+      await this.elizaRuntime.db.query(
         'DELETE FROM memories WHERE id = $1',
         [memoryId]
       );
@@ -266,8 +266,8 @@ export class MemoryArchivingEngine {
     try {
       logger.debug(`[MemoryArchivingEngine] Retrieving from archive with query: "${query}"`);
       
-      // Simple text search in archived content
-      const result = await this.elizaRuntime.databaseAdapter.db.query(`
+      // Simple text search in archived content - Fixed database access
+      const result = await this.elizaRuntime.db.query(`
         SELECT archived_content, importance_score, timestamp
         FROM context_archive 
         WHERE agent_id = $1 
@@ -308,7 +308,8 @@ export class MemoryArchivingEngine {
     newestArchived: string;
   }> {
     try {
-      const result = await this.elizaRuntime.databaseAdapter.db.query(`
+      // Fixed database access - use this.elizaRuntime.db instead of this.elizaRuntime.databaseAdapter.db
+      const result = await this.elizaRuntime.db.query(`
         SELECT 
           COUNT(*) as total,
           AVG(importance_score) as avg_importance,
