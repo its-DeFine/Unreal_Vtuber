@@ -8,6 +8,8 @@ export default class AutonomousService extends Service {
   private contextStore: Map<string, any> = new Map();
   private iterationCount: number = 0;
   private memoryArchivingEngine: MemoryArchivingEngine | null = null;
+  private recentActions: Array<{action: string, iteration: number, timestamp: number}> = [];
+  private lastActionTypes: Map<string, number> = new Map(); // Track when each action type was last used
 
   async stop(): Promise<void> {
     logger.info('[AutonomousService] Stopping service...');
@@ -216,6 +218,28 @@ export default class AutonomousService extends Service {
       }
     }
 
+    // Add recent actions to prevent repetition
+    if (this.recentActions.length > 0) {
+      contextSummary += '### Recent Actions (Last 5 iterations):\n';
+      this.recentActions.slice(-5).forEach((actionInfo) => {
+        contextSummary += `- Iteration ${actionInfo.iteration}: ${actionInfo.action}\n`;
+      });
+      contextSummary += '\n';
+    }
+
+    // Add action variety guidance
+    const actionCounts = this.getActionTypeCounts();
+    if (actionCounts.size > 0) {
+      contextSummary += '### Action Variety Analysis:\n';
+      const sortedActions = Array.from(actionCounts.entries()).sort((a, b) => b[1] - a[1]);
+      sortedActions.forEach(([action, count]) => {
+        const lastUsed = this.lastActionTypes.get(action) || 0;
+        const iterationsSince = this.iterationCount - lastUsed;
+        contextSummary += `- ${action}: Used ${count} times (last used ${iterationsSince} iterations ago)\n`;
+      });
+      contextSummary += '\n';
+    }
+
     // Add current state summary
     contextSummary += '### Current State:\n';
     contextSummary += `- Autonomous loop iteration: ${this.iterationCount}\n`;
@@ -223,6 +247,66 @@ export default class AutonomousService extends Service {
     contextSummary += `- Agent role: Autonomous VTuber management and learning system\n\n`;
 
     return contextSummary;
+  }
+
+  private getActionTypeCounts(): Map<string, number> {
+    const counts = new Map<string, number>();
+    this.recentActions.forEach(actionInfo => {
+      const current = counts.get(actionInfo.action) || 0;
+      counts.set(actionInfo.action, current + 1);
+    });
+    return counts;
+  }
+
+  private trackAction(action: string): void {
+    const actionInfo = {
+      action,
+      iteration: this.iterationCount,
+      timestamp: Date.now()
+    };
+    
+    this.recentActions.push(actionInfo);
+    this.lastActionTypes.set(action, this.iterationCount);
+    
+    // Keep only last 10 actions to prevent memory bloat
+    if (this.recentActions.length > 10) {
+      this.recentActions = this.recentActions.slice(-10);
+    }
+    
+    logger.debug(`[AutonomousService] Tracked action: ${action} (iteration ${this.iterationCount})`);
+  }
+
+  private getActionDiversityGuidance(): string {
+    const recentActionTypes = this.recentActions.slice(-3).map(a => a.action);
+    const uniqueRecentActions = new Set(recentActionTypes);
+    
+    // If we've been doing the same action repeatedly, encourage diversity
+    if (recentActionTypes.length >= 3 && uniqueRecentActions.size === 1) {
+      const repeatedAction = recentActionTypes[0];
+      return `\n⚠️ IMPORTANT: You have used ${repeatedAction} for the last 3 iterations. Consider diversifying your actions to maintain engaging VTuber behavior. Try a different action type to avoid repetitive patterns.`;
+    }
+    
+    // If we haven't used certain actions in a while, suggest them
+    const actionsSuggestions = [];
+    const currentIteration = this.iterationCount;
+    
+    if (!this.lastActionTypes.has('SEND_TO_VTUBER') || (currentIteration - this.lastActionTypes.get('SEND_TO_VTUBER')!) > 5) {
+      actionsSuggestions.push('SEND_TO_VTUBER (engage with VTuber directly)');
+    }
+    
+    if (!this.lastActionTypes.has('UPDATE_SCB') || (currentIteration - this.lastActionTypes.get('UPDATE_SCB')!) > 4) {
+      actionsSuggestions.push('UPDATE_SCB (update VTuber environment/mood)');
+    }
+    
+    if (!this.lastActionTypes.has('UPDATE_CONTEXT') || (currentIteration - this.lastActionTypes.get('UPDATE_CONTEXT')!) > 6) {
+      actionsSuggestions.push('UPDATE_CONTEXT (store new insights)');
+    }
+    
+    if (actionsSuggestions.length > 0) {
+      return `\n💡 Consider these underused actions: ${actionsSuggestions.join(', ')}`;
+    }
+    
+    return '';
   }
 
   async updateContextStore(key: string, value: any) {
@@ -252,6 +336,7 @@ export default class AutonomousService extends Service {
 
     const copilotEntityId = createUniqueUuid(this.runtime, this.runtime.agentId);
     const contextSummary = await this.getContextSummary();
+    const diversityGuidance = this.getActionDiversityGuidance();
 
     const enhancedPrompt = `${contextSummary}
 
@@ -269,10 +354,14 @@ Consider:
 2. What knowledge gaps need to be filled through research?
 3. What have you learned that should be stored for future use?
 4. How can you maintain coherent and engaging VTuber behavior?
+5. **Action Variety**: Avoid repeating the same action type consecutively. Mix different actions for better engagement.
 
-Think strategically about your goals and choose actions that will have the most impact. You can choose multiple actions if appropriate.
+Think strategically about your goals and choose actions that will have the most impact. You can choose multiple actions if appropriate.${diversityGuidance}
 
 What will you do next? Please think, plan and act autonomously.`;
+
+    // ENHANCED: Log the full prompt for monitoring
+    logger.debug(`[AutonomousService] Full prompt for iteration ${this.iterationCount}:`, enhancedPrompt);
 
     const newMessage: Memory = {
       content: {
@@ -289,8 +378,26 @@ What will you do next? Please think, plan and act autonomously.`;
       runtime: this.runtime,
       message: newMessage,
       callback: (content) => {
+        // ENHANCED: Log both truncated and full response for monitoring
         logger.info('[AutonomousService] Loop iteration response:', content.text?.substring(0, 100) + '...');
-        logger.debug('[AutonomousService] Full response:', content);
+        logger.debug('[AutonomousService] Full response:', JSON.stringify(content, null, 2));
+        
+        // ENHANCED: Log the actual decision and reasoning for monitoring
+        if (content.text) {
+          logger.info(`[AutonomousService] Agent decision for iteration ${this.iterationCount}: ${content.text.substring(0, 200)}...`);
+        }
+        
+        // Track the action taken in this iteration
+        if (content.actions && content.actions.length > 0) {
+          const primaryAction = content.actions[0];
+          this.trackAction(primaryAction);
+          logger.info(`[AutonomousService] Primary action selected: ${primaryAction}`);
+        }
+        
+        // ENHANCED: Log any tools or providers being used
+        if (content.providers && content.providers.length > 0) {
+          logger.info(`[AutonomousService] Providers activated: ${content.providers.join(', ')}`);
+        }
       },
       onComplete: () => {
         logger.info(`[AutonomousService] Loop iteration ${this.iterationCount} completed`);

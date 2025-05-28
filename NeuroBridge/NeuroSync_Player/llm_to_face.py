@@ -105,7 +105,12 @@ def handle_process_text():
         app.logger.warning("/process_text: Input text cannot be empty")
         return jsonify({"error": "Input text cannot be empty"}), 400
 
+    # Extract autonomous context if provided
+    autonomous_context = request.json.get('autonomous_context', None)
+    
     app.logger.info(f"Received text input for /process_text: {user_input}")
+    if autonomous_context:
+        app.logger.info(f"Autonomous context detected: {autonomous_context}")
 
     # Access necessary components from system_objects
     chunk_queue = system_objects['chunk_queue']
@@ -122,7 +127,8 @@ def handle_process_text():
         chunk_queue, 
         audio_queue, 
         vector_db, 
-        base_system_message=BASE_SYSTEM_MESSAGE
+        base_system_message=BASE_SYSTEM_MESSAGE,
+        autonomous_context=autonomous_context  # Pass autonomous context
     )
     chat_history_global = updated_chat_history # Ensure global history is updated
 

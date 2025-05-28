@@ -152,20 +152,40 @@ export const updateScbAction: Action = {
 
       logger.info('[updateScbAction] ✅ SCB UPDATE EXTRACTED:', JSON.stringify(scbData, null, 2));
 
-      // Send SCB update to VTuber system
+      // Send SCB update directly to SCB API instead of VTuber system to prevent loops
       try {
-        const scbEndpoint = runtime.getSetting('VTUBER_ENDPOINT_URL') || 'http://neurosync:5001/process_text';
+        const scbApiUrl = runtime.getSetting('NEUROSYNC_URL') || 'http://neurosync:5000';
         const scbUpdatePayload = {
-          type: 'scb_update',
-          data: scbData,
-          timestamp: Date.now(),
-          agent_id: runtime.agentId
+          type: 'directive',
+          actor: 'autonomous_manager',
+          text: `SCB Update: ${scbData.description} - Mood: ${scbData.mood}, Intensity: ${scbData.intensity}`,
+          ttl: 30,
+          source: 'autonomous_directive',
+          metadata: {
+            updateType: scbData.updateType,
+            elements: scbData.elements,
+            mood: scbData.mood,
+            intensity: scbData.intensity,
+            duration: scbData.duration,
+            timestamp: Date.now()
+          }
         };
 
-        logger.info(`[updateScbAction] 🎬 SENDING SCB UPDATE to ${scbEndpoint}:`, JSON.stringify(scbUpdatePayload, null, 2));
+        logger.info(`[updateScbAction] 🎬 SENDING SCB DIRECTIVE to ${scbApiUrl}/scb/directive:`, JSON.stringify(scbUpdatePayload, null, 2));
 
-        // Note: In a real implementation, you would send this to the VTuber system
-        // For now, we'll log it and store it as a memory
+        const response = await runtime.fetch(`${scbApiUrl}/scb/directive`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(scbUpdatePayload),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          logger.error(`[updateScbAction] ❌ SCB API FAILED - Status: ${response.status}, Error: ${errorText}`);
+          throw new Error(`SCB API request failed: ${response.status} ${errorText}`);
+        }
+
+        logger.info(`[updateScbAction] ✅ SCB DIRECTIVE SENT SUCCESSFULLY`);
         
         // Store the SCB update as a memory for tracking
         const scbMemory = {
@@ -190,7 +210,7 @@ export const updateScbAction: Action = {
 
         // Log to analytics if available
         try {
-          await runtime.databaseAdapter.db.query(`
+          await runtime.db.query(`
             INSERT INTO tool_usage (
               agent_id, tool_name, input_context, output_result, 
               execution_time_ms, success, impact_score
