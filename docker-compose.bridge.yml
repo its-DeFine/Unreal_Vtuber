@@ -110,6 +110,39 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Database initialization service - runs analytics setup automatically
+  db_init:
+    image: postgres:16-alpine
+    container_name: autonomous_db_init
+    environment:
+      - PGPASSWORD=postgres
+    volumes:
+      - ./setup_analytics_tables.sql:/setup_analytics_tables.sql:ro
+    networks:
+      - scb_bridge_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "
+      echo '🔧 [DB_INIT] Starting database initialization...';
+      echo '📊 [DB_INIT] Setting up analytics tables for autonomous agent...';
+      psql -h postgres -U postgres -d autonomous_agent -f /setup_analytics_tables.sql;
+      if [ $$? -eq 0 ]; then
+        echo '✅ [DB_INIT] Database analytics setup completed successfully!';
+      else
+        echo '❌ [DB_INIT] Database setup failed!';
+        exit 1;
+      fi;
+      echo '🎯 [DB_INIT] Autonomous agent database is ready for Phase 2!';
+      "
+    restart: "no"  # Only run once
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 # --- RTMP server for low-latency audio/video sync ---
 # Old block commented out due to indentation fix
 #nginx-rtmp:
@@ -168,6 +201,8 @@ services:
         condition: service_healthy
       neurosync:
         condition: service_started
+      db_init:
+        condition: service_completed_successfully
     restart: unless-stopped
     logging:
       driver: "json-file"
