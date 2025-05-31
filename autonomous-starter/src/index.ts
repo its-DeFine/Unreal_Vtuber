@@ -12,6 +12,7 @@ dotenv.config();
 import { autoPlugin } from './plugin-auto';
 import { bootstrapPlugin } from './plugin-bootstrap';
 import { openaiPlugin } from '@elizaos/plugin-openai';
+import { evmPlugin } from '@elizaos/plugin-evm';
 
 /**
  * Represents the autonomous VTuber management agent with advanced capabilities.
@@ -29,6 +30,7 @@ export const character: Character = {
   name: 'Autoliza',
   plugins: [
     '@elizaos/plugin-sql',
+    '@elizaos/plugin-evm',
     // ...(process.env.DISCORD_API_TOKEN ? ['@elizaos/plugin-discord'] : []),
     // ...(process.env.TWITTER_USERNAME ? ['@elizaos/plugin-twitter'] : []),
     // ...(process.env.TELEGRAM_BOT_TOKEN ? ['@elizaos/plugin-telegram'] : []),
@@ -51,6 +53,10 @@ export const character: Character = {
       MEMORY_ARCHIVE_HOURS: process.env.MEMORY_ARCHIVE_HOURS || '48',
       MEMORY_IMPORTANCE_THRESHOLD: process.env.MEMORY_IMPORTANCE_THRESHOLD || '0.3',
       
+      // EVM Configuration
+      EVM_PRIVATE_KEY: process.env.EVM_PRIVATE_KEY,
+      EVM_PROVIDER_URL: process.env.EVM_PROVIDER_URL,
+      
       // AI Provider Keys
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
@@ -62,6 +68,10 @@ export const character: Character = {
       TWITTER_USERNAME: process.env.TWITTER_USERNAME,
       TWITTER_PASSWORD: process.env.TWITTER_PASSWORD,
       TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
+    },
+    // EVM Chain Configuration
+    chains: {
+      evm: ["base", "arbitrum", "polygon", "mainnet"]
     },
     // Database-specific settings for SQL plugin
     database: {
@@ -226,7 +236,7 @@ const initCharacter = ({ runtime }: { runtime: IAgentRuntime }) => {
 export const projectAgent: ProjectAgent = {
   character,
   init: async (runtime: IAgentRuntime) => await initCharacter({ runtime }),
-  plugins: [autoPlugin, bootstrapPlugin, openaiPlugin],
+  plugins: [autoPlugin, bootstrapPlugin, openaiPlugin, evmPlugin],
 };
 
 const project: Project = {

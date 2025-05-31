@@ -6,15 +6,13 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH="/app/NeuroBridge:/app/NeuroBridge/NeuroSync_Local_API:/app/NeuroBridge/NeuroSync_Player:/app/neurosync-worker:${PYTHONPATH}"
 
 # ---------- System deps (Install these first for better caching) ----------
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        # GStreamer stack
+# Fix Ubuntu repository issues and add proper error handling
+RUN apt-get update --fix-missing && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --fix-missing \
+        # GStreamer stack - install core components first
         gstreamer1.0-tools \
         gstreamer1.0-plugins-base \
         gstreamer1.0-plugins-good \
-        gstreamer1.0-plugins-bad \
-        gstreamer1.0-plugins-ugly \
-        gstreamer1.0-libav \
         python3-gi \
         python3-gst-1.0 \
         gir1.2-gstreamer-1.0 \
@@ -26,9 +24,22 @@ RUN apt-get update && \
         libasound2-dev \
         # For building Python packages with C extensions (like PyAudio if no wheel isfound)
         build-essential \
-        python3-dev && \
-    # Add ffmpeg and pkg-config, ensure system is updated first
-    apt-get update && apt-get install -y ffmpeg pkg-config gfortran libblas-dev liblapack-dev && \
+        python3-dev \
+        # Add essential tools
+        pkg-config \
+        gfortran \
+        libblas-dev \
+        liblapack-dev && \
+    # Try to install additional GStreamer plugins (these might fail due to 403 errors)
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --fix-missing \
+        gstreamer1.0-plugins-bad \
+        gstreamer1.0-plugins-ugly \
+        gstreamer1.0-libav || echo "Warning: Some GStreamer plugins failed to install but continuing..." && \
+    # Install ffmpeg separately to ensure it's available
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --fix-missing \
+        ffmpeg || echo "Warning: ffmpeg install failed but continuing..." && \
+    # Clean up
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # ---------- Copy source (Copy after system deps for better caching of above layer) ----------

@@ -24,6 +24,7 @@
     "@elizaos/core": "^1.0.0-beta.41",
     "@elizaos/plugin-anthropic": "^1.0.0-beta.41",
     "@elizaos/plugin-bootstrap": "^1.0.0-beta.41",
+    "@elizaos/plugin-evm": "^1.0.0",
     "@elizaos/plugin-local-ai": "^1.0.0-beta.41",
     "@elizaos/plugin-openai": "^1.0.0-beta.41",
     "@elizaos/plugin-pdf": "^1.0.0-beta.40",

@@ -12,4 +12,5 @@ class ColorText:
     YELLOW = "\033[93m"
     BLUE = "\033[94m"
     PURPLE = "\033[95m"
+    MAGENTA = "\033[95m"
     CYAN = "\033[96m" 
