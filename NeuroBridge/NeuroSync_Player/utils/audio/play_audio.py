@@ -71,10 +71,10 @@ def _rtmp_url() -> str:
     """Return the RTMP url to push to.
 
     Prioritizes Twitch if TWITCH_STREAM_KEY is set, otherwise defaults to local RTMP server.
+    Handles both container networking and host networking scenarios.
     """
     twitch_stream_key = os.getenv("TWITCH_STREAM_KEY")
-    obs_host_ip = os.getenv("OBS_HOST_IP", "172.22.80.1") # WSL Host IP for local Docker
-
+    
     if twitch_stream_key:
         twitch_broadcast_mode = os.getenv("TWITCH_BROADCAST_MODE", "test").lower()
         logger.info("Twitch stream key found. Target: Twitch.")
@@ -86,8 +86,20 @@ def _rtmp_url() -> str:
             logger.info("TWITCH_BROADCAST_MODE=test (or not set). Streaming to Twitch in bandwidth test mode.")
             return f"rtmp://live.twitch.tv/app/{twitch_stream_key}?bandwidthtest=true"
     else:
-        logger.info(f"No Twitch key found. Target: Local RTMP server at {obs_host_ip}:1935/live/mystream")
-        return f"rtmp://{obs_host_ip}/live/mystream"
+        # Check if we're running in a container network
+        rtmp_host = os.getenv("RTMP_HOST", "nginx-rtmp")  # Default to container name
+        rtmp_port = os.getenv("RTMP_PORT", "1935")
+        stream_name = os.getenv("RTMP_STREAM_NAME", "audiostream")  # Changed from mystream to audiostream
+        
+        # If RTMP_HOST is not set to container name, fall back to WSL/host networking
+        if rtmp_host == "nginx-rtmp":
+            logger.info(f"Using container networking - Target: {rtmp_host}:{rtmp_port}/live/{stream_name}")
+            return f"rtmp://{rtmp_host}:{rtmp_port}/live/{stream_name}"
+        else:
+            # Legacy WSL host IP fallback
+            obs_host_ip = os.getenv("OBS_HOST_IP", rtmp_host)
+            logger.info(f"Using host networking - Target: {obs_host_ip}:{rtmp_port}/live/{stream_name}")
+            return f"rtmp://{obs_host_ip}:{rtmp_port}/live/{stream_name}"
 
 
 # --- Playback Functions ---

@@ -28,6 +28,11 @@ CORS(app) # Enable CORS for all routes
 # Shared flag path with server_adapter.py
 WINDOW_ACTIVE_FLAG_PATH = "/app/neurosync_window_active.flag"
 
+# Read the environment variable to control payment requirement
+VTUBER_PAYMENT_ENABLED = os.getenv("VTUBER_PAYMENT_ENABLED", "true").lower() == "true"
+# Log the status of payment requirement at startup
+app.logger.info(f"VTuber payment requirement is {'ENABLED' if VTUBER_PAYMENT_ENABLED else 'DISABLED'} in llm_to_face.")
+
 # System objects - to be initialized once
 system_objects = None
 llm_config_global = None
@@ -81,10 +86,15 @@ def main_setup():
 def handle_process_text():
     global chat_history_global, full_history_global # Use global histories
 
-    # Check if the global rolling window is active
-    if not os.path.exists(WINDOW_ACTIVE_FLAG_PATH):
-        app.logger.warning(f"Request to /process_text denied: Rolling window not active (flag not found: {WINDOW_ACTIVE_FLAG_PATH})")
-        return jsonify({"error": "Worker is idle – no active job window"}), 403
+    # Check if the global rolling window is active, ONLY if payment is enabled
+    if VTUBER_PAYMENT_ENABLED:
+        if not os.path.exists(WINDOW_ACTIVE_FLAG_PATH):
+            app.logger.warning(f"Request to /process_text denied (Payment Enabled): Rolling window not active (flag not found: {WINDOW_ACTIVE_FLAG_PATH})")
+            return jsonify({"error": "Worker is idle – no active job window"}), 403
+        else:
+            app.logger.info(f"Payment Enabled: Window active, proceeding with /process_text.")
+    else:
+        app.logger.info(f"Payment DISABLED: Bypassing window active check for /process_text. Flag status: {'exists' if os.path.exists(WINDOW_ACTIVE_FLAG_PATH) else 'not found'}")
 
     if not request.json or 'text' not in request.json:
         app.logger.warning("/process_text: Missing 'text' in JSON payload")
@@ -95,7 +105,12 @@ def handle_process_text():
         app.logger.warning("/process_text: Input text cannot be empty")
         return jsonify({"error": "Input text cannot be empty"}), 400
 
+    # Extract autonomous context if provided
+    autonomous_context = request.json.get('autonomous_context', None)
+    
     app.logger.info(f"Received text input for /process_text: {user_input}")
+    if autonomous_context:
+        app.logger.info(f"Autonomous context detected: {autonomous_context}")
 
     # Access necessary components from system_objects
     chunk_queue = system_objects['chunk_queue']
@@ -112,7 +127,8 @@ def handle_process_text():
         chunk_queue, 
         audio_queue, 
         vector_db, 
-        base_system_message=BASE_SYSTEM_MESSAGE
+        base_system_message=BASE_SYSTEM_MESSAGE,
+        autonomous_context=autonomous_context  # Pass autonomous context
     )
     chat_history_global = updated_chat_history # Ensure global history is updated
 
