@@ -37,6 +37,7 @@ import { directVTuberSpeechAction } from './actions/directVTuberSpeechAction';
 import { updateScbAction } from './actions/updateScbAction';
 import { doResearchAction } from './actions/doResearchAction';
 import { updateContextAction } from './actions/updateContextAction';
+import { evmInteractionAction } from './actions/evmInteractionAction';
 import { actionsProvider } from './providers/actions';
 import { choiceProvider } from './providers/choice';
 import { characterProvider } from './providers/character';
@@ -751,6 +752,7 @@ export const bootstrapPlugin: Plugin = {
     updateScbAction,
     doResearchAction,
     updateContextAction,
+    evmInteractionAction,
   ],
   events,
   evaluators: [],
