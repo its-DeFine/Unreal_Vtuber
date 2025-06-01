@@ -185,7 +185,20 @@ services:
     environment:
       - PORT=3000                            # what the app listens on
       - LOG_LEVEL=debug
-      - OPENAI_API_KEY=${OPENAI_API_KEY}     # OpenAI API key for autonomous agent
+      # AI Provider Configuration - Testing Livepeer as primary
+      - MODEL_PROVIDER=livepeer              # Set Livepeer as primary provider
+      - LIVEPEER_GATEWAY_URL=https://dream-gateway.livepeer.cloud
+      - LIVEPEER_API_KEY=                    # No API key needed for testing
+      - LIVEPEER_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+      - LIVEPEER_LARGE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+      - LIVEPEER_SMALL_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+      - LIVEPEER_TEMPERATURE=0.6
+      - LIVEPEER_MAX_TOKENS=2048
+      # Disable other providers to force Livepeer usage
+      - OPENAI_API_KEY=                      # Disable OpenAI
+      - ANTHROPIC_API_KEY=                   # Disable Anthropic  
+      - GROQ_API_KEY=                        # Disable Groq
+      # VTuber and System Configuration
       - VTUBER_ENDPOINT_URL=http://neurosync:5001/process_text
       - NEUROSYNC_URL=http://neurosync:5000   # in case any other actions need it
       - NEUROSYNC_SCB_URL=http://neurosync:5000/scb/update

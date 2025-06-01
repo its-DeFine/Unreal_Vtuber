@@ -411,3 +411,175 @@ You'll know the setup is working when:
 - ✅ Agent demonstrates autonomous learning behavior
 
 **Happy VTuber Management! 🤖🎭**
+
+# 🤖 Autoliza - Autonomous VTuber Management Agent
+
+Autoliza is an advanced autonomous AI agent designed specifically for VTuber management and interaction. She operates continuously to enhance VTuber experiences through strategic prompts, SCB space management, research, and context learning.
+
+## ✨ Key Features
+
+- **Autonomous Operation**: Continuous learning and decision-making loop
+- **Memory Archiving**: Intelligent memory management for optimal performance
+- **VTuber Integration**: Direct integration with VTuber systems and SCB space control
+- **Multi-Provider AI**: Support for multiple AI providers with intelligent fallback
+- **Research Capabilities**: Autonomous web research for knowledge expansion
+- **Context Management**: Strategic knowledge storage and retrieval
+
+## 🚀 Quick Start
+
+1. **Setup Environment**:
+   ```bash
+   cp environment.example .env
+   # Edit .env with your configuration
+   ```
+
+2. **Configure AI Provider** (choose one):
+   - OpenAI: Set `OPENAI_API_KEY`
+   - Anthropic: Set `ANTHROPIC_API_KEY` 
+   - Groq: Set `GROQ_API_KEY`
+   - Livepeer: Set `LIVEPEER_API_KEY` and `LIVEPEER_GATEWAY_URL`
+
+3. **Run the Agent**:
+   ```bash
+   npm start
+   ```
+
+## 🧠 AI Provider Configuration
+
+Autoliza supports multiple AI providers with intelligent fallback capabilities:
+
+### Provider Selection
+
+Set your preferred provider in `.env`:
+```bash
+# Choose your primary AI provider: "openai", "anthropic", "groq", "livepeer"
+MODEL_PROVIDER=livepeer
+```
+
+### Livepeer Configuration (Decentralized AI)
+
+```bash
+# Livepeer Gateway Configuration
+LIVEPEER_GATEWAY_URL=https://dream-gateway.livepeer.cloud
+LIVEPEER_API_KEY=your-livepeer-api-key-here
+LIVEPEER_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+LIVEPEER_LARGE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+LIVEPEER_SMALL_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+LIVEPEER_TEMPERATURE=0.6
+LIVEPEER_MAX_TOKENS=2048
+```
+
+### Automatic Fallback
+
+If no provider is explicitly set or the configured provider is unavailable, Autoliza will:
+1. Try OpenAI (if `OPENAI_API_KEY` is set)
+2. Try Anthropic (if `ANTHROPIC_API_KEY` is set)  
+3. Try Groq (if `GROQ_API_KEY` is set)
+4. Fallback to Livepeer (always available)
+
+### Benefits of Livepeer
+
+- **Decentralized**: No single point of failure
+- **Cost-effective**: Competitive pricing through distributed network
+- **Privacy**: Enhanced privacy through decentralized infrastructure
+- **Reliability**: Always available as fallback provider
+- **Open Source Models**: Access to leading open-source LLMs
+
+## 📊 Database Configuration
+
+Autoliza uses PostgreSQL for robust data persistence:
+
+```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/autonomous_agent
+```
+
+## 🎯 VTuber Integration
+
+Configure VTuber endpoint for direct interaction:
+
+```bash
+VTUBER_ENDPOINT_URL=http://localhost:5001/process_text
+```
+
+## 🔧 Advanced Configuration
+
+### Memory Archiving
+```bash
+MEMORY_ARCHIVING_ENABLED=true
+MEMORY_ACTIVE_LIMIT=200
+MEMORY_ARCHIVE_HOURS=48
+MEMORY_IMPORTANCE_THRESHOLD=0.3
+```
+
+### Autonomous Agent Settings
+```bash
+AUTONOMOUS_LOOP_INTERVAL=30000
+AGENT_NAME=Autoliza
+```
+
+### Optional Integrations
+```bash
+# Discord
+DISCORD_APPLICATION_ID=your-discord-app-id
+DISCORD_API_TOKEN=your-discord-bot-token
+
+# Twitter/X
+TWITTER_USERNAME=your-twitter-username
+TWITTER_PASSWORD=your-twitter-password
+
+# Telegram
+TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+```
+
+## 📝 Logging and Monitoring
+
+Monitor Autoliza's operations:
+
+```bash
+LOG_LEVEL=info          # debug, info, warn, error
+DB_LOGGING=false        # Enable database query logging
+```
+
+## 🔄 Usage Examples
+
+### Setting Livepeer as Primary Provider
+```bash
+MODEL_PROVIDER=livepeer
+LIVEPEER_API_KEY=your_api_key_here
+# OpenAI not required when using Livepeer
+```
+
+### Multi-Provider Setup with Fallback
+```bash
+MODEL_PROVIDER=openai
+OPENAI_API_KEY=your_openai_key
+LIVEPEER_API_KEY=your_livepeer_key  # Fallback if OpenAI fails
+```
+
+### Livepeer-Only Setup (No API Keys Required)
+```bash
+MODEL_PROVIDER=livepeer
+# Livepeer provides default endpoint and models
+```
+
+## 🛠️ Development
+
+```bash
+npm run dev     # Development mode with hot reload
+npm run build   # Build for production
+npm run test    # Run tests
+```
+
+## 📚 Learn More
+
+- [ElizaOS Documentation](https://elizaos.github.io/eliza/)
+- [Livepeer AI Documentation](https://docs.livepeer.org/)
+- [VTuber Integration Guide](./docs/vtuber-integration.md)
+
+## 🤝 Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+
+## 📄 License
+
+This project is licensed under the MIT License - see [LICENSE](./LICENSE) file for details.
