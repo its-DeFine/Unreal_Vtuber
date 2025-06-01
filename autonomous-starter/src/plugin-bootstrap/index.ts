@@ -33,9 +33,12 @@ import sendMessageAction from './actions/sendMessage';
 import { updateSettingsAction } from './actions/settings';
 import { makeApiPostAction } from './actions/makeApiPostAction';
 import { sendToVTuberAction } from './actions/sendToVTuberAction';
+import { directVTuberSpeechAction } from './actions/directVTuberSpeechAction';
 import { updateScbAction } from './actions/updateScbAction';
 import { doResearchAction } from './actions/doResearchAction';
 import { updateContextAction } from './actions/updateContextAction';
+// TODO: Re-enable when EVM plugin compatibility is resolved
+// import { evmInteractionAction } from './actions/evmInteractionAction';
 import { actionsProvider } from './providers/actions';
 import { choiceProvider } from './providers/choice';
 import { characterProvider } from './providers/character';
@@ -746,6 +749,7 @@ export const bootstrapPlugin: Plugin = {
     updateSettingsAction,
     makeApiPostAction,
     sendToVTuberAction,
+    directVTuberSpeechAction,
     updateScbAction,
     doResearchAction,
     updateContextAction,

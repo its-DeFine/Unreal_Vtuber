@@ -56,6 +56,7 @@ def process_turn(
     flush=True,
     top_n=4,
     ai_id=None,
+    autonomous_context=None,
 ):
     """
     Process a conversation turn by:
@@ -76,6 +77,7 @@ def process_turn(
       flush (bool): If True, flush the queues; if False, wait until idle.
       top_n (int): The number of related context items to pull from the vector DB (if enabled).
       ai_id (optional): If provided, use AI‑specific conversation logging.
+      autonomous_context (dict, optional): Context from autonomous agent to prevent double-logging.
 
     Returns:
       list: The updated chat history.
@@ -99,13 +101,30 @@ def process_turn(
     if pygame.mixer.get_init():
         pygame.mixer.stop()
 
-    # Log user input to SCB before generating response
-    scb_store.append_chat(user_input, actor="user")
+    # Check if this is an autonomous directive to prevent double-logging
+    is_autonomous_directive = (
+        autonomous_context and 
+        autonomous_context.get("is_directive") and 
+        autonomous_context.get("authority_level") == "manager"
+    )
+    
+    # Log user input to SCB only if NOT from autonomous agent (to prevent duplication)
+    if not is_autonomous_directive:
+        scb_store.append_chat(user_input, actor="user")
+        print(f"[TurnProcessing] Logged external user input to SCB: {user_input[:50]}...")
+    else:
+        print(f"[TurnProcessing] Skipped SCB logging for autonomous directive: {user_input[:50]}...")
 
     full_response = stream_llm_chunks(user_input, chat_history, chunk_queue, config=llm_config)
 
-    # Log AI response
-    scb_store.append({"type": "speech", "actor": "vtuber", "text": full_response})
+    # Always log AI response (but mark source appropriately)
+    response_actor = "vtuber_autonomous" if is_autonomous_directive else "vtuber"
+    scb_store.append({
+        "type": "speech", 
+        "actor": response_actor, 
+        "text": full_response,
+        "source": "autonomous_directive" if is_autonomous_directive else "external_input"
+    })
 
     new_turn = {"input": user_input, "response": full_response}
     chat_history.append(new_turn)

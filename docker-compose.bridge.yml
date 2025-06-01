@@ -83,6 +83,66 @@ services:
       - scb_bridge_net
     restart: unless-stopped
 
+  # PostgreSQL database for autonomous agent
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: autonomous_postgres_bridge
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=autonomous_agent
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - autonomous_postgres_data:/var/lib/postgresql/data:rw
+    ports:
+      - '127.0.0.1:5434:5432'  # Different port to avoid conflicts with other postgres instances
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - scb_bridge_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Database initialization service - runs analytics setup automatically
+  db_init:
+    image: postgres:16-alpine
+    container_name: autonomous_db_init
+    environment:
+      - PGPASSWORD=postgres
+    volumes:
+      - ./setup_analytics_tables.sql:/setup_analytics_tables.sql:ro
+    networks:
+      - scb_bridge_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "
+      echo '🔧 [DB_INIT] Starting database initialization...';
+      echo '📊 [DB_INIT] Setting up analytics tables for autonomous agent...';
+      psql -h postgres -U postgres -d autonomous_agent -f /setup_analytics_tables.sql;
+      if [ $$? -eq 0 ]; then
+        echo '✅ [DB_INIT] Database analytics setup completed successfully!';
+      else
+        echo '❌ [DB_INIT] Database setup failed!';
+        exit 1;
+      fi;
+      echo '🎯 [DB_INIT] Autonomous agent database is ready for Phase 2!';
+      "
+    restart: "no"  # Only run once
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 # --- RTMP server for low-latency audio/video sync ---
 # Old block commented out due to indentation fix
 #nginx-rtmp:
@@ -125,15 +185,43 @@ services:
     environment:
       - PORT=3000                            # what the app listens on
       - LOG_LEVEL=debug
-      - OPENAI_API_KEY=${OPENAI_API_KEY}     # OpenAI API key for autonomous agent
+      # AI Provider Configuration - Testing Livepeer as primary
+      - MODEL_PROVIDER=livepeer              # Set Livepeer as primary provider
+      - LIVEPEER_GATEWAY_URL=https://dream-gateway.livepeer.cloud
+      - LIVEPEER_API_KEY=                    # No API key needed for testing
+      - LIVEPEER_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+      - LIVEPEER_LARGE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+      - LIVEPEER_SMALL_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+      - LIVEPEER_TEMPERATURE=0.6
+      - LIVEPEER_MAX_TOKENS=2048
+      # Disable other providers to force Livepeer usage
+      - OPENAI_API_KEY=                      # Disable OpenAI
+      - ANTHROPIC_API_KEY=                   # Disable Anthropic  
+      - GROQ_API_KEY=                        # Disable Groq
+      # VTuber and System Configuration
       - VTUBER_ENDPOINT_URL=http://neurosync:5001/process_text
       - NEUROSYNC_URL=http://neurosync:5000   # in case any other actions need it
       - NEUROSYNC_SCB_URL=http://neurosync:5000/scb/update
       - AUTONOMOUS_LOOP_INTERVAL=30000        # 30 seconds between iterations
+      # Database Configuration - Connect to the postgres service in this network
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
+      - POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
+      - DB_TYPE=postgres
     networks:
       - scb_bridge_net
     depends_on:
-      - neurosync
+      postgres:
+        condition: service_healthy
+      neurosync:
+        condition: service_started
+      db_init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   scb_bridge_net:
@@ -142,3 +230,6 @@ networks:
 volumes:
   redis_data:
     driver: local
+  autonomous_postgres_data:
+    driver: local
+    name: autonomous_postgres_bridge_data

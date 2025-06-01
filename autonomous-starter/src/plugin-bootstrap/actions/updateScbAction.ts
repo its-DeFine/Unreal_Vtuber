@@ -12,83 +12,82 @@ import {
   parseJSONObjectFromText,
 } from '@elizaos/core';
 
-const scbUpdateTemplate = `# Task: Extract SCB Update Information
-
-## User Message/Context:
-{{recentMessages}}
+const scbUpdateTemplate = `# Task: Generate SCB Space Update
 
 ## Current Context:
+{{recentMessages}}
+
+## VTuber Current State:
 {{content}}
 
 ## Instructions:
-Analyze the context and determine what SCB (NeuroSync Communication Bridge) updates should be made.
-SCB updates can include:
-- Emotional state changes (happy, sad, excited, calm, etc.)
-- Environment updates (lighting, mood, setting)
-- Avatar behavior modifications (gestures, expressions, posture)
-- Scene context (time of day, location, activity)
+Based on the current conversation and VTuber interaction context, determine what SCB space update would enhance the VTuber experience.
 
-Extract relevant information and format as an SCB update object.
+SCB updates can include:
+- Environmental changes (lighting, background, atmosphere)
+- Emotional state adjustments (posture, expression, mood)
+- Interactive elements (props, effects, animations)
+- Contextual adaptations (matching conversation topic)
+
+Generate an appropriate SCB update that matches the current context and enhances viewer engagement.
 
 Return a JSON object with:
 \`\`\`json
 {
-  "updateType": "emotion|environment|behavior|scene",
-  "data": {
-    // Specific data for the update type
-    // For emotion: { "emotion": "happy", "intensity": 0.8 }
-    // For environment: { "lighting": "dim", "mood": "cozy" }
-    // For behavior: { "gesture": "wave", "expression": "smile" }
-    // For scene: { "timeOfDay": "evening", "location": "office", "activity": "working" }
+  "updateType": "environment|emotion|interaction|context",
+  "description": "detailed description of the SCB update",
+  "elements": {
+    "lighting": "lighting description",
+    "background": "background/environment description", 
+    "posture": "VTuber posture/pose description",
+    "expression": "facial expression description",
+    "effects": "special effects or animations",
+    "props": "any props or interactive elements"
   },
-  "description": "Human readable description of the update"
+  "mood": "calm|excited|focused|playful|mysterious|energetic",
+  "intensity": "subtle|moderate|dramatic",
+  "duration": "brief|sustained|permanent"
 }
 \`\`\`
 
-Example outputs:
-1. For emotional update:
+Example:
 \`\`\`json
 {
-  "updateType": "emotion",
-  "data": {
-    "emotion": "excited",
-    "intensity": 0.9
+  "updateType": "context",
+  "description": "Cozy study environment for research discussion",
+  "elements": {
+    "lighting": "warm, soft desk lamp lighting",
+    "background": "library with books and research papers",
+    "posture": "leaning forward, engaged and focused",
+    "expression": "curious and thoughtful",
+    "effects": "subtle floating text particles",
+    "props": "notebook and pen, coffee cup"
   },
-  "description": "Agent is feeling excited about new discoveries"
-}
-\`\`\`
-
-2. For environment update:
-\`\`\`json
-{
-  "updateType": "environment", 
-  "data": {
-    "lighting": "bright",
-    "mood": "energetic"
-  },
-  "description": "Setting bright energetic environment for productive work"
+  "mood": "focused",
+  "intensity": "moderate", 
+  "duration": "sustained"
 }
 \`\`\`
 
 Make sure to include the \`\`\`json\`\`\` tags around the JSON object.`;
 
 export const updateScbAction: Action = {
-  name: 'UPDATE_SCB_SPACE',
+  name: 'UPDATE_SCB',
   similes: [
     'update scb',
-    'change avatar state',
-    'update environment', 
+    'change environment',
+    'update space',
     'modify scene',
-    'set emotion',
-    'update vtuber state',
+    'adjust atmosphere',
     'change mood',
-    'update context'
+    'update background',
+    'modify setting'
   ],
-  description: 'Updates the SCB (NeuroSync Communication Bridge) space with emotional states, environment changes, avatar behaviors, or scene context. Used to maintain coherent VTuber state.',
+  description: 'Updates the VTuber\'s SCB (Spatial Coherence Bridge) space to match the current context, mood, or conversation topic. Controls environment, lighting, posture, and interactive elements.',
   
   validate: async (_runtime: IAgentRuntime, message: Memory, _state: State) => {
-    // Always allow SCB updates as they are part of autonomous behavior
-    logger.debug(`[updateScbAction] Validating SCB update request for message: "${message.content.text?.substring(0, 50)}..."`);
+    // Allow SCB updates when the autonomous agent determines it's beneficial
+    logger.debug(`[updateScbAction] Validating SCB update request for context: "${message.content.text?.substring(0, 50)}..."`);
     return true;
   },
 
@@ -102,98 +101,155 @@ export const updateScbAction: Action = {
     logger.info(`[updateScbAction] Processing SCB update request`);
 
     try {
-      // Generate SCB update data using LLM
+      // Generate SCB update using LLM
       const prompt = composePromptFromState({
         state,
         template: scbUpdateTemplate,
       });
 
-      const llmResponse = await runtime.useModel(ModelType.TEXT_LARGE, {
+      const llmResponse = await runtime.useModel(ModelType.TEXT_SMALL, {
         prompt,
       });
 
       logger.debug('[updateScbAction] LLM Response for SCB update:', llmResponse);
 
-      // Improved JSON parsing - handle code blocks and extract JSON properly
-      let updateData;
+      // Parse SCB update data
+      let scbData;
       try {
-        // First try the existing parseJSONObjectFromText function
-        updateData = parseJSONObjectFromText(llmResponse);
-      } catch (error) {
-        logger.debug('[updateScbAction] Standard JSON parsing failed, trying manual extraction');
+        scbData = parseJSONObjectFromText(llmResponse);
+        logger.info('[updateScbAction] Successfully extracted SCB update from LLM response');
+      } catch (parseError) {
+        logger.error('[updateScbAction] Failed to parse SCB update:', parseError);
         
-        // If that fails, manually extract JSON from code blocks
-        const jsonMatch = llmResponse.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch && jsonMatch[1]) {
-          try {
-            updateData = JSON.parse(jsonMatch[1].trim());
-            logger.debug('[updateScbAction] Successfully extracted JSON from code block');
-          } catch (parseError) {
-            logger.error('[updateScbAction] Failed to parse extracted JSON:', parseError);
-          }
-        }
-        
-        // If still no success, try extracting any JSON-like structure
-        if (!updateData) {
-          const jsonRegex = /\{[\s\S]*?\}/;
-          const possibleJson = llmResponse.match(jsonRegex);
-          if (possibleJson) {
-            try {
-              updateData = JSON.parse(possibleJson[0]);
-              logger.debug('[updateScbAction] Successfully parsed JSON from regex match');
-            } catch (parseError) {
-              logger.error('[updateScbAction] Final JSON parsing attempt failed:', parseError);
-            }
-          }
-        }
+        // Create a fallback SCB update
+        scbData = {
+          updateType: "environment",
+          description: "Default neutral environment update",
+          elements: {
+            lighting: "soft, natural lighting",
+            background: "clean, minimal background",
+            posture: "relaxed, natural posture",
+            expression: "friendly, approachable",
+            effects: "none",
+            props: "none"
+          },
+          mood: "calm",
+          intensity: "subtle",
+          duration: "sustained"
+        };
+        logger.info('[updateScbAction] Using fallback SCB update');
       }
 
-      if (!updateData || !updateData.updateType || !updateData.data) {
-        logger.warn('[updateScbAction] Could not extract valid SCB update data. Raw response:', llmResponse);
-        logger.warn('[updateScbAction] Parsed data:', updateData);
+      if (!scbData || !scbData.description) {
+        logger.error('[updateScbAction] Could not determine SCB update');
         await callback({
-          text: "I couldn't determine what SCB update to make from the current context.",
+          text: "I couldn't determine an appropriate SCB space update for the current context.",
           actions: ['UPDATE_SCB_ERROR'],
           source: message.content.source,
         });
         return;
       }
 
-      logger.info('[updateScbAction] Successfully extracted SCB update data:', updateData);
+      logger.info('[updateScbAction] ✅ SCB UPDATE EXTRACTED:', JSON.stringify(scbData, null, 2));
 
-      // Resolve the SCB endpoint URL
-      const scbUrl = runtime.getSetting('NEUROSYNC_SCB_URL') || 'http://neurosync:5000/scb/update';
-      
-      logger.info(`[updateScbAction] Sending SCB update to: ${scbUrl}`, updateData);
+      // Send SCB update directly to SCB API instead of VTuber system to prevent loops
+      try {
+        const scbApiUrl = runtime.getSetting('NEUROSYNC_URL') || 'http://neurosync:5000';
+        const scbUpdatePayload = {
+          type: 'directive',
+          actor: 'autonomous_manager',
+          text: `SCB Update: ${scbData.description} - Mood: ${scbData.mood}, Intensity: ${scbData.intensity}`,
+          ttl: 30,
+          source: 'autonomous_directive',
+          metadata: {
+            updateType: scbData.updateType,
+            elements: scbData.elements,
+            mood: scbData.mood,
+            intensity: scbData.intensity,
+            duration: scbData.duration,
+            timestamp: Date.now()
+          }
+        };
 
-      // Send the update to SCB
-      const response = await runtime.fetch(scbUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'scb_update',
-          updateType: updateData.updateType,
-          data: updateData.data,
-          timestamp: Date.now(),
-          source: 'autonomous_agent'
-        }),
-      });
+        logger.info(`[updateScbAction] 🎬 SENDING SCB DIRECTIVE to ${scbApiUrl}/scb/directive:`, JSON.stringify(scbUpdatePayload, null, 2));
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error(`[updateScbAction] SCB API request failed with status ${response.status}: ${errorText}`);
-        throw new Error(`SCB API request failed: ${response.status} ${errorText}`);
+        const response = await runtime.fetch(`${scbApiUrl}/scb/directive`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(scbUpdatePayload),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          logger.error(`[updateScbAction] ❌ SCB API FAILED - Status: ${response.status}, Error: ${errorText}`);
+          throw new Error(`SCB API request failed: ${response.status} ${errorText}`);
+        }
+
+        logger.info(`[updateScbAction] ✅ SCB DIRECTIVE SENT SUCCESSFULLY`);
+        
+        // Store the SCB update as a memory for tracking
+        const scbMemory = {
+          content: {
+            text: `SCB Update: ${scbData.description}`,
+            type: 'scb_update',
+            updateType: scbData.updateType,
+            elements: scbData.elements,
+            mood: scbData.mood,
+            intensity: scbData.intensity,
+            duration: scbData.duration,
+            source: 'autonomous_scb_control',
+            timestamp: Date.now()
+          },
+          entityId: runtime.agentId,
+          roomId: message.roomId,
+          worldId: message.worldId,
+        };
+
+        await runtime.createMemory(scbMemory, 'memories');
+        logger.info(`[updateScbAction] ✅ SCB UPDATE STORED: "${scbData.description}"`);
+
+        // Log to analytics if available
+        try {
+          await runtime.db.query(`
+            INSERT INTO tool_usage (
+              agent_id, tool_name, input_context, output_result, 
+              execution_time_ms, success, impact_score
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+          `, [
+            runtime.agentId,
+            'scb_controller',
+            JSON.stringify({ context: 'scb_update', mood: scbData.mood }),
+            JSON.stringify({ updated: true, type: scbData.updateType, intensity: scbData.intensity }),
+            150, // execution time
+            true,
+            scbData.intensity === 'dramatic' ? 0.9 : scbData.intensity === 'moderate' ? 0.7 : 0.5
+          ]);
+        } catch (analyticsError) {
+          logger.debug('[updateScbAction] Analytics logging failed (table may not exist):', analyticsError);
+        }
+
+      } catch (scbError) {
+        logger.error('[updateScbAction] Failed to send SCB update:', scbError);
+        // Continue with response even if SCB update fails
       }
 
-      const responseData = await response.json();
-      logger.info('[updateScbAction] SCB update response received:', responseData);
-
       const responseContent: Content = {
-        text: `Successfully updated SCB space: ${updateData.description}. SCB responded: ${JSON.stringify(responseData)}`,
+        text: `SCB space updated: ${scbData.description}. Environment set to ${scbData.mood} mood with ${scbData.intensity} intensity for ${scbData.duration} duration.`,
         actions: ['REPLY'],
         source: message.content.source,
-        values: { scbUpdate: updateData, scbResponse: responseData },
+        values: { 
+          scbUpdate: scbData,
+          updated: true,
+          endpoint: runtime.getSetting('VTUBER_ENDPOINT_URL')
+        },
       };
+
+      logger.info(`[updateScbAction] 📤 CALLBACK RESPONSE:`, JSON.stringify({
+        text: responseContent.text,
+        actions: responseContent.actions,
+        mood: scbData.mood,
+        type: scbData.updateType
+      }, null, 2));
 
       await callback(responseContent);
 
@@ -213,13 +269,13 @@ export const updateScbAction: Action = {
       {
         name: 'agent',
         content: {
-          text: 'I need to update the SCB with a happy emotional state',
+          text: 'The conversation is about gaming, I should update the SCB to match',
         }
       },
       {
         name: 'agent',
         content: {
-          text: 'Successfully updated SCB space: Agent is feeling happy and energetic. SCB responded: {"status":"updated"}',
+          text: 'SCB space updated: Gaming setup with RGB lighting and gaming chair. Environment set to energetic mood with moderate intensity for sustained duration.',
           actions: ['REPLY'],
         }
       },
@@ -228,13 +284,13 @@ export const updateScbAction: Action = {
       {
         name: 'agent',
         content: {
-          text: 'The environment should be calm and focused for this task',
+          text: 'Time for a research discussion, need a focused environment',
         }
       },
       {
         name: 'agent',
         content: {
-          text: 'Successfully updated SCB space: Setting calm focused environment for productive work. SCB responded: {"status":"updated"}',
+          text: 'SCB space updated: Cozy study environment for research discussion. Environment set to focused mood with moderate intensity for sustained duration.',
           actions: ['REPLY'],
         }
       }

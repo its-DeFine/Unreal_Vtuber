@@ -73,13 +73,66 @@ def setup_logging_and_tee():
 def main_setup():
     global system_objects, llm_config_global, chat_history_global, full_history_global
 
+    print("🚀 Initializing NeuroSync Player with Local LLM Support")
+    print("=" * 60)
+    
     llm_config_global = get_llm_config(system_message=BASE_SYSTEM_MESSAGE)
+    
+    # Enhanced LLM configuration logging
+    provider = llm_config_global.get("LLM_PROVIDER", "openai")
+    print(f"🤖 LLM Provider: {provider.upper()}")
+    
+    if provider == "ollama":
+        endpoint = llm_config_global.get("OLLAMA_API_ENDPOINT", "http://vtuber-ollama:11434")
+        model = llm_config_global.get("OLLAMA_MODEL", "llama3.2:3b")
+        streaming = llm_config_global.get("OLLAMA_STREAMING", True)
+        print(f"🦙 Ollama Configuration:")
+        print(f"   📡 Endpoint: {endpoint}")
+        print(f"   🤖 Model: {model}")
+        print(f"   ⚡ Streaming: {'Enabled' if streaming else 'Disabled'}")
+        
+        # Test Ollama connection
+        try:
+            import requests
+            response = requests.get(f"{endpoint}/api/tags", timeout=3)
+            if response.ok:
+                models = response.json().get('models', [])
+                print(f"   ✅ Connection successful ({len(models)} models available)")
+                model_names = [m.get('name', 'unknown') for m in models[:3]]  # Show first 3
+                if model_names:
+                    print(f"   📋 Available models: {', '.join(model_names)}")
+            else:
+                print(f"   ⚠️ Connection warning: HTTP {response.status_code}")
+        except Exception as e:
+            print(f"   ❌ Connection test failed: {e}")
+            print("   💡 Make sure Ollama is running: docker-compose -f docker-compose.ollama.yml up -d")
+            
+    elif provider == "openai":
+        model = llm_config_global.get("OPENAI_MODEL", "gpt-4o")
+        api_key = llm_config_global.get("OPENAI_API_KEY", "")
+        print(f"🎯 OpenAI Configuration:")
+        print(f"   🤖 Model: {model}")
+        print(f"   🔑 API Key: {'✅ Set' if api_key else '❌ Missing'}")
+        
+    elif provider == "custom_local":
+        api_url = llm_config_global.get("LLM_API_URL", "")
+        stream_url = llm_config_global.get("LLM_STREAM_URL", "")
+        print(f"🔧 Custom Local LLM Configuration:")
+        print(f"   📡 API URL: {api_url}")
+        print(f"   🌊 Stream URL: {stream_url}")
+    
+    streaming = llm_config_global.get("USE_STREAMING", True)
+    print(f"⚡ Streaming: {'Enabled' if streaming else 'Disabled'}")
+    print(f"🧠 Vector DB: {'Enabled' if llm_config_global.get('USE_VECTOR_DB') else 'Disabled'}")
+    print("=" * 60)
+    
     system_objects = initialize_system()
     # Initialize global histories from system_objects
     chat_history_global = system_objects['chat_history']
     full_history_global = system_objects['full_history']
     
-    print("NeuroSync Player System Initialized for HTTP interaction.")
+    print("✅ NeuroSync Player System Initialized for HTTP interaction with Local LLM support.")
+    print("💡 Ready to process VTuber interactions!")
 
 
 @app.route("/process_text", methods=['POST'])
@@ -105,7 +158,15 @@ def handle_process_text():
         app.logger.warning("/process_text: Input text cannot be empty")
         return jsonify({"error": "Input text cannot be empty"}), 400
 
-    app.logger.info(f"Received text input for /process_text: {user_input}")
+    # Extract autonomous context if provided
+    autonomous_context = request.json.get('autonomous_context', None)
+    
+    # Enhanced logging with LLM provider information
+    provider = llm_config_global.get("LLM_PROVIDER", "openai")
+    app.logger.info(f"📝 Processing text with {provider.upper()}: {user_input[:100]}{'...' if len(user_input) > 100 else ''}")
+    
+    if autonomous_context:
+        app.logger.info(f"🤖 Autonomous context detected: {autonomous_context}")
 
     # Access necessary components from system_objects
     chunk_queue = system_objects['chunk_queue']
@@ -122,14 +183,23 @@ def handle_process_text():
         chunk_queue, 
         audio_queue, 
         vector_db, 
-        base_system_message=BASE_SYSTEM_MESSAGE
+        base_system_message=BASE_SYSTEM_MESSAGE,
+        autonomous_context=autonomous_context  # Pass autonomous context
     )
     chat_history_global = updated_chat_history # Ensure global history is updated
 
     # The actual response from process_turn isn't directly sent back here.
     # The function queues data for TTS and animation.
     # We can return a simple success message.
-    return jsonify({"status": "processing", "message": "Input processed."}), 200
+    response_data = {
+        "status": "processing", 
+        "message": "Input processed.",
+        "llm_provider": provider,
+        "model": llm_config_global.get(f"{provider.upper()}_MODEL") if provider != "custom_local" else "custom"
+    }
+    
+    app.logger.info(f"✅ Text processing completed with {provider}")
+    return jsonify(response_data), 200
 
 def cleanup_resources():
     global system_objects
@@ -166,7 +236,7 @@ if __name__ == "__main__":
     app.logger.setLevel(logging.INFO) # Or DEBUG if needed
 
     flask_port = int(os.getenv("PLAYER_PORT", "5001")) # Make port configurable
-    app.logger.info(f"Starting NeuroSync Player HTTP server on port {flask_port}...")
+    app.logger.info(f"🌐 Starting NeuroSync Player HTTP server on port {flask_port}...")
     
     try:
         app.run(host='0.0.0.0', port=flask_port, debug=False) # debug=False for production/container
