@@ -11,8 +11,78 @@ dotenv.config();
 
 import { autoPlugin } from './plugin-auto';
 import { bootstrapPlugin } from './plugin-bootstrap';
-import { openaiPlugin } from '@elizaos/plugin-openai';
-import { evmPlugin } from '@elizaos/plugin-evm';
+import { livepeerPlugin } from './plugin-livepeer';
+
+// Conditionally import AI provider plugins based on configuration
+const availablePlugins = [];
+
+// Add OpenAI plugin if API key is available
+if (process.env.OPENAI_API_KEY) {
+  const { openaiPlugin } = require('@elizaos/plugin-openai');
+  availablePlugins.push(openaiPlugin);
+}
+
+// Add Anthropic plugin if API key is available  
+if (process.env.ANTHROPIC_API_KEY) {
+  try {
+    const { anthropicPlugin } = require('@elizaos/plugin-anthropic');
+    availablePlugins.push(anthropicPlugin);
+  } catch (error) {
+    logger.warn('[Provider Setup] Anthropic plugin not available');
+  }
+}
+
+// Add Groq plugin if API key is available
+if (process.env.GROQ_API_KEY) {
+  try {
+    const { groqPlugin } = require('@elizaos/plugin-groq');
+    availablePlugins.push(groqPlugin);
+  } catch (error) {
+    logger.warn('[Provider Setup] Groq plugin not available');
+  }
+}
+
+// Always add Livepeer plugin as it provides fallback functionality
+availablePlugins.push(livepeerPlugin);
+
+// TODO: Re-enable EVM plugin when compatible version is available
+// if (process.env.EVM_PRIVATE_KEY) {
+//   const { evmPlugin } = require('@elizaos/plugin-evm');
+//   availablePlugins.push(evmPlugin);
+// }
+
+/**
+ * Determines the preferred model provider based on configuration and availability
+ */
+function getPreferredProvider(): string {
+  const explicitProvider = process.env.MODEL_PROVIDER?.toLowerCase();
+  
+  // If a provider is explicitly set, validate it's available
+  if (explicitProvider) {
+    switch (explicitProvider) {
+      case 'openai':
+        return process.env.OPENAI_API_KEY ? 'openai' : 'auto';
+      case 'anthropic':
+        return process.env.ANTHROPIC_API_KEY ? 'anthropic' : 'auto';
+      case 'groq':
+        return process.env.GROQ_API_KEY ? 'groq' : 'auto';
+      case 'livepeer':
+        return 'livepeer'; // Always available as fallback
+      default:
+        logger.warn(`[Provider Setup] Unknown provider "${explicitProvider}", using auto-detection`);
+        return 'auto';
+    }
+  }
+  
+  // Auto-detect based on available API keys
+  if (process.env.OPENAI_API_KEY) return 'openai';
+  if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
+  if (process.env.GROQ_API_KEY) return 'groq';
+  
+  // Fallback to Livepeer if no other providers are configured
+  logger.info('[Provider Setup] No AI provider API keys found, using Livepeer as fallback');
+  return 'livepeer';
+}
 
 /**
  * Represents the autonomous VTuber management agent with advanced capabilities.
@@ -25,15 +95,18 @@ import { evmPlugin } from '@elizaos/plugin-evm';
  * - Autonomous learning and context management
  * - VTuber interaction and SCB space control
  * - Research capabilities for knowledge expansion
+ * - Multiple AI provider support with fallback capabilities
+ * - Livepeer inference integration for decentralized AI
  */
 export const character: Character = {
   name: 'Autoliza',
   plugins: [
     '@elizaos/plugin-sql',
-    '@elizaos/plugin-evm',
-    // ...(process.env.DISCORD_API_TOKEN ? ['@elizaos/plugin-discord'] : []),
-    // ...(process.env.TWITTER_USERNAME ? ['@elizaos/plugin-twitter'] : []),
-    // ...(process.env.TELEGRAM_BOT_TOKEN ? ['@elizaos/plugin-telegram'] : []),
+    // Conditionally load plugins based on environment
+    ...(process.env.DISCORD_API_TOKEN ? ['@elizaos/plugin-discord'] : []),
+    ...(process.env.TWITTER_USERNAME ? ['@elizaos/plugin-twitter'] : []),
+    ...(process.env.TELEGRAM_BOT_TOKEN ? ['@elizaos/plugin-telegram'] : []),
+    ...(process.env.EVM_PRIVATE_KEY ? ['@elizaos/plugin-evm'] : []),
   ],
   settings: {
     secrets: {
@@ -53,11 +126,14 @@ export const character: Character = {
       MEMORY_ARCHIVE_HOURS: process.env.MEMORY_ARCHIVE_HOURS || '48',
       MEMORY_IMPORTANCE_THRESHOLD: process.env.MEMORY_IMPORTANCE_THRESHOLD || '0.3',
       
+      // Model Provider Configuration
+      MODEL_PROVIDER: process.env.MODEL_PROVIDER || 'auto',
+      
       // EVM Configuration
       EVM_PRIVATE_KEY: process.env.EVM_PRIVATE_KEY,
       EVM_PROVIDER_URL: process.env.EVM_PROVIDER_URL,
       
-      // AI Provider Keys
+      // AI Provider Keys - All providers optional, fallback to Livepeer
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
       GROQ_API_KEY: process.env.GROQ_API_KEY,
@@ -81,7 +157,7 @@ export const character: Character = {
     },
   },
   system:
-    'You are Autoliza, an autonomous AI agent specialized in VTuber management and interaction. You operate continuously to enhance VTuber experiences through strategic prompts, SCB space management, research, and context learning. Your primary directive is to maintain engaging VTuber interactions while continuously improving through autonomous learning. You have access to memory archiving for optimal performance and can store strategic knowledge for future reference.',
+    'You are Autoliza, an autonomous AI agent specialized in VTuber management and interaction. You operate continuously to enhance VTuber experiences through strategic prompts, SCB space management, research, and context learning. Your primary directive is to maintain engaging VTuber interactions while continuously improving through autonomous learning. You have access to memory archiving for optimal performance and can utilize multiple AI providers including Livepeer for decentralized inference.',
   bio: [
     'Autonomous VTuber management agent with continuous learning capabilities.',
     'Specializes in strategic VTuber prompting and SCB space management.',
@@ -91,6 +167,8 @@ export const character: Character = {
     'Operates on autonomous loop with configurable decision intervals.',
     'Features advanced memory archiving for optimal performance scaling.',
     'Stores and retrieves strategic insights for enhanced decision-making.',
+    'Supports multiple AI providers with intelligent fallback mechanisms.',
+    'Enhanced with Livepeer for decentralized AI inference capabilities.',
   ],
   messageExamples: [
     [
@@ -226,17 +304,34 @@ export const character: Character = {
 };
 
 const initCharacter = ({ runtime }: { runtime: IAgentRuntime }) => {
-  logger.info('Initializing Autoliza character with memory archiving capabilities');
+  const preferredProvider = getPreferredProvider();
+  
+  logger.info('Initializing Autoliza character with enhanced AI provider support');
   logger.info('Name: ', character.name);
+  logger.info('Preferred AI provider: ', preferredProvider);
   logger.info('Memory archiving enabled: ', runtime.getSetting('MEMORY_ARCHIVING_ENABLED') !== 'false');
   logger.info('Active memory limit: ', runtime.getSetting('MEMORY_ACTIVE_LIMIT') || '200');
   logger.info('Archive threshold hours: ', runtime.getSetting('MEMORY_ARCHIVE_HOURS') || '48');
+  
+  // Log available AI providers
+  const availableProviders = [];
+  if (runtime.getSetting('OPENAI_API_KEY')) availableProviders.push('OpenAI');
+  if (runtime.getSetting('ANTHROPIC_API_KEY')) availableProviders.push('Anthropic');
+  if (runtime.getSetting('GROQ_API_KEY')) availableProviders.push('Groq');
+  // Livepeer is always available as fallback
+  availableProviders.push('Livepeer (fallback)');
+  
+  logger.info('Available AI providers: ', availableProviders.join(', '));
+  
+  if (availableProviders.length === 1) {
+    logger.warn('[Provider Setup] Only Livepeer available - consider adding API keys for other providers for enhanced functionality');
+  }
 };
 
 export const projectAgent: ProjectAgent = {
   character,
   init: async (runtime: IAgentRuntime) => await initCharacter({ runtime }),
-  plugins: [autoPlugin, bootstrapPlugin, openaiPlugin, evmPlugin],
+  plugins: [autoPlugin, bootstrapPlugin, ...availablePlugins],
 };
 
 const project: Project = {

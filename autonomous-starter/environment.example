@@ -16,6 +16,14 @@ AUTONOMOUS_LOOP_INTERVAL=30000
 AGENT_NAME=Autoliza
 
 # =================================
+# AI MODEL PROVIDER SELECTION
+# =================================
+
+# Choose your primary AI provider: "openai", "anthropic", "groq", "livepeer"
+# If not specified, will auto-detect based on available API keys
+MODEL_PROVIDER=openai
+
+# =================================
 # AI PROVIDER API KEYS
 # =================================
 
@@ -27,6 +35,15 @@ ANTHROPIC_API_KEY=sk-ant-your-anthropic-key-here
 
 # Groq (Fast inference alternative)
 GROQ_API_KEY=gsk_your-groq-api-key-here
+
+# Livepeer (Decentralized AI inference)
+LIVEPEER_GATEWAY_URL=https://dream-gateway.livepeer.cloud
+LIVEPEER_API_KEY=your-livepeer-api-key-here
+LIVEPEER_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+LIVEPEER_LARGE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+LIVEPEER_SMALL_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+LIVEPEER_TEMPERATURE=0.6
+LIVEPEER_MAX_TOKENS=2048
 
 # =================================
 # SOCIAL MEDIA INTEGRATIONS (Optional)
