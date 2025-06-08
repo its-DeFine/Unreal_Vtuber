@@ -396,6 +396,23 @@ export function createApiRouter(
     );
   });
 
+  // Health check endpoint - must be before plugin routes middleware
+  router.get('/health', (_req, res) => {
+    logger.info('Health check endpoint hit');
+    res.setHeader('Content-Type', 'application/json');
+    const healthcheck = {
+      status: 'OK',
+      version: process.env.APP_VERSION || 'unknown',
+      timestamp: new Date().toISOString(),
+      dependencies: {
+        agents: agents.size > 0 ? 'healthy' : 'no_agents',
+      },
+    };
+
+    const statusCode = healthcheck.dependencies.agents === 'healthy' ? 200 : 503;
+    res.status(statusCode).json(healthcheck);
+  });
+
   // Define plugin routes middleware function
   const handlePluginRoutes = (
     req: express.Request,
@@ -527,7 +544,12 @@ export function createApiRouter(
       req.path.startsWith('/agents/') ||
       req.path.startsWith('/world/') ||
       req.path.startsWith('/envs/') ||
-      req.path.startsWith('/tee/')
+      req.path.startsWith('/tee/') ||
+      req.path === '/health' ||
+      req.path === '/status' ||
+      req.path === '/ping' ||
+      req.path === '/hello' ||
+      req.path.startsWith('/logs')
     ) {
       logger.debug(`Skipping plugin handler for specific route: ${req.path}`);
       return next();
@@ -661,22 +683,6 @@ export function createApiRouter(
 
   // Add DELETE endpoint for clearing logs
   router.delete('/logs', logsClearHandler);
-
-  // Health check endpoints
-  router.get('/health', (_req, res) => {
-    logger.log({ apiRoute: '/health' }, 'Health check route hit');
-    const healthcheck = {
-      status: 'OK',
-      version: process.env.APP_VERSION || 'unknown',
-      timestamp: new Date().toISOString(),
-      dependencies: {
-        agents: agents.size > 0 ? 'healthy' : 'no_agents',
-      },
-    };
-
-    const statusCode = healthcheck.dependencies.agents === 'healthy' ? 200 : 503;
-    res.status(statusCode).json(healthcheck);
-  });
 
   return router;
 }
