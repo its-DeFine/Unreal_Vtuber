@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RTMP Stream Player - Voice Streaming Platform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 350px;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .player-section {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .controls-section {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            height: fit-content;
+        }
+
+        .video-player {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .player-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .control-group {
+            margin-bottom: 25px;
+        }
+
+        .control-group h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin-bottom: 10px;
+        }
+
+        button:hover {
+            background: #5a6fd8;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-live {
+            background: #28a745;
+        }
+
+        .status-error {
+            background: #dc3545;
+        }
+
+        .status-loading {
+            background: #ffc107;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .stream-list {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            grid-column: 1 / -1;
+        }
+
+        .stream-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .stream-card {
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            transition: border-color 0.3s;
+        }
+
+        .stream-card:hover {
+            border-color: #667eea;
+        }
+
+        .stream-card h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .stream-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .quality-badges {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .quality-badge {
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .quality-badge:hover {
+            background: #5a6fd8;
+        }
+
+        .error-message {
+            color: #dc3545;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 10px;
+        }
+
+        .success-message {
+            color: #155724;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎥 RTMP Stream Player</h1>
+            <p>Real-time Voice Streaming Platform</p>
+        </div>
+
+        <div class="main-content">
+            <div class="player-section">
+                <div class="video-player">
+                    <video id="videoPlayer" controls muted>
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+                <div class="player-info">
+                    <div><strong>Status:</strong> <span class="status-indicator" id="statusIndicator"></span><span id="playerStatus">Ready</span></div>
+                    <div><strong>Stream:</strong> <span id="currentStream">None</span></div>
+                    <div><strong>Quality:</strong> <span id="currentQuality">Auto</span></div>
+                    <div><strong>Duration:</strong> <span id="streamDuration">00:00</span></div>
+                </div>
+            </div>
+
+            <div class="controls-section">
+                <div class="control-group">
+                    <h3>🎯 Stream Selection</h3>
+                    <div class="form-group">
+                        <label for="streamName">Stream Name:</label>
+                        <input type="text" id="streamName" placeholder="Enter stream name">
+                    </div>
+                    <div class="form-group">
+                        <label for="streamType">Stream Type:</label>
+                        <select id="streamType">
+                            <option value="live">Live Streams</option>
+                            <option value="voice">Voice Streams</option>
+                            <option value="processed">Processed Streams</option>
+                            <option value="enhanced">Enhanced Audio</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="quality">Quality:</label>
+                        <select id="quality">
+                            <option value="">Auto (Best Available)</option>
+                            <option value="_1080p">1080p</option>
+                            <option value="_720p">720p</option>
+                            <option value="_480p">480p</option>
+                            <option value="_240p">240p</option>
+                        </select>
+                    </div>
+                    <button onclick="loadStream()">📺 Load Stream</button>
+                </div>
+
+                <div class="control-group">
+                    <h3>🔧 Player Controls</h3>
+                    <button onclick="playStream()">▶️ Play</button>
+                    <button onclick="pauseStream()">⏸️ Pause</button>
+                    <button onclick="stopStream()">⏹️ Stop</button>
+                    <button onclick="refreshStats()">🔄 Refresh Stats</button>
+                </div>
+
+                <div class="control-group">
+                    <h3>📊 Quick Stats</h3>
+                    <div id="quickStats">
+                        <div>Active Streams: <span id="activeStreams">0</span></div>
+                        <div>Server Uptime: <span id="serverUptime">0s</span></div>
+                        <div>Total Connections: <span id="totalConnections">0</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stream-list">
+            <h3>📡 Available Streams</h3>
+            <button onclick="discoverStreams()" style="width: auto; margin-bottom: 20px;">🔍 Discover Streams</button>
+            <div id="streamGrid" class="stream-grid">
+                <div class="stream-card" style="text-align: center; color: #666;">
+                    Click "Discover Streams" to find available streams
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let player = null;
+        let hls = null;
+        let currentStreamUrl = '';
+        let statsInterval = null;
+
+        // Initialize player
+        document.addEventListener('DOMContentLoaded', function() {
+            player = document.getElementById('videoPlayer');
+            updatePlayerStatus('Ready', 'ready');
+            
+            // Start stats polling
+            startStatsPolling();
+            
+            // Auto-discover streams on load
+            setTimeout(discoverStreams, 1000);
+        });
+
+        // Load and play stream
+        function loadStream() {
+            const streamName = document.getElementById('streamName').value.trim();
+            const streamType = document.getElementById('streamType').value;
+            const quality = document.getElementById('quality').value;
+            
+            if (!streamName) {
+                showError('Please enter a stream name');
+                return;
+            }
+            
+            const streamUrl = `/hls/${streamType}/${streamName}${quality}/index.m3u8`;
+            console.log('Loading stream:', streamUrl);
+            
+            loadHLSStream(streamUrl, streamName);
+        }
+
+        // Load HLS stream
+        function loadHLSStream(url, streamName) {
+            updatePlayerStatus('Loading...', 'loading');
+            currentStreamUrl = url;
+            
+            // Clean up existing HLS instance
+            if (hls) {
+                hls.destroy();
+                hls = null;
+            }
+            
+            if (Hls.isSupported()) {
+                hls = new Hls({
+                    debug: false,
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 90
+                });
+                
+                hls.loadSource(url);
+                hls.attachMedia(player);
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    console.log('HLS manifest parsed');
+                    updatePlayerStatus('Ready to play', 'ready');
+                    document.getElementById('currentStream').textContent = streamName;
+                    showSuccess('Stream loaded successfully');
+                });
+                
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    console.error('HLS error:', data);
+                    updatePlayerStatus('Error', 'error');
+                    showError(`Stream error: ${data.details}`);
+                });
+                
+            } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
+                // Fallback for Safari
+                player.src = url;
+                updatePlayerStatus('Ready to play', 'ready');
+                document.getElementById('currentStream').textContent = streamName;
+            } else {
+                showError('HLS is not supported in this browser');
+                updatePlayerStatus('Not supported', 'error');
+            }
+        }
+
+        // Player controls
+        function playStream() {
+            if (player && currentStreamUrl) {
+                player.play().then(() => {
+                    updatePlayerStatus('Playing', 'live');
+                    console.log('Playback started');
+                }).catch(error => {
+                    console.error('Play error:', error);
+                    showError('Failed to start playback');
+                });
+            } else {
+                showError('No stream loaded');
+            }
+        }
+
+        function pauseStream() {
+            if (player) {
+                player.pause();
+                updatePlayerStatus('Paused', 'ready');
+            }
+        }
+
+        function stopStream() {
+            if (player) {
+                player.pause();
+                player.currentTime = 0;
+                updatePlayerStatus('Stopped', 'ready');
+            }
+        }
+
+        // Update player status
+        function updatePlayerStatus(status, type) {
+            const statusEl = document.getElementById('playerStatus');
+            const indicatorEl = document.getElementById('statusIndicator');
+            
+            statusEl.textContent = status;
+            indicatorEl.className = `status-indicator status-${type}`;
+        }
+
+        // Show error message
+        function showError(message) {
+            removeMessages();
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = message;
+            document.querySelector('.player-info').appendChild(errorDiv);
+        }
+
+        // Show success message
+        function showSuccess(message) {
+            removeMessages();
+            const successDiv = document.createElement('div');
+            successDiv.className = 'success-message';
+            successDiv.textContent = message;
+            document.querySelector('.player-info').appendChild(successDiv);
+        }
+
+        // Remove existing messages
+        function removeMessages() {
+            const existing = document.querySelectorAll('.error-message, .success-message');
+            existing.forEach(el => el.remove());
+        }
+
+        // Discover available streams
+        function discoverStreams() {
+            console.log('Discovering streams...');
+            
+            // Mock stream discovery (replace with actual API call)
+            const mockStreams = [
+                {
+                    name: 'test_stream',
+                    type: 'live',
+                    status: 'live',
+                    viewers: 42,
+                    qualities: ['1080p', '720p', '480p', '240p']
+                },
+                {
+                    name: 'voice_chat',
+                    type: 'voice',
+                    status: 'live',
+                    viewers: 15,
+                    qualities: ['audio']
+                },
+                {
+                    name: 'demo_stream',
+                    type: 'processed',
+                    status: 'idle',
+                    viewers: 0,
+                    qualities: ['720p', '480p']
+                }
+            ];
+            
+            displayStreams(mockStreams);
+        }
+
+        // Display discovered streams
+        function displayStreams(streams) {
+            const gridEl = document.getElementById('streamGrid');
+            
+            if (streams.length === 0) {
+                gridEl.innerHTML = '<div class="stream-card" style="text-align: center; color: #666;">No streams found</div>';
+                return;
+            }
+            
+            gridEl.innerHTML = streams.map(stream => `
+                <div class="stream-card">
+                    <h4>🎬 ${stream.name}</h4>
+                    <div class="stream-info">
+                        <span><span class="status-indicator status-${stream.status === 'live' ? 'live' : 'error'}"></span>${stream.status}</span>
+                        <span>👥 ${stream.viewers}</span>
+                    </div>
+                    <div class="stream-info">
+                        <span>Type: ${stream.type}</span>
+                    </div>
+                    <div class="quality-badges">
+                        ${stream.qualities.map(q => `<span class="quality-badge" onclick="loadStreamDirect('${stream.name}', '${stream.type}', '${q}')">${q}</span>`).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Load stream directly from discovery
+        function loadStreamDirect(name, type, quality) {
+            document.getElementById('streamName').value = name;
+            document.getElementById('streamType').value = type;
+            
+            if (quality !== 'audio') {
+                document.getElementById('quality').value = `_${quality}`;
+            } else {
+                document.getElementById('quality').value = '';
+            }
+            
+            loadStream();
+        }
+
+        // Stats polling
+        function startStatsPolling() {
+            refreshStats();
+            statsInterval = setInterval(refreshStats, 5000);
+        }
+
+        function refreshStats() {
+            // Mock stats (replace with actual API call to /stats)
+            document.getElementById('activeStreams').textContent = Math.floor(Math.random() * 10);
+            document.getElementById('serverUptime').textContent = Math.floor(Date.now() / 1000) + 's';
+            document.getElementById('totalConnections').textContent = Math.floor(Math.random() * 100);
+        }
+
+        // Update duration display
+        setInterval(() => {
+            if (player && !player.paused && player.duration) {
+                const minutes = Math.floor(player.currentTime / 60);
+                const seconds = Math.floor(player.currentTime % 60);
+                document.getElementById('streamDuration').textContent = 
+                    `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }
+        }, 1000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (hls) {
+                hls.destroy();
+            }
+            if (statsInterval) {
+                clearInterval(statsInterval);
+            }
+        });
+    </script>
+</body>
+</html> 

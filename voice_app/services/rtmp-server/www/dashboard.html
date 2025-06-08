@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RTMP Server Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: #ffffff;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.8;
+            margin-bottom: 15px;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 25px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .status-online {
+            background: linear-gradient(45deg, #4caf50, #45a049);
+            animation: pulse 2s infinite;
+        }
+
+        .status-offline {
+            background: linear-gradient(45deg, #f44336, #d32f2f);
+        }
+
+        .status-warning {
+            background: linear-gradient(45deg, #ff9800, #f57c00);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .card:hover::before {
+            left: 100%;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .card-icon {
+            font-size: 1.5rem;
+            margin-right: 12px;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .card-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            flex: 1;
+        }
+
+        .metric-value {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin: 10px 0;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            opacity: 0.7;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4caf50, #45a049);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            position: relative;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .streams-list {
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+
+        .stream-item {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid #4ecdc4;
+            transition: all 0.3s ease;
+        }
+
+        .stream-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateX(5px);
+        }
+
+        .stream-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .stream-name {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .stream-status {
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .stream-active {
+            background: linear-gradient(45deg, #4caf50, #45a049);
+        }
+
+        .stream-inactive {
+            background: linear-gradient(45deg, #f44336, #d32f2f);
+        }
+
+        .stream-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .quality-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .quality-badge {
+            background: linear-gradient(45deg, #9c27b0, #673ab7);
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .logs-container {
+            grid-column: 1 / -1;
+            max-height: 300px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        .log-entry {
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .log-timestamp {
+            color: #4ecdc4;
+            margin-right: 10px;
+        }
+
+        .log-level-info { color: #2196f3; }
+        .log-level-warning { color: #ff9800; }
+        .log-level-error { color: #f44336; }
+        .log-level-success { color: #4caf50; }
+
+        .controls-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 25px;
+            margin-top: 30px;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .control-button {
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            border: none;
+            border-radius: 10px;
+            padding: 15px 25px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+        }
+
+        .control-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .control-button:active {
+            transform: translateY(0);
+        }
+
+        .control-button.danger {
+            background: linear-gradient(45deg, #f44336, #d32f2f);
+        }
+
+        .control-button.success {
+            background: linear-gradient(45deg, #4caf50, #45a049);
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+
+            .controls-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stream-details {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(45deg, #4ecdc4, #ff6b6b);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header Section -->
+        <div class="header">
+            <h1>🎥 RTMP Server Dashboard</h1>
+            <p class="subtitle">Real-time Voice Streaming Platform with Advanced Processing</p>
+            <div class="status-indicator" id="serverStatus">
+                <span>●</span>
+                <span>Connecting...</span>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Server Statistics -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📊</span>
+                    <span class="card-title">Server Statistics</span>
+                </div>
+                <div class="metric-value" id="activeStreams">-</div>
+                <div class="metric-label">Active Streams</div>
+                
+                <div style="margin-top: 20px;">
+                    <div class="metric-label">CPU Usage</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="cpuProgress" style="width: 0%"></div>
+                    </div>
+                    <div style="text-align: right; font-size: 0.9rem; margin-top: 5px;">
+                        <span id="cpuValue">0%</span>
+                    </div>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <div class="metric-label">Memory Usage</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="memoryProgress" style="width: 0%"></div>
+                    </div>
+                    <div style="text-align: right; font-size: 0.9rem; margin-top: 5px;">
+                        <span id="memoryValue">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bandwidth & Quality -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📈</span>
+                    <span class="card-title">Bandwidth & Quality</span>
+                </div>
+                <div class="metric-value" id="totalBandwidth">-</div>
+                <div class="metric-label">Total Bandwidth (Mbps)</div>
+                
+                <div style="margin-top: 20px;">
+                    <div class="metric-label">Average Latency</div>
+                    <div class="metric-value" style="font-size: 1.8rem; margin: 5px 0;" id="avgLatency">-</div>
+                    <div class="metric-label">milliseconds</div>
+                </div>
+            </div>
+
+            <!-- Hardware Status -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">⚡</span>
+                    <span class="card-title">Hardware Acceleration</span>
+                </div>
+                <div id="hardwareStatus">
+                    <div style="margin-bottom: 10px;">
+                        <span style="opacity: 0.7;">NVENC:</span> 
+                        <span id="nvencStatus" style="margin-left: 10px;">-</span>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <span style="opacity: 0.7;">VAAPI:</span> 
+                        <span id="vaapiStatus" style="margin-left: 10px;">-</span>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <span style="opacity: 0.7;">Quick Sync:</span> 
+                        <span id="qsvStatus" style="margin-left: 10px;">-</span>
+                    </div>
+                    <div>
+                        <span style="opacity: 0.7;">Active Encoder:</span> 
+                        <span id="activeEncoder" style="margin-left: 10px; font-weight: 600;">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Streams -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">🎬</span>
+                    <span class="card-title">Active Streams</span>
+                </div>
+                <div class="streams-list" id="streamsList">
+                    <!-- Streams will be populated dynamically -->
+                </div>
+            </div>
+
+            <!-- Process Monitor -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">⚙️</span>
+                    <span class="card-title">Process Monitor</span>
+                </div>
+                <div id="processStats">
+                    <div style="margin-bottom: 15px;">
+                        <div class="metric-label">FFmpeg Processes</div>
+                        <div class="metric-value" style="font-size: 1.8rem; margin: 5px 0;" id="ffmpegProcesses">-</div>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <div class="metric-label">GStreamer Processes</div>
+                        <div class="metric-value" style="font-size: 1.8rem; margin: 5px 0;" id="gstreamerProcesses">-</div>
+                    </div>
+                    <div>
+                        <div class="metric-label">Process Restarts</div>
+                        <div class="metric-value" style="font-size: 1.8rem; margin: 5px 0;" id="processRestarts">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Health -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">💚</span>
+                    <span class="card-title">System Health</span>
+                </div>
+                <div id="healthMetrics">
+                    <div style="margin-bottom: 15px;">
+                        <div class="metric-label">Uptime</div>
+                        <div class="metric-value" style="font-size: 1.5rem; margin: 5px 0;" id="systemUptime">-</div>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <div class="metric-label">Disk Usage</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="diskProgress" style="width: 0%"></div>
+                        </div>
+                        <div style="text-align: right; font-size: 0.9rem; margin-top: 5px;">
+                            <span id="diskValue">0%</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="metric-label">Network Status</div>
+                        <div class="status-indicator" id="networkStatus" style="margin-top: 10px;">
+                            <span>●</span>
+                            <span>Checking...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Real-time Logs -->
+            <div class="logs-container">
+                <div class="card-header">
+                    <span class="card-icon">📋</span>
+                    <span class="card-title">Real-time Logs</span>
+                </div>
+                <div id="logsContent">
+                    <!-- Logs will be populated dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Control Panel -->
+        <div class="controls-section">
+            <div class="card-header">
+                <span class="card-icon">🎛️</span>
+                <span class="card-title">Control Panel</span>
+            </div>
+            <div class="controls-grid">
+                <button class="control-button success" onclick="refreshStats()">
+                    🔄 Refresh Stats
+                </button>
+                <button class="control-button" onclick="exportLogs()">
+                    📋 Export Logs
+                </button>
+                <button class="control-button" onclick="restartServices()">
+                    ⚡ Restart Services
+                </button>
+                <button class="control-button danger" onclick="emergencyStop()">
+                    🛑 Emergency Stop
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Dashboard state and configuration
+        const dashboard = {
+            updateInterval: 5000, // 5 seconds
+            maxLogEntries: 100,
+            websocket: null,
+            reconnectAttempts: 0,
+            maxReconnectAttempts: 5
+        };
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeDashboard();
+            connectWebSocket();
+            startPeriodicUpdates();
+        });
+
+        function initializeDashboard() {
+            console.log('🚀 Initializing RTMP Server Dashboard');
+            updateServerStatus('connecting', 'Initializing...');
+            addLogEntry('info', 'Dashboard initialized');
+        }
+
+        function connectWebSocket() {
+            try {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+                
+                dashboard.websocket = new WebSocket(wsUrl);
+                
+                dashboard.websocket.onopen = function() {
+                    console.log('✅ WebSocket connected');
+                    dashboard.reconnectAttempts = 0;
+                    updateServerStatus('online', 'Connected');
+                    addLogEntry('success', 'WebSocket connection established');
+                };
+                
+                dashboard.websocket.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleRealtimeUpdate(data);
+                    } catch (error) {
+                        console.error('Error parsing WebSocket message:', error);
+                    }
+                };
+                
+                dashboard.websocket.onclose = function() {
+                    console.log('❌ WebSocket disconnected');
+                    updateServerStatus('offline', 'Disconnected');
+                    addLogEntry('warning', 'WebSocket connection lost');
+                    attemptReconnect();
+                };
+                
+                dashboard.websocket.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                    addLogEntry('error', 'WebSocket connection error');
+                };
+                
+            } catch (error) {
+                console.error('Error connecting WebSocket:', error);
+                updateServerStatus('offline', 'Connection Failed');
+                addLogEntry('error', 'Failed to establish WebSocket connection');
+            }
+        }
+
+        function attemptReconnect() {
+            if (dashboard.reconnectAttempts < dashboard.maxReconnectAttempts) {
+                dashboard.reconnectAttempts++;
+                const delay = Math.min(1000 * Math.pow(2, dashboard.reconnectAttempts), 30000);
+                
+                addLogEntry('info', `Attempting reconnection ${dashboard.reconnectAttempts}/${dashboard.maxReconnectAttempts} in ${delay/1000}s`);
+                
+                setTimeout(() => {
+                    connectWebSocket();
+                }, delay);
+            } else {
+                addLogEntry('error', 'Max reconnection attempts reached. Please refresh the page.');
+            }
+        }
+
+        function startPeriodicUpdates() {
+            // Fetch initial data
+            fetchServerStats();
+            
+            // Set up periodic updates
+            setInterval(() => {
+                if (dashboard.websocket?.readyState !== WebSocket.OPEN) {
+                    fetchServerStats();
+                }
+            }, dashboard.updateInterval);
+        }
+
+        async function fetchServerStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+                updateDashboard(data);
+            } catch (error) {
+                console.error('Error fetching server stats:', error);
+                updateServerStatus('warning', 'Data Fetch Error');
+                addLogEntry('error', 'Failed to fetch server statistics');
+            }
+        }
+
+        function handleRealtimeUpdate(data) {
+            if (data.type === 'stats') {
+                updateDashboard(data.payload);
+            } else if (data.type === 'log') {
+                addLogEntry(data.level, data.message);
+            } else if (data.type === 'stream_event') {
+                handleStreamEvent(data.payload);
+            }
+        }
+
+        function updateDashboard(data) {
+            // Update server statistics
+            document.getElementById('activeStreams').textContent = data.activeStreams || 0;
+            document.getElementById('totalBandwidth').textContent = (data.totalBandwidth || 0).toFixed(1);
+            document.getElementById('avgLatency').textContent = (data.averageLatency || 0).toFixed(1);
+
+            // Update progress bars
+            updateProgressBar('cpuProgress', 'cpuValue', data.cpuUsage || 0);
+            updateProgressBar('memoryProgress', 'memoryValue', data.memoryUsage || 0);
+            updateProgressBar('diskProgress', 'diskValue', data.diskUsage || 0);
+
+            // Update hardware acceleration status
+            updateHardwareStatus(data.hardwareAcceleration || {});
+
+            // Update process statistics
+            document.getElementById('ffmpegProcesses').textContent = data.ffmpegProcesses || 0;
+            document.getElementById('gstreamerProcesses').textContent = data.gstreamerProcesses || 0;
+            document.getElementById('processRestarts').textContent = data.processRestarts || 0;
+
+            // Update system health
+            document.getElementById('systemUptime').textContent = formatUptime(data.uptime || 0);
+            updateNetworkStatus(data.networkStatus || 'unknown');
+
+            // Update streams list
+            updateStreamsList(data.activeStreamsDetails || []);
+
+            // Update server status
+            if (data.activeStreams > 0) {
+                updateServerStatus('online', `${data.activeStreams} Active Streams`);
+            } else {
+                updateServerStatus('warning', 'No Active Streams');
+            }
+        }
+
+        function updateProgressBar(progressId, valueId, percentage) {
+            const progressBar = document.getElementById(progressId);
+            const valueSpan = document.getElementById(valueId);
+            
+            if (progressBar && valueSpan) {
+                progressBar.style.width = `${Math.min(percentage, 100)}%`;
+                valueSpan.textContent = `${percentage.toFixed(1)}%`;
+                
+                // Change color based on usage level
+                if (percentage > 90) {
+                    progressBar.style.background = 'linear-gradient(90deg, #f44336, #d32f2f)';
+                } else if (percentage > 70) {
+                    progressBar.style.background = 'linear-gradient(90deg, #ff9800, #f57c00)';
+                } else {
+                    progressBar.style.background = 'linear-gradient(90deg, #4caf50, #45a049)';
+                }
+            }
+        }
+
+        function updateHardwareStatus(hwAccel) {
+            const createStatusBadge = (enabled) => {
+                return enabled ? 
+                    '<span style="color: #4caf50; font-weight: 600;">✅ Enabled</span>' :
+                    '<span style="color: #f44336; font-weight: 600;">❌ Disabled</span>';
+            };
+
+            document.getElementById('nvencStatus').innerHTML = createStatusBadge(hwAccel.nvenc);
+            document.getElementById('vaapiStatus').innerHTML = createStatusBadge(hwAccel.vaapi);
+            document.getElementById('qsvStatus').innerHTML = createStatusBadge(hwAccel.qsv);
+            
+            // Determine active encoder
+            let activeEncoder = 'Software (x264)';
+            if (hwAccel.nvenc) activeEncoder = 'NVIDIA NVENC';
+            else if (hwAccel.vaapi) activeEncoder = 'VAAPI';
+            else if (hwAccel.qsv) activeEncoder = 'Intel Quick Sync';
+            
+            document.getElementById('activeEncoder').textContent = activeEncoder;
+        }
+
+        function updateStreamsList(streams) {
+            const streamsList = document.getElementById('streamsList');
+            
+            if (streams.length === 0) {
+                streamsList.innerHTML = '<div style="text-align: center; opacity: 0.7; padding: 20px;">No active streams</div>';
+                return;
+            }
+
+            const streamsHTML = streams.map(stream => `
+                <div class="stream-item">
+                    <div class="stream-header">
+                        <div class="stream-name">${stream.name}</div>
+                        <div class="stream-status stream-${stream.status}">${stream.status.toUpperCase()}</div>
+                    </div>
+                    <div class="stream-details">
+                        <div>👥 ${stream.viewers || 0} viewers</div>
+                        <div>📊 ${(stream.bitrate || 0).toFixed(1)} kbps</div>
+                        <div>🎯 ${(stream.latency || 0).toFixed(1)}ms</div>
+                        <div>⏱️ ${formatDuration(stream.duration || 0)}</div>
+                    </div>
+                    <div class="quality-badges">
+                        ${(stream.qualities || []).map(q => `<span class="quality-badge">${q}</span>`).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            streamsList.innerHTML = streamsHTML;
+        }
+
+        function updateServerStatus(status, message) {
+            const statusElement = document.getElementById('serverStatus');
+            statusElement.className = `status-indicator status-${status}`;
+            statusElement.innerHTML = `<span>●</span><span>${message}</span>`;
+        }
+
+        function updateNetworkStatus(status) {
+            const networkElement = document.getElementById('networkStatus');
+            
+            if (status === 'connected') {
+                networkElement.className = 'status-indicator status-online';
+                networkElement.innerHTML = '<span>●</span><span>Connected</span>';
+            } else if (status === 'disconnected') {
+                networkElement.className = 'status-indicator status-offline';
+                networkElement.innerHTML = '<span>●</span><span>Disconnected</span>';
+            } else {
+                networkElement.className = 'status-indicator status-warning';
+                networkElement.innerHTML = '<span>●</span><span>Unknown</span>';
+            }
+        }
+
+        function addLogEntry(level, message) {
+            const logsContent = document.getElementById('logsContent');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            logEntry.innerHTML = `
+                <span class="log-timestamp">[${timestamp}]</span>
+                <span class="log-level-${level}">[${level.toUpperCase()}]</span>
+                <span>${message}</span>
+            `;
+            
+            logsContent.appendChild(logEntry);
+            
+            // Limit log entries
+            while (logsContent.children.length > dashboard.maxLogEntries) {
+                logsContent.removeChild(logsContent.firstChild);
+            }
+            
+            // Auto-scroll to bottom
+            logsContent.scrollTop = logsContent.scrollHeight;
+        }
+
+        // Utility functions
+        function formatUptime(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            
+            if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+            if (hours > 0) return `${hours}h ${minutes}m`;
+            return `${minutes}m`;
+        }
+
+        function formatDuration(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            if (hours > 0) return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            return `${minutes}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Control functions
+        function refreshStats() {
+            addLogEntry('info', 'Refreshing statistics...');
+            fetchServerStats();
+        }
+
+        function exportLogs() {
+            const logs = Array.from(document.querySelectorAll('.log-entry')).map(entry => entry.textContent).join('\n');
+            const blob = new Blob([logs], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `rtmp-server-logs-${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            addLogEntry('info', 'Logs exported successfully');
+        }
+
+        async function restartServices() {
+            if (!confirm('Are you sure you want to restart all services? This will interrupt active streams.')) {
+                return;
+            }
+            
+            try {
+                addLogEntry('warning', 'Restarting services...');
+                const response = await fetch('/api/restart', { method: 'POST' });
+                
+                if (response.ok) {
+                    addLogEntry('success', 'Services restart initiated');
+                } else {
+                    addLogEntry('error', 'Failed to restart services');
+                }
+            } catch (error) {
+                console.error('Error restarting services:', error);
+                addLogEntry('error', 'Error restarting services');
+            }
+        }
+
+        async function emergencyStop() {
+            if (!confirm('EMERGENCY STOP: This will immediately terminate all streams and processes. Continue?')) {
+                return;
+            }
+            
+            try {
+                addLogEntry('error', 'EMERGENCY STOP initiated');
+                const response = await fetch('/api/emergency-stop', { method: 'POST' });
+                
+                if (response.ok) {
+                    addLogEntry('error', 'Emergency stop completed');
+                    updateServerStatus('offline', 'Emergency Stop');
+                } else {
+                    addLogEntry('error', 'Failed to execute emergency stop');
+                }
+            } catch (error) {
+                console.error('Error during emergency stop:', error);
+                addLogEntry('error', 'Error during emergency stop');
+            }
+        }
+
+        function handleStreamEvent(event) {
+            const message = `Stream ${event.action}: ${event.streamName}`;
+            const level = event.action === 'started' ? 'success' : 
+                         event.action === 'stopped' ? 'warning' : 'info';
+            addLogEntry(level, message);
+        }
+    </script>
+</body>
+</html> 
