@@ -34,6 +34,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
       # Database Configuration - Use Postgres instead of PGLite
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
@@ -49,16 +51,9 @@ services:
       - AGENT_NAME=Autoliza
       - PORT=3000
       
-      # AI Model Configuration - Using Livepeer instead of Ollama
-      - MODEL_PROVIDER=livepeer
-      - LIVEPEER_MODEL=llama3.2:3b
-      - LIVEPEER_SMALL_MODEL=llama3.2:3b
-      - LIVEPEER_MEDIUM_MODEL=llama3.2:3b
-      - LIVEPEER_LARGE_MODEL=llama3.2:3b
-      
-      # Groq Configuration (primary AI provider)
-      - GROQ_SMALL_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
-      - GROQ_LARGE_MODEL=meta-llama/llama-4-maverick-17b-128e-instruct
+      # AI Model Configuration - Force OpenAI as primary
+      - MODEL_PROVIDER=openai
+      - USE_OLLAMA_TEXT_MODELS=false
       
       # Memory Archiving
       - MEMORY_ARCHIVING_ENABLED=true
@@ -69,18 +64,6 @@ services:
       # Logging
       - LOG_LEVEL=info
       - DB_LOGGING=false
-      
-      # Optional API Keys (add these to your .env file)
-      # - GROQ_API_KEY=${GROQ_API_KEY}
-      # - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      
-      # Optional Discord/Twitter/Telegram keys
-      # - DISCORD_APPLICATION_ID=${DISCORD_APPLICATION_ID}
-      # - DISCORD_API_TOKEN=${DISCORD_API_TOKEN}
-      # - TWITTER_USERNAME=${TWITTER_USERNAME}
-      # - TWITTER_PASSWORD=${TWITTER_PASSWORD}
-      # - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     ports:
       - '3001:3000'  # Different port to avoid conflicts
     restart: unless-stopped

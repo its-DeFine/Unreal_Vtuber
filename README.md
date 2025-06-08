@@ -17,17 +17,25 @@
 
 ### Launch System
 ```bash
-# Start the autonomous VTuber system
-docker-compose -f docker-compose.bridge.yml up -d
+# Quick start with Docker management script
+./docker-manager --build-run    # Build and run all containers
+./docker-manager --test         # Test the system endpoint
+./docker-manager --status       # Check system status
 
-# Monitor autonomous agent activity
-./monitor_autonomous_system.sh 10
+# Alternative: Manual commands
+docker-compose -f docker-compose.bridge.yml up -d
 ```
 
-### Verify Database
+### Monitor & Test
 ```bash
+# Monitor autonomous agent activity
+./monitor_autonomous_system.sh 10
+
 # Investigate current database state
 ./investigate_database.sh
+
+# View container logs
+./docker-manager --logs
 ```
 
 ---
@@ -113,6 +121,10 @@ docker-compose -f docker-compose.bridge.yml up -d
 ---
 
 ## 🛠️ Tools & Scripts
+
+### Container Management
+- [`./docker-manager`](./docker-manager) - Unified Docker management script
+- [`docs/DOCKER_MANAGEMENT.md`](./docs/DOCKER_MANAGEMENT.md) - Complete Docker management guide
 
 ### Database Management
 - [`setup_analytics_tables.sql`](./setup_analytics_tables.sql) - Enhance database with analytics
