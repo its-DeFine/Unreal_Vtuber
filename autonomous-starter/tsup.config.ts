@@ -3,30 +3,22 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: ['src/index.ts'],
   outDir: 'dist',
-  tsconfig: './tsconfig.build.json',
+  tsconfig: './tsconfig.build.json', // Use build-specific tsconfig
   sourcemap: true,
-  clean: true,
-  format: ['esm', 'cjs'],
-  dts: true,
-  splitting: false,
+  clean: false,
+  format: ['esm'], // Ensure you're targeting CommonJS
+  dts: false, // Skip DTS generation to avoid external import issues // Ensure you're targeting CommonJS
   external: [
-    '@elizaos/core',
-    '@elizaos/plugin-openai',
-    '@elizaos/plugin-bootstrap',
-    'dotenv',
-    'fs',
-    'path',
+    'dotenv', // Externalize dotenv to prevent bundling
+    'fs', // Externalize fs to use Node.js built-in module
+    'fs-extra', // Externalize fs-extra to prevent bundling issues
+    'graceful-fs', // Externalize graceful-fs (dependency of fs-extra)
+    'path', // Externalize other built-ins if necessary
     'https',
     'http',
     'zod',
-    'uuid',
-    'events',
-    'util',
-    'crypto',
-    'url',
-    'querystring'
+    '@jitsi/robotjs', // Externalize native modules
+    'canvas', // Externalize native modules
+    'sharp', // Externalize native modules
   ],
-  esbuildOptions(options) {
-    options.conditions = ['node'];
-  },
 });
