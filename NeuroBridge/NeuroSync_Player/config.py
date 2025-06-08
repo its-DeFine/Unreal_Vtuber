@@ -45,14 +45,45 @@ elif LLM_PROVIDER == "custom_local":
     print(f"🔧 Custom Local: API={LLM_API_URL}")
 
 # ==================================================================
+# TTS Configuration - Enhanced with Kokoro Support
+# ==================================================================
 
 MAX_CHUNK_LENGTH = int(os.getenv("MAX_CHUNK_LENGTH", "500"))
 FLUSH_TOKEN_COUNT = int(os.getenv("FLUSH_TOKEN_COUNT", "300"))
 
+# TTS Provider Selection
+TTS_PROVIDER = os.getenv("TTS_PROVIDER", "elevenlabs")  # Options: "elevenlabs", "kokoro", "local"
+
+# Legacy TTS settings (for backward compatibility)
 DEFAULT_VOICE_NAME = os.getenv("DEFAULT_VOICE_NAME", "Alice")
 USE_LOCAL_AUDIO = os.getenv("USE_LOCAL_AUDIO", "false").lower() == "true"
 LOCAL_TTS_URL = os.getenv("LOCAL_TTS_URL", "http://127.0.0.1:8000/generate_speech")
+
+# Kokoro TTS Configuration
+KOKORO_TTS_SERVER_URL = os.getenv("KOKORO_TTS_SERVER_URL", "http://localhost:6006")
+KOKORO_DEFAULT_VOICE = os.getenv("KOKORO_DEFAULT_VOICE", "af_sarah")  # Default to Sarah voice
+KOKORO_TTS_TIMEOUT = int(os.getenv("KOKORO_TTS_TIMEOUT", "30"))
+KOKORO_TTS_LANGUAGE = os.getenv("KOKORO_TTS_LANGUAGE", "en")
+
+# ElevenLabs Configuration (existing)
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
+
+# Backward compatibility for TTS provider selection
+if USE_LOCAL_AUDIO and TTS_PROVIDER == "elevenlabs":
+    TTS_PROVIDER = "local"
+
+# Other TTS settings
 USE_COMBINED_ENDPOINT = os.getenv("USE_COMBINED_ENDPOINT", "false").lower() == "true"
+
+print(f"🎵 TTS Configuration: Provider={TTS_PROVIDER}")
+if TTS_PROVIDER == "kokoro":
+    print(f"🌸 Kokoro: Server={KOKORO_TTS_SERVER_URL}, Voice={KOKORO_DEFAULT_VOICE}")
+elif TTS_PROVIDER == "elevenlabs":
+    print(f"🎤 ElevenLabs: Voice={DEFAULT_VOICE_NAME}")
+elif TTS_PROVIDER == "local":
+    print(f"🔧 Local TTS: URL={LOCAL_TTS_URL}")
+
+# ==================================================================
 
 ENABLE_EMOTE_CALLS = os.getenv("ENABLE_EMOTE_CALLS", "false").lower() == "true"
 USE_VECTOR_DB = os.getenv("USE_VECTOR_DB", "false").lower() == "true"
@@ -211,12 +242,45 @@ def get_llm_config(system_message=None, next_cycle_seconds=30):
     }
 
 
+def get_tts_config():
+    """
+    Returns a dictionary of TTS configuration parameters.
+    """
+    return {
+        # Provider Selection
+        "TTS_PROVIDER": TTS_PROVIDER,
+        
+        # Legacy Support
+        "USE_LOCAL_AUDIO": USE_LOCAL_AUDIO or TTS_PROVIDER == "local",
+        "DEFAULT_VOICE_NAME": DEFAULT_VOICE_NAME,
+        "LOCAL_TTS_URL": LOCAL_TTS_URL,
+        
+        # Kokoro Configuration
+        "KOKORO_TTS_SERVER_URL": KOKORO_TTS_SERVER_URL,
+        "KOKORO_DEFAULT_VOICE": KOKORO_DEFAULT_VOICE,
+        "KOKORO_TTS_TIMEOUT": KOKORO_TTS_TIMEOUT,
+        "KOKORO_TTS_LANGUAGE": KOKORO_TTS_LANGUAGE,
+        
+        # ElevenLabs Configuration
+        "ELEVENLABS_API_KEY": ELEVENLABS_API_KEY,
+        
+        # Other Settings
+        "USE_COMBINED_ENDPOINT": USE_COMBINED_ENDPOINT,
+    }
+
+
 def setup_warnings():
     """
-    Set up common warning filters.
+    Set up warnings and logging configuration.
     """
     import warnings
+    import logging
+    
+    # Suppress specific warnings
     warnings.filterwarnings(
         "ignore", 
         message="Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work"
     )
+    
+    # Configure logging for TTS
+    logging.getLogger("utils.tts").setLevel(logging.INFO)
