@@ -6,12 +6,12 @@
 services:
   eliza_the_org:
     build:
-      context: ./eliza-livepeer-integration
+      context: ../eliza-livepeer-integration
       dockerfile: Dockerfile
     container_name: eliza_the_org_s2
     working_dir: /app/packages/the-org
     env_file:
-      - .env
+      - ../.env
     command: >
       bash -c "set -x; \
       echo '>>> [Eliza] Starting dev server with auto-selection of pglite...'; \
@@ -34,7 +34,7 @@ services:
   neurosync:
     mem_limit: 12g
     build:
-      context: .
+      context: ..
       dockerfile: ./NeuroBridge/dockerfile  # Builds combined Local API + Player image
     container_name: neurosync_s1
     command: [/app/entrypoint_bridge.sh]
@@ -62,9 +62,9 @@ services:
       - scb_bridge_net
     volumes:
       # Mount NeuroBridge code for live editing (optional)
-      - ./NeuroBridge:/app/NeuroBridge
+      - ../NeuroBridge:/app/NeuroBridge
     env_file:
-      - .env
+      - ../.env
     # Default CMD in image already starts Flask + client
     # Add healthcheck if desired
     # healthcheck:
@@ -117,7 +117,7 @@ services:
     environment:
       - PGPASSWORD=postgres
     volumes:
-      - ./setup_analytics_tables.sql:/setup_analytics_tables.sql:ro
+      - ../tools/database/setup_analytics_tables.sql:/setup_analytics_tables.sql:ro
     networks:
       - scb_bridge_net
     depends_on:
@@ -159,25 +159,25 @@ services:
 # --- RTMP server for low-latency audio/video sync ---
   nginx-rtmp:
     build:
-      context: ./files_docker_rtmp/docker/rtmp
+      context: ../files_docker_rtmp/docker/rtmp
     container_name: nginx_rtmp
     ports:
       - "1935:1935"   # RTMP ingest
       - "8080:8080"   # HLS + status page & HLS manifest
     volumes:
-      - ./files_docker_rtmp/docker/rtmp/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../files_docker_rtmp/docker/rtmp/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
       - scb_bridge_net
     restart: unless-stopped
 
   autonomous_starter:
     build:
-      context: ./autonomous-starter          # directory with its Dockerfile
+      context: ../autonomous-starter          # directory with its Dockerfile
       dockerfile: Dockerfile                 # or omit if named "Dockerfile"
     container_name: autonomous_starter_s3
     working_dir: /app                        # adjust if your code lives elsewhere
     env_file:
-      - .env
+      - ../.env
     ports:
       # inside the container it still binds to 3000,
       # but we publish it on 3100 so it doesn't fight with eliza_the_org

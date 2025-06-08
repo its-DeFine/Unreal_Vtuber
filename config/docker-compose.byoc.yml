@@ -40,7 +40,7 @@ services:
       - gateway
       - redis
     env_file:
-      - .env
+      - ../.env
     volumes:
       # - ${XDG_RUNTIME_DIR}/pulse:/run/user/1000/pulse      # socket + cookie. Commented out to prefer TCP.
       - /etc/machine-id:/etc/machine-id:ro                 # libpulse wants this
@@ -56,11 +56,11 @@ services:
     image: adastravideo/go-livepeer:dynamic-capabilities-2
     container_name: byoc-orchestrator
     volumes:
-      - ./data/orchestrator:/data
+      - ../data/orchestrator:/data
     ports:
       - 9995:9995
     env_file:
-      - .env
+      - ../.env
     command: ["-orchestrator",
           "-orchSecret=${ORCH_SECRET}",
           "-serviceAddr=0.0.0.0:9995",
@@ -82,7 +82,7 @@ services:
     ports:
       - "9999:9999"
     volumes:
-      - ./data/gateway:/data
+      - ../data/gateway:/data
     networks:
       - byoc
 

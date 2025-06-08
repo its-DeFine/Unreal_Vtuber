@@ -11,10 +11,21 @@ dotenv.config();
 
 import { autoPlugin } from './plugin-auto';
 import { bootstrapPlugin } from './plugin-bootstrap';
-import { livepeerPlugin } from './plugin-livepeer';
+import { livepeerPlugin } from './plugin-livepeer/src';
 
 // Conditionally import AI provider plugins based on configuration
 const availablePlugins = [];
+
+// Add Ollama plugin if configured (highest priority for local inference)
+if (process.env.USE_OLLAMA_TEXT_MODELS === 'true' || process.env.OLLAMA_API_ENDPOINT) {
+  try {
+    const { ollamaPlugin } = require('@elizaos/plugin-ollama');
+    availablePlugins.push(ollamaPlugin);
+    logger.info('[Provider Setup] Ollama plugin loaded');
+  } catch (error) {
+    logger.warn('[Provider Setup] Ollama plugin not available:', error);
+  }
+}
 
 // Add OpenAI plugin if API key is available
 if (process.env.OPENAI_API_KEY) {
@@ -60,6 +71,8 @@ function getPreferredProvider(): string {
   // If a provider is explicitly set, validate it's available
   if (explicitProvider) {
     switch (explicitProvider) {
+      case 'ollama':
+        return (process.env.USE_OLLAMA_TEXT_MODELS === 'true' || process.env.OLLAMA_API_ENDPOINT) ? 'ollama' : 'auto';
       case 'openai':
         return process.env.OPENAI_API_KEY ? 'openai' : 'auto';
       case 'anthropic':
@@ -74,7 +87,11 @@ function getPreferredProvider(): string {
     }
   }
   
-  // Auto-detect based on available API keys
+  // Auto-detect based on available configuration (prioritize Ollama for local inference)
+  if (process.env.USE_OLLAMA_TEXT_MODELS === 'true' || process.env.OLLAMA_API_ENDPOINT) {
+    logger.info('[Provider Setup] Using Ollama for local AI inference');
+    return 'ollama';
+  }
   if (process.env.OPENAI_API_KEY) return 'openai';
   if (process.env.ANTHROPIC_API_KEY) return 'anthropic';
   if (process.env.GROQ_API_KEY) return 'groq';
@@ -96,6 +113,7 @@ function getPreferredProvider(): string {
  * - VTuber interaction and SCB space control
  * - Research capabilities for knowledge expansion
  * - Multiple AI provider support with fallback capabilities
+ * - Ollama local inference support for privacy and performance
  * - Livepeer inference integration for decentralized AI
  */
 export const character: Character = {
@@ -103,10 +121,10 @@ export const character: Character = {
   plugins: [
     '@elizaos/plugin-sql',
     // Conditionally load plugins based on environment
+    ...(process.env.USE_OLLAMA_TEXT_MODELS === 'true' || process.env.OLLAMA_API_ENDPOINT ? ['@elizaos/plugin-ollama'] : []),
     ...(process.env.DISCORD_API_TOKEN ? ['@elizaos/plugin-discord'] : []),
     ...(process.env.TWITTER_USERNAME ? ['@elizaos/plugin-twitter'] : []),
     ...(process.env.TELEGRAM_BOT_TOKEN ? ['@elizaos/plugin-telegram'] : []),
-    ...(process.env.EVM_PRIVATE_KEY ? ['@elizaos/plugin-evm'] : []),
   ],
   settings: {
     secrets: {
@@ -129,11 +147,16 @@ export const character: Character = {
       // Model Provider Configuration
       MODEL_PROVIDER: process.env.MODEL_PROVIDER || 'auto',
       
-      // EVM Configuration
-      EVM_PRIVATE_KEY: process.env.EVM_PRIVATE_KEY,
-      EVM_PROVIDER_URL: process.env.EVM_PROVIDER_URL,
+      // Ollama Configuration (for local AI inference)
+      USE_OLLAMA_TEXT_MODELS: process.env.USE_OLLAMA_TEXT_MODELS || 'false',
+      OLLAMA_API_ENDPOINT: process.env.OLLAMA_API_ENDPOINT || 'http://localhost:11434',
+      OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'llama3.2:3b',
+      OLLAMA_SMALL_MODEL: process.env.OLLAMA_SMALL_MODEL || process.env.OLLAMA_MODEL || 'llama3.2:3b',
+      OLLAMA_MEDIUM_MODEL: process.env.OLLAMA_MEDIUM_MODEL || process.env.OLLAMA_MODEL || 'llama3.2:3b',
+      OLLAMA_LARGE_MODEL: process.env.OLLAMA_LARGE_MODEL || process.env.OLLAMA_MODEL || 'llama3.2:3b',
+      USE_OLLAMA_EMBEDDING: process.env.USE_OLLAMA_EMBEDDING || 'false',
       
-      // AI Provider Keys - All providers optional, fallback to Livepeer
+      // AI Provider Keys - All providers optional, with Ollama as preferred local option
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
       GROQ_API_KEY: process.env.GROQ_API_KEY,
@@ -145,10 +168,6 @@ export const character: Character = {
       TWITTER_PASSWORD: process.env.TWITTER_PASSWORD,
       TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
     },
-    // EVM Chain Configuration
-    chains: {
-      evm: ["base", "arbitrum", "polygon", "mainnet"]
-    },
     // Database-specific settings for SQL plugin
     database: {
       type: 'postgres', // Force Postgres instead of PGLite
@@ -157,7 +176,7 @@ export const character: Character = {
     },
   },
   system:
-    'You are Autoliza, an autonomous AI agent specialized in VTuber management and interaction. You operate continuously to enhance VTuber experiences through strategic prompts, SCB space management, research, and context learning. Your primary directive is to maintain engaging VTuber interactions while continuously improving through autonomous learning. You have access to memory archiving for optimal performance and can utilize multiple AI providers including Livepeer for decentralized inference.',
+    'You are Autoliza, an autonomous AI agent specialized in VTuber management and interaction. You operate continuously to enhance VTuber experiences through strategic prompts, SCB space management, research, and context learning. Your primary directive is to maintain engaging VTuber interactions while continuously improving through autonomous learning. You have access to memory archiving for optimal performance and can utilize multiple AI providers including local Ollama inference for privacy and Livepeer for decentralized inference.',
   bio: [
     'Autonomous VTuber management agent with continuous learning capabilities.',
     'Specializes in strategic VTuber prompting and SCB space management.',
@@ -167,7 +186,7 @@ export const character: Character = {
     'Operates on autonomous loop with configurable decision intervals.',
     'Features advanced memory archiving for optimal performance scaling.',
     'Stores and retrieves strategic insights for enhanced decision-making.',
-    'Supports multiple AI providers with intelligent fallback mechanisms.',
+    'Supports multiple AI providers including local Ollama inference.',
     'Enhanced with Livepeer for decentralized AI inference capabilities.',
   ],
   messageExamples: [
