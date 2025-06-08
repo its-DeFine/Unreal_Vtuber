@@ -1,11 +1,11 @@
-import { type IAgentRuntime, Memory, ModelType, Provider, State } from '@elizaos/core';
+import {
+  type IAgentRuntime,
+  Memory,
+  ModelType,
+  Provider,
+  State,
+} from "@elizaos/core";
 
-/**
- * Formats an array of memories into a single string with each memory content text separated by a new line.
- *
- * @param {Memory[]} facts - An array of Memory objects to be formatted.
- * @returns {string} A single string containing all memory content text with new lines separating each text.
- */
 /**
  * Formats an array of Memory objects into a string, joining them with newlines.
  *
@@ -16,7 +16,7 @@ function formatFacts(facts: Memory[]) {
   return facts
     .reverse()
     .map((fact: Memory) => fact.content.text)
-    .join('\n');
+    .join("\n");
 }
 
 /**
@@ -27,13 +27,13 @@ function formatFacts(facts: Memory[]) {
  * @returns {Object} An object containing values, data, and text related to the key facts.
  */
 const factsProvider: Provider = {
-  name: 'FACTS',
-  description: 'Key facts that the agent knows',
+  name: "FACTS",
+  description: "Key facts that the agent knows",
   dynamic: true,
   get: async (runtime: IAgentRuntime, message: Memory, _state?: State) => {
     // Parallelize initial data fetching operations including recentInteractions
     const recentMessages = await runtime.getMemories({
-      tableName: 'messages',
+      tableName: "messages",
       roomId: message.roomId,
       count: 10,
       unique: false,
@@ -43,7 +43,7 @@ const factsProvider: Provider = {
     const last5Messages = recentMessages
       .slice(-5)
       .map((message) => message.content.text)
-      .join('\n');
+      .join("\n");
 
     const embedding = await runtime.useModel(ModelType.TEXT_EMBEDDING, {
       text: last5Messages,
@@ -51,7 +51,7 @@ const factsProvider: Provider = {
 
     const [relevantFacts, recentFactsData] = await Promise.all([
       runtime.searchMemories({
-        tableName: 'facts',
+        tableName: "facts",
         embedding,
         roomId: message.roomId,
         worldId: message.worldId,
@@ -61,7 +61,7 @@ const factsProvider: Provider = {
       runtime.searchMemories({
         embedding,
         query: message.content.text,
-        tableName: 'facts',
+        tableName: "facts",
         roomId: message.roomId,
         entityId: message.entityId,
         count: 6,
@@ -70,26 +70,26 @@ const factsProvider: Provider = {
 
     // join the two and deduplicate
     const allFacts = [...relevantFacts, ...recentFactsData].filter(
-      (fact, index, self) => index === self.findIndex((t) => t.id === fact.id)
+      (fact, index, self) => index === self.findIndex((t) => t.id === fact.id),
     );
 
     if (allFacts.length === 0) {
       return {
         values: {
-          facts: '',
+          facts: "",
         },
         data: {
           facts: allFacts,
         },
-        text: '',
+        text: "",
       };
     }
 
     const formattedFacts = formatFacts(allFacts);
 
-    const text = 'Key facts that {{agentName}} knows:\n{{formattedFacts}}'
-      .replace('{{agentName}}', runtime.character.name)
-      .replace('{{formattedFacts}}', formattedFacts);
+    const text = "Key facts that {{agentName}} knows:\n{{formattedFacts}}"
+      .replace("{{agentName}}", runtime.character.name)
+      .replace("{{formattedFacts}}", formattedFacts);
 
     return {
       values: {

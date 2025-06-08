@@ -22,32 +22,22 @@ import {
   shouldRespondTemplate,
   type UUID,
   type WorldPayload,
-} from '@elizaos/core';
-import { v4 } from 'uuid';
+} from "@elizaos/core";
+import { v4 } from "uuid";
 
-import { choiceAction } from './actions/choice';
-import { ignoreAction } from './actions/ignore';
-import { noneAction } from './actions/none';
-import { replyAction } from './actions/reply';
-import sendMessageAction from './actions/sendMessage';
-import { updateSettingsAction } from './actions/settings';
-import { makeApiPostAction } from './actions/makeApiPostAction';
-import { sendToVTuberAction } from './actions/sendToVTuberAction';
-import { directVTuberSpeechAction } from './actions/directVTuberSpeechAction';
-import { updateScbAction } from './actions/updateScbAction';
-import { doResearchAction } from './actions/doResearchAction';
-import { updateContextAction } from './actions/updateContextAction';
-// TODO: Re-enable when EVM plugin compatibility is resolved
-// import { evmInteractionAction } from './actions/evmInteractionAction';
-import { actionsProvider } from './providers/actions';
-import { choiceProvider } from './providers/choice';
-import { characterProvider } from './providers/character';
-import { entitiesProvider } from './providers/entities';
-import { providersProvider } from './providers/providers';
-import { recentMessagesProvider } from './providers/recentMessages';
-import { settingsProvider } from './providers/settings';
-import { timeProvider } from './providers/time';
-import { TaskService } from './services/task';
+import { choiceAction } from "./actions/choice";
+import { ignoreAction } from "./actions/ignore";
+import { noneAction } from "./actions/none";
+import sendMessageAction from "./actions/sendMessage";
+import { updateSettingsAction } from "./actions/settings";
+import { actionsProvider } from "./providers/actions";
+import { choiceProvider } from "./providers/choice";
+import { characterProvider } from "./providers/character";
+import { entitiesProvider } from "./providers/entities";
+import { providersProvider } from "./providers/providers";
+import { settingsProvider } from "./providers/settings";
+import { timeProvider } from "./providers/time";
+import { TaskService } from "./services/task";
 
 /**
  * Represents media data containing a buffer of data and the media type.
@@ -117,7 +107,9 @@ function sanitizeJson(rawJson: string): string {
  * @param {Media[]} attachments - Array of Media objects to fetch data from.
  * @returns {Promise<MediaData[]>} - A Promise that resolves with an array of MediaData objects.
  */
-export async function fetchMediaData(attachments: Media[]): Promise<MediaData[]> {
+export async function fetchMediaData(
+  attachments: Media[],
+): Promise<MediaData[]> {
   return Promise.all(
     attachments.map(async (attachment: Media) => {
       if (/^(http|https):\/\//.test(attachment.url)) {
@@ -127,7 +119,7 @@ export async function fetchMediaData(attachments: Media[]): Promise<MediaData[]>
           throw new Error(`Failed to fetch file: ${attachment.url}`);
         }
         const mediaBuffer = Buffer.from(await response.arrayBuffer());
-        const mediaType = attachment.contentType || 'image/png';
+        const mediaType = attachment.contentType || "image/png";
         return { data: mediaBuffer, mediaType };
       }
       // if (fs.existsSync(attachment.url)) {
@@ -136,8 +128,10 @@ export async function fetchMediaData(attachments: Media[]): Promise<MediaData[]>
       //   const mediaType = attachment.contentType || 'image/png';
       //   return { data: mediaBuffer, mediaType };
       // }
-      throw new Error(`File not found: ${attachment.url}. Make sure the path is correct.`);
-    })
+      throw new Error(
+        `File not found: ${attachment.url}. Make sure the path is correct.`,
+      );
+    }),
   );
 }
 
@@ -165,22 +159,13 @@ const messageReceivedHandler = async ({
     message.worldId = createUniqueUuid(runtime, message.entityId);
   }
 
-  // Default channelType and channelId if not provided by the message source
-  if (!message.content.type) {
-    logger.warn(`Message from source '${message.content.source}' missing content.type, defaulting to ChannelType.SELF`);
-    message.content.type = ChannelType.SELF;
-  }
-  if (!message.content.channelId) {
-    logger.warn(`Message from source '${message.content.source}' missing content.channelId, defaulting to roomId (${message.roomId})`);
-    message.content.channelId = message.roomId;
-  }
-
-  console.log('*** message', message);
+  console.log("*** message", message);
 
   await runtime.ensureConnection({
     entityId: message.entityId,
     roomId: message.roomId,
-    userName: message.metadata[message.content.source]?.username || message.entityId,
+    userName:
+      message.metadata[message.content.source]?.username || message.entityId,
     name:
       message.metadata[message.content.source]?.name ||
       message.metadata[message.content.source]?.username ||
@@ -192,11 +177,11 @@ const messageReceivedHandler = async ({
     worldId: message.worldId || createUniqueUuid(runtime, message.entityId),
   });
 
-  console.log('*** message', message);
+  console.log("*** message", message);
 
   const agentResponses = latestResponseIds.get(runtime.agentId);
   if (!agentResponses) {
-    throw new Error('Agent responses map not found');
+    throw new Error("Agent responses map not found");
   }
 
   // Set this as the latest response ID for this agent+room
@@ -214,8 +199,8 @@ const messageReceivedHandler = async ({
     roomId: message.roomId,
     entityId: message.entityId,
     startTime,
-    status: 'started',
-    source: 'messageHandler',
+    status: "started",
+    source: "messageHandler",
   });
 
   // Set up timeout monitoring
@@ -231,35 +216,40 @@ const messageReceivedHandler = async ({
         roomId: message.roomId,
         entityId: message.entityId,
         startTime,
-        status: 'timeout',
+        status: "timeout",
         endTime: Date.now(),
         duration: Date.now() - startTime,
-        error: 'Run exceeded 60 minute timeout',
-        source: 'messageHandler',
+        error: "Run exceeded 60 minute timeout",
+        source: "messageHandler",
       });
-      reject(new Error('Run exceeded 60 minute timeout'));
+      reject(new Error("Run exceeded 60 minute timeout"));
     }, timeoutDuration);
   });
 
   const processingPromise = (async () => {
     try {
       if (message.entityId === runtime.agentId) {
-        throw new Error('Message is from the agent itself');
+        throw new Error("Message is from the agent itself");
       }
 
       // First, save the incoming message
       await Promise.all([
         runtime.addEmbeddingToMemory(message),
-        runtime.createMemory(message, 'messages'),
+        runtime.createMemory(message, "messages"),
       ]);
 
-      const agentUserState = await runtime.getParticipantUserState(message.roomId, runtime.agentId);
+      const agentUserState = await runtime.getParticipantUserState(
+        message.roomId,
+        runtime.agentId,
+      );
 
       if (
-        agentUserState === 'MUTED' &&
-        !message.content.text?.toLowerCase().includes(runtime.character.name.toLowerCase())
+        agentUserState === "MUTED" &&
+        !message.content.text
+          ?.toLowerCase()
+          .includes(runtime.character.name.toLowerCase())
       ) {
-        logger.debug('Ignoring muted room');
+        logger.debug("Ignoring muted room");
         return;
       }
 
@@ -269,7 +259,9 @@ const messageReceivedHandler = async ({
 
       const prompt = composePromptFromState({
         state,
-        template: runtime.character.templates?.messageHandlerTemplate || messageHandlerTemplate,
+        template:
+          runtime.character.templates?.messageHandlerTemplate ||
+          messageHandlerTemplate,
       });
 
       let responseContent: Content | null = null;
@@ -278,24 +270,27 @@ const messageReceivedHandler = async ({
       let retries = 0;
       const maxRetries = 3;
 
-      while (retries < maxRetries && (!responseContent?.thought || !responseContent?.actions)) {
+      while (
+        retries < maxRetries &&
+        (!responseContent?.thought || !responseContent?.actions)
+      ) {
         let response = await runtime.useModel(ModelType.TEXT_LARGE, {
           prompt,
         });
 
-        logger.debug('*** Raw LLM Response ***\n', response);
+        logger.debug("*** Raw LLM Response ***\n", response);
 
         // Attempt to parse the XML response
         const parsedXml = parseKeyValueXml(response);
-        logger.debug('*** Parsed XML Content ***\n', parsedXml);
+        logger.debug("*** Parsed XML Content ***\n", parsedXml);
 
         // Map parsed XML to Content type, handling potential missing fields
         if (parsedXml) {
           responseContent = {
-            thought: parsedXml.thought || '',
-            actions: parsedXml.actions || ['IGNORE'],
+            thought: parsedXml.thought || "",
+            actions: parsedXml.actions || ["IGNORE"],
             providers: parsedXml.providers || [],
-            text: parsedXml.text || '',
+            text: parsedXml.text || "",
             simple: parsedXml.simple || false,
           };
         } else {
@@ -304,7 +299,9 @@ const messageReceivedHandler = async ({
 
         retries++;
         if (!responseContent?.thought || !responseContent?.actions) {
-          logger.warn('*** Missing required fields (thought or actions), retrying... ***');
+          logger.warn(
+            "*** Missing required fields (thought or actions), retrying... ***",
+          );
         }
       }
 
@@ -312,7 +309,7 @@ const messageReceivedHandler = async ({
       const currentResponseId = agentResponses.get(message.roomId);
       if (currentResponseId !== responseId) {
         logger.info(
-          `Response discarded - newer message being processed for agent: ${runtime.agentId}, room: ${message.roomId}`
+          `Response discarded - newer message being processed for agent: ${runtime.agentId}, room: ${message.roomId}`,
         );
         return;
       }
@@ -343,13 +340,19 @@ const messageReceivedHandler = async ({
         responseContent.simple &&
         responseContent.text &&
         (responseContent.length === 0 ||
-          (responseContent.length === 1 && responseContent.actions[0].toUpperCase() === 'REPLY'))
+          (responseContent.length === 1 &&
+            responseContent.actions[0].toUpperCase() === "REPLY"))
       ) {
         await callback(responseContent);
       } else {
-        await runtime.processActions(message, responseMessages, state, callback);
+        await runtime.processActions(
+          message,
+          responseMessages,
+          state,
+          callback,
+        );
       }
-      // await runtime.evaluate(message, state, shouldRespond, callback, responseMessages);
+      await runtime.evaluate(message, state, true, callback, responseMessages);
 
       onComplete?.();
 
@@ -361,10 +364,10 @@ const messageReceivedHandler = async ({
         roomId: message.roomId,
         entityId: message.entityId,
         startTime,
-        status: 'completed',
+        status: "completed",
         endTime: Date.now(),
         duration: Date.now() - startTime,
-        source: 'messageHandler',
+        source: "messageHandler",
       });
     } catch (error) {
       onComplete?.();
@@ -376,11 +379,11 @@ const messageReceivedHandler = async ({
         roomId: message.roomId,
         entityId: message.entityId,
         startTime,
-        status: 'completed',
+        status: "completed",
         endTime: Date.now(),
         duration: Date.now() - startTime,
         error: error.message,
-        source: 'messageHandler',
+        source: "messageHandler",
       });
       throw error;
     }
@@ -409,13 +412,13 @@ const reactionReceivedHandler = async ({
   message: Memory;
 }) => {
   try {
-    await runtime.createMemory(message, 'messages');
+    await runtime.createMemory(message, "messages");
   } catch (error) {
-    if (error.code === '23505') {
-      logger.warn('Duplicate reaction memory, skipping');
+    if (error.code === "23505") {
+      logger.warn("Duplicate reaction memory, skipping");
       return;
     }
-    logger.error('Error in reaction handler:', error);
+    logger.error("Error in reaction handler:", error);
   }
 };
 
@@ -440,11 +443,13 @@ const syncSingleUser = async (
   serverId: string,
   channelId: string,
   type: ChannelType,
-  source: string
+  source: string,
 ) => {
   try {
     const entity = await runtime.getEntityById(entityId);
-    logger.info(`Syncing user: ${entity?.metadata[source]?.username || entityId}`);
+    logger.info(
+      `Syncing user: ${entity?.metadata[source]?.username || entityId}`,
+    );
 
     // Ensure we're not using WORLD type and that we have a valid channelId
     if (!channelId) {
@@ -459,7 +464,10 @@ const syncSingleUser = async (
       entityId,
       roomId,
       userName: entity?.metadata[source].username || entityId,
-      name: entity?.metadata[source].name || entity?.metadata[source].username || `User${entityId}`,
+      name:
+        entity?.metadata[source].name ||
+        entity?.metadata[source].username ||
+        `User${entityId}`,
       source,
       channelId,
       serverId,
@@ -469,7 +477,9 @@ const syncSingleUser = async (
 
     logger.success(`Successfully synced user: ${entity?.id}`);
   } catch (error) {
-    logger.error(`Error syncing user: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(
+      `Error syncing user: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 };
 
@@ -538,9 +548,11 @@ const handleServerSync = async ({
                 worldId: world.id,
               });
             } catch (err) {
-              logger.warn(`Failed to sync user ${entity.metadata.username}: ${err}`);
+              logger.warn(
+                `Failed to sync user ${entity.metadata.username}: ${err}`,
+              );
             }
-          })
+          }),
         );
 
         // Add a small delay between batches if not the last batch
@@ -550,13 +562,15 @@ const handleServerSync = async ({
       }
     }
 
-    logger.debug(`Successfully synced standardized world structure for ${world.name}`);
+    logger.debug(
+      `Successfully synced standardized world structure for ${world.name}`,
+    );
     onComplete?.();
   } catch (error) {
     logger.error(
       `Error processing standardized server data: ${
         error instanceof Error ? error.message : String(error)
-      }`
+      }`,
     );
   }
 };
@@ -575,9 +589,9 @@ const controlMessageHandler = async ({
 }: {
   runtime: IAgentRuntime;
   message: {
-    type: 'control';
+    type: "control";
     payload: {
-      action: 'enable_input' | 'disable_input';
+      action: "enable_input" | "disable_input";
       target?: string;
     };
     roomId: UUID;
@@ -586,7 +600,7 @@ const controlMessageHandler = async ({
 }) => {
   try {
     logger.debug(
-      `[controlMessageHandler] Processing control message: ${message.payload.action} for room ${message.roomId}`
+      `[controlMessageHandler] Processing control message: ${message.payload.action} for room ${message.roomId}`,
     );
 
     // Here we would use a WebSocket service to send the control message to the frontend
@@ -595,15 +609,17 @@ const controlMessageHandler = async ({
     // Get any registered WebSocket service
     const serviceNames = Array.from(runtime.getAllServices().keys());
     const websocketServiceName = serviceNames.find(
-      (name) => name.toLowerCase().includes('websocket') || name.toLowerCase().includes('socket')
+      (name) =>
+        name.toLowerCase().includes("websocket") ||
+        name.toLowerCase().includes("socket"),
     );
 
     if (websocketServiceName) {
       const websocketService = runtime.getService(websocketServiceName);
-      if (websocketService && 'sendMessage' in websocketService) {
+      if (websocketService && "sendMessage" in websocketService) {
         // Send the control message through the WebSocket service
         await (websocketService as any).sendMessage({
-          type: 'controlMessage',
+          type: "controlMessage",
           payload: {
             action: message.payload.action,
             target: message.payload.target,
@@ -612,16 +628,22 @@ const controlMessageHandler = async ({
         });
 
         logger.debug(
-          `[controlMessageHandler] Control message ${message.payload.action} sent successfully`
+          `[controlMessageHandler] Control message ${message.payload.action} sent successfully`,
         );
       } else {
-        logger.error('[controlMessageHandler] WebSocket service does not have sendMessage method');
+        logger.error(
+          "[controlMessageHandler] WebSocket service does not have sendMessage method",
+        );
       }
     } else {
-      logger.error('[controlMessageHandler] No WebSocket service found to send control message');
+      logger.error(
+        "[controlMessageHandler] No WebSocket service found to send control message",
+      );
     }
   } catch (error) {
-    logger.error(`[controlMessageHandler] Error processing control message: ${error}`);
+    logger.error(
+      `[controlMessageHandler] Error processing control message: ${error}`,
+    );
   }
 };
 
@@ -683,7 +705,7 @@ const events = {
         payload.worldId,
         payload.roomId,
         payload.metadata.type,
-        payload.source
+        payload.source,
       );
     },
   ],
@@ -696,7 +718,7 @@ const events = {
         if (entity) {
           entity.metadata = {
             ...entity.metadata,
-            status: 'INACTIVE',
+            status: "INACTIVE",
             leftAt: Date.now(),
           };
           await payload.runtime.updateEntity(entity);
@@ -710,27 +732,39 @@ const events = {
 
   [EventType.ACTION_STARTED]: [
     async (payload: ActionEventPayload) => {
-      logger.debug(`Action started: ${payload.actionName} (${payload.actionId})`);
+      logger.debug(
+        `Action started: ${payload.actionName} (${payload.actionId})`,
+      );
     },
   ],
 
   [EventType.ACTION_COMPLETED]: [
     async (payload: ActionEventPayload) => {
-      const status = payload.error ? `failed: ${payload.error.message}` : 'completed';
-      logger.debug(`Action ${status}: ${payload.actionName} (${payload.actionId})`);
+      const status = payload.error
+        ? `failed: ${payload.error.message}`
+        : "completed";
+      logger.debug(
+        `Action ${status}: ${payload.actionName} (${payload.actionId})`,
+      );
     },
   ],
 
   [EventType.EVALUATOR_STARTED]: [
     async (payload: EvaluatorEventPayload) => {
-      logger.debug(`Evaluator started: ${payload.evaluatorName} (${payload.evaluatorId})`);
+      logger.debug(
+        `Evaluator started: ${payload.evaluatorName} (${payload.evaluatorId})`,
+      );
     },
   ],
 
   [EventType.EVALUATOR_COMPLETED]: [
     async (payload: EvaluatorEventPayload) => {
-      const status = payload.error ? `failed: ${payload.error.message}` : 'completed';
-      logger.debug(`Evaluator ${status}: ${payload.evaluatorName} (${payload.evaluatorId})`);
+      const status = payload.error
+        ? `failed: ${payload.error.message}`
+        : "completed";
+      logger.debug(
+        `Evaluator ${status}: ${payload.evaluatorName} (${payload.evaluatorId})`,
+      );
     },
   ],
 
@@ -738,21 +772,14 @@ const events = {
 };
 
 export const bootstrapPlugin: Plugin = {
-  name: 'bootstrap',
-  description: 'Agent bootstrap with basic actions and evaluators',
+  name: "bootstrap",
+  description: "Agent bootstrap with basic actions and evaluators",
   actions: [
-    replyAction,
     ignoreAction,
     noneAction,
     sendMessageAction,
     choiceAction,
     updateSettingsAction,
-    makeApiPostAction,
-    sendToVTuberAction,
-    directVTuberSpeechAction,
-    updateScbAction,
-    doResearchAction,
-    updateContextAction,
   ],
   events,
   evaluators: [],
@@ -764,7 +791,6 @@ export const bootstrapPlugin: Plugin = {
     providersProvider,
     actionsProvider,
     characterProvider,
-    recentMessagesProvider,
   ],
   services: [TaskService],
 };

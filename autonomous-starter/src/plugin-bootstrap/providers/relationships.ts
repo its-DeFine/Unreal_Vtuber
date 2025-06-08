@@ -1,10 +1,11 @@
-import type { Entity, IAgentRuntime, Memory, Provider, Relationship, UUID } from '@elizaos/core';
-/**
- * Formats the provided relationships based on interaction strength and returns a string.
- * @param {IAgentRuntime} runtime - The runtime object to interact with the agent.
- * @param {Relationship[]} relationships - The relationships to format.
- * @returns {string} The formatted relationships as a string.
- */
+import type {
+  Entity,
+  IAgentRuntime,
+  Memory,
+  Provider,
+  Relationship,
+  UUID,
+} from "@elizaos/core";
 /**
  * Asynchronously formats relationships based on their interaction strength.
  *
@@ -12,24 +13,32 @@ import type { Entity, IAgentRuntime, Memory, Provider, Relationship, UUID } from
  * @param {Relationship[]} relationships The relationships to be formatted.
  * @returns {Promise<string>} A formatted string of the relationships.
  */
-async function formatRelationships(runtime: IAgentRuntime, relationships: Relationship[]) {
+async function formatRelationships(
+  runtime: IAgentRuntime,
+  relationships: Relationship[],
+) {
   // Sort relationships by interaction strength (descending)
   const sortedRelationships = relationships
     .filter((rel) => rel.metadata?.interactions)
-    .sort((a, b) => (b.metadata?.interactions || 0) - (a.metadata?.interactions || 0))
+    .sort(
+      (a, b) =>
+        (b.metadata?.interactions || 0) - (a.metadata?.interactions || 0),
+    )
     .slice(0, 30); // Get top 30
 
   if (sortedRelationships.length === 0) {
-    return '';
+    return "";
   }
 
   // Deduplicate target entity IDs to avoid redundant fetches
   const uniqueEntityIds = Array.from(
-    new Set(sortedRelationships.map((rel) => rel.targetEntityId as UUID))
+    new Set(sortedRelationships.map((rel) => rel.targetEntityId as UUID)),
   );
 
   // Fetch all required entities in a single batch operation
-  const entities = await Promise.all(uniqueEntityIds.map((id) => runtime.getEntityById(id)));
+  const entities = await Promise.all(
+    uniqueEntityIds.map((id) => runtime.getEntityById(id)),
+  );
 
   // Create a lookup map for efficient access
   const entityMap = new Map<string, Entity | null>();
@@ -39,14 +48,23 @@ async function formatRelationships(runtime: IAgentRuntime, relationships: Relati
     }
   });
 
-  const formatMetadata = (metadata: any) => {
-    return JSON.stringify(
-      Object.entries(metadata)
-        .map(
-          ([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`
-        )
-        .join('\n')
-    );
+  const formatMetadata = (metadata: any): string => {
+    if (typeof metadata !== "object" || metadata === null) return "No metadata";
+    return Object.entries(metadata)
+      .map(([key, value]) => {
+        let valueStr;
+        if (typeof value === "string") {
+          valueStr = value;
+        } else if (typeof value === "object" && value !== null) {
+          valueStr = JSON.stringify(value); // Stringify nested objects only
+        } else {
+          valueStr = String(value);
+        }
+        // Sanitize newlines in valueStr to prevent breaking the overall format
+        valueStr = valueStr.replace(/\n/g, "\\n");
+        return `${key}: ${valueStr}`;
+      })
+      .join("\n");
   };
 
   // Format relationships using the entity map
@@ -59,14 +77,14 @@ async function formatRelationships(runtime: IAgentRuntime, relationships: Relati
         return null;
       }
 
-      const names = entity.names.join(' aka ');
+      const names = entity.names.join(" aka ");
       return `${names}\n${
-        rel.tags ? rel.tags.join(', ') : ''
+        rel.tags ? rel.tags.join(", ") : ""
       }\n${formatMetadata(entity.metadata)}\n`;
     })
     .filter(Boolean);
 
-  return formattedRelationships.join('\n');
+  return formattedRelationships.join("\n");
 }
 
 /**
@@ -81,9 +99,9 @@ async function formatRelationships(runtime: IAgentRuntime, relationships: Relati
  * @returns {Promise<Object>} Object containing relationships data or error message.
  */
 const relationshipsProvider: Provider = {
-  name: 'RELATIONSHIPS',
+  name: "RELATIONSHIPS",
   description:
-    'Relationships between {{agentName}} and other people, or between other people that {{agentName}} has observed interacting with',
+    "Relationships between {{agentName}} and other people, or between other people that {{agentName}} has observed interacting with",
   dynamic: true,
   get: async (runtime: IAgentRuntime, message: Memory) => {
     // Get all relationships for the current user
@@ -97,13 +115,16 @@ const relationshipsProvider: Provider = {
           relationships: [],
         },
         values: {
-          relationships: 'No relationships found.',
+          relationships: "No relationships found.",
         },
-        text: 'No relationships found.',
+        text: "No relationships found.",
       };
     }
 
-    const formattedRelationships = await formatRelationships(runtime, relationships);
+    const formattedRelationships = await formatRelationships(
+      runtime,
+      relationships,
+    );
 
     if (!formattedRelationships) {
       return {
@@ -111,9 +132,9 @@ const relationshipsProvider: Provider = {
           relationships: [],
         },
         values: {
-          relationships: 'No relationships found.',
+          relationships: "No relationships found.",
         },
-        text: 'No relationships found.',
+        text: "No relationships found.",
       };
     }
     return {

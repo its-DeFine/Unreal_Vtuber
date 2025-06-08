@@ -19,7 +19,7 @@ services:
     restart: always
     networks:
       - autonomous-network
-      - docker-vt_scb_bridge_net  # Connect to main network for Ollama access
+      - docker-vt_scb_bridge_net  # Connect to main network for Livepeer access
     logging:
       driver: "json-file"
       options:
@@ -49,16 +49,16 @@ services:
       - AGENT_NAME=Autoliza
       - PORT=3000
       
-      # Ollama Configuration (Use existing Ollama service)
-      - MODEL_PROVIDER=ollama
-      - USE_OLLAMA_TEXT_MODELS=true
-      - OLLAMA_API_ENDPOINT=http://vtuber-ollama:11434
-      - OLLAMA_MODEL=llama3.2:3b
-      - OLLAMA_SMALL_MODEL=llama3.2:3b
-      - OLLAMA_MEDIUM_MODEL=llama3.2:3b
-      - OLLAMA_LARGE_MODEL=llama3.2:3b
-      - USE_OLLAMA_EMBEDDING=false
-      - USE_LOCAL_AI=true
+      # AI Model Configuration - Using Livepeer instead of Ollama
+      - MODEL_PROVIDER=livepeer
+      - LIVEPEER_MODEL=llama3.2:3b
+      - LIVEPEER_SMALL_MODEL=llama3.2:3b
+      - LIVEPEER_MEDIUM_MODEL=llama3.2:3b
+      - LIVEPEER_LARGE_MODEL=llama3.2:3b
+      
+      # Groq Configuration (primary AI provider)
+      - GROQ_SMALL_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
+      - GROQ_LARGE_MODEL=meta-llama/llama-4-maverick-17b-128e-instruct
       
       # Memory Archiving
       - MEMORY_ARCHIVING_ENABLED=true
@@ -70,10 +70,10 @@ services:
       - LOG_LEVEL=info
       - DB_LOGGING=false
       
-      # Optional API Keys (commented out - using Ollama instead)
+      # Optional API Keys (add these to your .env file)
+      # - GROQ_API_KEY=${GROQ_API_KEY}
       # - OPENAI_API_KEY=${OPENAI_API_KEY}
       # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      # - GROQ_API_KEY=${GROQ_API_KEY}
       
       # Optional Discord/Twitter/Telegram keys
       # - DISCORD_APPLICATION_ID=${DISCORD_APPLICATION_ID}
@@ -86,7 +86,7 @@ services:
     restart: unless-stopped
     networks:
       - autonomous-network
-      - docker-vt_scb_bridge_net  # Connect to main network for Ollama and VTuber access
+      - docker-vt_scb_bridge_net  # Connect to main network for Livepeer and VTuber access
     volumes:
       - ./data/uploads:/app/data/uploads:rw
       - ./logs:/app/logs:rw
@@ -102,7 +102,7 @@ networks:
     name: autonomous-network
   docker-vt_scb_bridge_net:
     external: true
-    name: docker-vt_scb_bridge_net  # Connect to existing network with Ollama
+    name: docker-vt_scb_bridge_net  # Connect to existing network with Livepeer
 
 volumes:
   postgres-data:
