@@ -12,6 +12,14 @@ data/
 # --- but not README.md
 !README.md
 
+# Development tools
+.roo/
+.roomodes
+.windsurfrules
+
+# Ollama data (models, cache, etc.)
+ollama_data/
+
 # Python
 __pycache__/
 *.py[cod]
