@@ -50,6 +50,12 @@ services:
       - USE_REDIS_SCB=true
       - REDIS_URL=redis://redis:6379/0
       # - LIVELINK_UDP_IP=your_host_ip_address_here # Commented out to use default 'host.docker.internal'
+      # TTS Configuration - Kokoro TTS Integration
+      - TTS_PROVIDER=kokoro
+      - KOKORO_TTS_SERVER_URL=http://host.docker.internal:6006
+      - KOKORO_DEFAULT_VOICE=af_sarah
+      - KOKORO_TTS_TIMEOUT=30
+      - KOKORO_TTS_LANGUAGE=en
       # Add other NeuroSync env vars as needed (e.g., USE_REDIS_SCB)
     deploy: # Add deploy configuration for GPU access
       resources:
@@ -222,6 +228,32 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # Ollama Local LLM Server (GPU-enabled by default)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: vtuber-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ../ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_KEEP_ALIVE=24h
+    restart: unless-stopped
+    networks:
+      - scb_bridge_net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Make this optional so the main system can run without it
+    profiles:
+      - ollama
 
 networks:
   scb_bridge_net:

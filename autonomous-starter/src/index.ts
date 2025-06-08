@@ -15,6 +15,8 @@ import { autoPlugin } from "./plugin-auto/index.js";
 import { bootstrapPlugin } from "./plugin-bootstrap/index.js";
 import { envPlugin } from "./plugin-env/index.js";
 import { experiencePlugin } from "./plugin-experience/index.js";
+import { livepeerPlugin } from "./plugin-livepeer/src/index.js";
+import { orgVTuberPlugin } from "./plugin-orgvtuber/index.js";
 import { pluginManagerPlugin } from "./plugin-manager/index.js";
 import { robotPlugin } from "./plugin-robot/index.js";
 import { selfModificationPlugin } from "./plugin-self-modification";
@@ -197,6 +199,8 @@ export const projectAgent: ProjectAgent = {
     envPlugin,
     TodoPlugin,
     selfModificationPlugin, // Enable self-modification capabilities
+    ...(process.env.LIVEPEER_GATEWAY_URL ? [livepeerPlugin] : []), // Include Livepeer plugin if configured
+    orgVTuberPlugin,
   ],
 };
 const project: Project = {

@@ -1,0 +1,109 @@
+services:
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: autonomous-postgres
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=autonomous_agent
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data:rw
+    ports:
+      - '127.0.0.1:5433:5432'  # Different port to avoid conflicts
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - autonomous-network
+      - docker-vt_scb_bridge_net  # Connect to main network for Ollama access
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  autonomous-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autonomous-agent
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database Configuration - Use Postgres instead of PGLite
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
+      - POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
+      - DB_TYPE=postgres
+      
+      # VTuber Integration (connect via docker network)
+      - VTUBER_ENDPOINT_URL=http://neurosync:5001/process_text
+      
+      # Autonomous Agent Settings
+      - AUTONOMOUS_LOOP_INTERVAL=30000
+      - NODE_ENV=production
+      - AGENT_NAME=Autoliza
+      - PORT=3000
+      
+      # Ollama Configuration (Use existing Ollama service)
+      - MODEL_PROVIDER=ollama
+      - USE_OLLAMA_TEXT_MODELS=true
+      - OLLAMA_API_ENDPOINT=http://vtuber-ollama:11434
+      - OLLAMA_MODEL=llama3.2:3b
+      - OLLAMA_SMALL_MODEL=llama3.2:3b
+      - OLLAMA_MEDIUM_MODEL=llama3.2:3b
+      - OLLAMA_LARGE_MODEL=llama3.2:3b
+      - USE_OLLAMA_EMBEDDING=false
+      - USE_LOCAL_AI=true
+      
+      # Memory Archiving
+      - MEMORY_ARCHIVING_ENABLED=true
+      - MEMORY_ACTIVE_LIMIT=200
+      - MEMORY_ARCHIVE_HOURS=48
+      - MEMORY_IMPORTANCE_THRESHOLD=0.3
+      
+      # Logging
+      - LOG_LEVEL=info
+      - DB_LOGGING=false
+      
+      # Optional API Keys (commented out - using Ollama instead)
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # - GROQ_API_KEY=${GROQ_API_KEY}
+      
+      # Optional Discord/Twitter/Telegram keys
+      # - DISCORD_APPLICATION_ID=${DISCORD_APPLICATION_ID}
+      # - DISCORD_API_TOKEN=${DISCORD_API_TOKEN}
+      # - TWITTER_USERNAME=${TWITTER_USERNAME}
+      # - TWITTER_PASSWORD=${TWITTER_PASSWORD}
+      # - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    ports:
+      - '3001:3000'  # Different port to avoid conflicts
+    restart: unless-stopped
+    networks:
+      - autonomous-network
+      - docker-vt_scb_bridge_net  # Connect to main network for Ollama and VTuber access
+    volumes:
+      - ./data/uploads:/app/data/uploads:rw
+      - ./logs:/app/logs:rw
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  autonomous-network:
+    driver: bridge
+    name: autonomous-network
+  docker-vt_scb_bridge_net:
+    external: true
+    name: docker-vt_scb_bridge_net  # Connect to existing network with Ollama
+
+volumes:
+  postgres-data:
+    name: autonomous-postgres-data 
