@@ -39,6 +39,20 @@ export class TaskExecutionService extends Service {
         
         logger.info('🔧 [TASK-EXEC] Task execution service ready');
     }
+
+    async start(): Promise<void> {
+        await this.initialize();
+        logger.info('🔧 [TASK-EXEC] Service started');
+    }
+
+    async stop(): Promise<void> {
+        logger.info('🔧 [TASK-EXEC] Service stopping');
+        // Clear queues and active executions
+        this.executionQueue.clear();
+        this.activeExecutions.clear();
+        await this.taskEvaluationService.stop();
+        logger.info('🔧 [TASK-EXEC] Service stopped');
+    }
     
     async executeSubtask(subtask: SubTask): Promise<SubtaskResult> {
         logger.info('🚀 [TASK-EXEC] Starting subtask execution', {

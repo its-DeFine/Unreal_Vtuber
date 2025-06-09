@@ -30,6 +30,19 @@ export class TaskEvaluationService extends Service {
         
         logger.info('📊 [TASK-EVAL] Task evaluation service ready');
     }
+
+    async start(): Promise<void> {
+        await this.initialize();
+        logger.info('📊 [TASK-EVAL] Service started');
+    }
+
+    async stop(): Promise<void> {
+        logger.info('📊 [TASK-EVAL] Service stopping');
+        // Clear any intervals or cleanup
+        this.evaluationQueue.clear();
+        this.evaluationInProgress.clear();
+        logger.info('📊 [TASK-EVAL] Service stopped');
+    }
     
     async evaluateTask(taskId: string, workArtifacts: TaskArtifact[]): Promise<TaskEvaluation> {
         logger.info('🔍 [TASK-EVAL] Starting task evaluation', { 
@@ -781,7 +794,7 @@ export class TaskEvaluationService extends Service {
         let history = this.evaluationHistory;
         
         if (taskId) {
-            history = history.filter(eval => eval.taskId === taskId);
+            history = history.filter(evaluation => evaluation.taskId === taskId);
         }
         
         return history.slice(-limit);
@@ -795,7 +808,7 @@ export class TaskEvaluationService extends Service {
     } {
         const totalEvaluations = this.evaluationHistory.length;
         const averageScore = totalEvaluations > 0 
-            ? this.evaluationHistory.reduce((sum, eval) => sum + eval.overallScore, 0) / totalEvaluations 
+            ? this.evaluationHistory.reduce((sum, evaluation) => sum + evaluation.overallScore, 0) / totalEvaluations 
             : 0;
         
         return {
