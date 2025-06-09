@@ -111,9 +111,9 @@ services:
         max-file: "3"
 
   # Database initialization service - runs analytics setup automatically
-    db_init:
-      image: postgres:16-alpine
-      container_name: autonomous_db_init
+  db_init:
+    image: postgres:16-alpine
+    container_name: autonomous_db_init
     environment:
       - PGPASSWORD=postgres
     volumes:
@@ -137,11 +137,11 @@ services:
       echo '🎯 [DB_INIT] Autonomous agent database is ready for Phase 2!';
       "
     restart: "no"  # Only run once
-      logging:
-        driver: "json-file"
-        options:
-          max-size: "10m"
-          max-file: "3"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Cognee long-term memory service
   cognee:
@@ -219,6 +219,9 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
       - POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
       - DB_TYPE=postgres
+      # Cognee Knowledge Graph Integration - NO Neo4j needed!
+      - COGNEE_URL=http://cognee:8000
+      - COGNEE_API_KEY=
     networks:
       - scb_bridge_net
     depends_on:

@@ -13,6 +13,10 @@ import { autoPlugin } from './plugin-auto';
 import { bootstrapPlugin } from './plugin-bootstrap';
 import { livepeerPlugin } from './plugin-livepeer/src';
 
+// Advanced Cognitive System plugins
+import { taskManagerPlugin } from './plugin-task-manager';
+import { cogneePlugin } from './plugin-cognee';
+
 // Conditionally import AI provider plugins based on configuration
 const availablePlugins = [];
 
@@ -350,7 +354,14 @@ const initCharacter = ({ runtime }: { runtime: IAgentRuntime }) => {
 export const projectAgent: ProjectAgent = {
   character,
   init: async (runtime: IAgentRuntime) => await initCharacter({ runtime }),
-  plugins: [autoPlugin, bootstrapPlugin, ...availablePlugins],
+  plugins: [
+    autoPlugin, 
+    bootstrapPlugin, 
+    ...availablePlugins,
+    // Advanced Cognitive System
+    taskManagerPlugin,
+    cogneePlugin
+  ],
 };
 
 const project: Project = {
