@@ -111,9 +111,9 @@ services:
         max-file: "3"
 
   # Database initialization service - runs analytics setup automatically
-  db_init:
-    image: postgres:16-alpine
-    container_name: autonomous_db_init
+    db_init:
+      image: postgres:16-alpine
+      container_name: autonomous_db_init
     environment:
       - PGPASSWORD=postgres
     volumes:
@@ -137,11 +137,23 @@ services:
       echo '🎯 [DB_INIT] Autonomous agent database is ready for Phase 2!';
       "
     restart: "no"  # Only run once
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      logging:
+        driver: "json-file"
+        options:
+          max-size: "10m"
+          max-file: "3"
+
+  # Cognee long-term memory service
+  cognee:
+    build:
+      context: ../cognee-service
+      dockerfile: Dockerfile
+    container_name: cognee_server
+    ports:
+      - "8000:8000"
+    networks:
+      - scb_bridge_net
+    restart: unless-stopped
 
 # --- RTMP server for low-latency audio/video sync ---
 # Old block commented out due to indentation fix

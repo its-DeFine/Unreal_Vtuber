@@ -14,6 +14,7 @@
 - Docker & Docker Compose
 - PostgreSQL with pgvector extension
 - OpenAI API key
+- Optional Cognee server (started via `docker-compose.bridge.yml`)
 
 ### Launch System
 ```bash
@@ -121,6 +122,10 @@ docker-compose -f docker-compose.bridge.yml up -d
 ### System Monitoring
 - [`monitor_autonomous_system.sh`](./monitor_autonomous_system.sh) - Real-time system monitoring
 - [`logs/autonomous_monitoring/`](./logs/autonomous_monitoring/) - Historical monitoring data
+
+### Cognee Memory Integration
+ - Set `COGNEE_URL` (e.g. `http://cognee:8000`) and `COGNEE_API_KEY` in `.env` to enable long-term memory via Cognee.
+ - Include `@elizaos/plugin-cognee` in your runtime plugins list.
 
 ### Configuration
 - [`docker-compose.bridge.yml`](./docker-compose.bridge.yml) - Container orchestration
