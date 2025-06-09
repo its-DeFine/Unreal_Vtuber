@@ -14,7 +14,7 @@ import {
 } from '../types/CogneeTypes';
 
 export class CogneeService extends Service {
-    static serviceType: ServiceTypeName = 'COGNEE_MEMORY' as ServiceTypeName;
+    static serviceType: ServiceTypeName = 'COGNEE' as ServiceTypeName;
     
     private config: CogneeConfig;
     private isHealthy: boolean = false;
@@ -72,6 +72,19 @@ export class CogneeService extends Service {
             logger.error('🧠 [COGNEE] ❌ Failed to initialize service', { error });
             // Continue without throwing - allow graceful degradation
         }
+    }
+
+    async start(): Promise<void> {
+        await this.initialize();
+        logger.info('🧠 [COGNEE] Service started');
+    }
+
+    async stop(): Promise<void> {
+        logger.info('🧠 [COGNEE] Service stopping');
+        // Any cleanup if needed
+        this.isHealthy = false;
+        this.isConnected = false;
+        logger.info('🧠 [COGNEE] Service stopped');
     }
     
     async addMemory(data: string | string[], datasetName?: string): Promise<CogneeOperationResult> {
