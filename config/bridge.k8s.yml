@@ -216,6 +216,17 @@ spec:
             - name: DATABASE_URL
               value: "postgresql://postgres:postgres@postgres:5432/autonomous_agent"
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autonomous-starter
+spec:
+  selector:
+    app: autonomous-starter
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -248,6 +259,52 @@ spec:
       volumes:
         - name: ollama-data
           emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: setup-sql
+data:
+  setup_analytics_tables.sql: |
+    -- 🚀 Autonomous Agent Analytics Tables Setup
+    -- Adds enhanced analytics capabilities to existing ElizaOS database
+    -- Compatible with current schema, adds new functionality without breaking changes
+
+    -- Enable pgvector extension if not already enabled
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+    -- Tool usage tracking table
+    CREATE TABLE IF NOT EXISTS tool_usage (
+        id SERIAL PRIMARY KEY,
+        timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        agent_id UUID NOT NULL,
+        tool_name VARCHAR(100) NOT NULL,
+        input_context JSONB NOT NULL DEFAULT '{}',
+        output_result JSONB NOT NULL DEFAULT '{}',
+        execution_time_ms INTEGER,
+        success BOOLEAN NOT NULL DEFAULT true,
+        impact_score FLOAT DEFAULT 0.5,
+        embedding VECTOR(1536),
+        metadata JSONB DEFAULT '{}'
+    );
+
+    -- Add foreign key constraint only if agents table exists
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'agents') THEN
+            ALTER TABLE tool_usage ADD CONSTRAINT fk_tool_usage_agent 
+            FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE;
+        END IF;
+    END $$;
+
+    -- Performance indexes for efficient queries
+    CREATE INDEX IF NOT EXISTS idx_tool_usage_agent_time ON tool_usage(agent_id, timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_tool_usage_tool_name ON tool_usage(tool_name);
+    CREATE INDEX IF NOT EXISTS idx_tool_usage_success ON tool_usage(success, timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_tool_usage_impact ON tool_usage(impact_score DESC);
+
+    -- Vector similarity search indexes (if using pgvector)
+    CREATE INDEX IF NOT EXISTS idx_tool_usage_embedding ON tool_usage USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 ---
 apiVersion: v1
 kind: Service
