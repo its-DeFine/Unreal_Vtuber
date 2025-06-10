@@ -148,9 +148,13 @@ services:
     build:
       context: ../cognee-service
       dockerfile: Dockerfile
+      args:
+        LLM_API_KEY: ${OPENAI_API_KEY:-}
     container_name: cognee_server
     ports:
       - "8000:8000"
+    env_file:
+      - ../.env
     networks:
       - scb_bridge_net
     restart: unless-stopped
@@ -197,19 +201,16 @@ services:
     environment:
       - PORT=3000                            # what the app listens on
       - LOG_LEVEL=debug
-      # AI Provider Configuration - Testing Livepeer as primary
-      - MODEL_PROVIDER=livepeer              # Set Livepeer as primary provider
+      # AI Provider Configuration - Use .env file values
+      # Primary provider will be determined by available API keys
+      # Livepeer configuration (fallback if no API keys)
       - LIVEPEER_GATEWAY_URL=https://dream-gateway.livepeer.cloud
-      - LIVEPEER_API_KEY=                    # No API key needed for testing
       - LIVEPEER_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
-      - LIVEPEER_LARGE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+      - LIVEPEER_LARGE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct  
       - LIVEPEER_SMALL_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
       - LIVEPEER_TEMPERATURE=0.6
       - LIVEPEER_MAX_TOKENS=2048
-      # Disable other providers to force Livepeer usage
-      - OPENAI_API_KEY=                      # Disable OpenAI
-      - ANTHROPIC_API_KEY=                   # Disable Anthropic  
-      - GROQ_API_KEY=                        # Disable Groq
+      # API keys loaded from .env file via env_file directive
       # VTuber and System Configuration
       - VTUBER_ENDPOINT_URL=http://neurosync:5001/process_text
       - NEUROSYNC_URL=http://neurosync:5000   # in case any other actions need it
