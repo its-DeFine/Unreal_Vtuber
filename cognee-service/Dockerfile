@@ -3,5 +3,9 @@ WORKDIR /app
 RUN pip install --no-cache-dir cognee uvicorn fastapi
 ENV HOST=0.0.0.0
 ENV PORT=8000
+# Add build arg for API key to be passed at build time
+ARG LLM_API_KEY
+ENV LLM_API_KEY=${LLM_API_KEY}
+ENV OPENAI_API_KEY=${LLM_API_KEY}
 EXPOSE 8000
 CMD ["python", "-m", "uvicorn", "cognee.api.client:app", "--host", "0.0.0.0", "--port", "8000"]

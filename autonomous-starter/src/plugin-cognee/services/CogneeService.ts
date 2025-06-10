@@ -22,417 +22,333 @@ export class CogneeService extends Service {
     private lastActivity: Date | null = null;
     private stats: CogneeServiceStats;
     private apiCallsToday: number = 0;
-    private responseTimes: number[] = [];
-    
+    private accessToken: string | null = null;
+    private tokenExpiry: Date | null = null;
+
     constructor(runtime: IAgentRuntime) {
         super(runtime);
-        
-        // Initialize configuration
         this.config = {
-            url: runtime.getSetting('COGNEE_URL') as string || 'http://cognee:8000',
+            baseUrl: runtime.getSetting('COGNEE_URL') as string || 'http://localhost:8000',
             apiKey: runtime.getSetting('COGNEE_API_KEY') as string || '',
-            timeout: 30000,
-            retryAttempts: 3
+            maxRetries: 3,
+            timeoutMs: 30000,
+            defaultDataset: 'autonomous-vtuber',
+            username: 'default_user@example.com',
+            password: 'default_password'
         };
         
-        // Initialize stats
         this.stats = {
-            isHealthy: false,
-            isConnected: false,
-            lastActivity: null,
-            totalMemories: 0,
-            totalEntities: 0,
-            totalRelationships: 0,
-            apiCallsToday: 0,
-            averageResponseTime: 0
+            totalMemoriesStored: 0,
+            totalSearches: 0,
+            averageResponseTime: 0,
+            lastOperationTime: null,
+            errors: []
         };
         
-        logger.info('🧠 [COGNEE] Service initialized', {
-            url: this.config.url,
-            hasApiKey: !!this.config.apiKey
+        logger.info('🧠 [COGNEE] CogneeService initialized', { 
+            baseUrl: this.config.baseUrl,
+            hasApiKey: !!this.config.apiKey 
         });
-    }
-    
-    async initialize(): Promise<void> {
-        logger.info('🧠 [COGNEE] Initializing knowledge graph service');
-        
-        try {
-            // Test connection
-            await this.checkHealth();
-            
-            if (this.isHealthy) {
-                // Start health monitoring
-                this.startHealthMonitoring();
-                logger.info('🧠 [COGNEE] ✅ Knowledge graph service ready');
-            } else {
-                logger.warn('🧠 [COGNEE] ⚠️ Service initialized but health check failed');
-            }
-            
-        } catch (error) {
-            logger.error('🧠 [COGNEE] ❌ Failed to initialize service', { error });
-            // Continue without throwing - allow graceful degradation
-        }
     }
 
     async start(): Promise<void> {
         await this.initialize();
-        logger.info('🧠 [COGNEE] Service started');
     }
 
     async stop(): Promise<void> {
-        logger.info('🧠 [COGNEE] Service stopping');
-        // Any cleanup if needed
         this.isHealthy = false;
         this.isConnected = false;
-        logger.info('🧠 [COGNEE] Service stopped');
+        this.accessToken = null;
+        this.tokenExpiry = null;
+        logger.info('🛑 [COGNEE] CogneeService stopped');
     }
-    
-    async addMemory(data: string | string[], datasetName?: string): Promise<CogneeOperationResult> {
-        const startTime = Date.now();
-        
-        logger.info('🧠 [COGNEE] Adding memory to knowledge graph', {
-            dataLength: Array.isArray(data) ? data.length : 1,
-            dataset: datasetName || 'default'
-        });
-        
+
+    private async initialize(): Promise<void> {
         try {
-            const request: CogneeAddMemoryRequest = {
-                data,
-                dataset_name: datasetName
-            };
+            logger.info('🚀 [COGNEE] Initializing Cognee service connection...');
             
-            const response = await this.makeApiCall<CogneeAddMemoryResponse>(
-                '/api/v1/add',
-                'POST',
-                request
-            );
-            
-            this.recordApiCall(Date.now() - startTime);
-            this.lastActivity = new Date();
-            
-            logger.info('🧠 [COGNEE] ✅ Memory added successfully', {
-                dataPointsAdded: response.data_points_added,
-                errors: response.errors.length
-            });
-            
-            return {
-                success: true,
-                operation: 'add_memory',
-                message: `Successfully added ${response.data_points_added} data points`,
-                data: response,
-                timestamp: new Date()
-            };
-            
-        } catch (error) {
-            logger.error('🧠 [COGNEE] ❌ Failed to add memory', { error });
-            return {
-                success: false,
-                operation: 'add_memory',
-                message: 'Failed to add memory to knowledge graph',
-                error: error instanceof Error ? error.message : String(error),
-                timestamp: new Date()
-            };
-        }
-    }
-    
-    async cognify(datasetName?: string, force?: boolean): Promise<CogneeOperationResult> {
-        const startTime = Date.now();
-        
-        logger.info('🧠 [COGNEE] Starting cognify process (knowledge graph generation)', {
-            dataset: datasetName || 'default',
-            force
-        });
-        
-        try {
-            const request: CogneeCognifyRequest = {
-                dataset_name: datasetName,
-                force
-            };
-            
-            const response = await this.makeApiCall<CogneeCognifyResponse>(
-                '/cognify',
-                'POST',
-                request
-            );
-            
-            this.recordApiCall(Date.now() - startTime);
-            this.lastActivity = new Date();
-            
-            logger.info('🧠 [COGNEE] ✅ Cognify process completed', {
-                entitiesCreated: response.entities_created,
-                relationshipsCreated: response.relationships_created,
-                processingTime: response.processing_time
-            });
-            
-            // Update internal stats
-            this.stats.totalEntities += response.entities_created;
-            this.stats.totalRelationships += response.relationships_created;
-            
-            return {
-                success: true,
-                operation: 'cognify',
-                message: `Cognify completed: ${response.entities_created} entities, ${response.relationships_created} relationships created`,
-                data: response,
-                timestamp: new Date()
-            };
-            
-        } catch (error) {
-            logger.error('🧠 [COGNEE] ❌ Cognify process failed', { error });
-            return {
-                success: false,
-                operation: 'cognify',
-                message: 'Failed to complete cognify process',
-                error: error instanceof Error ? error.message : String(error),
-                timestamp: new Date()
-            };
-        }
-    }
-    
-    async search(query: string, options?: {
-        datasetName?: string;
-        limit?: number;
-        includeEntities?: boolean;
-        includeRelationships?: boolean;
-    }): Promise<CogneeOperationResult> {
-        const startTime = Date.now();
-        
-        logger.info('🧠 [COGNEE] Searching knowledge graph', {
-            query: query.substring(0, 100),
-            dataset: options?.datasetName || 'default',
-            limit: options?.limit || 10
-        });
-        
-        try {
-            const request: CogneeSearchRequest = {
-                query,
-                dataset_name: options?.datasetName,
-                limit: options?.limit || 10,
-                include_entities: options?.includeEntities ?? true,
-                include_relationships: options?.includeRelationships ?? true
-            };
-            
-            const response = await this.makeApiCall<CogneeSearchResponse>(
-                '/search',
-                'POST',
-                request
-            );
-            
-            this.recordApiCall(Date.now() - startTime);
-            this.lastActivity = new Date();
-            
-            logger.info('🧠 [COGNEE] ✅ Search completed', {
-                resultsFound: response.total_results,
-                processingTime: response.processing_time
-            });
-            
-            return {
-                success: true,
-                operation: 'search',
-                message: `Found ${response.total_results} results`,
-                data: response,
-                timestamp: new Date()
-            };
-            
-        } catch (error) {
-            logger.error('🧠 [COGNEE] ❌ Search failed', { error });
-            return {
-                success: false,
-                operation: 'search',
-                message: 'Failed to search knowledge graph',
-                error: error instanceof Error ? error.message : String(error),
-                timestamp: new Date()
-            };
-        }
-    }
-    
-    async getKnowledgeGraphStats(): Promise<CogneeServiceStats> {
-        // Update real-time stats
-        this.stats.isHealthy = this.isHealthy;
-        this.stats.isConnected = this.isConnected;
-        this.stats.lastActivity = this.lastActivity;
-        this.stats.apiCallsToday = this.apiCallsToday;
-        this.stats.averageResponseTime = this.calculateAverageResponseTime();
-        
-        return { ...this.stats };
-    }
-    
-    private async checkHealth(): Promise<boolean> {
-        try {
-            const startTime = Date.now();
-            
-            // Simple health check - try to make a minimal API call
-            const response = await fetch(`${this.config.url}/health`, {
-                method: 'GET',
-                headers: this.getHeaders(),
-                signal: AbortSignal.timeout(this.config.timeout)
-            });
-            
-            this.isHealthy = response.ok;
-            this.isConnected = response.ok;
-            
-            if (this.isHealthy) {
-                this.recordApiCall(Date.now() - startTime);
-                logger.debug('🧠 [COGNEE] ✅ Health check passed');
-            } else {
-                logger.warn('🧠 [COGNEE] ⚠️ Health check failed', { 
-                    status: response.status,
-                    statusText: response.statusText 
-                });
+            // Test basic connectivity
+            const healthResponse = await this.makeRequest('GET', '/health');
+            if (healthResponse.ok) {
+                this.isConnected = true;
+                logger.info('✅ [COGNEE] Basic connectivity established');
             }
             
-            return this.isHealthy;
+            // Authenticate to get access token
+            await this.authenticate();
+            
+            this.isHealthy = true;
+            logger.info('✅ [COGNEE] CogneeService initialized successfully');
             
         } catch (error) {
+            logger.error('❌ [COGNEE] Failed to initialize CogneeService', { 
+                error: error.message,
+                baseUrl: this.config.baseUrl 
+            });
+            // Don't throw - allow graceful degradation
             this.isHealthy = false;
-            this.isConnected = false;
-            logger.error('🧠 [COGNEE] ❌ Health check error', { error });
-            return false;
         }
     }
-    
-    private async makeApiCall<T>(
-        endpoint: string,
-        method: 'GET' | 'POST' | 'PUT' | 'DELETE',
-        body?: any
-    ): Promise<T> {
-        const url = `${this.config.url}${endpoint}`;
-        const headers = this.getHeaders();
-        
-        let attempt = 0;
-        while (attempt < this.config.retryAttempts) {
-            try {
-                const response = await fetch(url, {
-                    method,
-                    headers,
-                    body: body ? JSON.stringify(body) : undefined,
-                    signal: AbortSignal.timeout(this.config.timeout)
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                const data = await response.json();
-                return data as T;
-                
-            } catch (error) {
-                attempt++;
-                logger.warn(`🧠 [COGNEE] API call attempt ${attempt} failed`, {
-                    endpoint,
-                    error: error instanceof Error ? error.message : String(error)
-                });
-                
-                if (attempt >= this.config.retryAttempts) {
-                    throw error;
-                }
-                
-                // Wait before retry
-                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-            }
-        }
-        
-        throw new Error('All API call attempts failed');
-    }
-    
-    private getHeaders(): Record<string, string> {
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json'
-        };
-        
-        if (this.config.apiKey) {
-            headers['Authorization'] = `Bearer ${this.config.apiKey}`;
-        }
-        
-        return headers;
-    }
-    
-    private startHealthMonitoring(): void {
-        // Check health every 30 seconds
-        setInterval(async () => {
-            await this.checkHealth();
-        }, 30000);
-        
-        logger.debug('🧠 [COGNEE] Health monitoring started');
-    }
-    
-    private recordApiCall(responseTime: number): void {
-        this.apiCallsToday++;
-        this.responseTimes.push(responseTime);
-        
-        // Keep only last 100 response times for average calculation
-        if (this.responseTimes.length > 100) {
-            this.responseTimes = this.responseTimes.slice(-100);
-        }
-    }
-    
-    private calculateAverageResponseTime(): number {
-        if (this.responseTimes.length === 0) return 0;
-        
-        const sum = this.responseTimes.reduce((a, b) => a + b, 0);
-        return Math.round(sum / this.responseTimes.length);
-    }
-    
-    // Public interface for external integrations
-    async enhanceMemoryWithGraph(content: string, context?: Record<string, any>): Promise<CogneeOperationResult> {
-        logger.info('🧠 [COGNEE] Enhancing memory with knowledge graph integration');
-        
+
+    private async authenticate(): Promise<void> {
         try {
-            // Add to knowledge graph
-            const addResult = await this.addMemory([content], 'autonomous_agent');
-            
-            if (!addResult.success) {
-                return addResult;
+            const formData = new URLSearchParams();
+            formData.append('username', this.config.username);
+            formData.append('password', this.config.password);
+
+            const response = await fetch(`${this.config.baseUrl}/api/v1/auth/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: formData.toString(),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Authentication failed: ${response.status}`);
             }
+
+            const data = await response.json();
+            this.accessToken = data.access_token;
             
-            // Process through cognify to create entities/relationships
-            const cognifyResult = await this.cognify('autonomous_agent');
+            // JWT tokens typically expire in 1 hour, set expiry to 50 minutes from now
+            this.tokenExpiry = new Date(Date.now() + 50 * 60 * 1000);
             
+            logger.info('✅ [COGNEE] Authentication successful');
+            
+        } catch (error) {
+            logger.error('❌ [COGNEE] Authentication failed', { error: error.message });
+            throw error;
+        }
+    }
+
+    private async ensureValidToken(): Promise<void> {
+        if (!this.accessToken || !this.tokenExpiry || new Date() >= this.tokenExpiry) {
+            logger.info('🔄 [COGNEE] Token expired or missing, re-authenticating...');
+            await this.authenticate();
+        }
+    }
+
+    private async makeRequest(method: string, endpoint: string, data?: any): Promise<Response> {
+        const url = `${this.config.baseUrl}${endpoint}`;
+        const options: RequestInit = {
+            method,
+            headers: {
+                'Accept': 'application/json',
+            },
+        };
+
+        if (this.accessToken) {
+            options.headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${this.accessToken}`,
+            };
+        }
+
+        if (data && method !== 'GET') {
+            if (data instanceof FormData) {
+                options.body = data;
+            } else {
+                options.headers = {
+                    ...options.headers,
+                    'Content-Type': 'application/json',
+                };
+                options.body = JSON.stringify(data);
+            }
+        }
+
+        const response = await fetch(url, options);
+        return response;
+    }
+
+    async addMemory(text: string, datasetName?: string): Promise<CogneeOperationResult> {
+        try {
+            await this.ensureValidToken();
+            
+            const formData = new FormData();
+            const blob = new Blob([text], { type: 'text/plain' });
+            formData.append('data', blob, 'memory.txt');
+            formData.append('datasetName', datasetName || this.config.defaultDataset);
+
+            const response = await this.makeRequest('POST', '/api/v1/add/', formData);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                // Handle connection errors gracefully
+                if (errorText.includes('Connection error') || errorText.includes('OpenAIException')) {
+                    logger.warn('⚠️ [COGNEE] LLM connection issue, memory stored but not processed', {
+                        text: text.substring(0, 100),
+                        error: errorText
+                    });
+                    return {
+                        success: true,
+                        operation: 'addMemory',
+                        data: { stored: true, processed: false },
+                        timestamp: new Date(),
+                        message: 'Memory stored but LLM processing unavailable'
+                    };
+                }
+                throw new Error(`Add memory failed: ${response.status} - ${errorText}`);
+            }
+
+            const result = await response.json();
+            this.stats.totalMemoriesStored++;
+            this.lastActivity = new Date();
+            
+            logger.info('✅ [COGNEE] Memory added successfully', {
+                datasetName: datasetName || this.config.defaultDataset,
+                textLength: text.length
+            });
+
             return {
                 success: true,
-                operation: 'enhance_memory',
-                message: 'Memory enhanced with knowledge graph processing',
-                data: {
-                    addResult,
-                    cognifyResult
-                },
+                operation: 'addMemory',
+                data: result,
                 timestamp: new Date()
             };
-            
+
         } catch (error) {
-            logger.error('🧠 [COGNEE] ❌ Memory enhancement failed', { error });
+            logger.error('❌ [COGNEE] Failed to add memory', { 
+                error: error.message,
+                text: text.substring(0, 100) 
+            });
+            
             return {
                 success: false,
-                operation: 'enhance_memory',
-                message: 'Failed to enhance memory with knowledge graph',
-                error: error instanceof Error ? error.message : String(error),
+                operation: 'addMemory',
+                error: error.message,
                 timestamp: new Date()
             };
         }
     }
-    
-    async semanticSearch(query: string, context?: Record<string, any>): Promise<CogneeSearchResult[]> {
-        logger.info('🧠 [COGNEE] Performing semantic search', {
-            query: query.substring(0, 50)
-        });
-        
+
+    async search(query: string, searchType: string = 'GRAPH_COMPLETION'): Promise<CogneeOperationResult> {
         try {
-            const searchResult = await this.search(query, {
-                datasetName: 'autonomous_agent',
-                limit: 10,
-                includeEntities: true,
-                includeRelationships: true
+            await this.ensureValidToken();
+            
+            const searchData = {
+                searchType,
+                query
+            };
+
+            const response = await this.makeRequest('POST', '/api/v1/search/', searchData);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                // Handle connection errors gracefully
+                if (errorText.includes('Connection error') || errorText.includes('OpenAIException')) {
+                    logger.warn('⚠️ [COGNEE] LLM connection issue for search', {
+                        query: query.substring(0, 50),
+                        error: errorText
+                    });
+                    return {
+                        success: false,
+                        operation: 'search',
+                        error: 'LLM service unavailable',
+                        timestamp: new Date()
+                    };
+                }
+                throw new Error(`Search failed: ${response.status} - ${errorText}`);
+            }
+
+            const result = await response.json();
+            this.stats.totalSearches++;
+            this.lastActivity = new Date();
+            
+            logger.info('✅ [COGNEE] Search completed successfully', {
+                query: query.substring(0, 50),
+                resultsCount: Array.isArray(result) ? result.length : 'N/A'
+            });
+
+            return {
+                success: true,
+                operation: 'search',
+                data: result,
+                timestamp: new Date()
+            };
+
+        } catch (error) {
+            logger.error('❌ [COGNEE] Failed to search', { 
+                error: error.message,
+                query: query.substring(0, 50) 
             });
             
-            if (searchResult.success && searchResult.data) {
-                const response = searchResult.data as CogneeSearchResponse;
-                return response.results;
-            }
-            
-            return [];
-            
-        } catch (error) {
-            logger.error('🧠 [COGNEE] ❌ Semantic search failed', { error });
-            return [];
+            return {
+                success: false,
+                operation: 'search',
+                error: error.message,
+                timestamp: new Date()
+            };
         }
+    }
+
+    async cognify(datasets?: string[]): Promise<CogneeOperationResult> {
+        try {
+            await this.ensureValidToken();
+            
+            const cognifyData = {
+                datasets: datasets || [this.config.defaultDataset]
+            };
+
+            const response = await this.makeRequest('POST', '/api/v1/cognify/', cognifyData);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                // Handle connection errors gracefully
+                if (errorText.includes('Connection error') || errorText.includes('OpenAIException')) {
+                    logger.warn('⚠️ [COGNEE] LLM connection issue for cognify', {
+                        datasets,
+                        error: errorText
+                    });
+                    return {
+                        success: false,
+                        operation: 'cognify',
+                        error: 'LLM service unavailable',
+                        timestamp: new Date()
+                    };
+                }
+                throw new Error(`Cognify failed: ${response.status} - ${errorText}`);
+            }
+
+            const result = await response.json();
+            this.lastActivity = new Date();
+            
+            logger.info('✅ [COGNEE] Cognify completed successfully', {
+                datasets: datasets || [this.config.defaultDataset]
+            });
+
+            return {
+                success: true,
+                operation: 'cognify',
+                data: result,
+                timestamp: new Date()
+            };
+
+        } catch (error) {
+            logger.error('❌ [COGNEE] Failed to cognify', { 
+                error: error.message,
+                datasets 
+            });
+            
+            return {
+                success: false,
+                operation: 'cognify',
+                error: error.message,
+                timestamp: new Date()
+            };
+        }
+    }
+
+    getStats(): CogneeServiceStats {
+        return {
+            ...this.stats,
+            isHealthy: this.isHealthy,
+            isConnected: this.isConnected,
+            lastActivity: this.lastActivity
+        };
+    }
+
+    isServiceHealthy(): boolean {
+        return this.isHealthy && this.isConnected;
     }
 } 

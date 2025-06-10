@@ -75,7 +75,19 @@ class CognitiveSystemTester:
         for service, url in self.base_urls.items():
             start_time = time.time()
             try:
-                response = requests.get(f"{url}/health", timeout=10)
+                # Use different endpoints for different services
+                if service == 'vtuber':
+                    # Test VTuber with a simple process_text request
+                    response = requests.post(f"{url}/process_text", 
+                        json={"text": "test", "autonomous_context": {"enabled": True, "is_directive": False}}, 
+                        timeout=10)
+                elif service == 'scb':
+                    # Test SCB with ping endpoint
+                    response = requests.get(f"{url}/scb/ping", timeout=10)
+                else:
+                    # Use health endpoint for cognee and autonomous
+                    response = requests.get(f"{url}/health", timeout=10)
+                
                 duration = time.time() - start_time
                 
                 if response.status_code == 200:
