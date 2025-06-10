@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  # Enhanced AutoGen agent with cognitive capabilities
+  autogen_cognitive_agent:
+    build:
+      context: ./app/CORE/autogen-agent
+      dockerfile: Dockerfile
+    container_name: autogen_cognitive_agent
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
+      - COGNEE_URL=http://cognee:8000
+      - COGNEE_API_KEY=${COGNEE_API_KEY:-test_api_key}
+      - REDIS_URL=redis://redis:6379/0
+      - VTUBER_ENDPOINT=http://neurosync:5001/process_text
+      - USE_COGNITIVE_ENHANCEMENT=true
+      - USE_AUTOGEN_LLM=true
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LOOP_INTERVAL=30
+      - LOG_LEVEL=info
+      - PORT=8000
+    ports:
+      - "8100:8000"
+    depends_on:
+      - postgres
+      - redis
+      - cognee
+    restart: unless-stopped
+    networks:
+      - cognitive_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Cognee knowledge graph service
+  cognee:
+    image: cognee/cognee:latest
+    container_name: cognee_service
+    ports:
+      - "8000:8000"
+    environment:
+      - COGNEE_API_KEY=${COGNEE_API_KEY:-test_api_key}
+      - LOG_LEVEL=INFO
+    volumes:
+      - cognee_data:/app/data
+    restart: unless-stopped
+    networks:
+      - cognitive_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Enhanced PostgreSQL with cognitive tables
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: postgres_cognitive
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=autonomous_agent
+    volumes:
+      - postgres_cognitive_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    restart: unless-stopped
+    networks:
+      - cognitive_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for SCB state management
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cognitive
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - cognitive_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Optional: NeuroSync VTuber service (if available)
+  # neurosync:
+  #   image: neurosync:latest
+  #   container_name: neurosync_cognitive
+  #   ports:
+  #     - "5001:5001"
+  #   environment:
+  #     - LOG_LEVEL=info
+  #   restart: unless-stopped
+  #   networks:
+  #     - cognitive_net
+
+volumes:
+  cognee_data:
+  postgres_cognitive_data:
+
+networks:
+  cognitive_net:
+    driver: bridge 
