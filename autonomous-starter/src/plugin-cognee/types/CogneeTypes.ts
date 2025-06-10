@@ -1,8 +1,11 @@
 export interface CogneeConfig {
-    url: string;
+    baseUrl: string;
     apiKey: string;
-    timeout: number;
-    retryAttempts: number;
+    maxRetries: number;
+    timeoutMs: number;
+    defaultDataset: string;
+    username: string;
+    password: string;
 }
 
 export interface CogneeMemoryEntry {
@@ -134,20 +137,20 @@ export interface CogneeSearchResponse {
 }
 
 export interface CogneeServiceStats {
-    isHealthy: boolean;
-    isConnected: boolean;
+    isHealthy?: boolean;
+    isConnected?: boolean;
     lastActivity: Date | null;
-    totalMemories: number;
-    totalEntities: number;
-    totalRelationships: number;
-    apiCallsToday: number;
+    totalMemoriesStored: number;
+    totalSearches: number;
     averageResponseTime: number;
+    lastOperationTime: Date | null;
+    errors: string[];
 }
 
 export interface CogneeOperationResult {
     success: boolean;
     operation: string;
-    message: string;
+    message?: string;
     data?: any;
     error?: string;
     timestamp: Date;
