@@ -11,28 +11,34 @@ import {
   Role,
   type State,
   type UUID,
-} from '@elizaos/core';
-import dedent from 'dedent';
+} from "@elizaos/core";
+import dedent from "dedent";
 
-/**
- * Determines if the user with the current role can modify the role to the new role.
- * @param currentRole The current role of the user making the change
- * @param targetRole The current role of the user being changed (null if new user)
- * @param newRole The new role to assign
- * @returns Whether the role change is allowed
- */
 /**
  * Determines if a user with a given current role can modify the role of another user to a new role.
  * @param {Role} currentRole - The current role of the user attempting to modify the other user's role.
+ * @param {UUID} requesterId - The ID of the entity attempting the change.
  * @param {Role | null} targetRole - The target user's current role. Can be null if the user does not exist.
+ * @param {UUID} targetId - The ID of the entity whose role is being changed.
  * @param {Role} newRole - The new role that the current user is attempting to set for the target user.
  * @returns {boolean} Returns true if the user can modify the role, false otherwise.
  */
-const canModifyRole = (currentRole: Role, targetRole: Role | null, newRole: Role): boolean => {
+const canModifyRole = (
+  requesterRole: Role,
+  requesterId: UUID,
+  targetRole: Role | null,
+  targetId: UUID,
+  newRole: Role,
+): boolean => {
   // User's can't change their own role
-  if (targetRole === currentRole) return false;
+  if (requesterId === targetId) {
+    // Allow owner to change their own role if needed (e.g. demotion, though UI should prevent illogical changes)
+    // Or disallow entirely: return false;
+    // For now, let's assume owners can, others cannot change their own.
+    return requesterRole === Role.OWNER;
+  }
 
-  switch (currentRole) {
+  switch (requesterRole) {
     // Owners can do everything
     case Role.OWNER:
       return true;
@@ -105,18 +111,24 @@ interface RoleAssignment {
  * @property {ActionExample[][]} examples - Examples demonstrating how the action can be used.
  */
 export const updateRoleAction: Action = {
-  name: 'UPDATE_ROLE',
-  similes: ['CHANGE_ROLE', 'SET_PERMISSIONS', 'ASSIGN_ROLE', 'MAKE_ADMIN'],
-  description: 'Assigns a role (Admin, Owner, None) to a user or list of users in a channel.',
+  name: "UPDATE_ROLE",
+  similes: ["CHANGE_ROLE", "SET_PERMISSIONS", "ASSIGN_ROLE", "MAKE_ADMIN"],
+  description:
+    "Assigns a role (Admin, Owner, None) to a user or list of users in a channel.",
 
-  validate: async (runtime: IAgentRuntime, message: Memory, state: State): Promise<boolean> => {
+  validate: async (
+    runtime: IAgentRuntime,
+    message: Memory,
+    state: State,
+  ): Promise<boolean> => {
     // Only activate in group chats where the feature is enabled
     const channelType = message.content.channelType as ChannelType;
     const serverId = message.content.serverId as string;
 
     return (
       // First, check if this is a supported channel type
-      (channelType === ChannelType.GROUP || channelType === ChannelType.WORLD) &&
+      (channelType === ChannelType.GROUP ||
+        channelType === ChannelType.WORLD) &&
       // Then, check if we have a server ID
       !!serverId
     );
@@ -127,22 +139,27 @@ export const updateRoleAction: Action = {
     message: Memory,
     state: State,
     _options: any,
-    callback: HandlerCallback
+    callback: HandlerCallback,
   ): Promise<void> => {
     // Extract needed values from message and state
     const { roomId } = message;
     const channelType = message.content.channelType as ChannelType;
-    const serverId = message.content.serverId as string;
-    const worldId = runtime.getSetting('WORLD_ID');
+    const worldIdForRoles = message.worldId; // Assuming message.worldId is the server/world context for roles
 
-    // First, get the world for this server
-    let world;
-    if (worldId) {
-      world = await runtime.getWorld(worldId as UUID);
+    if (!worldIdForRoles) {
+      logger.error("World/Server ID not found on message for role operation");
+      await callback({
+        text: "I couldn't determine the server context for this role operation.",
+        source: message.content.source,
+      });
+      return;
     }
 
+    // First, get the world for this server
+    let world = await runtime.getWorld(worldIdForRoles);
+
     if (!world) {
-      logger.error('World not found');
+      logger.error("World not found");
       await callback({
         text: "I couldn't find the world. This action only works in a world.",
       });
@@ -200,33 +217,33 @@ export const updateRoleAction: Action = {
     });
 
     // Extract role assignments using type-safe model call
-    const result = await runtime.useModel<typeof ModelType.OBJECT_LARGE, RoleAssignment[]>(
-      ModelType.OBJECT_LARGE,
-      {
-        prompt: extractionPrompt,
-        schema: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              entityId: { type: 'string' },
-              newRole: {
-                type: 'string',
-                enum: Object.values(Role),
-              },
+    const result = await runtime.useModel<
+      typeof ModelType.OBJECT_LARGE,
+      RoleAssignment[]
+    >(ModelType.OBJECT_LARGE, {
+      prompt: extractionPrompt,
+      schema: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            entityId: { type: "string" },
+            newRole: {
+              type: "string",
+              enum: Object.values(Role),
             },
-            required: ['entityId', 'newRole'],
           },
+          required: ["entityId", "newRole"],
         },
-        output: 'array',
-      }
-    );
+      },
+      output: "array",
+    });
 
     if (!result?.length) {
       await callback({
-        text: 'No valid role assignments found in the request.',
-        actions: ['UPDATE_ROLE'],
-        source: 'discord',
+        text: "No valid role assignments found in the request.",
+        actions: ["UPDATE_ROLE"],
+        source: message.content.source, // Use dynamic source
       });
       return;
     }
@@ -235,88 +252,112 @@ export const updateRoleAction: Action = {
     let worldUpdated = false;
 
     for (const assignment of result) {
-      let targetEntity = entities.find((e) => e.id === assignment.entityId);
+      let targetEntity = entities.find(
+        (e) =>
+          e.id === assignment.entityId ||
+          e.names.includes(assignment.entityId) ||
+          e.metadata[message.content.source]?.username === assignment.entityId,
+      );
       if (!targetEntity) {
-        logger.error('Could not find an ID ot assign to');
+        logger.error(
+          `Could not find an entity to assign to: ${assignment.entityId}`,
+        ); // Corrected typo
+        await callback({
+          text: `Could not find user: ${assignment.entityId}`,
+          actions: ["UPDATE_ROLE"],
+          source: message.content.source, // Use dynamic source
+        });
+        continue;
       }
 
-      const currentRole = world.metadata.roles[assignment.entityId];
+      const currentTargetRole =
+        world.metadata.roles[targetEntity.id] || Role.NONE;
 
       // Validate role modification permissions
-      if (!canModifyRole(requesterRole, currentRole, assignment.newRole)) {
+      if (
+        !canModifyRole(
+          requesterRole,
+          message.entityId,
+          currentTargetRole,
+          targetEntity.id,
+          assignment.newRole,
+        )
+      ) {
         await callback({
           text: `You don't have permission to change ${targetEntity.names[0]}'s role to ${assignment.newRole}.`,
-          actions: ['UPDATE_ROLE'],
-          source: 'discord',
+          actions: ["UPDATE_ROLE"],
+          source: message.content.source, // Use dynamic source
         });
         continue;
       }
 
       // Update role in world metadata
-      world.metadata.roles[assignment.entityId] = assignment.newRole;
+      world.metadata.roles[targetEntity.id] = assignment.newRole;
 
       worldUpdated = true;
 
       await callback({
         text: `Updated ${targetEntity.names[0]}'s role to ${assignment.newRole}.`,
-        actions: ['UPDATE_ROLE'],
-        source: 'discord',
+        actions: ["UPDATE_ROLE"],
+        source: message.content.source, // Use dynamic source
       });
     }
 
     // Save updated world metadata if any changes were made
     if (worldUpdated) {
       await runtime.updateWorld(world);
-      logger.info(`Updated roles in world metadata for server ${serverId}`);
+      logger.info(
+        `Updated roles in world metadata for server ${worldIdForRoles}`,
+      );
     }
   },
 
   examples: [
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'Make {{name2}} an ADMIN',
-          source: 'discord',
+          text: "Make {{name2}} an ADMIN",
+          source: "discord",
         },
       },
       {
-        name: '{{name3}}',
+        name: "{{name3}}",
         content: {
           text: "Updated {{name2}}'s role to ADMIN.",
-          actions: ['UPDATE_ROLE'],
+          actions: ["UPDATE_ROLE"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'Set @alice and @bob as admins',
-          source: 'discord',
+          text: "Set @alice and @bob as admins",
+          source: "discord",
         },
       },
       {
-        name: '{{name3}}',
+        name: "{{name3}}",
         content: {
           text: "Updated alice's role to ADMIN.\nUpdated bob's role to ADMIN.",
-          actions: ['UPDATE_ROLE'],
+          actions: ["UPDATE_ROLE"],
         },
       },
     ],
     [
       {
-        name: '{{name1}}',
+        name: "{{name1}}",
         content: {
-          text: 'Ban @troublemaker',
-          source: 'discord',
+          text: "Ban @troublemaker",
+          source: "discord",
         },
       },
       {
-        name: '{{name3}}',
+        name: "{{name3}}",
         content: {
-          text: 'I cannot ban users.',
-          actions: ['REPLY'],
+          text: "I cannot ban users.",
+          actions: ["REPLY"],
         },
       },
     ],
