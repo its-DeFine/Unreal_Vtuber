@@ -1,5 +1,0 @@
-[install]
-optional = false
-
-[install.scopes]
-"bun" = { optional = true } 
