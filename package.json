@@ -2,7 +2,6 @@
   "name": "elizaos-monorepo",
   "private": true,
   "workspaces": [
-    "autonomous-starter",
     "eliza-livepeer-integration/packages/*",
     "eliza-livepeer-integration/plugin-*",
     "webapp",
@@ -19,4 +18,4 @@
     "turbo": "^2.0.9"
   },
   "packageManager": "npm@10.8.2"
-} 
+}
