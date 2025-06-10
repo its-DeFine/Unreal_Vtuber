@@ -19,7 +19,7 @@ services:
     restart: always
     networks:
       - autonomous-network
-      - docker-vt_scb_bridge_net  # Connect to main network for Ollama access
+      - docker-vt_scb_bridge_net  # Connect to main network for Livepeer access
     logging:
       driver: "json-file"
       options:
@@ -34,6 +34,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
       # Database Configuration - Use Postgres instead of PGLite
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
@@ -49,16 +51,9 @@ services:
       - AGENT_NAME=Autoliza
       - PORT=3000
       
-      # Ollama Configuration (Use existing Ollama service)
-      - MODEL_PROVIDER=ollama
-      - USE_OLLAMA_TEXT_MODELS=true
-      - OLLAMA_API_ENDPOINT=http://vtuber-ollama:11434
-      - OLLAMA_MODEL=llama3.2:3b
-      - OLLAMA_SMALL_MODEL=llama3.2:3b
-      - OLLAMA_MEDIUM_MODEL=llama3.2:3b
-      - OLLAMA_LARGE_MODEL=llama3.2:3b
-      - USE_OLLAMA_EMBEDDING=false
-      - USE_LOCAL_AI=true
+      # AI Model Configuration - Force OpenAI as primary
+      - MODEL_PROVIDER=openai
+      - USE_OLLAMA_TEXT_MODELS=false
       
       # Memory Archiving
       - MEMORY_ARCHIVING_ENABLED=true
@@ -69,24 +64,12 @@ services:
       # Logging
       - LOG_LEVEL=info
       - DB_LOGGING=false
-      
-      # Optional API Keys (commented out - using Ollama instead)
-      # - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      # - GROQ_API_KEY=${GROQ_API_KEY}
-      
-      # Optional Discord/Twitter/Telegram keys
-      # - DISCORD_APPLICATION_ID=${DISCORD_APPLICATION_ID}
-      # - DISCORD_API_TOKEN=${DISCORD_API_TOKEN}
-      # - TWITTER_USERNAME=${TWITTER_USERNAME}
-      # - TWITTER_PASSWORD=${TWITTER_PASSWORD}
-      # - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     ports:
       - '3001:3000'  # Different port to avoid conflicts
     restart: unless-stopped
     networks:
       - autonomous-network
-      - docker-vt_scb_bridge_net  # Connect to main network for Ollama and VTuber access
+      - docker-vt_scb_bridge_net  # Connect to main network for Livepeer and VTuber access
     volumes:
       - ./data/uploads:/app/data/uploads:rw
       - ./logs:/app/logs:rw
@@ -102,7 +85,7 @@ networks:
     name: autonomous-network
   docker-vt_scb_bridge_net:
     external: true
-    name: docker-vt_scb_bridge_net  # Connect to existing network with Ollama
+    name: docker-vt_scb_bridge_net  # Connect to existing network with Livepeer
 
 volumes:
   postgres-data:

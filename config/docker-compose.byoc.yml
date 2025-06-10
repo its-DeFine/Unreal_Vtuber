@@ -25,6 +25,17 @@ services:
       - USE_CUDA=false # Keeping this as per user's instruction
       - NEUROSYNC_BLENDSHAPES_URL=http://neurosync:5000/audio_to_blendshapes
       - AUDIO_PLAYBACK_DEVICE=auto
+      # TTS Configuration - Kokoro TTS Integration
+      - TTS_PROVIDER=kokoro
+      - KOKORO_TTS_SERVER_URL=http://host.docker.internal:6006
+      - KOKORO_DEFAULT_VOICE=af_sarah
+      - KOKORO_TTS_TIMEOUT=30
+      - KOKORO_TTS_LANGUAGE=en
+      # LLM Configuration - Connect to Ollama if running
+      - LLM_PROVIDER=ollama
+      - OLLAMA_API_ENDPOINT=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2:3b
+      - OLLAMA_STREAMING=true
     networks:
       - scb_bridge_net  # original network for Eliza bridge
       - byoc            # new network for orchestrator/gateway
@@ -95,6 +106,33 @@ services:
     networks:
       - byoc
     restart: unless-stopped
+
+  # Ollama Local LLM Server (GPU-enabled by default)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: vtuber-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ../ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_KEEP_ALIVE=24h
+    restart: unless-stopped
+    networks:
+      - scb_bridge_net
+      - byoc
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Make this optional so the main system can run without it
+    profiles:
+      - ollama
 
 networks:
   byoc:

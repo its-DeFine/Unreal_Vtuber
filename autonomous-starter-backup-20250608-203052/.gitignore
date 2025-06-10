@@ -1,0 +1,6 @@
+.env
+node_modules
+dist
+data
+generatedImages
+llms-full.txt

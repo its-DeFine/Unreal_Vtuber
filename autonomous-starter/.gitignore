@@ -4,3 +4,6 @@ dist
 data
 generatedImages
 llms-full.txt
+.elizadb
+.eliza
+eng.traineddata

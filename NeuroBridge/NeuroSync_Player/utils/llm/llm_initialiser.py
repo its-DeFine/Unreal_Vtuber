@@ -20,6 +20,7 @@ from config import (
     ENABLE_EMOTE_CALLS,
     BASE_SYSTEM_MESSAGE,
     get_llm_config,
+    get_tts_config,
     setup_warnings
 )
 
@@ -75,9 +76,13 @@ def initialize_system():
     audio_queue = Queue()
     
     # Start the TTS worker thread.
+    # Get TTS configuration for proper provider setup
+    tts_config = get_tts_config()
+    print(f"🎙️ Starting TTS worker with provider: {tts_config['TTS_PROVIDER']}")
+    
     tts_worker_thread = Thread(
         target=tts_worker,
-        args=(chunk_queue, audio_queue, USE_LOCAL_AUDIO, VOICE_NAME, USE_COMBINED_ENDPOINT)
+        args=(chunk_queue, audio_queue, None, VOICE_NAME, USE_COMBINED_ENDPOINT)  # Pass None for USE_LOCAL_AUDIO to use new config system
     )
     tts_worker_thread.start()
     
