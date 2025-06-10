@@ -2,3 +2,6 @@ redis>=5.0
 requests>=2.0
 fastapi>=0.111
 uvicorn>=0.29
+autogen>=0.9
+ollama>=0.1
+fix-busted-json>=0.0.7
