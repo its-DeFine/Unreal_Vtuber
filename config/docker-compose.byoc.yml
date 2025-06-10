@@ -1,66 +1,6 @@
 version: "3.9"
 
 services:
-  # Override existing NeuroSync service to launch BOTH core API & BYOC worker
-  neurosync:
-    image: ghcr.io/its-define/neurobridge:main
-    container_name: neurosync_byoc
-    mem_limit: 12g # Add memory limit
-    environment:
-      # --- BYOC worker ---
-      - ORCH_URL=https://orchestrator:9995
-      - ORCH_SECRET=orch-secret            # must match orchestrator flag -orchSecret
-      - CAPABILITY_NAME=start-echo-test    # matches server_adapter default
-      - CAPABILITY_DESCRIPTION=NeuroSync bridge demo
-      - CAPABILITY_URL=http://neurosync:9876
-      - CAPABILITY_CAPACITY=1
-      - CAPABILITY_PRICE_PER_UNIT=1000
-      - CAPABILITY_PRICE_SCALING=1
-      - SERVER_PORT=9876                   # port the worker binds
-      # --- NeuroSync Local API ---
-      - FLASK_HOST=0.0.0.0
-      # Ensure PulseAudio environment variables are set
-      - PULSE_SERVER="tcp:host.docker.internal:4713"
-      - PULSE_COOKIE=""          # cookie not needed for tcp on Windows/WSL
-      - USE_CUDA=false # Keeping this as per user's instruction
-      - NEUROSYNC_BLENDSHAPES_URL=http://neurosync:5000/audio_to_blendshapes
-      - AUDIO_PLAYBACK_DEVICE=auto
-      # TTS Configuration - Kokoro TTS Integration
-      - TTS_PROVIDER=kokoro
-      - KOKORO_TTS_SERVER_URL=http://host.docker.internal:6006
-      - KOKORO_DEFAULT_VOICE=af_sarah
-      - KOKORO_TTS_TIMEOUT=30
-      - KOKORO_TTS_LANGUAGE=en
-      # LLM Configuration - Connect to Ollama if running
-      - LLM_PROVIDER=ollama
-      - OLLAMA_API_ENDPOINT=http://ollama:11434
-      - OLLAMA_MODEL=llama3.2:3b
-      - OLLAMA_STREAMING=true
-    networks:
-      - scb_bridge_net  # original network for Eliza bridge
-      - byoc            # new network for orchestrator/gateway
-    deploy: # Add deploy configuration for GPU access
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1 # or 'all'
-              capabilities: [gpu]
-    depends_on:
-      - orchestrator
-      - gateway
-      - redis
-    env_file:
-      - ../.env
-    volumes:
-      # - ${XDG_RUNTIME_DIR}/pulse:/run/user/1000/pulse      # socket + cookie. Commented out to prefer TCP.
-      - /etc/machine-id:/etc/machine-id:ro                 # libpulse wants this
-    # devices: # Commented out as /dev/snd might not be available in WSL2
-    group_add:
-      - "29"   # 29 == audio on Debian/Ubuntu; adjust if different
-    ports:
-      - "5000:5000"    # Local API
-      - "9876:9876"    # BYOC worker (handy for curl)
 
   # === Orchestrator ===
   orchestrator:
