@@ -1,8 +1,4 @@
-# Docker Compose for running NeuroSync (S1) and Eliza/the-org (S2)
-# in a shared network for local development and testing the SCB bridge.
-#
-# Usage: docker compose -f docker-compose.yml -f docker-compose.bridge.yml up --build
-
+version: "3.9"
 services:
   neurosync:
     mem_limit: 12g
@@ -30,7 +26,7 @@ services:
       - KOKORO_TTS_TIMEOUT=30
       - KOKORO_TTS_LANGUAGE=en
       # Add other NeuroSync env vars as needed (e.g., USE_REDIS_SCB)
-    deploy: # Add deploy configuration for GPU access
+    deploy:
       resources:
         reservations:
           devices:
@@ -39,18 +35,13 @@ services:
               capabilities: [gpu]
     networks:
       - scb_bridge_net
+      - byoc
     volumes:
       # Mount NeuroBridge code for live editing (optional)
       - ../NeuroBridge:/app/NeuroBridge
     env_file:
       - ../.env
-    # Default CMD in image already starts Flask + client
-    # Add healthcheck if desired
-    # healthcheck:
-    #   test: ["CMD", "curl", "--fail", "http://localhost:5000/scb/ping"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
+
   redis:
     image: redis:7-alpine
     container_name: redis_scb
@@ -62,7 +53,6 @@ services:
       - scb_bridge_net
     restart: unless-stopped
 
-  # PostgreSQL database for autonomous agent
   postgres:
     image: ankane/pgvector:latest
     container_name: autonomous_postgres_bridge
@@ -74,7 +64,7 @@ services:
     volumes:
       - autonomous_postgres_data:/var/lib/postgresql/data:rw
     ports:
-      - '127.0.0.1:5434:5432'  # Different port to avoid conflicts with other postgres instances
+      - '127.0.0.1:5434:5432'
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
       interval: 5s
@@ -89,7 +79,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Database initialization service - runs analytics setup automatically
   db_init:
     image: postgres:16-alpine
     container_name: autonomous_db_init
@@ -115,93 +104,44 @@ services:
       fi;
       echo '🎯 [DB_INIT] Autonomous agent database is ready for Phase 2!';
       "
-    restart: "no"  # Only run once
+    restart: "no"
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
-  # Cognee long-term memory service
-  cognee:
-    build:
-      context: ../cognee-service
-      dockerfile: Dockerfile
-      args:
-        LLM_API_KEY: ${OPENAI_API_KEY:-}
-    container_name: cognee_server
-    ports:
-      - "8000:8000"
-    env_file:
-      - ../.env
-    networks:
-      - scb_bridge_net
-    restart: unless-stopped
-
-# --- RTMP server for low-latency audio/video sync ---
-# Old block commented out due to indentation fix
-#nginx-rtmp:
-#  build: ./files_docker_rtmp/docker/rtmp
-#  container_name: nginx_rtmp
-#  ports:
-#    - "1935:1935"   # RTMP ingest
-#    - "8080:8080"   # HLS + status page
-#  volumes:
-#    - ./files_docker_rtmp/docker/rtmp/nginx.conf:/etc/nginx/nginx.conf
-#  networks:
-#    - scb_bridge_net
-#  restart: unless-stopped
-# --- RTMP server for low-latency audio/video sync ---
-  nginx-rtmp:
-    build:
-      context: ../files_docker_rtmp/docker/rtmp
-    container_name: nginx_rtmp
-    ports:
-      - "1935:1935"   # RTMP ingest
-      - "8080:8080"   # HLS + status page & HLS manifest
-    volumes:
-      - ../files_docker_rtmp/docker/rtmp/nginx.conf:/etc/nginx/nginx.conf:ro
-    networks:
-      - scb_bridge_net
-    restart: unless-stopped
-
   autonomous_starter:
     build:
-      context: ../autonomous-starter          # directory with its Dockerfile
-      dockerfile: Dockerfile                 # or omit if named "Dockerfile"
+      context: ../autonomous-starter
+      dockerfile: Dockerfile
     container_name: autonomous_starter_s3
-    working_dir: /app                        # adjust if your code lives elsewhere
+    working_dir: /app
     env_file:
       - ../.env
     ports:
-      # inside the container it still binds to 3000,
-      # but we publish it on 3100 so it doesn't fight with eliza_the_org
       - "3100:3000"
     environment:
-      - PORT=3000                            # what the app listens on
+      - PORT=3000
       - LOG_LEVEL=debug
-      # AI Provider Configuration - Use .env file values
-      # Primary provider will be determined by available API keys
-      # Livepeer configuration (fallback if no API keys)
+      - MODEL_PROVIDER=livepeer
       - LIVEPEER_GATEWAY_URL=https://dream-gateway.livepeer.cloud
+      - LIVEPEER_API_KEY=
       - LIVEPEER_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
-      - LIVEPEER_LARGE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct  
+      - LIVEPEER_LARGE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
       - LIVEPEER_SMALL_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
       - LIVEPEER_TEMPERATURE=0.6
       - LIVEPEER_MAX_TOKENS=2048
-      # API keys loaded from .env file via env_file directive
-      # VTuber and System Configuration
+      - OPENAI_API_KEY=
+      - ANTHROPIC_API_KEY=
+      - GROQ_API_KEY=
       - VTUBER_ENDPOINT_URL=http://neurosync:5001/process_text
-      - NEUROSYNC_URL=http://neurosync:5000   # in case any other actions need it
+      - NEUROSYNC_URL=http://neurosync:5000
       - NEUROSYNC_SCB_URL=http://neurosync:5000/scb/update
-      - AUTONOMOUS_LOOP_INTERVAL=30000        # 30 seconds between iterations
-      # Database Configuration - Connect to the postgres service in this network
+      - AUTONOMOUS_LOOP_INTERVAL=30000
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
       - POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
       - DB_TYPE=postgres
-      # Cognee Knowledge Graph Integration - NO Neo4j needed!
-      - COGNEE_URL=http://cognee:8000
-      - COGNEE_API_KEY=
     networks:
       - scb_bridge_net
     depends_on:
@@ -218,7 +158,48 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Ollama Local LLM Server (GPU-enabled by default)
+  orchestrator:
+    image: adastravideo/go-livepeer:dynamic-capabilities-2
+    container_name: byoc-orchestrator
+    volumes:
+      - ../data/orchestrator:/data
+    ports:
+      - 9995:9995
+    env_file:
+      - ../.env
+    command: ["-orchestrator",
+          "-orchSecret=${ORCH_SECRET}",
+          "-serviceAddr=0.0.0.0:9995",
+          "-v=6",
+          "-network=arbitrum-one-mainnet",
+          "-ethUrl=https://arb1.arbitrum.io/rpc",
+          "-ethPassword=${ETH_PASSWORD}",
+          "-dataDir=/data",
+          "-ethOrchAddr=",
+          "-pricePerUnit=1"]
+    networks:
+      - byoc
+
+  gateway:
+    image: adastravideo/go-livepeer:dynamic-capabilities-2
+    container_name: byoc-gateway
+    command: ["-gateway", "-orchAddr=https://orchestrator:9995", "-httpAddr=0.0.0.0:9999", "-network=offchain"]
+    ports:
+      - "9999:9999"
+    volumes:
+      - ../data/gateway:/data
+    networks:
+      - byoc
+
+  caddy:
+    image: ghcr.io/its-define/webapp:main
+    container_name: byoc-webapp
+    ports:
+      - "8088:8088"
+    networks:
+      - byoc
+    restart: unless-stopped
+
   ollama:
     image: ollama/ollama:latest
     container_name: vtuber-ollama
@@ -233,6 +214,7 @@ services:
     restart: unless-stopped
     networks:
       - scb_bridge_net
+      - byoc
     deploy:
       resources:
         reservations:
@@ -240,12 +222,13 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    # Make this optional so the main system can run without it
     profiles:
       - ollama
 
 networks:
   scb_bridge_net:
+    driver: bridge
+  byoc:
     driver: bridge
 
 volumes:
