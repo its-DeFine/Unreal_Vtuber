@@ -1,12 +1,10 @@
 # Repository Guide
 
-This project is a TypeScript implementation of an autonomous agent built on the ElizaOS framework.  Plugins live under `src/plugin-*` and each exposes actions, providers and services using the core types from `@elizaos/core`.
+This directory contains a minimal Python implementation of an autonomous agent built on the Autogen framework.
 
-When adding functionality:
+When making changes:
+- Keep source code in this folder.
+- Add unit tests under `tests/` using `pytest`.
+- Run `pytest` after modifying the code.
 
-- New plugins should follow the existing pattern (`src/plugin-shell` or others).
-- Register plugins for the default agent in `src/index.ts`.
-- Unit tests are defined in `src/tests.ts` and executed with `npm test` (vitest).
-- Run `npm test` after making changes. Tests may fail if dependencies are not installed in this environment.
-
-Coding style loosely mirrors the existing code base and uses TypeScript with ES modules.
+Coding style follows standard Python 3 practices.
