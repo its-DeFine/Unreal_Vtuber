@@ -311,7 +311,7 @@ END;
 $$ LANGUAGE plpgsql;
 ```
 
-### Phase 3: Integration with ElizaOS (Week 1)
+### Phase 3: Integration with AutoGen Agent (Week 1)
 
 ```typescript
 // src/autonomous/AutonomousAgent.ts

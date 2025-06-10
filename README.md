@@ -4,7 +4,7 @@
 
 [![Status](https://img.shields.io/badge/Status-Phase%201%20Complete-green)](./docs/)
 [![Database](https://img.shields.io/badge/Database-PostgreSQL%20%2B%20pgvector-blue)](./docs/DATABASE_ANALYSIS.md)
-[![Framework](https://img.shields.io/badge/Framework-ElizaOS-purple)](./docs/AUTONOMOUS_AGENT_PRD.md)
+[![Framework](https://img.shields.io/badge/Framework-AutoGen_Cognitive-blue)](./docs/prd/AUTOGEN_COGNITIVE_ENHANCEMENT_PRD.md)
 
 ---
 
@@ -47,7 +47,7 @@ docker-compose -f docker-compose.bridge.yml up -d
 
 ### 🎯 Core Documents
 - **[Product Requirements Document](./docs/AUTONOMOUS_AGENT_PRD.md)** - Complete vision and technical specifications
-- **[Database Analysis](./docs/DATABASE_ANALYSIS.md)** - Current system state and ElizaOS integration
+- **[Database Analysis](./docs/DATABASE_ANALYSIS.md)** - Database schema for AutoGen with ElizaOS MCP integration
 - **[Implementation Summary](./docs/IMPLEMENTATION_SUMMARY.md)** - What's done and what's next
 
 ### 📖 Quick Links
@@ -62,28 +62,31 @@ docker-compose -f docker-compose.bridge.yml up -d
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    AUTONOMOUS VTUBER SYSTEM                    │
+│                 AUTOGEN COGNITIVE ENHANCEMENT                 │
 ├─────────────────────────────────────────────────────────────────┤
-│  🧠 Autonomous Agent (Port 3100)                              │
-│  ├── ElizaOS Framework Integration                            │
-│  ├── 117 Active Memories (VR-focused learning)               │
-│  ├── 4 Tool Arsenal (VTuber, Research, Context, SCB)         │
-│  └── Enhanced Analytics (tool_usage, decision_patterns)       │
+│  🎯 AutoGen Orchestrator Agent                                 │
+│  ├── Cognitive Decision Engine with Memory                     │
+│  ├── Goal-Directed Autonomous Behavior                         │
+│  ├── Darwin-Gödel Self-Improvement                            │
+│  └── Advanced Tool Orchestration                               │
 ├─────────────────────────────────────────────────────────────────┤
-│  🎭 VTuber System (Port 5001)                                 │
-│  ├── NeuroSync Player                                         │
-│  ├── Emotion & Behavior Control                              │
-│  └── Real-time VTuber Interaction                            │
+│  🔧 MCP Tool Integration Layer                                 │
+│  ├── ElizaOS MCP Tool (Memory & Context)                      │
+│  ├── Cognee Knowledge Graph MCP Tool                          │
+│  ├── VTuber Integration MCP Tool                              │
+│  └── Analytics & Monitoring MCP Tools                         │
 ├─────────────────────────────────────────────────────────────────┤
-│  🔗 SCB Bridge (Port 5000)                                    │
-│  ├── Shared Contextual Bridge                                │
-│  ├── Redis State Management                                  │
-│  └── Real-time Mind-State Sync                               │
+│  🧠 Cognee Knowledge Graph Memory                              │
+│  ├── Semantic Relationship Storage                             │
+│  ├── Multi-hop Reasoning (5+ degrees)                         │
+│  ├── <100ms Complex Graph Queries                             │
+│  └── Built-in Graph Storage (No Neo4j needed)                 │
 ├─────────────────────────────────────────────────────────────────┤
-│  🗄️ Database Layer                                            │
-│  ├── PostgreSQL + pgvector (Port 5434)                       │
-│  ├── ElizaOS Schema (13 tables)                              │
-│  └── Analytics Enhancement (3 new tables)                    │
+│  🔬 Darwin-Gödel Self-Improvement                              │
+│  ├── Safe Code Evolution & Optimization                        │
+│  ├── Performance Analysis & Bottleneck Detection              │
+│  ├── Sandboxed Testing & Rollback                             │
+│  └── 50-100% Performance Improvement Target                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -92,7 +95,7 @@ docker-compose -f docker-compose.bridge.yml up -d
 ## 🎯 Current Status
 
 ### ✅ Phase 1: Foundation Complete
-- **Database Integration**: ElizaOS framework with 117 active memories
+- **Database Integration**: AutoGen with ElizaOS MCP tool for memory access
 - **Analytics Enhancement**: Tool usage, decision patterns, context archival
 - **System Monitoring**: Comprehensive logging and performance tracking
 - **Documentation**: Complete PRD, database analysis, and implementation guide
@@ -137,7 +140,7 @@ docker-compose -f docker-compose.bridge.yml up -d
 
 ### Cognee Memory Integration
  - Set `COGNEE_URL` (e.g. `http://cognee:8000`) and `COGNEE_API_KEY` in `.env` to enable long-term memory via Cognee.
- - Include `@elizaos/plugin-cognee` in your runtime plugins list.
+ - Configure Cognee as MCP tool in AutoGen agent configuration.
 
 ### Configuration
 - [`docker-compose.bridge.yml`](./docker-compose.bridge.yml) - Container orchestration
@@ -150,7 +153,7 @@ docker-compose -f docker-compose.bridge.yml up -d
 ### Architecture
 - **Language**: TypeScript/JavaScript (Node.js)
 - **Database**: PostgreSQL with pgvector extension
-- **Framework**: ElizaOS for agent intelligence
+- **Framework**: AutoGen orchestrator with ElizaOS as MCP tool
 - **Containerization**: Docker & Docker Compose
 - **State Management**: Redis for SCB bridge
 

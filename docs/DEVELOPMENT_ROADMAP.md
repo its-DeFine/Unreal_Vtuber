@@ -13,7 +13,7 @@ This document tracks all development issues, feature requests, and implementatio
 #### 1. **PDF Plugin Dependency Issue** 
 - **Status**: 🔴 BLOCKING
 - **Component**: Autonomous Agent
-- **Description**: The autonomous agent container crashes due to `@elizaos/plugin-pdf` dependency trying to access `DOMMatrix` which is not available in Node.js environment
+- **Description**: Legacy ElizaOS plugin dependency issue - need to remove or replace ElizaOS-specific plugins in favor of MCP tools
 - **Error**: `ReferenceError: Can't find variable: DOMMatrix`
 - **Impact**: Prevents autonomous agent from starting and connecting to PostgreSQL
 - **Next Steps**: 
@@ -26,15 +26,15 @@ This document tracks all development issues, feature requests, and implementatio
 #### 2. **PostgreSQL Schema Initialization**
 - **Status**: 🟡 IN PROGRESS
 - **Component**: Autonomous Agent Database
-- **Description**: PostgreSQL is running but ElizaOS tables are not being created automatically
+- **Description**: Database schema needs to support AutoGen agent with ElizaOS-compatible tables (accessed via MCP)
 - **Current State**: 
   - ✅ PostgreSQL container running
   - ✅ Database accepting connections
-  - ❌ ElizaOS tables not initialized
+  - ❌ AutoGen cognitive enhancement tables not created
 - **Next Steps**:
   - Fix PDF plugin issue first
   - Verify autonomous agent can connect
-  - Check ElizaOS schema creation process
+  - Implement AutoGen cognitive enhancement schema
 - **Dependencies**: PDF Plugin Issue resolution
 
 ---
