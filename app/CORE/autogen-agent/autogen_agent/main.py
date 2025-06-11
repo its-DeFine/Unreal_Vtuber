@@ -42,19 +42,15 @@ mcp_server = None
 async def trigger_evolution_analysis():
     """Function that AutoGen agents can call to trigger evolution analysis"""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "http://localhost:8100/api/mcp/call/analyze_code_performance",
-                headers={"Content-Type": "application/json"},
-                json={}
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    logging.info("🧬 [EVOLUTION] Code analysis triggered by AutoGen agent")
-                    return result
-                else:
-                    logging.error(f"❌ [EVOLUTION] Analysis failed: {response.status}")
-                    return {"error": f"Analysis failed with status {response.status}"}
+        # Use the MCP server directly instead of HTTP calls
+        global mcp_server
+        if mcp_server:
+            result = await mcp_server.handle_mcp_call("analyze_code_performance", {})
+            logging.info("🧬 [EVOLUTION] Code analysis triggered by AutoGen agent")
+            return result
+        else:
+            logging.error("❌ [EVOLUTION] MCP server not available")
+            return {"error": "MCP server not available"}
     except Exception as e:
         logging.error(f"❌ [EVOLUTION] Analysis error: {e}")
         return {"error": str(e)}
@@ -62,19 +58,15 @@ async def trigger_evolution_analysis():
 async def query_evolution_memory(query: str = "recent improvements"):
     """Function that AutoGen agents can call to query evolution memory"""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "http://localhost:8100/api/mcp/call/query_evolution_memory",
-                headers={"Content-Type": "application/json"},
-                json={"query": query, "max_results": 5}
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    logging.info(f"🧠 [EVOLUTION] Memory queried by AutoGen agent: {query}")
-                    return result
-                else:
-                    logging.error(f"❌ [EVOLUTION] Memory query failed: {response.status}")
-                    return {"error": f"Memory query failed with status {response.status}"}
+        # Use the MCP server directly instead of HTTP calls
+        global mcp_server
+        if mcp_server:
+            result = await mcp_server.handle_mcp_call("query_evolution_memory", {"query": query, "max_results": 5})
+            logging.info(f"🧠 [EVOLUTION] Memory queried by AutoGen agent: {query}")
+            return result
+        else:
+            logging.error("❌ [EVOLUTION] MCP server not available")
+            return {"error": "MCP server not available"}
     except Exception as e:
         logging.error(f"❌ [EVOLUTION] Memory query error: {e}")
         return {"error": str(e)}
@@ -82,19 +74,15 @@ async def query_evolution_memory(query: str = "recent improvements"):
 async def trigger_code_evolution(context: str = "Autonomous improvement cycle"):
     """Function that AutoGen agents can call to trigger evolution"""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "http://localhost:8100/api/mcp/call/trigger_code_evolution",
-                headers={"Content-Type": "application/json"},
-                json={"context": context}
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    logging.info("🚀 [EVOLUTION] Code evolution triggered by AutoGen agent")
-                    return result
-                else:
-                    logging.error(f"❌ [EVOLUTION] Evolution failed: {response.status}")
-                    return {"error": f"Evolution failed with status {response.status}"}
+        # Use the MCP server directly instead of HTTP calls
+        global mcp_server
+        if mcp_server:
+            result = await mcp_server.handle_mcp_call("trigger_code_evolution", {"context": context})
+            logging.info("🚀 [EVOLUTION] Code evolution triggered by AutoGen agent")
+            return result
+        else:
+            logging.error("❌ [EVOLUTION] MCP server not available")
+            return {"error": "MCP server not available"}
     except Exception as e:
         logging.error(f"❌ [EVOLUTION] Evolution error: {e}")
         return {"error": str(e)}
@@ -102,19 +90,15 @@ async def trigger_code_evolution(context: str = "Autonomous improvement cycle"):
 async def get_evolution_status():
     """Function that AutoGen agents can call to check evolution status"""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "http://localhost:8100/api/mcp/call/get_evolution_status",
-                headers={"Content-Type": "application/json"},
-                json={}
-            ) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    logging.info("📊 [EVOLUTION] Status checked by AutoGen agent")
-                    return result
-                else:
-                    logging.error(f"❌ [EVOLUTION] Status check failed: {response.status}")
-                    return {"error": f"Status check failed with status {response.status}"}
+        # Use the MCP server directly instead of HTTP calls
+        global mcp_server
+        if mcp_server:
+            result = await mcp_server.handle_mcp_call("get_evolution_status", {})
+            logging.info("📊 [EVOLUTION] Status checked by AutoGen agent")
+            return result
+        else:
+            logging.error("❌ [EVOLUTION] MCP server not available")
+            return {"error": "MCP server not available"}
     except Exception as e:
         logging.error(f"❌ [EVOLUTION] Status check error: {e}")
         return {"error": str(e)}
@@ -151,40 +135,61 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
             system_message="You are an autonomous controller managing AI agent cycles with evolution capabilities.",
         )
         
+        # Debug logging for evolution trigger check
+        remainder = iteration % 5
+        logging.info(f"🔍 [AUTOGEN_CYCLE] Iteration #{iteration} - Evolution check: {iteration} % 5 = {remainder}, condition: {remainder == 0 and iteration > 0}")
+        
         # Every 5th iteration, use evolution tools
         if iteration % 5 == 0 and iteration > 0:
-            logging.info(f"🧬 [AUTOGEN_CYCLE] Evolution cycle #{iteration} - triggering tools")
-            
-            # Check evolution status
-            evolution_status = await get_evolution_status()
-            logging.info(f"📊 [AUTOGEN_CYCLE] Evolution status: {evolution_status}")
-            
-            # Query evolution memory for insights
-            memory_results = await query_evolution_memory(f"iteration {iteration} improvements")
-            logging.info(f"🧠 [AUTOGEN_CYCLE] Memory results: {memory_results}")
-            
-            # Trigger performance analysis
-            analysis_results = await trigger_evolution_analysis()
-            logging.info(f"🔍 [AUTOGEN_CYCLE] Analysis results: {analysis_results}")
-            
-            # If analysis suggests improvements, trigger evolution
-            if analysis_results.get('success') and analysis_results.get('analysis_results'):
-                analysis_data = analysis_results.get('analysis_results', [])
-                if analysis_data and len(analysis_data) > 0:
-                    improvement_opportunities = analysis_data[0].get('improvement_opportunities', [])
-                    if improvement_opportunities:
-                        logging.info(f"🚀 [AUTOGEN_CYCLE] Found {len(improvement_opportunities)} improvement opportunities")
-                        evolution_result = await trigger_code_evolution(f"Autonomous cycle #{iteration}: {', '.join(improvement_opportunities[:2])}")
-                        logging.info(f"🧬 [AUTOGEN_CYCLE] Evolution result: {evolution_result}")
-            
-            # Enhance prompt with evolution context
-            evolution_context = f"\n\nEvolution Context for Iteration #{iteration}:\n"
-            evolution_context += f"- Evolution Status: {evolution_status.get('success', 'unknown')}\n"
-            evolution_context += f"- Memory Insights: {len(memory_results.get('results', []))} relevant memories found\n"
-            evolution_context += f"- Analysis Results: {len(analysis_results.get('analysis_results', []))} files analyzed\n"
-            evolution_context += "Use this context to provide an insightful status update about autonomous evolution capabilities."
-            
-            prompt += evolution_context
+            try:
+                logging.info(f"🧬 [AUTOGEN_CYCLE] ⭐ EVOLUTION CYCLE TRIGGERED! ⭐ Iteration #{iteration} - Evolution tools starting...")
+                
+                # Check evolution status
+                logging.info(f"🔬 [AUTOGEN_CYCLE] Step 1: Checking evolution status...")
+                evolution_status = await get_evolution_status()
+                logging.info(f"📊 [AUTOGEN_CYCLE] Evolution status: {evolution_status}")
+                
+                # Query evolution memory for insights  
+                logging.info(f"🔬 [AUTOGEN_CYCLE] Step 2: Querying evolution memory...")
+                memory_results = await query_evolution_memory(f"iteration {iteration} improvements")
+                logging.info(f"🧠 [AUTOGEN_CYCLE] Memory results: {memory_results}")
+                
+                # Trigger performance analysis
+                logging.info(f"🔬 [AUTOGEN_CYCLE] Step 3: Triggering performance analysis...")
+                analysis_results = await trigger_evolution_analysis()
+                logging.info(f"🔍 [AUTOGEN_CYCLE] Analysis results: {analysis_results}")
+                
+                # If analysis suggests improvements, trigger evolution
+                if analysis_results.get('success') and analysis_results.get('analysis_results'):
+                    analysis_data = analysis_results.get('analysis_results', [])
+                    if analysis_data and len(analysis_data) > 0:
+                        improvement_opportunities = analysis_data[0].get('improvement_opportunities', [])
+                        if improvement_opportunities:
+                            logging.info(f"🚀 [AUTOGEN_CYCLE] Found {len(improvement_opportunities)} improvement opportunities")
+                            evolution_result = await trigger_code_evolution(f"Autonomous cycle #{iteration}: {', '.join(improvement_opportunities[:2])}")
+                            logging.info(f"🧬 [AUTOGEN_CYCLE] Evolution result: {evolution_result}")
+                        else:
+                            logging.info(f"🔬 [AUTOGEN_CYCLE] No improvement opportunities found")
+                    else:
+                        logging.info(f"🔬 [AUTOGEN_CYCLE] No analysis data available")
+                else:
+                    logging.info(f"🔬 [AUTOGEN_CYCLE] Analysis failed or returned no results")
+                
+                # Enhance prompt with evolution context
+                evolution_context = f"\n\nEvolution Context for Iteration #{iteration}:\n"
+                evolution_context += f"- Evolution Status: {evolution_status.get('success', 'unknown')}\n"
+                evolution_context += f"- Memory Insights: {len(memory_results.get('results', []))} relevant memories found\n"
+                evolution_context += f"- Analysis Results: {len(analysis_results.get('analysis_results', []))} files analyzed\n"
+                evolution_context += "Use this context to provide an insightful status update about autonomous evolution capabilities."
+                
+                prompt += evolution_context
+                logging.info(f"✅ [AUTOGEN_CYCLE] Evolution cycle #{iteration} completed successfully")
+                
+            except Exception as e:
+                logging.error(f"❌ [AUTOGEN_CYCLE] Evolution cycle #{iteration} FAILED with error: {e}")
+                logging.error(f"❌ [AUTOGEN_CYCLE] Evolution error traceback: {str(e)}")
+        else:
+            logging.info(f"🔬 [AUTOGEN_CYCLE] Not an evolution cycle - continuing with normal conversation")
         
         # Initiate conversation with the assistant
         chat_result = user_proxy.initiate_chat(
@@ -223,6 +228,32 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
         scb.publish_state(scb_state)
         
         logging.info(f"✅ [AUTOGEN_CYCLE] Enhanced AutoGen conversation completed - Iteration #{iteration}")
+        
+        # 🔧 COLLECT PERFORMANCE DATA for evolution system
+        try:
+            cycle_end_time = time.time()
+            decision_time = cycle_end_time - scb_state['timestamp']  # Calculate actual cycle time
+            
+            # Collect performance metrics for evolution service
+            performance_metrics = {
+                "iteration": iteration,
+                "decision_time": decision_time,
+                "success_rate": 1.0 if scb_state["success"] else 0.0,
+                "memory_usage": 85.0,  # Default baseline
+                "error_count": 0 if scb_state["success"] else 1,
+                "tool_used": scb_state["tool_used"],
+                "evolution_enhanced": scb_state.get("evolution_enhanced", False)
+            }
+            
+            # Import and call evolution service (lazy import to avoid circular deps)
+            from autogen_agent.services.evolution_service import collect_autogen_performance_data
+            await collect_autogen_performance_data(performance_metrics)
+            
+            logging.debug(f"📊 [AUTOGEN_CYCLE] Performance data collected for iteration #{iteration}")
+            
+        except Exception as e:
+            logging.error(f"❌ [AUTOGEN_CYCLE] Failed to collect performance data: {e}")
+        
         return True
         
     except Exception as e:
@@ -438,14 +469,52 @@ def initialize_autogen_agents():
         return False
 
 async def initialize_cognitive_system_and_run():
-    """Initialize cognitive system and run the loop in the same event loop context"""
+    """Initialize cognitive system and run the decision loop"""
+    cognitive_system = await initialize_cognitive_system()
+    if cognitive_system:
+        decision_engine, cognitive_memory, registry, memory, scb, vtuber = cognitive_system
+        await cognitive_decision_loop(decision_engine, cognitive_memory, scb, vtuber)
+
+async def initialize_cognitive_system_for_autogen():
+    """Initialize only the cognitive components needed for AutoGen MCP tools"""
     
-    # Initialize the cognitive system
-    components = await initialize_cognitive_system()
-    decision_engine, cognitive_memory, registry, memory, scb, vtuber = components
+    # Environment configuration  
+    db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/autonomous_agent")
+    cognee_url = os.getenv("COGNEE_URL", None)
+    cognee_api_key = os.getenv("COGNEE_API_KEY", None)
     
-    # Run the cognitive decision loop
-    await cognitive_decision_loop(decision_engine, cognitive_memory, scb, vtuber)
+    logging.info("🧠 [MAIN] Initializing cognitive components for AutoGen MCP support...")
+    
+    try:
+        # Initialize cognitive memory manager for MCP tools
+        global cognitive_memory_for_mcp
+        cognitive_memory_for_mcp = CognitiveMemoryManager(db_url, cognee_url, cognee_api_key)
+        await cognitive_memory_for_mcp.initialize()
+        
+        # Create a proper cognitive system object for MCP server
+        cognitive_system_for_mcp = type('CognitiveSystemForMCP', (), {
+            'openai_api_key': os.getenv('OPENAI_API_KEY'),
+            'cognee_available': bool(cognee_url),
+            'autonomous_mode': True,
+            'iteration_count': 0,
+            'cognitive_memory': cognitive_memory_for_mcp  # Add the actual memory manager
+        })()
+        
+        # Initialize MCP server with real cognitive components
+        global mcp_server
+        mcp_server = AutoGenMcpServer(cognitive_system_for_mcp)
+        success = await mcp_server.initialize()
+        
+        if success:
+            logging.info("✅ [MAIN] Cognitive components and MCP server initialized for AutoGen mode")
+        else:
+            logging.error("❌ [MAIN] MCP server initialization failed in AutoGen mode")
+            
+    except Exception as e:
+        logging.error(f"❌ [MAIN] Cognitive system initialization failed for AutoGen mode: {e}")
+
+# Global cognitive memory for MCP tools
+cognitive_memory_for_mcp = None
 
 async def initialize_cognitive_system() -> tuple:
     """Initialize the enhanced cognitive system"""
@@ -613,24 +682,16 @@ def main() -> None:
             scb = SCBClient(redis_url)
             vtuber = VTuberClient(vtuber_endpoint)
             
+            # 🔧 NEW: Initialize cognitive components for MCP tools support
+            logging.info("🧠 [MAIN] Initializing cognitive components for AutoGen MCP support...")
+            
+            # Initialize cognitive system in background thread for MCP tools
+            cognitive_thread = run_async_loop_in_thread(initialize_cognitive_system_for_autogen)
+            logging.info("🧠 [MAIN] Cognitive components initialization started for AutoGen MCP")
+            
             # Start AutoGen autonomous loop in background thread
             autogen_thread = run_async_loop_in_thread(enhanced_autonomous_loop, scb, vtuber)
             logging.info("🤖 [MAIN] AutoGen LLM system thread started")
-            
-            # Initialize MCP server for development integration
-            logging.info("🔗 [MAIN] Initializing MCP server for AutoGen LLM mode...")
-            
-            # Create a cognitive system mock for MCP server
-            cognitive_system_mock = type('CognitiveSystem', (), {
-                'openai_api_key': os.getenv('OPENAI_API_KEY'),
-                'cognee_available': bool(os.getenv('COGNEE_URL')),
-                'autonomous_mode': True,
-                'iteration_count': 0
-            })()
-            
-            # Initialize MCP server in a separate thread
-            mcp_thread = run_async_loop_in_thread(initialize_mcp_server, cognitive_system_mock)
-            logging.info("🔗 [MAIN] MCP server initialization started for AutoGen mode")
             
         else:
             logging.warning("⚠️ [MAIN] AutoGen initialization failed - falling back to cognitive mode")

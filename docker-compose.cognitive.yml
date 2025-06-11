@@ -1,7 +1,73 @@
 version: '3.8'
 
 services:
-  # Enhanced AutoGen agent with cognitive capabilities
+  # Ollama service for local LLM with proper initialization
+  ollama:
+    image: ollama/ollama:latest
+    container_name: cognee_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./scripts/init-ollama-fast.sh:/init-ollama-fast.sh
+    environment:
+      - OLLAMA_ORIGINS=*
+    restart: unless-stopped
+    networks:
+      - cognitive_net
+    entrypoint: ["/bin/bash", "/init-ollama-fast.sh"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s  # Give time for multiple small model downloads
+
+  # Cognee knowledge graph service (Ollama Configuration)
+  cognee:
+    image: cognee/cognee:main
+    container_name: cognee_service
+    ports:
+      - "8000:8000"
+    environment:
+      # LLM Configuration for Ollama - flexible model selection
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=llama3.2:3b  # Fallback model, will use whatever is available
+      - LLM_ENDPOINT=http://ollama:11434/v1
+      - LLM_API_KEY=ollama
+      - LLM_TEMPERATURE=0.0
+      - LLM_MAX_TOKENS=4096
+      # Embedding Configuration for Ollama
+      - EMBEDDING_PROVIDER=ollama
+      - EMBEDDING_MODEL=nomic-embed-text:latest
+      - EMBEDDING_ENDPOINT=http://ollama:11434/api/embeddings
+      - EMBEDDING_API_KEY=ollama
+      - EMBEDDING_DIMENSIONS=768
+      - HUGGINGFACE_TOKENIZER=nomic-ai/nomic-embed-text-v1
+      # Logging
+      - LOG_LEVEL=INFO
+      # Database (use SQLite for simplicity)
+      - DATABASE_URL=sqlite:///app/data/cognee.db
+      # Default authentication credentials for open source version
+      - COGNEE_USERNAME=default_user@example.com
+      - COGNEE_PASSWORD=default_password
+    volumes:
+      - cognee_data:/app/data
+      - ./.env:/app/.env  # Mount environment file for Cognee
+    depends_on:
+      ollama:
+        condition: service_healthy  # Wait for Ollama to be healthy (models loaded)
+    restart: unless-stopped
+    networks:
+      - cognitive_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Give time for Ollama models to load
+
+  # AutoGen Cognitive Agent with Evolution Capabilities
   autogen_cognitive_agent:
     build:
       context: ./app/CORE/autogen-agent
@@ -17,14 +83,19 @@ services:
       - USE_AUTOGEN_LLM=true
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - LOOP_INTERVAL=30
-      - LOG_LEVEL=info
+      - LOG_LEVEL=INFO  # Use INFO instead of 'info' for consistency
       - PORT=8000
     ports:
       - "8100:8000"
     depends_on:
-      - postgres
-      - redis
-      - cognee
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      cognee:
+        condition: service_healthy  # Wait for Cognee to be ready
+      ollama:
+        condition: service_healthy  # Wait for Ollama models to be loaded
     restart: unless-stopped
     networks:
       - cognitive_net
@@ -34,27 +105,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # Cognee knowledge graph service
-  cognee:
-    image: cognee/cognee:latest
-    container_name: cognee_service
-    ports:
-      - "8000:8000"
-    environment:
-      - COGNEE_API_KEY=${COGNEE_API_KEY:-test_api_key}
-      - LOG_LEVEL=INFO
-    volumes:
-      - cognee_data:/app/data
-    restart: unless-stopped
-    networks:
-      - cognitive_net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # Enhanced PostgreSQL with cognitive tables
+  # Enhanced PostgreSQL with pgvector
   postgres:
     image: ankane/pgvector:latest
     container_name: postgres_cognitive
@@ -69,42 +120,24 @@ services:
     restart: unless-stopped
     networks:
       - cognitive_net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
-  # Redis for SCB state management
+  # Redis for state management
   redis:
     image: redis:7-alpine
     container_name: redis_cognitive
     ports:
-      - "6379:6379"
+      - "6380:6379"
+    volumes:
+      - redis_cognitive_data:/data
     restart: unless-stopped
     networks:
       - cognitive_net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  # Optional: NeuroSync VTuber service (if available)
-  # neurosync:
-  #   image: neurosync:latest
-  #   container_name: neurosync_cognitive
-  #   ports:
-  #     - "5001:5001"
-  #   environment:
-  #     - LOG_LEVEL=info
-  #   restart: unless-stopped
-  #   networks:
-  #     - cognitive_net
 
 volumes:
   cognee_data:
   postgres_cognitive_data:
+  redis_cognitive_data:
+  ollama_data:
 
 networks:
   cognitive_net:
