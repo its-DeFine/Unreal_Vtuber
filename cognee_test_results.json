@@ -1,0 +1,30 @@
+{
+  "Service Health": {
+    "status": "PASS",
+    "result": {
+      "status_code": 200,
+      "healthy": true
+    }
+  },
+  "Data Addition": {
+    "status": "PASS",
+    "result": {
+      "status_code": 401,
+      "success": false
+    }
+  },
+  "Knowledge Processing": {
+    "status": "PASS",
+    "result": {
+      "status_code": 401,
+      "success": false
+    }
+  },
+  "Search Functionality": {
+    "status": "PASS",
+    "result": {
+      "status_code": 401,
+      "results": 0
+    }
+  }
+}

@@ -23,50 +23,6 @@ services:
       retries: 5
       start_period: 300s  # Give time for multiple small model downloads
 
-  # Cognee knowledge graph service (Ollama Configuration)
-  cognee:
-    image: cognee/cognee:main
-    container_name: cognee_service
-    ports:
-      - "8000:8000"
-    environment:
-      # LLM Configuration for Ollama - flexible model selection
-      - LLM_PROVIDER=ollama
-      - LLM_MODEL=llama3.2:3b  # Fallback model, will use whatever is available
-      - LLM_ENDPOINT=http://ollama:11434/v1
-      - LLM_API_KEY=ollama
-      - LLM_TEMPERATURE=0.0
-      - LLM_MAX_TOKENS=4096
-      # Embedding Configuration for Ollama
-      - EMBEDDING_PROVIDER=ollama
-      - EMBEDDING_MODEL=nomic-embed-text:latest
-      - EMBEDDING_ENDPOINT=http://ollama:11434/api/embeddings
-      - EMBEDDING_API_KEY=ollama
-      - EMBEDDING_DIMENSIONS=768
-      - HUGGINGFACE_TOKENIZER=nomic-ai/nomic-embed-text-v1
-      # Logging
-      - LOG_LEVEL=INFO
-      # Database (use SQLite for simplicity)
-      - DATABASE_URL=sqlite:///app/data/cognee.db
-      # Default authentication credentials for open source version
-      - COGNEE_USERNAME=default_user@example.com
-      - COGNEE_PASSWORD=default_password
-    volumes:
-      - cognee_data:/app/data
-      - ./.env:/app/.env  # Mount environment file for Cognee
-    depends_on:
-      ollama:
-        condition: service_healthy  # Wait for Ollama to be healthy (models loaded)
-    restart: unless-stopped
-    networks:
-      - cognitive_net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s  # Give time for Ollama models to load
-
   # AutoGen Cognitive Agent with Evolution Capabilities
   autogen_cognitive_agent:
     build:
@@ -117,18 +73,6 @@ services:
       - postgres_cognitive_data:/var/lib/postgresql/data
     ports:
       - "5434:5432"
-    restart: unless-stopped
-    networks:
-      - cognitive_net
-
-  # Redis for state management
-  redis:
-    image: redis:7-alpine
-    container_name: redis_cognitive
-    ports:
-      - "6380:6379"
-    volumes:
-      - redis_cognitive_data:/data
     restart: unless-stopped
     networks:
       - cognitive_net
