@@ -44,23 +44,30 @@ class CogneeDirectService:
         
         # Set environment variables for Cognee (Ollama configuration per official docs)
         os.environ['LLM_PROVIDER'] = 'ollama'
-        os.environ['LLM_MODEL'] = 'llama3.2:3b'
+        os.environ['LLM_MODEL'] = 'llama3-schema'
         os.environ['LLM_API_KEY'] = 'ollama'  # Official docs specify just "ollama"
         os.environ['LLM_ENDPOINT'] = 'http://ollama:11434/v1'  # Note the /v1 suffix
         os.environ['LLM_TEMPERATURE'] = '0.0'
         os.environ['LLM_MAX_TOKENS'] = '4096'
         
-        # 🔧 Configure embedding environment variables per Cognee documentation
+        # 🔧 SIMPLIFIED: Use default embedding configuration to avoid tokenizer issues
+        # Configure embedding environment variables per Cognee documentation
         # https://docs.cognee.ai/how-to-guides/configuration
-        os.environ['EMBEDDING_PROVIDER'] = 'ollama'
-        os.environ['EMBEDDING_MODEL'] = 'nomic-embed-text:latest'  
-        os.environ['EMBEDDING_API_KEY'] = 'ollama'
-        os.environ['EMBEDDING_DIMENSIONS'] = '768'
-        os.environ['EMBEDDING_ENDPOINT'] = 'http://ollama:11434/v1/embeddings'
+        # TEMPORARILY DISABLED: Causing HuggingFace tokenizer issues
+        # os.environ['EMBEDDING_PROVIDER'] = 'ollama'
+        # os.environ['EMBEDDING_MODEL'] = 'nomic-embed-text:latest'  
+        # os.environ['EMBEDDING_API_KEY'] = 'ollama'
+        # os.environ['EMBEDDING_DIMENSIONS'] = '768'
+        # os.environ['EMBEDDING_ENDPOINT'] = 'http://ollama:11434/v1/embeddings'
         
-        # 🔧 NEW: Configure Cognee to avoid problematic summarization pipeline
+        # 🔧 HuggingFace tokenizer - using Cognee defaults to avoid conflicts
+        
+        # 🔧 NEW: Configure Cognee to avoid problematic summarization pipeline  
         os.environ['COGNEE_SUMMARIZATION_ENABLED'] = 'false'
         os.environ['COGNEE_DISABLE_BACKGROUND_TASKS'] = 'true'
+        
+        # 🔧 TEMPORARY FIX: Use CPU-only mode to avoid tokenizer issues
+        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
         
         # 🔍 DEBUG: Log current environment after setting
         logging.info("🔍 [COGNEE_DIRECT] DEBUG - Environment AFTER setting:")
@@ -85,10 +92,8 @@ class CogneeDirectService:
             
             # Set LLM configuration using Cognee's config methods
             cognee.config.set_llm_provider('ollama')
-            # Use flexible model selection - will try different models in order of preference
-            available_models = ["phi3:mini", "gemma2:2b", "tinyllama", "qwen2:0.5b", "llama3.2:3b", "llama3.1:8b"]
-            model_to_use = available_models[-2]  # Default to llama3.2:3b for backward compatibility
-            cognee.config.set_llm_model(model_to_use)
+            # Use our new schema-aware model that knows Cognee field names
+            cognee.config.set_llm_model('llama3-schema')
             cognee.config.set_llm_api_key('ollama')
             cognee.config.set_llm_endpoint('http://ollama:11434/v1')
             
