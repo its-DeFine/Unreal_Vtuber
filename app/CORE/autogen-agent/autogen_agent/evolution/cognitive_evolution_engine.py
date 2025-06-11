@@ -19,7 +19,7 @@ import hashlib
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
-import aiohttp
+from ..services.cognee_direct_service import CogneeDirectService
 
 @dataclass
 class PerformanceContext:
@@ -62,12 +62,11 @@ class CognitiveEvolutionEngine:
     with Cognee's institutional memory for continuous learning
     """
     
-    def __init__(self, cognee_url: str, cognee_api_key: str, 
-                 autogen_agent_dir: str = "/app/autogen_agent"):
-        self.cognee_url = cognee_url.rstrip('/')
-        self.cognee_api_key = cognee_api_key
+    def __init__(self, autogen_agent_dir: str = "/app/autogen_agent"):
+        self.cognee_service = CogneeDirectService(
+            dataset_name="autogen_code_evolution"
+        )
         self.agent_dir = autogen_agent_dir
-        self.dataset_name = "autogen_code_evolution"
         
         # Evolution tracking
         self.evolution_cycles = 0
@@ -75,14 +74,19 @@ class CognitiveEvolutionEngine:
         self.failed_attempts = 0
         self.knowledge_entries = 0
         
-        logging.info("🧬🧠 [COGNITIVE_EVOLUTION] Engine initialized")
+        logging.info("🧬🧠 [COGNITIVE_EVOLUTION] Engine initialized with official Cognee service")
         
     async def initialize(self) -> bool:
         """Initialize the cognitive evolution system"""
         try:
-            # Test Cognee connection
-            if not await self._test_cognee_connection():
-                logging.error("❌ [COGNITIVE_EVOLUTION] Cognee connection failed")
+            # Initialize Cognee service
+            if not await self.cognee_service.initialize():
+                logging.error("❌ [COGNITIVE_EVOLUTION] Cognee service initialization failed")
+                return False
+            
+            # Test health
+            if not await self.cognee_service.health_check():
+                logging.error("❌ [COGNITIVE_EVOLUTION] Cognee health check failed")
                 return False
             
             # Initialize knowledge base with seed data
@@ -174,7 +178,7 @@ Evolution Cycle {cycle_id} - Performance Analysis:
 {self._identify_immediate_opportunities(context)}
 """
         
-        await self._add_to_cognee([performance_analysis])
+        await self.cognee_service.add_data([performance_analysis])
         logging.info(f"💾 [COGNITIVE_EVOLUTION] Stored performance context for {cycle_id}")
     
     async def _query_historical_insights(self, context: PerformanceContext, 
@@ -198,7 +202,7 @@ Evolution Cycle {cycle_id} - Performance Analysis:
         - Memory usage around {context.memory_usage:.1f}MB
         """
         
-        similar_issues = await self._search_cognee(performance_query, limit=5)
+        similar_issues = await self.cognee_service.search(performance_query, limit=5)
         insights["similar_performance_issues"] = similar_issues
         
         # Query for successful modifications for each opportunity
@@ -211,7 +215,7 @@ Evolution Cycle {cycle_id} - Performance Analysis:
             - Similar context patterns
             """
             
-            successful_mods = await self._search_cognee(success_query, limit=3)
+            successful_mods = await self.cognee_service.search(success_query, limit=3)
             insights["successful_modifications"].extend(successful_mods)
             
             # Query for failed attempts to avoid repeating mistakes
@@ -223,7 +227,7 @@ Evolution Cycle {cycle_id} - Performance Analysis:
             - Similar risk levels
             """
             
-            failed_attempts = await self._search_cognee(failure_query, limit=3)
+            failed_attempts = await self.cognee_service.search(failure_query, limit=3)
             insights["failed_attempts"].extend(failed_attempts)
         
         # Calculate confidence scores based on historical data
@@ -368,7 +372,7 @@ Evolution Result {cycle_id} - Code Modification {plan.id}:
 {self._generate_success_pattern(result)}
 """
         
-        await self._add_to_cognee([evolution_report])
+        await self.cognee_service.add_data([evolution_report])
         self.knowledge_entries += 1
         
         logging.info(f"💾 [COGNITIVE_EVOLUTION] Stored evolution results for {plan.id}")
@@ -456,51 +460,6 @@ Evolution Result {cycle_id} - Code Modification {plan.id}:
         return opportunities
     
     # Cognee integration methods
-    async def _test_cognee_connection(self) -> bool:
-        """Test connection to Cognee service"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"{self.cognee_url}/health") as response:
-                    return response.status == 200
-        except:
-            return False
-    
-    async def _add_to_cognee(self, content: List[str]):
-        """Add content to Cognee knowledge graph"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.cognee_url}/api/v1/add",
-                    headers={'Authorization': f'Bearer {self.cognee_api_key}'},
-                    json={'data': content, 'dataset_name': self.dataset_name}
-                ) as response:
-                    if response.status != 200:
-                        logging.error(f"❌ [COGNITIVE_EVOLUTION] Cognee storage failed: {response.status}")
-        except Exception as e:
-            logging.error(f"❌ [COGNITIVE_EVOLUTION] Cognee storage error: {e}")
-    
-    async def _search_cognee(self, query: str, limit: int = 5) -> List[Dict]:
-        """Search Cognee knowledge graph"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.cognee_url}/api/v1/search",
-                    headers={'Authorization': f'Bearer {self.cognee_api_key}'},
-                    json={
-                        'query': query,
-                        'dataset_name': self.dataset_name,
-                        'limit': limit
-                    }
-                ) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    else:
-                        logging.error(f"❌ [COGNITIVE_EVOLUTION] Cognee search failed: {response.status}")
-                        return []
-        except Exception as e:
-            logging.error(f"❌ [COGNITIVE_EVOLUTION] Cognee search error: {e}")
-            return []
-    
     async def _initialize_knowledge_base(self):
         """Initialize knowledge base with seed data"""
         seed_data = [
@@ -529,7 +488,7 @@ This is the foundation for autonomous code evolution with institutional memory.
             """
         ]
         
-        await self._add_to_cognee(seed_data)
+        await self.cognee_service.add_data(seed_data)
         logging.info("🌱 [COGNITIVE_EVOLUTION] Knowledge base initialized with seed data")
     
     # Additional helper methods (stubs for now)
@@ -629,7 +588,7 @@ Evolution Cycle Failure {cycle_id}:
 - This failure provides learning data for future cycle improvements
 """
         
-        await self._add_to_cognee([failure_report])
+        await self.cognee_service.add_data([failure_report])
         logging.info(f"💾 [COGNITIVE_EVOLUTION] Stored failure context for {cycle_id}")
 
     def get_evolution_stats(self) -> Dict[str, Any]:

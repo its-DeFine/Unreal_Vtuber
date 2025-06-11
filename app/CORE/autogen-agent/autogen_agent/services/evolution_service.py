@@ -15,6 +15,7 @@ import logging
 import os
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
+from dataclasses import dataclass
 
 from ..evolution.cognitive_evolution_engine import (
     CognitiveEvolutionEngine, 
@@ -23,16 +24,23 @@ from ..evolution.cognitive_evolution_engine import (
 )
 from ..evolution.darwin_godel_engine import DarwinGodelEngine
 
+@dataclass
+class PerformanceMetrics:
+    """Performance metrics for evolution tracking"""
+    timestamp: datetime
+    decision_time: float
+    success_rate: float
+    memory_usage: float
+    error_count: int
+    iteration_count: int
+
 class EvolutionService:
     """
     Service layer that manages the integration between AutoGen agents
     and the Cognitive Evolution Engine for continuous self-improvement
     """
     
-    def __init__(self, cognee_url: str, cognee_api_key: str, 
-                 autogen_agent_dir: str = "/app/autogen_agent"):
-        self.cognee_url = cognee_url
-        self.cognee_api_key = cognee_api_key
+    def __init__(self, autogen_agent_dir: str = "/app/autogen_agent"):
         self.agent_dir = autogen_agent_dir
         
         # Initialize evolution components
@@ -69,8 +77,6 @@ class EvolutionService:
             
             # Initialize Cognitive Evolution Engine
             self.evolution_engine = CognitiveEvolutionEngine(
-                self.cognee_url, 
-                self.cognee_api_key, 
                 self.agent_dir
             )
             if not await self.evolution_engine.initialize():
@@ -87,39 +93,57 @@ class EvolutionService:
     
     async def collect_performance_data(self, agent_metrics: Dict[str, Any]) -> bool:
         """
-        Collect performance data from the running AutoGen system
+        Collect performance data from agent operations
         """
         try:
-            # Extract performance metrics from agent data
-            performance_context = PerformanceContext(
-                decision_time=agent_metrics.get('decision_time', 0.0),
-                success_rate=agent_metrics.get('success_rate', 0.0),
-                tool_effectiveness=agent_metrics.get('tool_effectiveness', {}),
-                memory_usage=agent_metrics.get('memory_usage', 0.0),
-                error_count=agent_metrics.get('error_count', 0),
-                context_hash=agent_metrics.get('context_hash', 'unknown'),
+            # Extract metrics from agent operation
+            decision_time = agent_metrics.get("decision_time", 2.5)
+            success_rate = agent_metrics.get("success_rate", 1.0)  # Assume success if not specified
+            memory_usage = agent_metrics.get("memory_usage", 85.0)
+            error_count = agent_metrics.get("error_count", 0)
+            iteration_count = agent_metrics.get("iteration", 1)
+            
+            # Create performance entry
+            performance = PerformanceMetrics(
                 timestamp=datetime.now(),
-                iteration_count=agent_metrics.get('iteration_count', 0)
+                decision_time=decision_time,
+                success_rate=success_rate,
+                memory_usage=memory_usage,
+                error_count=error_count,
+                iteration_count=iteration_count
             )
             
-            # Store in performance history
-            self.performance_history.append(performance_context)
-            self.current_performance = performance_context
+            # Add to history
+            self.performance_history.append(performance)
             
-            # Keep only recent history (last 100 entries)
+            # Update current performance (rolling average of last 3 cycles)
+            if len(self.performance_history) >= 3:
+                recent = self.performance_history[-3:]
+                self.current_performance = PerformanceMetrics(
+                    timestamp=datetime.now(),
+                    decision_time=sum(p.decision_time for p in recent) / len(recent),
+                    success_rate=sum(p.success_rate for p in recent) / len(recent),
+                    memory_usage=sum(p.memory_usage for p in recent) / len(recent),
+                    error_count=sum(p.error_count for p in recent),
+                    iteration_count=recent[-1].iteration_count
+                )
+            else:
+                self.current_performance = performance
+            
+            # Keep history to reasonable size
             if len(self.performance_history) > 100:
-                self.performance_history = self.performance_history[-100:]
+                self.performance_history = self.performance_history[-50:]
             
-            logging.info(f"📊 [EVOLUTION_SERVICE] Performance data collected: {performance_context.decision_time:.2f}s decision time")
+            logging.debug(f"📊 [EVOLUTION_SERVICE] Performance data collected: iteration={iteration_count}, time={decision_time:.2f}s")
             
-            # Check if automatic evolution should trigger
+            # Check if we should trigger automatic evolution
             if self.auto_evolution_enabled and self._should_trigger_evolution():
-                asyncio.create_task(self._trigger_evolution_cycle())
+                await self._trigger_evolution_cycle()
             
             return True
             
         except Exception as e:
-            logging.error(f"❌ [EVOLUTION_SERVICE] Performance data collection failed: {e}")
+            logging.error(f"❌ [EVOLUTION_SERVICE] Failed to collect performance data: {e}")
             return False
     
     async def trigger_evolution_manually(self, context: str = "") -> Dict[str, Any]:
@@ -129,13 +153,39 @@ class EvolutionService:
         if not self.evolution_enabled:
             return {"success": False, "error": "Evolution service not initialized"}
         
-        if not self.current_performance:
-            return {"success": False, "error": "No performance data available"}
+        # 🔧 FIX: Use baseline performance if no current performance data
+        performance_to_use = self.current_performance
+        if not performance_to_use:
+            # Create baseline performance metrics for bootstrap
+            logging.info("📊 [EVOLUTION_SERVICE] No current performance data - using baseline metrics for evolution")
+            performance_to_use = PerformanceMetrics(
+                timestamp=datetime.now(),
+                decision_time=2.5,  # Baseline from dgm_stats
+                success_rate=0.85,  # Reasonable starting point
+                memory_usage=85.0,  # From baseline metrics
+                error_count=0,
+                iteration_count=5  # Minimum for evolution
+            )
+            # Store this as current performance for future use
+            self.current_performance = performance_to_use
+            logging.info("✅ [EVOLUTION_SERVICE] Baseline performance metrics established")
         
         try:
             logging.info(f"🚀 [EVOLUTION_SERVICE] Manually triggering evolution cycle with context: {context}")
             
-            result = await self.evolution_engine.analyze_and_evolve(self.current_performance)
+            # Convert PerformanceMetrics to PerformanceContext
+            performance_context = PerformanceContext(
+                decision_time=performance_to_use.decision_time,
+                success_rate=performance_to_use.success_rate,
+                tool_effectiveness={},  # Default empty for now
+                memory_usage=performance_to_use.memory_usage,
+                error_count=performance_to_use.error_count,
+                context_hash=f"cycle_{performance_to_use.iteration_count}",
+                timestamp=performance_to_use.timestamp,
+                iteration_count=performance_to_use.iteration_count
+            )
+            
+            result = await self.evolution_engine.analyze_and_evolve(performance_context)
             
             if result:
                 self.total_evolution_cycles += 1
@@ -308,7 +358,7 @@ class EvolutionService:
             return {"success": False, "error": "Evolution engine not initialized"}
         
         try:
-            results = await self.evolution_engine._search_cognee(query, max_results)
+            results = await self.evolution_engine.cognee_service.search(query, max_results)
             
             return {
                 "success": True,
@@ -330,7 +380,7 @@ class EvolutionService:
             "total_cycles": self.total_evolution_cycles,
             "success_rate": (self.successful_improvements / max(self.total_evolution_cycles, 1)) * 100,
             "performance_history_size": len(self.performance_history),
-            "cognee_url": self.cognee_url,
+
             "agent_dir": self.agent_dir
         }
 
@@ -342,15 +392,9 @@ async def get_evolution_service() -> Optional[EvolutionService]:
     global evolution_service
     
     if evolution_service is None:
-        cognee_url = os.getenv("COGNEE_URL")
-        cognee_api_key = os.getenv("COGNEE_API_KEY") 
-        
-        if cognee_url and cognee_api_key:
-            evolution_service = EvolutionService(cognee_url, cognee_api_key)
-            await evolution_service.initialize()
-            logging.info("✅ [EVOLUTION_SERVICE] Global service instance created")
-        else:
-            logging.warning("⚠️ [EVOLUTION_SERVICE] Missing Cognee configuration")
+        evolution_service = EvolutionService()
+        await evolution_service.initialize()
+        logging.info("✅ [EVOLUTION_SERVICE] Global service instance created")
     
     return evolution_service
 
