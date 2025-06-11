@@ -50,15 +50,13 @@ class CogneeDirectService:
         os.environ['LLM_TEMPERATURE'] = '0.0'
         os.environ['LLM_MAX_TOKENS'] = '4096'
         
-        # 🔧 SIMPLIFIED: Use default embedding configuration to avoid tokenizer issues
-        # Configure embedding environment variables per Cognee documentation
-        # https://docs.cognee.ai/how-to-guides/configuration
-        # TEMPORARILY DISABLED: Causing HuggingFace tokenizer issues
-        # os.environ['EMBEDDING_PROVIDER'] = 'ollama'
-        # os.environ['EMBEDDING_MODEL'] = 'nomic-embed-text:latest'  
-        # os.environ['EMBEDDING_API_KEY'] = 'ollama'
-        # os.environ['EMBEDDING_DIMENSIONS'] = '768'
-        # os.environ['EMBEDDING_ENDPOINT'] = 'http://ollama:11434/v1/embeddings'
+        # 🔧 Configure Fastembed for local embeddings (no API key required)
+        # Per official Cognee documentation: https://docs.cognee.ai/how-to-guides/configuration
+        # Fastembed is ideal for codegraph pipeline and avoids rate limits
+        os.environ['EMBEDDING_PROVIDER'] = 'fastembed'
+        os.environ['EMBEDDING_MODEL'] = 'sentence-transformers/all-MiniLM-L6-v2'
+        os.environ['EMBEDDING_DIMENSIONS'] = '384'
+        os.environ['EMBEDDING_MAX_TOKENS'] = '256'
         
         # 🔧 HuggingFace tokenizer - using Cognee defaults to avoid conflicts
         

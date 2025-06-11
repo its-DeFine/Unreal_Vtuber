@@ -25,12 +25,16 @@ autogen-ext[mcp]>=0.2.0
 
 # Additional dependencies
 asyncio-mqtt>=0.16.1
+
 pytest>=8.3.2
 pytest-asyncio>=0.24.0
 
 # Cognee integration with Ollama support (official package)
 cognee[ollama]>=0.1.42
 transformers>=4.21.0
+
+# Fastembed for local embeddings (no API key required)
+fastembed>=0.4.0
 
 # Additional Python packages
 python-dotenv>=1.0.0
