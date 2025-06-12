@@ -31,234 +31,249 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 LOOP_INTERVAL = int(os.getenv("LOOP_INTERVAL", "20"))
 app = FastAPI()
 
-# Global AutoGen agents
+# Global AutoGen agents and group chat
 autogen_assistant = None
+autogen_programmer = None
+autogen_observer = None
 autogen_manager = None
+group_chat = None
 
 # Global MCP server instance
 mcp_server = None
 
-# MCP Tool Functions for AutoGen agents to call
-async def trigger_evolution_analysis():
-    """Function that AutoGen agents can call to trigger evolution analysis"""
-    try:
-        # Use the MCP server directly instead of HTTP calls
-        global mcp_server
-        if mcp_server:
-            result = await mcp_server.handle_mcp_call("analyze_code_performance", {})
-            logging.info("🧬 [EVOLUTION] Code analysis triggered by AutoGen agent")
-            return result
-        else:
-            logging.error("❌ [EVOLUTION] MCP server not available")
-            return {"error": "MCP server not available"}
-    except Exception as e:
-        logging.error(f"❌ [EVOLUTION] Analysis error: {e}")
-        return {"error": str(e)}
+# Global analytics tracking
+analytics_data = {
+    "cycles_completed": 0,
+    "tools_used": {},
+    "goal_progress": {},
+    "agent_interactions": {},
+    "performance_trends": []
+}
 
-async def query_evolution_memory(query: str = "recent improvements"):
-    """Function that AutoGen agents can call to query evolution memory"""
-    try:
-        # Use the MCP server directly instead of HTTP calls
-        global mcp_server
-        if mcp_server:
-            result = await mcp_server.handle_mcp_call("query_evolution_memory", {"query": query, "max_results": 5})
-            logging.info(f"🧠 [EVOLUTION] Memory queried by AutoGen agent: {query}")
-            return result
-        else:
-            logging.error("❌ [EVOLUTION] MCP server not available")
-            return {"error": "MCP server not available"}
-    except Exception as e:
-        logging.error(f"❌ [EVOLUTION] Memory query error: {e}")
-        return {"error": str(e)}
+# Global client instances for tool access
+global_scb_client = None
+global_vtuber_client = None
+global_tool_registry = None
 
-async def trigger_code_evolution(context: str = "Autonomous improvement cycle"):
-    """Function that AutoGen agents can call to trigger evolution"""
-    try:
-        # Use the MCP server directly instead of HTTP calls
-        global mcp_server
-        if mcp_server:
-            result = await mcp_server.handle_mcp_call("trigger_code_evolution", {"context": context})
-            logging.info("🚀 [EVOLUTION] Code evolution triggered by AutoGen agent")
-            return result
-        else:
-            logging.error("❌ [EVOLUTION] MCP server not available")
-            return {"error": "MCP server not available"}
-    except Exception as e:
-        logging.error(f"❌ [EVOLUTION] Evolution error: {e}")
-        return {"error": str(e)}
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "timestamp": time.time(),
+        "autogen_available": AUTOGEN_AVAILABLE,
+        "analytics": {
+            "cycles_completed": analytics_data["cycles_completed"],
+            "tools_registered": len(global_tool_registry.tools) if global_tool_registry else 0
+        }
+    }
 
-async def get_evolution_status():
-    """Function that AutoGen agents can call to check evolution status"""
-    try:
-        # Use the MCP server directly instead of HTTP calls
-        global mcp_server
-        if mcp_server:
-            result = await mcp_server.handle_mcp_call("get_evolution_status", {})
-            logging.info("📊 [EVOLUTION] Status checked by AutoGen agent")
-            return result
-        else:
-            logging.error("❌ [EVOLUTION] MCP server not available")
-            return {"error": "MCP server not available"}
-    except Exception as e:
-        logging.error(f"❌ [EVOLUTION] Status check error: {e}")
-        return {"error": str(e)}
+@app.get("/vtuber/control")
+async def vtuber_control_endpoint(action: str = "status", message: str = "", duration: int = 0):
+    """🎭 VTuber control endpoint for external access"""
+    if not global_vtuber_client or not global_tool_registry:
+        return {
+            "success": False,
+            "error": "VTuber system not initialized"
+        }
+    
+    # Execute VTuber control via tool
+    context = {
+        "control_vtuber_instance": True,
+        "vtuber_action": action,
+        "message": message,
+        "duration_minutes": duration,
+        "vtuber_client": global_vtuber_client
+    }
+    
+    result = global_tool_registry.execute_tool_with_clients(
+        "advanced_vtuber_control", 
+        context, 
+        vtuber_client=global_vtuber_client
+    )
+    
+    return result if result else {"success": False, "error": "Tool execution failed"}
+
+@app.get("/scb/control")
+async def scb_control_endpoint(action: str = "status"):
+    """🔗 SCB/AgentNet control endpoint for external access"""
+    if not global_scb_client:
+        return {
+            "success": False,
+            "error": "SCB system not initialized"
+        }
+    
+    if action == "enable":
+        global_scb_client.enable_agentnet()
+        return {"success": True, "message": "AgentNet enabled"}
+    elif action == "disable":
+        global_scb_client.disable_agentnet()
+        return {"success": True, "message": "AgentNet disabled"}
+    elif action == "status":
+        return global_scb_client.get_status()
+    else:
+        return {"success": False, "error": f"Unknown action: {action}"}
 
 async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTuberClient):
-    """Run real AutoGen multi-agent decision cycle with evolution capabilities"""
-    global autogen_assistant, autogen_manager
-    
-    if not AUTOGEN_AVAILABLE or not autogen_assistant:
-        logging.warning("⚠️ [AUTOGEN_CYCLE] AutoGen not available - using fallback")
-        return await run_fallback_cycle(iteration, scb, vtuber)
+    """Enhanced AutoGen decision cycle with multi-agent collaboration"""
     
     try:
-        # Enhanced prompts that encourage evolution tool usage
-        prompts = [
-            f"🧠 Iteration #{iteration}: You are an autonomous AI agent with self-improvement capabilities. Analyze your current performance and consider using evolution tools to improve your code. Check evolution status and trigger improvements if needed.",
-            f"⚡ Iteration #{iteration}: Review your decision-making patterns and optimization strategies. Use the available evolution memory to learn from past improvements and trigger code evolution if beneficial.",
-            f"📊 Iteration #{iteration}: Assess your cognitive processes and knowledge integration. Query your evolution memory for insights and consider triggering performance analysis.",
-            f"🎯 Iteration #{iteration}: Focus on goal analysis and strategic planning. Check your evolution status and use available tools to optimize your performance.",
-            f"🧩 Iteration #{iteration}: Consolidate memories and patterns. Query evolution memory for learning opportunities and trigger code evolution if patterns suggest improvements.",
-            f"🚀 Iteration #{iteration}: Lead cognitive evolution and self-improvement. Use all available evolution tools to analyze, learn, and improve your codebase autonomously."
-        ]
+        # Check if AutoGen agents are available
+        if not all([autogen_assistant, autogen_programmer, autogen_observer, autogen_manager]):
+            logging.warning("⚠️ [AUTOGEN] Some agents not available, skipping cycle")
+            return
         
-        prompt = prompts[iteration % len(prompts)]
+        logging.info(f"🤖 [AUTOGEN] Starting multi-agent decision cycle #{iteration}")
         
-        logging.info(f"🤖 [AUTOGEN_CYCLE] Starting Enhanced AutoGen conversation - Iteration #{iteration}")
+        # 🔄 STEP 1: Check for Cognee memory enhancement
+        evolution_enhanced = False
+        try:
+            # Try to get Cognee-enhanced memory context (if available)
+            global cognitive_memory_for_mcp
+            if cognitive_memory_for_mcp:
+                memory_context = await cognitive_memory_for_mcp.get_evolution_memory(query=f"autonomous evolution iteration {iteration}")
+                if memory_context and memory_context.get("relevant_memories"):
+                    evolution_enhanced = True
+                    logging.info("🧠 [AUTOGEN] Cognee memory enhancement active")
+            
+        except Exception as e:
+            logging.debug(f"🔍 [AUTOGEN] Cognee integration not available: {e}")
         
-        # Create a user proxy for the autonomous operation
+        # 🎯 STEP 2: Create enhanced prompt for multi-agent collaboration
+        base_prompt = f"""
+        🤖 Autonomous System Analysis - Iteration #{iteration}
+        
+        Current Focus: Multi-agent cognitive enhancement and system optimization
+        
+        Each agent should contribute their specialized perspective:
+        - cognitive_ai_agent: Overall system status and cognitive insights
+        - programmer_agent: Technical implementation and code optimization opportunities  
+        - observer_agent: Performance metrics and analytical observations
+        
+        Collaboration Goal: Generate comprehensive system status update with actionable insights.
+        Keep individual responses focused and under 100 words each.
+        """
+        
+        # Add evolution context if available
+        if evolution_enhanced:
+            enhanced_prompt = base_prompt + "\n🧠 Memory-Enhanced Analysis: Drawing from previous optimization patterns and learned insights."
+        else:
+            enhanced_prompt = base_prompt
+        
+        # 🤝 STEP 3: Initialize agents and ensure proper configuration
+        for agent in [autogen_assistant, autogen_programmer, autogen_observer]:
+            if hasattr(agent, 'reset'):
+                agent.reset()
+        
+        # Clear previous group chat history
+        if group_chat and hasattr(group_chat, 'messages'):
+            group_chat.messages = []
+        
+        # 🎭 STEP 4: Create user proxy for group chat management
         user_proxy = UserProxyAgent(
-            name="autonomous_controller",
-            human_input_mode="NEVER",  # Fully autonomous
-            max_consecutive_auto_reply=3,  # Allow more turns for tool usage
+            name="system_orchestrator",
+            human_input_mode="NEVER",
+            max_consecutive_auto_reply=1,
             code_execution_config=False,
-            system_message="You are an autonomous controller managing AI agent cycles with evolution capabilities.",
+            system_message="You orchestrate multi-agent autonomous system analysis and optimization."
         )
         
-        # Debug logging for evolution trigger check
-        remainder = iteration % 5
-        logging.info(f"🔍 [AUTOGEN_CYCLE] Iteration #{iteration} - Evolution check: {iteration} % 5 = {remainder}, condition: {remainder == 0 and iteration > 0}")
-        
-        # Every 5th iteration, use evolution tools
-        if iteration % 5 == 0 and iteration > 0:
-            try:
-                logging.info(f"🧬 [AUTOGEN_CYCLE] ⭐ EVOLUTION CYCLE TRIGGERED! ⭐ Iteration #{iteration} - Evolution tools starting...")
-                
-                # Check evolution status
-                logging.info(f"🔬 [AUTOGEN_CYCLE] Step 1: Checking evolution status...")
-                evolution_status = await get_evolution_status()
-                logging.info(f"📊 [AUTOGEN_CYCLE] Evolution status: {evolution_status}")
-                
-                # Query evolution memory for insights  
-                logging.info(f"🔬 [AUTOGEN_CYCLE] Step 2: Querying evolution memory...")
-                memory_results = await query_evolution_memory(f"iteration {iteration} improvements")
-                logging.info(f"🧠 [AUTOGEN_CYCLE] Memory results: {memory_results}")
-                
-                # Trigger performance analysis
-                logging.info(f"🔬 [AUTOGEN_CYCLE] Step 3: Triggering performance analysis...")
-                analysis_results = await trigger_evolution_analysis()
-                logging.info(f"🔍 [AUTOGEN_CYCLE] Analysis results: {analysis_results}")
-                
-                # If analysis suggests improvements, trigger evolution
-                if analysis_results.get('success') and analysis_results.get('analysis_results'):
-                    analysis_data = analysis_results.get('analysis_results', [])
-                    if analysis_data and len(analysis_data) > 0:
-                        improvement_opportunities = analysis_data[0].get('improvement_opportunities', [])
-                        if improvement_opportunities:
-                            logging.info(f"🚀 [AUTOGEN_CYCLE] Found {len(improvement_opportunities)} improvement opportunities")
-                            evolution_result = await trigger_code_evolution(f"Autonomous cycle #{iteration}: {', '.join(improvement_opportunities[:2])}")
-                            logging.info(f"🧬 [AUTOGEN_CYCLE] Evolution result: {evolution_result}")
-                        else:
-                            logging.info(f"🔬 [AUTOGEN_CYCLE] No improvement opportunities found")
-                    else:
-                        logging.info(f"🔬 [AUTOGEN_CYCLE] No analysis data available")
-                else:
-                    logging.info(f"🔬 [AUTOGEN_CYCLE] Analysis failed or returned no results")
-                
-                # Enhance prompt with evolution context
-                evolution_context = f"\n\nEvolution Context for Iteration #{iteration}:\n"
-                evolution_context += f"- Evolution Status: {evolution_status.get('success', 'unknown')}\n"
-                evolution_context += f"- Memory Insights: {len(memory_results.get('results', []))} relevant memories found\n"
-                evolution_context += f"- Analysis Results: {len(analysis_results.get('analysis_results', []))} files analyzed\n"
-                evolution_context += "Use this context to provide an insightful status update about autonomous evolution capabilities."
-                
-                prompt += evolution_context
-                logging.info(f"✅ [AUTOGEN_CYCLE] Evolution cycle #{iteration} completed successfully")
-                
-            except Exception as e:
-                logging.error(f"❌ [AUTOGEN_CYCLE] Evolution cycle #{iteration} FAILED with error: {e}")
-                logging.error(f"❌ [AUTOGEN_CYCLE] Evolution error traceback: {str(e)}")
-        else:
-            logging.info(f"🔬 [AUTOGEN_CYCLE] Not an evolution cycle - continuing with normal conversation")
-        
-        # Initiate conversation with the assistant
-        chat_result = user_proxy.initiate_chat(
-            autogen_assistant,
-            message=prompt,
-            max_turns=2,
+        # 🎪 STEP 5: Initiate multi-agent group chat
+        group_chat_result = user_proxy.initiate_chat(
+            autogen_manager,
+            message=enhanced_prompt,
+            max_turns=3,  # Allow comprehensive multi-agent discussion
             silent=False
         )
         
-        # Extract the assistant's response
-        if chat_result and hasattr(chat_result, 'chat_history') and chat_result.chat_history:
-            # Get the last assistant message
-            for message in reversed(chat_result.chat_history):
-                if message.get('role') == 'assistant' and message.get('content'):
-                    response_content = message['content']
-                    break
+        # 📝 STEP 6: Extract and process multi-agent responses
+        agent_responses = {}
+        final_response = ""
+        
+        if group_chat_result and hasattr(group_chat_result, 'chat_history'):
+            for message in group_chat_result.chat_history:
+                if message.get('role') == 'assistant' and message.get('name'):
+                    agent_name = message['name']
+                    content = message.get('content', '')
+                    agent_responses[agent_name] = content
+                    analytics_data["agent_interactions"][agent_name] = analytics_data["agent_interactions"].get(agent_name, 0) + 1
+            
+            # Create comprehensive response summary
+            if agent_responses:
+                final_response = f"🤖 Multi-Agent Analysis (Iteration #{iteration}):\n"
+                for agent, response in agent_responses.items():
+                    final_response += f"\n{agent}: {response[:100]}..." if len(response) > 100 else f"\n{agent}: {response}"
             else:
-                response_content = f"🧠 AutoGen Agent - Cognitive Processing Cycle #{iteration} [Evolution Enhanced]"
+                final_response = f"🧠 Multi-Agent System - Collaborative Analysis Cycle #{iteration}"
         else:
-            response_content = f"🧠 AutoGen Agent - Advanced Reasoning Cycle #{iteration} [Evolution Enhanced]"
+            final_response = f"🤖 AutoGen Multi-Agent - Advanced Coordination Cycle #{iteration}"
         
-        # Send to VTuber
-        if response_content:
-            vtuber.post_message(response_content)
+        # 📊 STEP 7: Update analytics and goal progress
+        await update_analytics_and_goals(iteration, agent_responses, evolution_enhanced)
         
-        # Update SCB state
+        # 🎭 STEP 8: Send to VTuber ONLY if activated (no force_send for autonomous cycles)
+        if final_response:
+            vtuber.post_message(final_response)  # Respects activation state
+        
+        # 🔗 STEP 9: Update SCB state ONLY if AgentNet enabled
         scb_state = {
             "iteration": iteration,
-            "tool_used": "autogen_llm_evolution",
+            "tool_used": "autogen_multi_agent_collaboration",
             "success": True,
             "timestamp": time.time(),
             "llm_enhanced": True,
-            "evolution_enhanced": iteration % 5 == 0,
-            "agent_type": "microsoft_autogen_evolved"
+            "evolution_enhanced": evolution_enhanced,
+            "agent_type": "microsoft_autogen_multi_agent",
+            "agents_participated": list(agent_responses.keys()),
+            "collaboration_score": len(agent_responses)
         }
-        scb.publish_state(scb_state)
+        scb.publish_state(scb_state)  # Respects AgentNet activation
         
-        logging.info(f"✅ [AUTOGEN_CYCLE] Enhanced AutoGen conversation completed - Iteration #{iteration}")
-        
-        # 🔧 COLLECT PERFORMANCE DATA for evolution system
-        try:
-            cycle_end_time = time.time()
-            decision_time = cycle_end_time - scb_state['timestamp']  # Calculate actual cycle time
-            
-            # Collect performance metrics for evolution service
-            performance_metrics = {
-                "iteration": iteration,
-                "decision_time": decision_time,
-                "success_rate": 1.0 if scb_state["success"] else 0.0,
-                "memory_usage": 85.0,  # Default baseline
-                "error_count": 0 if scb_state["success"] else 1,
-                "tool_used": scb_state["tool_used"],
-                "evolution_enhanced": scb_state.get("evolution_enhanced", False)
-            }
-            
-            # Import and call evolution service (lazy import to avoid circular deps)
-            from autogen_agent.services.evolution_service import collect_autogen_performance_data
-            await collect_autogen_performance_data(performance_metrics)
-            
-            logging.debug(f"📊 [AUTOGEN_CYCLE] Performance data collected for iteration #{iteration}")
-            
-        except Exception as e:
-            logging.error(f"❌ [AUTOGEN_CYCLE] Failed to collect performance data: {e}")
-        
-        return True
+        analytics_data["cycles_completed"] += 1
+        logging.info(f"✅ [AUTOGEN] Multi-agent cycle #{iteration} completed successfully")
         
     except Exception as e:
-        logging.error(f"❌ [AUTOGEN_CYCLE] Enhanced AutoGen conversation failed: {e}")
-        return await run_fallback_cycle(iteration, scb, vtuber)
+        logging.error(f"❌ [AUTOGEN] Decision cycle #{iteration} failed: {e}")
+        
+        # Send error to VTuber only if activated
+        error_message = f"🚨 AutoGen Cycle #{iteration} Error: {str(e)[:100]}"
+        vtuber.post_message(error_message)  # Respects activation state
+        
+        # Update SCB with error only if AgentNet enabled
+        error_state = {
+            "iteration": iteration,
+            "tool_used": "autogen_error_handling",
+            "success": False,
+            "error": str(e),
+            "timestamp": time.time()
+        }
+        scb.publish_state(error_state)  # Respects AgentNet activation
+
+async def update_analytics_and_goals(iteration: int, agent_responses: dict, evolution_enhanced: bool):
+    """Update analytics and goal tracking"""
+    try:
+        # Track tool usage
+        for agent_name in agent_responses.keys():
+            analytics_data["tools_used"][agent_name] = analytics_data["tools_used"].get(agent_name, 0) + 1
+        
+        # Track performance trends
+        performance_entry = {
+            "iteration": iteration,
+            "timestamp": time.time(),
+            "agent_count": len(agent_responses),
+            "evolution_enhanced": evolution_enhanced
+        }
+        
+        analytics_data["performance_trends"].append(performance_entry)
+        
+        # Keep only last 100 performance entries
+        if len(analytics_data["performance_trends"]) > 100:
+            analytics_data["performance_trends"] = analytics_data["performance_trends"][-100:]
+            
+        logging.debug(f"📊 [ANALYTICS] Updated for iteration #{iteration}")
+        
+    except Exception as e:
+        logging.error(f"❌ [ANALYTICS] Update failed: {e}")
 
 async def run_cognitive_cycle(decision_engine: CognitiveDecisionEngine, 
                              cognitive_memory: CognitiveMemoryManager, 
@@ -282,11 +297,11 @@ async def run_cognitive_cycle(decision_engine: CognitiveDecisionEngine,
         # Make intelligent decision using cognitive engine
         result = await decision_engine.make_intelligent_decision(context)
         
-        # Send result to VTuber if there's a message
+        # Send result to VTuber ONLY if activated
         if result.get("message"):
-            vtuber.post_message(result["message"])
+            vtuber.post_message(result["message"])  # Respects activation state
         
-        # Update SCB state
+        # Update SCB state ONLY if AgentNet enabled
         scb_state = {
             "iteration": context["iteration"],
             "tool_used": result.get("tool_used", "unknown"),
@@ -294,7 +309,7 @@ async def run_cognitive_cycle(decision_engine: CognitiveDecisionEngine,
             "timestamp": time.time(),
             "cognitive_enhanced": result.get("memory_enhanced", False)
         }
-        scb.publish_state(scb_state)
+        scb.publish_state(scb_state)  # Respects AgentNet activation
         
         # Periodic knowledge consolidation (every 10 iterations)
         if context['iteration'] % 10 == 0:
@@ -306,41 +321,23 @@ async def run_cognitive_cycle(decision_engine: CognitiveDecisionEngine,
     except Exception as e:
         logging.error(f"❌ [COGNITIVE_CYCLE] Iteration #{context['iteration']} failed: {e}")
 
-async def run_fallback_cycle(iteration: int, scb: SCBClient, vtuber: VTuberClient):
-    """Fallback cycle when AutoGen is not available"""
-    
-    base_messages = [
-        f"🔧 Fallback Agent - Processing Cycle #{iteration}",
-        f"⚙️ Simple Agent - Analysis Iteration #{iteration}",
-        f"🔄 Basic Agent - Status Update #{iteration}",
-        f"📋 Fallback Mode - Cycle #{iteration} Active"
-    ]
-    
-    message = base_messages[iteration % len(base_messages)]
-    
-    vtuber.post_message(message)
-    
-    scb_state = {
-        "iteration": iteration,
-        "tool_used": "fallback_agent",
-        "success": True,
-        "timestamp": time.time(),
-        "llm_enhanced": False
-    }
-    scb.publish_state(scb_state)
-    
-    logging.info(f"🔧 [FALLBACK_CYCLE] Completed iteration #{iteration}")
-    return True
-
 def run_once(registry: ToolRegistry, memory: MemoryManager, scb: SCBClient, vtuber: VTuberClient):
     """Legacy synchronous decision cycle (fallback)"""
     context = memory.get_recent_context()
-    tool = registry.select_tool(context)
+    
+    # Add clients to context for tools that need them
+    enhanced_context = registry.add_clients_to_context(context, vtuber, scb)
+    
+    tool = registry.select_tool(enhanced_context)
     if tool:
-        result = tool(context)
+        result = tool(enhanced_context)
         memory.store_memory(result)
-        vtuber.post_message(result.get("message", ""))
-        scb.publish_state(result)
+        
+        # Send to VTuber only if activated
+        vtuber.post_message(result.get("message", ""))  # Respects activation state
+        
+        # Update SCB only if AgentNet enabled
+        scb.publish_state(result)  # Respects AgentNet activation
 
 async def enhanced_autonomous_loop(scb: SCBClient, vtuber: VTuberClient):
     """Enhanced autonomous loop using AutoGen framework"""
@@ -391,35 +388,25 @@ def decision_loop(registry: ToolRegistry, memory: MemoryManager, scb: SCBClient,
         logging.info("cycle completed in %.2fs", duration)
         time.sleep(LOOP_INTERVAL)
 
-@app.get("/api/health")
-def health() -> dict:
-    return {"status": "ok"}
-
-@app.get("/api/cognitive/status")
-def cognitive_status() -> dict:
-    """Get cognitive enhancement system status"""
-    use_cognitive = os.getenv("USE_COGNITIVE_ENHANCEMENT", "true").lower() == "true"
-    use_autogen = os.getenv("USE_AUTOGEN_LLM", "true").lower() == "true"
+def run_async_loop_in_thread(async_func, *args):
+    """Run an async function in a separate thread with its own event loop"""
+    def run_in_thread():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(async_func(*args))
+        except Exception as e:
+            logging.error(f"❌ [THREAD] Async function failed: {e}")
+        finally:
+            loop.close()
     
-    if hasattr(run_cognitive_cycle, '_iteration_count'):
-        iteration_count = run_cognitive_cycle._iteration_count
-    else:
-        iteration_count = 0
-    
-    return {
-        "cognitive_enhancement_enabled": use_cognitive,
-        "autogen_llm_enabled": use_autogen and AUTOGEN_AVAILABLE,
-        "autogen_available": AUTOGEN_AVAILABLE,
-        "iteration_count": iteration_count,
-        "cognee_url": os.getenv("COGNEE_URL", None),
-        "cognee_configured": bool(os.getenv("COGNEE_API_KEY")),
-        "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
-        "status": "autogen_llm" if (use_autogen and AUTOGEN_AVAILABLE) else ("cognitive" if use_cognitive else "legacy")
-    }
+    thread = threading.Thread(target=run_in_thread, daemon=True)
+    thread.start()
+    return thread
 
 def initialize_autogen_agents():
     """Initialize Microsoft AutoGen agents for LLM-powered conversations"""
-    global autogen_assistant, autogen_manager
+    global autogen_assistant, autogen_programmer, autogen_observer, autogen_manager
     
     if not AUTOGEN_AVAILABLE:
         logging.warning("⚠️ [AUTOGEN_INIT] AutoGen framework not available")
@@ -459,6 +446,60 @@ def initialize_autogen_agents():
             Use emojis appropriately to enhance readability.""",
             llm_config=llm_config,
             max_consecutive_auto_reply=1,
+        )
+        
+        # Create AutoGen programmer agent
+        autogen_programmer = AssistantAgent(
+            name="programmer_agent",
+            system_message="""You are a specialized programmer agent focused on autonomous system development.
+            Your responsibilities include:
+            1. Analyzing code performance and suggesting optimizations
+            2. Implementing goal-driven code improvements
+            3. Writing analytics and monitoring code
+            4. Creating tool enhancements and variable function calls
+            5. Developing systematic testing and validation procedures
+            
+            When speaking, focus on technical implementation details, performance metrics, and code quality.
+            Always consider how your suggestions align with current system goals.""",
+            llm_config=llm_config,
+            max_consecutive_auto_reply=1,
+        )
+        
+        # Create AutoGen observer agent
+        autogen_observer = AssistantAgent(
+            name="observer_agent",
+            system_message="""You are a system observer agent specializing in analytics and performance monitoring.
+            Your key functions are:
+            1. Monitor agent interactions and system performance
+            2. Track goal progress and achievement patterns
+            3. Identify trends in tool usage and effectiveness
+            4. Report on multi-agent coordination and communication
+            5. Analyze system behavior and suggest optimization opportunities
+            
+            Provide analytical insights with specific metrics and data-driven observations.
+            Focus on quantitative assessments and pattern recognition.""",
+            llm_config=llm_config,
+            max_consecutive_auto_reply=1,
+        )
+        
+        # Initialize group chat with all agents
+        global group_chat
+        group_chat = GroupChat(
+            agents=[autogen_assistant, autogen_programmer, autogen_observer],
+            messages=[],
+            max_round=3  # Allow 3 rounds of conversation per cycle
+        )
+        
+        # Create AutoGen group chat manager
+        autogen_manager = GroupChatManager(
+            groupchat=group_chat,
+            llm_config=llm_config,
+            system_message="""You are managing a multi-agent autonomous system with three specialized agents:
+            - cognitive_ai_agent: Handles general AI processing and evolution
+            - programmer_agent: Focuses on code development and optimization  
+            - observer_agent: Monitors performance and provides analytics
+            
+            Coordinate their interactions to achieve system goals effectively."""
         )
         
         logging.info("✅ [AUTOGEN_INIT] Microsoft AutoGen agents initialized successfully")
@@ -552,33 +593,21 @@ async def initialize_cognitive_system() -> tuple:
     # Initialize legacy memory manager as fallback
     memory = MemoryManager(db_url)
     
-    # Initialize clients
+    # Initialize clients with new activation logic
     scb = SCBClient(redis_url)
     vtuber = VTuberClient(vtuber_endpoint)
+    
+    # Set global client references for API access
+    global global_scb_client, global_vtuber_client, global_tool_registry
+    global_scb_client = scb
+    global_vtuber_client = vtuber
+    global_tool_registry = registry
     
     # Initialize cognitive decision engine
     decision_engine = CognitiveDecisionEngine(cognitive_memory, registry)
     
     logging.info("✅ [MAIN] Cognitive system initialized successfully")
     return decision_engine, cognitive_memory, registry, memory, scb, vtuber
-
-def run_async_loop_in_thread(coro, *args):
-    """FIXED: Run async coroutine in thread without creating new event loop conflicts"""
-    def thread_target():
-        # Create a new event loop for this thread only
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            # Initialize components within the same thread/loop context
-            loop.run_until_complete(coro(*args))
-        except Exception as e:
-            logging.error(f"❌ [ASYNC_THREAD] Thread failed: {e}")
-        finally:
-            loop.close()
-    
-    thread = threading.Thread(target=thread_target, daemon=True)
-    thread.start()
-    return thread
 
 async def initialize_mcp_server(cognitive_system):
     """Initialize MCP server for Cursor integration"""
@@ -600,34 +629,6 @@ async def initialize_mcp_server(cognitive_system):
     except Exception as e:
         logging.error(f"❌ [MCP] MCP server initialization error: {e}")
         return None
-
-# Enhanced FastAPI app with MCP endpoints
-@app.get("/api/mcp/tools")
-async def list_mcp_tools():
-    """List all available MCP tools"""
-    global mcp_server
-    if mcp_server:
-        return {"tools": mcp_server.mcp_tools}
-    return {"error": "MCP server not initialized"}
-
-@app.post("/api/mcp/call/{tool_name}")
-async def call_mcp_tool(tool_name: str, arguments: dict = None):
-    """Call a specific MCP tool"""
-    global mcp_server
-    if mcp_server:
-        result = await mcp_server.handle_mcp_call(tool_name, arguments or {})
-        return result
-    return {"error": "MCP server not initialized"}
-
-@app.get("/api/mcp/status")
-async def get_mcp_status():
-    """Get MCP server status"""
-    global mcp_server
-    return {
-        "mcp_enabled": mcp_server is not None,
-        "tools_available": len(mcp_server.mcp_tools) if mcp_server else 0,
-        "server_initialized": mcp_server is not None
-    }
 
 @app.on_event("startup")
 async def startup_event():
@@ -664,6 +665,10 @@ def main() -> None:
     use_autogen = os.getenv("USE_AUTOGEN_LLM", "true").lower() == "true"
     use_cognitive = os.getenv("USE_COGNITIVE_ENHANCEMENT", "true").lower() == "true"
     
+    logging.info("🔧 [MAIN] Client Activation Configuration:")
+    logging.info(f"   🎭 VTuber: Controlled via tool activation (default: disabled)")
+    logging.info(f"   🔗 SCB/AgentNet: {os.getenv('AGENTNET_ENABLED', 'false')} (AGENTNET_ENABLED)")
+    
     if use_autogen and AUTOGEN_AVAILABLE:
         logging.info("🤖 [MAIN] Starting AutoGen with LLM-Powered Multi-Agent System")
         
@@ -681,6 +686,13 @@ def main() -> None:
         if initialize_autogen_agents():
             scb = SCBClient(redis_url)
             vtuber = VTuberClient(vtuber_endpoint)
+            
+            # Set global client references
+            global global_scb_client, global_vtuber_client, global_tool_registry
+            global_scb_client = scb
+            global_vtuber_client = vtuber
+            global_tool_registry = ToolRegistry()
+            global_tool_registry.load_tools()
             
             # 🔧 NEW: Initialize cognitive components for MCP tools support
             logging.info("🧠 [MAIN] Initializing cognitive components for AutoGen MCP support...")
@@ -745,6 +757,12 @@ def main() -> None:
         memory = MemoryManager(db_url)
         scb = SCBClient(redis_url)
         vtuber = VTuberClient(vtuber_endpoint)
+        
+        # Set global client references
+        global global_scb_client, global_vtuber_client, global_tool_registry
+        global_scb_client = scb
+        global_vtuber_client = vtuber
+        global_tool_registry = registry
         
         # Start legacy decision loop
         thread = threading.Thread(target=decision_loop, args=(registry, memory, scb, vtuber), daemon=True)

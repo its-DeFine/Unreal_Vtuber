@@ -12,10 +12,10 @@ class ToolRegistry:
         self.disabled_tools: List[str] = []
         
         # 🚫 DISABLED TOOLS - Focus on core evolution system
-        # VTuber tools disabled until sophisticated control system is implemented
+        # VTuber tools management updated
         self.disabled_tools = [
             "cognitive_vtuber_tool",      # Legacy VTuber tool - will be deprecated
-            "advanced_vtuber_control",    # Future VTuber control - not implemented yet
+            # "advanced_vtuber_control",  # ENABLED NOW - VTuber control implemented
         ]
         
         # Get additional disabled tools from environment
@@ -25,109 +25,103 @@ class ToolRegistry:
         logging.info(f"🔧 [TOOL_REGISTRY] Initialized with {len(self.disabled_tools)} disabled tools: {self.disabled_tools}")
 
     def load_tools(self) -> None:
-        """Load tools from the tools package, respecting disabled tools list"""
-        logging.info(f"🔄 [TOOL_REGISTRY] Loading tools from {self.package}...")
-        
+        """Load all tools from the tools package"""
         try:
+            # Import the package
             package = importlib.import_module(self.package)
-            loaded_count = 0
-            disabled_count = 0
             
-            for _, mod_name, _ in pkgutil.iter_modules(package.__path__):
-                if mod_name in self.disabled_tools:
-                    logging.info(f"🚫 [TOOL_REGISTRY] Skipping disabled tool: {mod_name}")
-                    disabled_count += 1
-                    continue
-                
-                # Skip __init__ and other non-tool modules
-                if mod_name.startswith("__"):
-                    continue
-                
-                try:
-                    mod = importlib.import_module(f"{self.package}.{mod_name}")
-                    if hasattr(mod, "run"):
-                        self.tools[mod_name] = getattr(mod, "run")
-                        logging.info(f"✅ [TOOL_REGISTRY] Loaded tool: {mod_name}")
-                        loaded_count += 1
-                    else:
-                        logging.warning(f"⚠️ [TOOL_REGISTRY] Module {mod_name} has no 'run' function")
-                except Exception as e:
-                    logging.error(f"❌ [TOOL_REGISTRY] Failed to load tool {mod_name}: {e}")
-            
-            logging.info(f"🔧 [TOOL_REGISTRY] Tool loading complete: {loaded_count} loaded, {disabled_count} disabled")
-            
-        except Exception as e:
-            logging.error(f"❌ [TOOL_REGISTRY] Failed to load tools package: {e}")
-
-    def select_tool(self, context: dict) -> Optional[Callable[[dict], dict]]:
-        """Select a tool based on context - enhanced selection logic"""
-        if not self.tools:
-            logging.warning("⚠️ [TOOL_REGISTRY] No tools available for selection")
-            return None
-        
-        # 🎯 Enhanced tool selection logic (placeholder for future sophistication)
-        # For now, use first available tool but log the selection
-        available_tools = list(self.tools.keys())
-        
-        # Simple round-robin or context-based selection can be added here
-        selected_tool_name = available_tools[0]  # Naive selection for now
-        selected_tool = self.tools[selected_tool_name]
-        
-        logging.info(f"🎯 [TOOL_REGISTRY] Selected tool: {selected_tool_name} from {len(available_tools)} available tools")
-        
-        return selected_tool
-    
-    def get_available_tools(self) -> List[str]:
-        """Get list of currently available (loaded) tools"""
-        return list(self.tools.keys())
-    
-    def get_disabled_tools(self) -> List[str]:
-        """Get list of currently disabled tools"""
-        return self.disabled_tools.copy()
-    
-    def enable_tool(self, tool_name: str) -> bool:
-        """Enable a previously disabled tool"""
-        if tool_name in self.disabled_tools:
-            self.disabled_tools.remove(tool_name)
-            # Reload the specific tool
-            try:
-                mod = importlib.import_module(f"{self.package}.{tool_name}")
-                if hasattr(mod, "run"):
-                    self.tools[tool_name] = getattr(mod, "run")
-                    logging.info(f"✅ [TOOL_REGISTRY] Enabled tool: {tool_name}")
-                    return True
-            except Exception as e:
-                logging.error(f"❌ [TOOL_REGISTRY] Failed to enable tool {tool_name}: {e}")
-        return False
-    
-    def disable_tool(self, tool_name: str) -> bool:
-        """Disable a currently active tool"""
-        if tool_name in self.tools:
-            del self.tools[tool_name]
-            if tool_name not in self.disabled_tools:
-                self.disabled_tools.append(tool_name)
-            logging.info(f"🚫 [TOOL_REGISTRY] Disabled tool: {tool_name}")
-            return True
-        return False
-    
-    def get_tool_status(self) -> Dict[str, str]:
-        """Get status of all tools (enabled/disabled)"""
-        status = {}
-        
-        # Get all possible tools from the package
-        try:
-            package = importlib.import_module(self.package)
-            for _, mod_name, _ in pkgutil.iter_modules(package.__path__):
-                if mod_name.startswith("__"):
+            # Iterate through all modules in the package
+            for _, name, ispkg in pkgutil.iter_modules(package.__path__, self.package + "."):
+                if ispkg:
                     continue
                     
-                if mod_name in self.tools:
-                    status[mod_name] = "enabled"
-                elif mod_name in self.disabled_tools:
-                    status[mod_name] = "disabled"
-                else:
-                    status[mod_name] = "unknown"
-        except Exception as e:
-            logging.error(f"❌ [TOOL_REGISTRY] Failed to get tool status: {e}")
+                # Extract tool name from module name
+                tool_name = name.split(".")[-1]
+                
+                # Skip disabled tools
+                if tool_name in self.disabled_tools:
+                    logging.info(f"🚫 [TOOL_REGISTRY] Skipping disabled tool: {tool_name}")
+                    continue
+                    
+                try:
+                    # Import the module
+                    module = importlib.import_module(name)
+                    
+                    # Look for a 'run' function
+                    if hasattr(module, 'run'):
+                        self.tools[tool_name] = module.run
+                        logging.info(f"✅ [TOOL_REGISTRY] Loaded tool: {tool_name}")
+                    else:
+                        logging.warning(f"⚠️ [TOOL_REGISTRY] Module {tool_name} has no 'run' function")
+                        
+                except ImportError as e:
+                    logging.error(f"❌ [TOOL_REGISTRY] Failed to import {tool_name}: {e}")
+                    
+        except ImportError as e:
+            logging.error(f"❌ [TOOL_REGISTRY] Failed to import package {self.package}: {e}")
+
+    def select_tool(self, context: dict) -> Optional[Callable]:
+        """Select the most appropriate tool based on context"""
+        if not self.tools:
+            logging.warning("⚠️ [TOOL_REGISTRY] No tools available")
+            return None
+            
+        # Simple round-robin selection for now
+        iteration = context.get("iteration", 0)
+        tool_names = list(self.tools.keys())
+        selected_name = tool_names[iteration % len(tool_names)]
         
-        return status
+        logging.info(f"🛠️ [TOOL_REGISTRY] Selected tool: {selected_name}")
+        return self.tools[selected_name]
+
+    def get_tool_by_name(self, name: str) -> Optional[Callable]:
+        """Get a specific tool by name"""
+        return self.tools.get(name)
+
+    def list_tools(self) -> List[str]:
+        """List all available tools"""
+        return list(self.tools.keys())
+
+    def add_clients_to_context(self, context: dict, vtuber_client=None, scb_client=None) -> dict:
+        """Add client references to context for tools that need them"""
+        enhanced_context = context.copy()
+        
+        if vtuber_client:
+            enhanced_context["vtuber_client"] = vtuber_client
+            
+        if scb_client:
+            enhanced_context["scb_client"] = scb_client
+            
+        return enhanced_context
+
+    def execute_tool_with_clients(self, tool_name: str, context: dict, vtuber_client=None, scb_client=None) -> Optional[dict]:
+        """Execute a specific tool with client access"""
+        tool = self.get_tool_by_name(tool_name)
+        if not tool:
+            logging.warning(f"⚠️ [TOOL_REGISTRY] Tool '{tool_name}' not found")
+            return None
+            
+        # Add clients to context
+        enhanced_context = self.add_clients_to_context(context, vtuber_client, scb_client)
+        
+        try:
+            result = tool(enhanced_context)
+            logging.info(f"✅ [TOOL_REGISTRY] Tool '{tool_name}' executed successfully")
+            return result
+        except Exception as e:
+            logging.error(f"❌ [TOOL_REGISTRY] Tool '{tool_name}' execution failed: {e}")
+            return None
+
+    def get_vtuber_control_tool(self) -> Optional[Callable]:
+        """Get the VTuber control tool specifically"""
+        return self.get_tool_by_name("advanced_vtuber_control")
+
+    def get_tool_status(self) -> Dict[str, Any]:
+        """Get registry status and tool information"""
+        return {
+            "total_tools": len(self.tools),
+            "available_tools": list(self.tools.keys()),
+            "disabled_tools": self.disabled_tools,
+            "vtuber_control_available": "advanced_vtuber_control" in self.tools,
+            "core_evolution_available": "core_evolution_tool" in self.tools
+        }
