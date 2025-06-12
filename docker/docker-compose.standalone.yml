@@ -7,6 +7,8 @@ services:
       context: ../app/CORE/autogen-agent
       dockerfile: Dockerfile
     container_name: autogen_cognitive_standalone
+    volumes:
+      - ../app/CORE/autogen-agent/autogen_agent:/app/autogen_agent
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
       - USE_COGNITIVE_ENHANCEMENT=true
@@ -14,9 +16,9 @@ services:
       - LOOP_INTERVAL=30
       - LOG_LEVEL=INFO
       - PORT=8000
-      # Optional Cognee integration (comment out if not needed)
-      - COGNEE_URL=http://cognee:8000
-      - COGNEE_API_KEY=${COGNEE_API_KEY:-test_api_key}
+      # Cognee is used as a library, not as external service
+      # - COGNEE_URL=http://cognee:8000
+      # - COGNEE_API_KEY=${COGNEE_API_KEY:-test_api_key}
     ports:
       - "8200:8000"
     depends_on:
@@ -52,29 +54,10 @@ services:
       timeout: 5s
       retries: 5
 
-  # Optional: Cognee knowledge graph service (comment out if not needed)
-  cognee:
-    image: cognee/cognee:latest
-    container_name: cognee_standalone
-    ports:
-      - "8000:8000"
-    environment:
-      - COGNEE_API_KEY=${COGNEE_API_KEY:-test_api_key}
-      - LOG_LEVEL=INFO
-    volumes:
-      - cognee_standalone_data:/app/data
-    restart: unless-stopped
-    networks:
-      - standalone_net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  # Cognee is used as a library inside autogen container, not as separate service
 
 volumes:
   postgres_standalone_data:
-  cognee_standalone_data:
 
 networks:
   standalone_net:
