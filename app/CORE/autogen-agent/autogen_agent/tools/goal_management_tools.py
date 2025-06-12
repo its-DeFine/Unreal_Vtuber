@@ -14,7 +14,7 @@ All tools integrate with the GoalManagementService and Cognee memory system.
 import logging
 import json
 from typing import Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..services.goal_management_service import get_goal_management_service, GoalStatus, GoalCategory
 
@@ -483,4 +483,77 @@ GOAL_MANAGEMENT_TOOLS = {
     "update_goal_progress": update_goal_progress,
     "generate_goal_performance_report": generate_goal_performance_report,
     "query_goal_memory": query_goal_memory
-} 
+}
+
+
+async def run(context: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    🎯 Goal Management Tool Entry Point
+    
+    Main entry point for goal management operations.
+    Handles goal creation, progress tracking, and memory queries.
+    
+    Args:
+        context: Operation context containing action and parameters
+    
+    Returns:
+        Result of the goal management operation
+    """
+    try:
+        action = context.get("action", "get_active_goals")
+        
+        # Route to appropriate goal management function
+        if action == "define_goal":
+            return await define_autonomous_goal(
+                context.get("goal", "Improve agent performance"),
+                context.get("priority", 5)
+            )
+        
+        elif action == "get_goals":
+            return await get_active_goals(context.get("status_filter"))
+        
+        elif action == "next_goal":
+            return await get_next_priority_goal()
+        
+        elif action == "update_progress":
+            return await update_goal_progress(
+                context.get("goal_id", ""),
+                context.get("progress_data", {})
+            )
+        
+        elif action == "generate_report":
+            return await generate_goal_performance_report(
+                context.get("timeframe_hours", 24)
+            )
+        
+        elif action == "query_memory":
+            return await query_goal_memory(
+                context.get("query", "goal optimization"),
+                context.get("limit", 5)
+            )
+        
+        else:
+            # Default action - get active goals overview
+            goals_result = await get_active_goals()
+            next_goal_result = await get_next_priority_goal()
+            
+            return {
+                "success": True,
+                "tool": "goal_management",
+                "action": "overview",
+                "current_goals": goals_result,
+                "next_priority_goal": next_goal_result,
+                "available_actions": [
+                    "define_goal", "get_goals", "next_goal", 
+                    "update_progress", "generate_report", "query_memory"
+                ]
+            }
+            
+    except Exception as e:
+        logging.error(f"❌ [GOAL_TOOLS] Run function error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "tool": "goal_management",
+            "action": context.get("action", "unknown")
+        } 
