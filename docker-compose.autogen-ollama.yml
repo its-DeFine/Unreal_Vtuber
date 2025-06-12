@@ -62,6 +62,21 @@ services:
       # Cognee disabled to fix DNS issues
       - COGNEE_URL=
       - COGNEE_API_KEY=
+      # Evolution Configuration - Enable Real Modifications
+      - DARWIN_GODEL_REAL_MODIFICATIONS=true
+      - DARWIN_GODEL_REQUIRE_APPROVAL=false
+      - DARWIN_GODEL_PERFORMANCE_THRESHOLD=10
+      - DARWIN_GODEL_BACKUP_RETENTION_DAYS=30
+      - DARWIN_GODEL_MAX_MODIFICATIONS_PER_CYCLE=3
+      # Statistics Persistence Configuration
+      - STATISTICS_PERSISTENCE_ENABLED=true
+      - STATISTICS_RETENTION_DAYS=90
+      - STATISTICS_BATCH_SIZE=100
+      - CONVERSATION_STORAGE_ENABLED=true
+      # Cognee Long-term Storage (when available)
+      - COGNEE_LONG_TERM_STORAGE=true
+      - COGNEE_CONVERSATION_STORAGE=true
+      - COGNEE_PATTERN_LEARNING=true
     ports:
       - "8200:8000"
     depends_on:

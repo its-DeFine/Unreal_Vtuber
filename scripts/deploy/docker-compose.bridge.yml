@@ -122,22 +122,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Cognee long-term memory service
-  cognee:
-    build:
-      context: ../cognee-service
-      dockerfile: Dockerfile
-      args:
-        LLM_API_KEY: ${OPENAI_API_KEY:-}
-    container_name: cognee_server
-    ports:
-      - "8000:8000"
-    env_file:
-      - ../.env
-    networks:
-      - scb_bridge_net
-    restart: unless-stopped
-
 # --- RTMP server for low-latency audio/video sync ---
 # Old block commented out due to indentation fix
 #nginx-rtmp:
@@ -199,9 +183,7 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
       - POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
       - DB_TYPE=postgres
-      # Cognee Knowledge Graph Integration - NO Neo4j needed!
-      - COGNEE_URL=http://cognee:8000
-      - COGNEE_API_KEY=
+      # Cognee library is embedded, no external service needed
     networks:
       - scb_bridge_net
     depends_on:

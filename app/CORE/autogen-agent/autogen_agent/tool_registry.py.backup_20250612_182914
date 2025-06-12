@@ -116,13 +116,6 @@ class ToolRegistry:
         except ImportError as e:
             logging.error(f"❌ [TOOL_REGISTRY] Failed to import package {self.package}: {e}")
 
-    def _get_last_selection_score(self, tool_name: str) -> float:
-        """Get the last selection score for a tool"""
-        # Check if we have a recent selection record
-        if hasattr(self, '_last_selection_scores'):
-            return self._last_selection_scores.get(tool_name, 0.0)
-        return 0.0
-
     def select_tool(self, context: dict) -> Optional[Callable]:
         """Select the most appropriate tool based on context using intelligent scoring"""
         if not self.tools:
@@ -142,11 +135,6 @@ class ToolRegistry:
         # Select tool with highest score
         selected_name = max(tool_scores, key=tool_scores.get)
         selected_score = tool_scores[selected_name]
-        
-        # Store selection scores for later use
-        if not hasattr(self, '_last_selection_scores'):
-            self._last_selection_scores = {}
-        self._last_selection_scores = tool_scores.copy()
         
         # Update usage history
         self._update_tool_usage(selected_name, context)
@@ -330,7 +318,7 @@ class ToolRegistry:
         
         # Diversity Bonus (10%)
         diversity_bonus = self._calculate_diversity_bonus(tool_name)
-        score += diversity_bonus * 0.3  # Increased from 0.1 for better diversity
+        score += diversity_bonus * 0.1
         
         return min(score, 1.0)
     
@@ -348,7 +336,7 @@ class ToolRegistry:
         tool_indicators = {
             "goal_management_tools": ["goal", "progress", "achievement", "target", "smart", "objective", "metric", "milestone"],
             "core_evolution_tool": ["performance", "optimization", "improvement", "evolution", "error", "speed", "bottleneck", "optimize"],
-            "advanced_vtuber_control": ["vtuber", "avatar", "stream", "audience", "activate", "control", "character", "voice", "show", "display"],
+            "advanced_vtuber_control": ["vtuber", "avatar", "stream", "audience", "activate", "control", "character", "voice"],
             "variable_tool_calls": ["dynamic", "adaptive", "context", "variable", "selection", "flexible"]
         }
         
@@ -377,10 +365,6 @@ class ToolRegistry:
             if errors > 3 or decision_time > 3.0:
                 relevance_score += 0.4
         
-        # Add penalty for tools with no context match in autonomous mode
-        if context.get("autonomous", False) and relevance_score < 0.1:
-            # In autonomous mode with no context match, penalize
-            relevance_score = max(0.0, relevance_score - 0.3)
         return min(relevance_score, 1.0)
     
     def _get_historical_performance(self, tool_name: str) -> float:
