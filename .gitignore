@@ -12,6 +12,14 @@ data/
 # --- but not README.md
 !README.md
 
+# Development tools
+.roo/
+.roomodes
+.windsurfrules
+
+# Ollama data (models, cache, etc.)
+ollama_data/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -156,6 +164,9 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/ 
+
+# Ollama data directory (contains sensitive files like SSH keys)
+ollama_data/
 
 node_modules/
 *.pth

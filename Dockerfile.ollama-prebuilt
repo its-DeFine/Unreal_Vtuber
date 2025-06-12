@@ -1,0 +1,44 @@
+# Custom Ollama image with pre-downloaded models
+FROM ollama/ollama:latest
+
+# Set environment variables
+ENV OLLAMA_ORIGINS=*
+ENV OLLAMA_HOST=0.0.0.0
+
+# Create a script to preload models during build
+RUN echo '#!/bin/bash\n\
+# Start Ollama server in background\n\
+ollama serve &\n\
+\n\
+# Wait for server to be ready\n\
+while ! ollama list >/dev/null 2>&1; do\n\
+    echo "Waiting for Ollama to start..."\n\
+    sleep 2\n\
+done\n\
+\n\
+echo "Ollama is ready, downloading models..."\n\
+\n\
+# Download models during build (much faster than runtime)\n\
+echo "Downloading embedding model..."\n\
+ollama pull nomic-embed-text:latest\n\
+\n\
+echo "Downloading LLM models..."\n\
+ollama pull phi3:mini          # ~2.3GB - good balance of size/performance\n\
+ollama pull gemma2:2b          # ~1.6GB - very capable small model\n\
+ollama pull qwen2:0.5b         # ~400MB - ultra small fallback\n\
+\n\
+# Optional: Download larger model if build context allows\n\
+# ollama pull llama3.1:8b      # Only if we have good internet\n\
+\n\
+echo "Model download complete!"\n\
+ollama list\n\
+\n\
+# Stop the background server\n\
+pkill ollama\n\
+' > /preload-models.sh && chmod +x /preload-models.sh
+
+# Download models during Docker build (not runtime!)
+RUN /preload-models.sh
+
+# Default command - just start ollama server
+CMD ["ollama", "serve"] 
