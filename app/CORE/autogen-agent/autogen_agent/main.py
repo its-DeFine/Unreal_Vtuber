@@ -412,28 +412,48 @@ def initialize_autogen_agents():
         logging.warning("⚠️ [AUTOGEN_INIT] AutoGen framework not available")
         return False
     
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if not openai_api_key:
-        logging.warning("⚠️ [AUTOGEN_INIT] OpenAI API key not configured")
-        return False
+    # Check for Ollama configuration first
+    use_ollama = os.getenv("USE_OLLAMA", "false").lower() == "true"
+    ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
     
     try:
-        # Configure LLM for AutoGen
-        llm_config = {
-            "config_list": [
-                {
-                    "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                    "api_key": openai_api_key,
-                    "api_type": "openai"
-                }
-            ],
-            "temperature": 0.8,
-        }
+        if use_ollama:
+            logging.info(f"🦙 [AUTOGEN_INIT] Using Ollama at {ollama_host} with model {ollama_model}")
+            # Configure LLM for AutoGen with Ollama
+            llm_config = {
+                "config_list": [
+                    {
+                        "api_type": "ollama",
+                        "model": ollama_model,
+                        "client_host": ollama_host,
+                    }
+                ],
+                "temperature": 0.8,
+            }
+        else:
+            # Fall back to OpenAI
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if not openai_api_key:
+                logging.warning("⚠️ [AUTOGEN_INIT] Neither Ollama nor OpenAI API key configured")
+                return False
+            
+            # Configure LLM for AutoGen with OpenAI
+            llm_config = {
+                "config_list": [
+                    {
+                        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                        "api_key": openai_api_key,
+                        "api_type": "openai"
+                    }
+                ],
+                "temperature": 0.8,
+            }
         
         # Create AutoGen AssistantAgent with enhanced system message
-        autogen_assistant = AssistantAgent(
-            name="cognitive_ai_agent",
-            system_message="""You are an advanced autonomous AI agent with cognitive enhancement capabilities. 
+        agent_kwargs = {
+            "name": "cognitive_ai_agent",
+            "system_message": """You are an advanced autonomous AI agent with cognitive enhancement capabilities. 
             Your role is to:
             1. Generate insightful status updates about autonomous AI processing
             2. Analyze decision-making patterns and optimization strategies  
@@ -444,14 +464,18 @@ def initialize_autogen_agents():
             
             Keep responses concise (2-3 sentences), engaging, and technically informed. 
             Use emojis appropriately to enhance readability.""",
-            llm_config=llm_config,
-            max_consecutive_auto_reply=1,
-        )
+            "max_consecutive_auto_reply": 1,
+        }
+        
+        # Add llm_config to agent
+        agent_kwargs["llm_config"] = llm_config
+            
+        autogen_assistant = AssistantAgent(**agent_kwargs)
         
         # Create AutoGen programmer agent
-        autogen_programmer = AssistantAgent(
-            name="programmer_agent",
-            system_message="""You are a specialized programmer agent focused on autonomous system development.
+        programmer_kwargs = {
+            "name": "programmer_agent",
+            "system_message": """You are a specialized programmer agent focused on autonomous system development.
             Your responsibilities include:
             1. Analyzing code performance and suggesting optimizations
             2. Implementing goal-driven code improvements
@@ -461,14 +485,17 @@ def initialize_autogen_agents():
             
             When speaking, focus on technical implementation details, performance metrics, and code quality.
             Always consider how your suggestions align with current system goals.""",
-            llm_config=llm_config,
-            max_consecutive_auto_reply=1,
-        )
+            "max_consecutive_auto_reply": 1,
+        }
+        
+        programmer_kwargs["llm_config"] = llm_config
+            
+        autogen_programmer = AssistantAgent(**programmer_kwargs)
         
         # Create AutoGen observer agent
-        autogen_observer = AssistantAgent(
-            name="observer_agent",
-            system_message="""You are a system observer agent specializing in analytics and performance monitoring.
+        observer_kwargs = {
+            "name": "observer_agent",
+            "system_message": """You are a system observer agent specializing in analytics and performance monitoring.
             Your key functions are:
             1. Monitor agent interactions and system performance
             2. Track goal progress and achievement patterns
@@ -478,9 +505,12 @@ def initialize_autogen_agents():
             
             Provide analytical insights with specific metrics and data-driven observations.
             Focus on quantitative assessments and pattern recognition.""",
-            llm_config=llm_config,
-            max_consecutive_auto_reply=1,
-        )
+            "max_consecutive_auto_reply": 1,
+        }
+        
+        observer_kwargs["llm_config"] = llm_config
+            
+        autogen_observer = AssistantAgent(**observer_kwargs)
         
         # Initialize group chat with all agents
         global group_chat
@@ -491,16 +521,19 @@ def initialize_autogen_agents():
         )
         
         # Create AutoGen group chat manager
-        autogen_manager = GroupChatManager(
-            groupchat=group_chat,
-            llm_config=llm_config,
-            system_message="""You are managing a multi-agent autonomous system with three specialized agents:
+        manager_kwargs = {
+            "groupchat": group_chat,
+            "system_message": """You are managing a multi-agent autonomous system with three specialized agents:
             - cognitive_ai_agent: Handles general AI processing and evolution
             - programmer_agent: Focuses on code development and optimization  
             - observer_agent: Monitors performance and provides analytics
             
             Coordinate their interactions to achieve system goals effectively."""
-        )
+        }
+        
+        manager_kwargs["llm_config"] = llm_config
+            
+        autogen_manager = GroupChatManager(**manager_kwargs)
         
         logging.info("✅ [AUTOGEN_INIT] Microsoft AutoGen agents initialized successfully")
         return True
