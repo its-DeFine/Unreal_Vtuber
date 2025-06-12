@@ -759,7 +759,6 @@ def main() -> None:
         vtuber = VTuberClient(vtuber_endpoint)
         
         # Set global client references
-        global global_scb_client, global_vtuber_client, global_tool_registry
         global_scb_client = scb
         global_vtuber_client = vtuber
         global_tool_registry = registry
