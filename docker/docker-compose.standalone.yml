@@ -12,6 +12,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
       - USE_COGNITIVE_ENHANCEMENT=true
+      - USE_AUTOGEN_LLM=true
       - STANDALONE_MODE=true
       - LOOP_INTERVAL=30
       - LOG_LEVEL=INFO
@@ -19,6 +20,10 @@ services:
       # Cognee is used as a library, not as external service
       # - COGNEE_URL=http://cognee:8000
       # - COGNEE_API_KEY=${COGNEE_API_KEY:-test_api_key}
+      # Ollama configuration for local LLM
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - USE_OLLAMA=true
+      - OLLAMA_MODEL=llama3.2:3b
     ports:
       - "8200:8000"
     depends_on:
@@ -27,6 +32,8 @@ services:
     restart: unless-stopped
     networks:
       - standalone_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s

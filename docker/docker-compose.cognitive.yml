@@ -31,8 +31,6 @@ services:
     container_name: autogen_cognitive_agent
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
-      - COGNEE_URL=http://cognee:8000
-      - COGNEE_API_KEY=${COGNEE_API_KEY:-test_api_key}
       - REDIS_URL=redis://redis:6379/0
       - VTUBER_ENDPOINT=http://neurosync:5001/process_text
       - USE_COGNITIVE_ENHANCEMENT=true
@@ -48,8 +46,6 @@ services:
         condition: service_started
       redis:
         condition: service_started
-      cognee:
-        condition: service_healthy  # Wait for Cognee to be ready
       ollama:
         condition: service_healthy  # Wait for Ollama models to be loaded
     restart: unless-stopped
@@ -77,8 +73,19 @@ services:
     networks:
       - cognitive_net
 
+  # Redis for state management
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cognitive
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_cognitive_data:/data
+    networks:
+      - cognitive_net
+    restart: unless-stopped
+
 volumes:
-  cognee_data:
   postgres_cognitive_data:
   redis_cognitive_data:
   ollama_data:

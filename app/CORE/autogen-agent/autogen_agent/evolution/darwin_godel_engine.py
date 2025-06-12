@@ -634,12 +634,30 @@ def _calculate_tool_score(self, tool_name, context):
         
         logging.info(f"🚀 [DARWIN_GODEL] Deploying modification {improvement['id']}")
         
+        # Track modification in database
+        modification_record = {
+            "id": improvement['id'],
+            "timestamp": datetime.now(),
+            "target_file": improvement['target_file'],
+            "modification_type": improvement.get('type', 'optimization'),
+            "expected_improvement": improvement.get('expected_improvement', 0.0),
+            "risk_level": improvement.get('risk_level', 'medium'),
+            "backup_path": None,
+            "status": "pending"
+        }
+        
+        # Persist to database if collector available
+        from ..main import statistics_collector
+        if statistics_collector:
+            await statistics_collector.collect_evolution_action(modification_record)
+        
         try:
             # Create backup of original file
             backup_path = f"{improvement['target_file']}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             shutil.copy2(improvement['target_file'], backup_path)
             improvement['backup_created'] = True
             improvement['backup_path'] = backup_path
+            modification_record['backup_path'] = backup_path
             
             # Check if real modifications are enabled
             if not self.real_modifications_enabled:
@@ -696,6 +714,9 @@ def _calculate_tool_score(self, tool_name, context):
             success = await self._apply_real_modification(improvement)
             
             if success:
+                # Measure actual impact
+                actual_impact = await self._measure_actual_impact(improvement)
+                
                 # Record successful deployment
                 deployment_record = {
                     "modification_id": improvement['id'],
@@ -703,10 +724,21 @@ def _calculate_tool_score(self, tool_name, context):
                     "deployed_at": datetime.now().isoformat(),
                     "backup_path": backup_path,
                     "status": "deployed",
-                    "mode": "real_modification"
+                    "mode": "real_modification",
+                    "actual_improvement": actual_impact.get('improvement', 0),
+                    "performance_impact": actual_impact
                 }
                 
                 self.modification_history.append(deployment_record)
+                
+                # Update database record with results
+                if statistics_collector:
+                    await statistics_collector.update_evolution_result({
+                        "id": improvement['id'],
+                        "status": "applied",
+                        "actual_improvement": actual_impact.get('improvement', 0),
+                        "performance_impact": actual_impact
+                    })
                 
                 # Clean up old backups if needed
                 await self._cleanup_old_backups(improvement['target_file'])
@@ -728,6 +760,15 @@ def _calculate_tool_score(self, tool_name, context):
             
         except Exception as e:
             logging.error(f"❌ [DARWIN_GODEL] Deployment failed for {improvement['id']}: {e}")
+            
+            # Update database record with failure
+            if statistics_collector:
+                await statistics_collector.update_evolution_result({
+                    "id": improvement['id'],
+                    "status": "failed",
+                    "actual_improvement": 0,
+                    "performance_impact": {"error": str(e)}
+                })
             
             # Restore from backup on exception
             if 'backup_path' in locals() and os.path.exists(backup_path):
@@ -789,6 +830,55 @@ def _calculate_tool_score(self, tool_name, context):
         # For now, append the new algorithm code
         # In future versions, could use AST to replace specific methods
         return original_content + f"\n\n# Darwin-Gödel Machine Algorithm Enhancement\n{generated_code}\n"
+    
+    async def _measure_actual_impact(self, improvement: Dict) -> Dict:
+        """Measure the actual impact of a modification"""
+        try:
+            # Get current metrics after modification
+            current_metrics = {
+                "decision_time": self.current_metrics.get('decision_time', 2.5),
+                "memory_usage": self.current_metrics.get('memory_usage', 85.0),
+                "error_rate": self.current_metrics.get('error_rate', 0.15),
+                "tool_selection_time": self.current_metrics.get('tool_selection_time', 1.2)
+            }
+            
+            # Compare with baseline
+            baseline = self.baseline_metrics
+            
+            # Calculate improvements
+            improvements = {}
+            for metric, current_value in current_metrics.items():
+                baseline_value = baseline.get(metric, current_value)
+                if baseline_value > 0:
+                    # For time-based metrics, improvement is negative change
+                    if 'time' in metric:
+                        improvement_pct = ((baseline_value - current_value) / baseline_value) * 100
+                    # For error rate, improvement is negative change
+                    elif metric == 'error_rate':
+                        improvement_pct = ((baseline_value - current_value) / baseline_value) * 100
+                    # For other metrics, improvement is positive change
+                    else:
+                        improvement_pct = ((current_value - baseline_value) / baseline_value) * 100
+                    improvements[metric] = improvement_pct
+                else:
+                    improvements[metric] = 0.0
+            
+            # Calculate overall improvement
+            overall_improvement = sum(improvements.values()) / len(improvements) if improvements else 0.0
+            
+            return {
+                "improvement": overall_improvement,
+                "metrics": current_metrics,
+                "improvements_by_metric": improvements,
+                "modification_type": improvement.get('type', 'unknown')
+            }
+            
+        except Exception as e:
+            logging.error(f"❌ [DARWIN_GODEL] Failed to measure impact: {e}")
+            return {
+                "improvement": 0.0,
+                "error": str(e)
+            }
     
     async def _apply_real_modification(self, improvement: Dict) -> bool:
         """Apply real modification to the target file with safety checks"""

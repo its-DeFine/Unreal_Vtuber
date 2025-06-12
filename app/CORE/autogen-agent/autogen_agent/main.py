@@ -5,6 +5,8 @@ import threading
 import asyncio
 import aiohttp
 import json
+from datetime import datetime
+from typing import Dict, List, Optional
 from fastapi import FastAPI
 import uvicorn
 
@@ -26,6 +28,9 @@ from .clients.scb_client import SCBClient
 from .clients.vtuber_client import VTuberClient
 from .mcp_server import AutoGenMcpServer, CursorMcpToolAdapter
 from .agent_tool_bridge import AgentToolBridge
+from .statistics_collector import StatisticsCollector
+from .services.conversation_storage_service import ConversationStorageService
+from .services.pattern_storage_service import PatternStorageService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -48,13 +53,19 @@ analytics_data = {
     "tools_used": {},
     "goal_progress": {},
     "agent_interactions": {},
-    "performance_trends": []
+    "performance_trends": [],
+    "decision_times": []  # Track decision times for statistics
 }
 
 # Global client instances for tool access
 global_scb_client = None
 global_vtuber_client = None
 global_tool_registry = None
+
+# Global statistics and storage services
+statistics_collector = None
+conversation_storage = None
+pattern_storage = None
 
 @app.get("/health")
 async def health_check():
@@ -212,19 +223,149 @@ async def apply_improvement_api(request: dict):
 
 @app.get("/api/statistics")
 async def get_statistics():
-    """Get system statistics"""
+    """Get system statistics - legacy endpoint for compatibility"""
     try:
-        # Calculate statistics from analytics data
-        total_decisions = analytics_data["cycles_completed"]
-        tool_usage = analytics_data.get("tool_usage", {})
-        success_count = sum(1 for t in analytics_data.get("decision_times", []) if t < 5.0)
+        # If we have persistent statistics, use them
+        if statistics_collector:
+            stats = await statistics_collector.get_statistics()
+            return {
+                "total_decisions": stats['total_cycles'],
+                "tool_usage": {t['tool_name']: t['usage_count'] for t in stats['tool_statistics'][:10]},
+                "success_rate": stats['success_rate'],
+                "avg_decision_time": stats['avg_decision_time']
+            }
+        else:
+            # Fallback to in-memory analytics
+            total_decisions = analytics_data["cycles_completed"]
+            tool_usage = analytics_data.get("tool_usage", {})
+            success_count = sum(1 for t in analytics_data.get("decision_times", []) if t < 5.0)
+            
+            return {
+                "total_decisions": total_decisions,
+                "tool_usage": tool_usage,
+                "success_rate": success_count / max(total_decisions, 1),
+                "avg_decision_time": sum(analytics_data.get("decision_times", [0])) / max(len(analytics_data.get("decision_times", [1])), 1)
+            }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.get("/api/statistics/detailed")
+async def get_detailed_statistics(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    include_tools: bool = True,
+    include_agents: bool = True
+):
+    """Get comprehensive statistics with filtering"""
+    if not statistics_collector:
+        return {"error": "Statistics persistence not enabled"}, 503
+        
+    try:
+        stats = await statistics_collector.get_statistics(
+            start_date=start_date,
+            end_date=end_date
+        )
         
         return {
-            "total_decisions": total_decisions,
-            "tool_usage": tool_usage,
-            "success_rate": success_count / max(total_decisions, 1),
-            "avg_decision_time": sum(analytics_data.get("decision_times", [0])) / max(len(analytics_data.get("decision_times", [1])), 1)
+            "summary": {
+                "total_cycles": stats['total_cycles'],
+                "success_rate": stats['success_rate'],
+                "avg_decision_time": stats['avg_decision_time'],
+                "total_tools_executed": stats['total_tools_executed']
+            },
+            "tools": stats['tool_statistics'] if include_tools else None,
+            "agents": stats['agent_statistics'] if include_agents else None,
+            "performance_trend": stats['performance_trend'],
+            "evolution_impact": stats['evolution_statistics']
         }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.get("/api/tools/usage")
+async def get_tool_usage_report(
+    tool_name: Optional[str] = None,
+    limit: int = 100
+):
+    """Get detailed tool usage analytics"""
+    if not statistics_collector:
+        return {"error": "Statistics persistence not enabled"}, 503
+        
+    try:
+        usage = await statistics_collector.get_tool_usage(
+            tool_name=tool_name,
+            limit=limit
+        )
+        
+        return {
+            "tool_usage": usage,
+            "most_used": usage[:10],
+            "success_rates": {t['tool_name']: t['success_rate'] for t in usage},
+            "avg_execution_times": {t['tool_name']: t['avg_time'] for t in usage}
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.get("/api/conversations")
+async def get_conversations(
+    iteration: Optional[int] = None,
+    limit: int = 50
+):
+    """Retrieve stored conversations"""
+    if not conversation_storage:
+        return {"error": "Conversation storage not enabled"}, 503
+        
+    try:
+        conversations = await conversation_storage.get_conversations(
+            iteration=iteration,
+            limit=limit
+        )
+        
+        return {
+            "conversations": conversations,
+            "total": len(conversations)
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.get("/api/evolution/history")
+async def get_evolution_history():
+    """Get history of all evolution changes"""
+    if not statistics_collector:
+        return {"error": "Statistics persistence not enabled"}, 503
+        
+    try:
+        history = await statistics_collector.get_evolution_history()
+        
+        return {
+            "modifications": history,
+            "total_improvements": len([h for h in history if h['status'] == 'applied']),
+            "avg_improvement": sum(h.get('actual_improvement', 0) for h in history) / max(len(history), 1),
+            "risk_breakdown": {
+                "low": len([h for h in history if h['risk_level'] == 'low']),
+                "medium": len([h for h in history if h['risk_level'] == 'medium']),
+                "high": len([h for h in history if h['risk_level'] == 'high'])
+            }
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.post("/api/reports/generate")
+async def generate_custom_report(request: Dict):
+    """Generate custom analytics report"""
+    if not statistics_collector:
+        return {"error": "Statistics persistence not enabled"}, 503
+        
+    try:
+        report_type = request.get("type", "comprehensive")
+        timeframe = request.get("timeframe", "24h")
+        
+        report = await statistics_collector.generate_report(
+            report_type=report_type,
+            timeframe=timeframe,
+            filters=request.get("filters", {})
+        )
+        
+        return report
     except Exception as e:
         return {"error": str(e)}, 500
 
@@ -333,6 +474,9 @@ async def scb_control_endpoint(action: str = "status"):
 
 async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTuberClient):
     """Enhanced AutoGen decision cycle with multi-agent collaboration"""
+    
+    cycle_start_time = time.time()
+    decision_time = 0
     
     try:
         # Check if AutoGen agents are available
@@ -455,6 +599,34 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
         # 📊 STEP 8: Update analytics and goal progress
         await update_analytics_and_goals(iteration, agent_responses, evolution_enhanced, tool_executions)
         
+        # 📊 STEP 8.5: Persist statistics and conversation
+        decision_time = time.time() - cycle_start_time
+        analytics_data["decision_times"].append(decision_time)
+        
+        if statistics_collector:
+            await statistics_collector.collect_cycle_stats({
+                "iteration": iteration,
+                "duration": decision_time,
+                "agents": list(agent_responses.keys()),
+                "tools_executed": tool_executions.get('total_executions', 0),
+                "success": tool_executions.get('successful_executions', 0) > 0,
+                "errors": 0,  # No errors if we got here
+                "decision_time": decision_time
+            })
+        
+        if conversation_storage and group_chat_result:
+            await conversation_storage.store_conversation({
+                "iteration": iteration,
+                "agents": list(agent_responses.keys()),
+                "messages": group_chat_result.chat_history if hasattr(group_chat_result, 'chat_history') else [],
+                "outcome": {
+                    "tools_executed": tool_executions,
+                    "final_response": final_response
+                },
+                "tools_triggered": [e.get('tool', '') for e in tool_executions.get('executions', [])],
+                "duration": decision_time
+            })
+        
         # 🎭 STEP 9: Send to VTuber ONLY if activated (no force_send for autonomous cycles)
         if final_response:
             vtuber.post_message(final_response)  # Respects activation state
@@ -480,6 +652,18 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
         
     except Exception as e:
         logging.error(f"❌ [AUTOGEN] Decision cycle #{iteration} failed: {e}")
+        
+        # Track error in statistics
+        if statistics_collector:
+            await statistics_collector.collect_cycle_stats({
+                "iteration": iteration,
+                "duration": time.time() - cycle_start_time,
+                "agents": [],
+                "tools_executed": 0,
+                "success": False,
+                "errors": 1,
+                "decision_time": time.time() - cycle_start_time
+            })
         
         # Send error to VTuber only if activated
         error_message = f"🚨 AutoGen Cycle #{iteration} Error: {str(e)[:100]}"
@@ -957,6 +1141,22 @@ async def startup_event():
             
     except Exception as e:
         logging.error(f"❌ [STARTUP] MCP server startup error: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup resources on shutdown"""
+    # Cleanup statistics services
+    if statistics_collector:
+        await statistics_collector.close()
+        logging.info("📊 [SHUTDOWN] Statistics collector closed")
+        
+    if conversation_storage:
+        await conversation_storage.close()
+        logging.info("💬 [SHUTDOWN] Conversation storage closed")
+        
+    if mcp_server:
+        await mcp_server.stop()
+        logging.info("🔗 [SHUTDOWN] MCP server stopped")
 
 def main() -> None:
     """Main entry point - supports AutoGen LLM, cognitive, and legacy modes"""
