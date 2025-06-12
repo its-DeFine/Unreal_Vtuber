@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # Ollama for local LLM inference
+  ollama:
+    image: ollama/ollama:latest
+    container_name: autogen_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+    restart: unless-stopped
+    networks:
+      - autogen_net
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # PostgreSQL with pgvector
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: autogen_postgres
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=autonomous_agent
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    restart: unless-stopped
+    networks:
+      - autogen_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # AutoGen agent with intelligent tool selection
+  autogen_agent:
+    build:
+      context: ./app/CORE/autogen-agent
+      dockerfile: Dockerfile
+    container_name: autogen_agent
+    volumes:
+      - ./app/CORE/autogen-agent/autogen_agent:/app/autogen_agent
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
+      - USE_COGNITIVE_ENHANCEMENT=true
+      - STANDALONE_MODE=true
+      - LOOP_INTERVAL=30
+      - LOG_LEVEL=INFO
+      - PORT=8000
+      # Ollama configuration for local LLM
+      - OLLAMA_HOST=http://ollama:11434
+      - USE_OLLAMA=true
+      # Cognee disabled to fix DNS issues
+      - COGNEE_URL=
+      - COGNEE_API_KEY=
+    ports:
+      - "8200:8000"
+    depends_on:
+      - postgres
+      - ollama
+    restart: unless-stopped
+    networks:
+      - autogen_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+  ollama_data:
+
+networks:
+  autogen_net:
+    driver: bridge

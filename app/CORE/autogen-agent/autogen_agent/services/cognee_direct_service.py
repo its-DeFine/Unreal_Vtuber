@@ -44,7 +44,7 @@ class CogneeDirectService:
         
         # Set environment variables for Cognee (Ollama configuration per official docs)
         os.environ['LLM_PROVIDER'] = 'ollama'
-        os.environ['LLM_MODEL'] = 'llama3-schema'
+        os.environ['LLM_MODEL'] = 'llama3.2:3b'
         os.environ['LLM_API_KEY'] = 'ollama'  # Official docs specify just "ollama"
         os.environ['LLM_ENDPOINT'] = 'http://ollama:11434/v1'  # Note the /v1 suffix
         os.environ['LLM_TEMPERATURE'] = '0.0'
@@ -91,7 +91,7 @@ class CogneeDirectService:
             # Set LLM configuration using Cognee's config methods
             cognee.config.set_llm_provider('ollama')
             # Use our new schema-aware model that knows Cognee field names
-            cognee.config.set_llm_model('llama3-schema')
+            cognee.config.set_llm_model('llama3.2:3b')
             cognee.config.set_llm_api_key('ollama')
             cognee.config.set_llm_endpoint('http://ollama:11434/v1')
             
