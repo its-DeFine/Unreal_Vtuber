@@ -1,0 +1,79 @@
+version: "3.9"
+
+services:
+
+  # === Orchestrator ===
+  orchestrator:
+    image: adastravideo/go-livepeer:dynamic-capabilities-2
+    container_name: byoc-orchestrator
+    volumes:
+      - ../data/orchestrator:/data
+    ports:
+      - 9995:9995
+    env_file:
+      - ../.env
+    command: ["-orchestrator",
+          "-orchSecret=${ORCH_SECRET}",
+          "-serviceAddr=0.0.0.0:9995",
+          "-v=6",
+          "-network=arbitrum-one-mainnet",
+          "-ethUrl=https://arb1.arbitrum.io/rpc",
+          "-ethPassword=${ETH_PASSWORD}",
+          "-dataDir=/data",
+          "-ethOrchAddr=",
+          "-pricePerUnit=1"]
+    networks:
+      - byoc
+
+  # === Gateway (optional for on-chain) ===
+  gateway:
+    image: adastravideo/go-livepeer:dynamic-capabilities-2
+    container_name: byoc-gateway
+    command: ["-gateway", "-orchAddr=https://orchestrator:9995", "-httpAddr=0.0.0.0:9999", "-network=offchain"]
+    ports:
+      - "9999:9999"
+    volumes:
+      - ../data/gateway:/data
+    networks:
+      - byoc
+
+  # === Caddy ===
+  caddy:
+    image: ghcr.io/its-define/webapp:main
+    container_name: byoc-webapp
+    ports:
+      - "8088:8088"
+    networks:
+      - byoc
+    restart: unless-stopped
+
+  # Ollama Local LLM Server (GPU-enabled by default)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: vtuber-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ../ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_KEEP_ALIVE=24h
+    restart: unless-stopped
+    networks:
+      - scb_bridge_net
+      - byoc
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Make this optional so the main system can run without it
+    profiles:
+      - ollama
+
+networks:
+  byoc:
+    driver: bridge 

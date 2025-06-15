@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # Ollama service for local LLM with proper initialization
+  ollama:
+    image: ollama/ollama:latest
+    container_name: cognee_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./scripts/init-ollama-fast.sh:/init-ollama-fast.sh
+    environment:
+      - OLLAMA_ORIGINS=*
+    restart: unless-stopped
+    networks:
+      - cognitive_net
+    entrypoint: ["/bin/bash", "/init-ollama-fast.sh"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s  # Give time for multiple small model downloads
+
+  # AutoGen Cognitive Agent with Evolution Capabilities
+  autogen_cognitive_agent:
+    build:
+      context: ./app/CORE/autogen-agent
+      dockerfile: Dockerfile
+    container_name: autogen_cognitive_agent
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
+      - REDIS_URL=redis://redis:6379/0
+      - VTUBER_ENDPOINT=http://neurosync:5001/process_text
+      - USE_COGNITIVE_ENHANCEMENT=true
+      - USE_AUTOGEN_LLM=true
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LOOP_INTERVAL=30
+      - LOG_LEVEL=INFO  # Use INFO instead of 'info' for consistency
+      - PORT=8000
+    ports:
+      - "8100:8000"
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_healthy  # Wait for Ollama models to be loaded
+    restart: unless-stopped
+    networks:
+      - cognitive_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Enhanced PostgreSQL with pgvector
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: postgres_cognitive
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=autonomous_agent
+    volumes:
+      - postgres_cognitive_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    restart: unless-stopped
+    networks:
+      - cognitive_net
+
+  # Redis for state management
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cognitive
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_cognitive_data:/data
+    networks:
+      - cognitive_net
+    restart: unless-stopped
+
+volumes:
+  postgres_cognitive_data:
+  redis_cognitive_data:
+  ollama_data:
+
+networks:
+  cognitive_net:
+    driver: bridge 

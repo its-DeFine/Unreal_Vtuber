@@ -1,0 +1,333 @@
+# 🤖 Docker VTuber Autonomous Agent - Cursor Rules
+
+You are a helpful assistant with access to unlimited tools via two meta functions:
+- ACI_SEARCH_FUNCTIONS  
+- ACI_EXECUTE_FUNCTION
+
+You can use ACI_SEARCH_FUNCTIONS to find relevant, executable functions that can help you with your task.
+Once you have identified the function you need to use, you can use ACI_EXECUTE_FUNCTION to execute the function provided you have the correct input arguments.
+
+For important utilities and updates we need to add a PRD and then a FRD both of which need to be created with the outmost care and attention to detail so that they can assist harmonized engineering efforts!
+### Product Requirements Documentation (PRD)
+- **Mandatory for all major features**
+- **Template Location**: `/docs/prd/template.md`
+- **Required Sections**:
+  - Problem Statement
+  - User Stories
+  - Functional Requirements
+  - Technical Requirements
+  - Success Metrics
+  - Timeline and Milestones
+  - Dependencies and Risks
+
+### Functional Requirements Document (FRD)
+- **Required for all utility additions**
+- **Template Location**: `/docs/frd/template.md`
+- **Required Sections**:
+  - Feature Overview
+  - Detailed Requirements
+  - API Specifications
+  - Data Models
+  - Integration Points
+  - Testing Requirements
+  - Performance Criteria
+
+## 🏗️ Project Architecture Overview
+
+This is a complex autonomous agent system with the following key components:
+
+### Core Services
+- **Autonomous Agent** (Port 3100): ElizaOS-based decision engine with tool orchestration
+- **VTuber System** (Port 5001): NeuroSync Player for real-time character interaction  
+- **SCB Bridge** (Port 5000): Shared Contextual Bridge with Redis state management
+- **Cognee Memory** (Port 8000): Long-term memory storage and retrieval
+- **PostgreSQL** (Port 5434): Database with pgvector extension for embeddings
+- **Redis**: State management for SCB bridge
+
+### Plugin Architecture
+- **ElizaOS Plugins**: Located in `autonomous-starter/src/plugin-*` directories
+- **Plugin Structure**: actions/, services/, providers/, evaluators/ subdirectories
+- **Plugin Loading**: Conditional loading via environment variables
+
+## 🚨 Critical Development Rules
+
+### 1. Container-First Development
+```bash
+# ✅ ALWAYS use containers for package management
+docker exec -it autonomous-agent npm install <package>
+docker-compose exec service_name npm run build
+
+# ❌ NEVER run npm/yarn commands on host
+npm install  # This will break containerized development
+```
+
+### 2. Docker Compose Management
+```bash
+# Main system (bridge configuration)
+docker-compose -f config/docker-compose.bridge.yml up -d
+
+# Individual services for testing
+docker-compose -f config/docker-compose.bridge.yml up cognee -d
+docker-compose -f autonomous-starter/docker-compose.yml up -d
+```
+
+### 3. Environment Configuration
+- **Main Config**: `.env` file in project root
+- **Service-Specific**: Individual docker-compose environment sections
+- **Secrets**: API keys in `.env`, never hardcode in docker-compose files
+- **Cognee Integration**: `COGNEE_URL=http://cognee:8000` and `COGNEE_API_KEY`
+
+### 4. Plugin Development Patterns
+```typescript
+// ✅ Plugin structure follows ElizaOS conventions
+export const pluginName: Plugin = {
+  name: 'PLUGIN_NAME',
+  description: 'Plugin description',
+  services: [ServiceClass],
+  actions: [actionName],
+  providers: [providerName],
+  routes: [],
+  events: {},
+  tests: []
+};
+
+// ✅ Service implementation
+export class ServiceName extends Service {
+  static serviceType: ServiceTypeName = 'SERVICE_TYPE' as ServiceTypeName;
+  
+  constructor(runtime: IAgentRuntime) {
+    super(runtime);
+    // Initialize with runtime settings
+  }
+}
+```
+
+### 5. Database Patterns
+```sql
+-- ✅ Always use pgvector for embeddings
+-- ✅ Use ElizaOS schema (13 core tables)
+-- ✅ Analytics enhancement tables for autonomous agent
+-- ✅ Connection: postgresql://postgres:postgres@postgres:5432/autonomous_agent
+```
+
+### 6. Memory Management
+```typescript
+// ✅ Cognee integration for long-term memory
+await cogneeService.addMemory(text);
+await cogneeService.cognify();
+const results = await cogneeService.search(query);
+
+// ✅ ElizaOS memory archiving
+MEMORY_ARCHIVING_ENABLED=true
+MEMORY_ACTIVE_LIMIT=200
+MEMORY_ARCHIVE_HOURS=48
+```
+
+## 🔧 Development Workflow
+
+### Starting Development Session
+1. Check current branch: `git status`
+2. Start core services: `docker-compose -f config/docker-compose.bridge.yml up -d`
+3. Monitor logs: `docker-compose logs -f service_name`
+4. Verify database: `./investigate_database.sh`
+
+### Testing Changes
+1. Build container: `docker-compose build --no-cache service_name`
+2. Restart service: `docker-compose restart service_name`
+3. Check logs: `docker logs service_name -f`
+4. Test functionality via API endpoints
+
+### Plugin Development
+1. Create plugin directory: `autonomous-starter/src/plugin-name/`
+2. Implement actions, services, providers as needed
+3. Export plugin in main index.ts
+4. Test with container rebuild
+5. Add comprehensive logging with emojis for easy debugging
+
+## 🐛 Debugging Guidelines
+
+### Container Issues
+```bash
+# Check container health
+docker ps
+docker logs container_name -f --tail=50
+
+# Enter container for debugging
+docker exec -it container_name /bin/bash
+
+# Check environment variables in container
+docker exec container_name env | grep VARIABLE_NAME
+```
+
+### Database Debugging
+```bash
+# Connect to PostgreSQL
+docker exec -it autonomous_postgres_bridge psql -U postgres -d autonomous_agent
+
+# Check ElizaOS schema
+\dt
+SELECT COUNT(*) FROM memories;
+SELECT COUNT(*) FROM messages;
+```
+
+### Network Issues
+```bash
+# Check Docker networks
+docker network ls
+docker network inspect network_name
+
+# Test service connectivity
+docker exec container_name curl http://service_name:port/health
+```
+
+### API Debugging
+```bash
+# Test Cognee service
+curl -X POST http://localhost:8000/api/v1/add \
+  -H "Content-Type: application/json" \
+  -d '{"data": ["test"], "dataset_name": "test"}'
+
+# Test VTuber endpoint  
+curl -X POST http://localhost:5001/process_text \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello", "autonomous_context": true}'
+```
+
+## 📝 Code Quality Standards
+
+### Logging Patterns
+```typescript
+// ✅ Use structured logging with emojis
+logger.info('🤖 [AUTONOMOUS] Starting decision cycle');
+logger.error('❌ [COGNEE] Memory storage failed', { error });
+logger.debug('🔍 [SCB] Bridge state updated', { state });
+```
+
+### Error Handling
+```typescript
+// ✅ Comprehensive error handling
+try {
+  const result = await service.operation();
+  logger.info('✅ Operation successful', { result });
+} catch (error) {
+  logger.error('❌ Operation failed', { 
+    error: error.message,
+    stack: error.stack,
+    context: 'operation_name'
+  });
+  throw error;
+}
+```
+
+### TypeScript Patterns
+```typescript
+// ✅ Use proper ElizaOS types
+import type { 
+  IAgentRuntime, 
+  Memory, 
+  Plugin, 
+  ServiceTypeName 
+} from '@elizaos/core';
+
+// ✅ Environment variable handling
+const setting = runtime.getSetting('SETTING_NAME') as string;
+const optionalSetting = runtime.getSetting('OPTIONAL') as string | null;
+```
+
+## 📊 Performance Monitoring
+
+### Key Metrics to Track
+- **Decision Cycle Time**: Target <30 seconds
+- **Memory Storage**: Active limit 200, archive after 48 hours  
+- **Tool Usage**: Track via analytics tables
+- **API Response Times**: VTuber, Cognee, SCB endpoints
+- **Container Resource Usage**: Memory, CPU per service
+
+### Monitoring Commands
+```bash
+# System monitoring
+./monitor_autonomous_system.sh 10
+
+# Database investigation
+./investigate_database.sh
+
+# Container stats
+docker stats
+
+# Service health checks
+curl http://localhost:3100/health
+curl http://localhost:5001/health
+curl http://localhost:8000/health
+```
+
+## 🔄 Git Workflow
+
+### Branch Strategy
+- **main**: Production-ready code
+- **extended-autonomy**: Current development branch
+- **feature/***: New feature development
+- **cognee/***: Memory integration features
+
+### Commit Patterns
+```bash
+# ✅ Descriptive commits with context
+git commit -m "feat(cognee): Add long-term memory integration
+
+- Implement CogneeService with add/search/cognify methods
+- Add plugin-cognee with proper ElizaOS structure  
+- Update docker-compose.bridge.yml with cognee service
+- Add COGNEE_URL and COGNEE_API_KEY environment variables"
+
+# ✅ Problem-solution format
+git commit -m "fix(autonomous): Resolve database schema mismatch
+
+Problem: Container crashed with 'column does not exist' errors
+Solution: Added snake_case columns (agent_id, server_id) with sync trigger"
+```
+
+## 🚀 Deployment Guidelines
+
+### Production Readiness Checklist
+- [ ] All API keys properly configured in .env
+- [ ] Database migrations applied
+- [ ] Container health checks passing
+- [ ] Service connectivity verified
+- [ ] Monitoring and logging configured
+- [ ] Memory archiving enabled
+- [ ] Cognee service operational
+
+### Service Dependencies
+```yaml
+# Startup order matters
+1. redis, postgres (infrastructure)
+2. cognee (memory service)  
+3. neurosync (VTuber system)
+4. autonomous_starter (main agent)
+```
+
+## 🎯 Project-Specific Best Practices
+
+### ElizaOS Integration
+- Follow plugin architecture patterns religiously
+- Use runtime.getSetting() for all configuration
+- Implement proper Service classes for background tasks
+- Add comprehensive tests for all plugins
+
+### VTuber System Integration  
+- Always include autonomous_context in VTuber API calls
+- Handle VTuber endpoint failures gracefully
+- Log all VTuber interactions for debugging
+
+### Memory Architecture
+- Use Cognee for long-term semantic memory
+- Use ElizaOS memory for short-term operational memory
+- Implement proper memory archiving strategies
+- Track memory usage and performance
+
+### Analytics and Monitoring
+- Use the enhanced analytics tables for decision tracking
+- Monitor tool usage patterns and effectiveness
+- Track autonomous decision cycle performance
+- Log all critical system events with structured data
+
+Remember: This is a complex multi-service system. Always consider the full stack impact when making changes, test in containerized environment, and maintain comprehensive logging for debugging.
