@@ -1,0 +1,85 @@
+services:
+  webserver:
+    image: caddy:latest
+    container_name: byoc-webserver-test
+    ports:
+      - 8088:8088
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./webapp/dist:/var/www/html/app
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    container_name: byoc-agent-net-test-worker
+    ports:
+      - 9876:9876
+    environment:
+      - "ORCH_URL=https://orchestrator:9995"
+      - "ORCH_SECRET=orch-secret"
+      - "CAPABILITY_NAME=agent-net"
+      - "CAPABILITY_DESCRIPTION=Agent network capability with GPU uptime monitoring"
+      - "CAPABILITY_URL=http://worker:9876"
+      - "CAPABILITY_PRICE_PER_UNIT=90000000000000"
+      - "CAPABILITY_PRICE_SCALING=1"
+      - "CAPABILITY_CAPACITY=10"
+      - "PYTHONUNBUFFERED=1"
+      # GPU monitoring configuration
+      - "GPU_SHORT_TERM_UPTIME_THRESHOLD=99.0"
+      - "GPU_MEDIUM_TERM_UPTIME_THRESHOLD=99.0"
+      - "GPU_LONG_TERM_UPTIME_THRESHOLD=99.0"
+      - "GPU_MIN_VRAM_GB=30.0"
+      - "GPU_BASE_DELAY_MULTIPLIER=10.0"
+      - "GPU_MAX_DELAY_MULTIPLIER=100.0"
+      - "GPU_HEALTH_CHECK_INTERVAL=5"
+      - "GPU_STATUS_REPORT_INTERVAL=60"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    runtime: nvidia
+  gateway:
+    image: livepeer/go-livepeer:sha-5627b90
+    container_name: byoc-gateway-test
+    volumes:
+      - ./data/gateway:/data
+    ports:
+      - 9999:9999
+    command: ["-gateway",
+          "-orchAddr=https://orchestrator:9995",
+          "-httpAddr=gateway:9999",
+          "-httpIngest=true",
+          "-maxTicketEV=100000000000000",
+          "-maxTotalEV=100000000000000",
+          "-maxFaceValue=1000000000000000",
+          "-v=6",
+          "-network=arbitrum-one-mainnet",
+          "-ethUrl=https://arb1.arbitrum.io/rpc",
+          "-ethPassword=STRONG_PASSWORD_HERE",
+          "-dataDir=/data"]
+  orchestrator:
+    image: livepeer/go-livepeer:sha-5627b90
+    container_name: byoc-orchestrator-test
+    volumes:
+      - ./data/orchestrator:/data
+    ports:
+      - 9995:9995
+    command: ["-orchestrator",
+          "-orchSecret=orch-secret",
+          "-serviceAddr=orchestrator:9995",
+          "-v=6",
+          "-network=arbitrum-one-mainnet",
+          "-ethUrl=https://arb1.arbitrum.io/rpc",
+          "-ethPassword=rh87cM7IA1vJGGpVa7sF",
+          "-dataDir=/data",
+          "-ethOrchAddr=0xa03113bab8d4ebe5695591f60011741233e8b82f",
+          "-pricePerUnit=100000000000000",
+          "-ticketEV=90000000000000",  
+          "-maxFaceValue=1000000000000000",]
+networks:
+  default:
+    name: byoc
+    external: true
