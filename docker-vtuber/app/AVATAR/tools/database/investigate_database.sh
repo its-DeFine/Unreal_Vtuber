@@ -25,9 +25,9 @@ if docker ps | grep -q "autonomous_postgres_bridge"; then
         echo "📋 Current Database Tables:"
         docker exec autonomous_postgres_bridge psql -U postgres -d autonomous_agent -c "\dt" 2>/dev/null || echo "No tables found or connection failed"
         
-        # Check for ElizaOS specific tables
+        # Check for core database tables
         echo ""
-        echo "🔍 ElizaOS Framework Tables:"
+        echo "🔍 Core Database Tables:"
         docker exec autonomous_postgres_bridge psql -U postgres -d autonomous_agent -c "
         SELECT table_name, table_type 
         FROM information_schema.tables 
@@ -38,7 +38,7 @@ if docker ps | grep -q "autonomous_postgres_bridge"; then
         echo ""
         echo "📊 Data Analysis:"
         
-        # Check memories table (common in ElizaOS)
+        # Check memories table (common in the core schema)
         echo "Memory entries:"
         docker exec autonomous_postgres_bridge psql -U postgres -d autonomous_agent -c "
         SELECT COUNT(*) as memory_count FROM memories;" 2>/dev/null || echo "No memories table found"

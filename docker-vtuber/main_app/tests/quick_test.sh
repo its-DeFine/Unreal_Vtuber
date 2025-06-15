@@ -34,7 +34,7 @@ test_cognee_memory() {
     printf "  💾 Adding test memory... "
     response=$(curl -s --max-time 30 -X POST http://localhost:8000/api/v1/add \
         -H "Content-Type: application/json" \
-        -d '{"data": ["Advanced cognitive system test - VTuber uses ElizaOS for autonomous decision making with Cognee knowledge graph providing 90% answer relevancy"], "dataset_name": "test_cognitive"}' 2>/dev/null)
+        -d '{"data": ["Advanced cognitive system test - VTuber uses agent framework for autonomous decision making with Cognee knowledge graph providing 90% answer relevancy"], "dataset_name": "test_cognitive"}' 2>/dev/null)
     
     if echo "$response" | grep -q "data_points_added" 2>/dev/null; then
         echo "✅ Success"
@@ -132,7 +132,7 @@ echo "════════════════════════�
 echo "🧠 Cognee Knowledge Graph: $cognee_status"
 echo "🤖 Autonomous Agent: $agent_status"
 echo "🔧 Task Manager Plugin: 📋 Loaded (check logs)"
-echo "💾 ElizaOS + Analytics DB: 🗄️ Configured"
+echo "💾 Core Database + Analytics DB: 🗄️ Configured"
 echo "🎭 VTuber Integration: 🎪 Active"
 
 echo ""
@@ -140,7 +140,7 @@ echo "📊 Cognitive System Architecture Status:"
 echo "   🧠 Knowledge Graph Memory (No Neo4j!): ✅"
 echo "   🔧 Autonomous Work Execution: ✅" 
 echo "   📊 Multi-dimensional Quality Scoring: ✅"
-echo "   🤖 ElizaOS Plugin Integration: ✅"
+echo "   🤖 Plugin Integration: ✅"
 echo "   🐳 Docker Service Mesh: ✅"
 echo "   ⚡ Livepeer AI Inference: ✅"
 

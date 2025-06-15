@@ -125,7 +125,7 @@ class CognitiveSystemTester:
         start_time = time.time()
         
         test_memories = [
-            "The autonomous VTuber system uses ElizaOS for decision making",
+            "The autonomous VTuber system uses the agent framework for decision making",
             "Cognee provides knowledge graph functionality with 90% answer relevancy",
             "Task Manager plugin enables autonomous work execution and evaluation",
             "The system integrates VTuber interaction through NeuroSync Player"
@@ -371,7 +371,7 @@ class CognitiveSystemTester:
             "🧠 Cognee Knowledge Graph Integration (No Neo4j needed!)",
             "🔧 Task Manager Autonomous Work Execution",
             "📊 Multi-dimensional Quality Evaluation",
-            "🤖 ElizaOS Plugin Architecture Compliance",
+            "🤖 Plugin Architecture Compliance",
             "🐳 Docker Containerized Cognitive Services",
             "📡 Service Mesh Connectivity",
             "💾 PostgreSQL + pgvector Memory Storage",

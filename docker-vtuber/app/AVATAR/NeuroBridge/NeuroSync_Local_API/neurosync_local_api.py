@@ -21,7 +21,7 @@ CORS(app)
 # ---------------------------------------------------------------------------
 
 # NOTE: These routes expose the SCB in a minimal form so that external
-#       services (e.g. Eliza/the-org Conductor) can consume a live slice or
+#       services (e.g. autonomous agents) can consume a live slice or
 #       publish directives.  The implementation is intentionally thin and
 #       delegates all state handling to utils.scb.scb_store which already
 #       supports Redis-backed storage as well as an in-memory fallback.  To

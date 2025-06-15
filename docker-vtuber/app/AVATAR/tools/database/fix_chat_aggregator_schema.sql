@@ -127,7 +127,7 @@ BEGIN
     SELECT id INTO room_uuid
     FROM rooms 
     WHERE "agentId" = p_agent_id 
-    AND source = 'elizaos'
+    AND source = 'core_database'
     LIMIT 1;
     
     -- If no room exists, create one
@@ -136,7 +136,7 @@ BEGIN
         VALUES (
             p_agent_id, -- Use agent_id as room_id for simplicity
             p_agent_id,
-            'elizaos',
+            'core_database',
             'chat_aggregator',
             p_agent_name || '_chat_room',
             jsonb_build_object('purpose', 'chat_aggregation', 'created_by', 'chat_aggregator_service')
