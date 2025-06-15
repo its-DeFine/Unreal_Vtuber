@@ -59,6 +59,9 @@ class UptimeInfo:
     uptime_percent: float
     last_check: datetime = None
     gpu_available: bool = True
+    model_name: str = None
+    vram_usage_mb: float = 0.0
+    total_models: int = 0
     
 @dataclass 
 class RequestStats:
@@ -145,11 +148,12 @@ class UptimeAwareCapabilityTester:
             raise ValueError(f"Invalid capabilities: {invalid_caps}. Available: {list(CAPABILITIES.keys())}")
             
     async def get_agent_uptime(self) -> Optional[UptimeInfo]:
-        """Query worker directly for agent uptime information"""
+        """Query worker GPU check endpoint for GPU/VRAM status"""
         try:
-            # Query GPU check endpoint directly
+            # Query worker's GPU check endpoint
             async with aiohttp.ClientSession() as session:
-                url = f"{self.gateway_url}/worker/gpu-check"
+                # Use the worker endpoint through Caddy proxy
+                url = f"{self.gateway_url.rstrip('/')}/worker/gpu-check"
                 payload = {"agent_id": self.target_agent_id}
                 
                 async with session.post(url, json=payload) as resp:
@@ -159,19 +163,19 @@ class UptimeAwareCapabilityTester:
                         
                     data = await resp.json()
                     
-                    # Extract uptime from response
-                    uptime_percent = data.get('uptime_percent', 0.0)
-                    agent_id = data.get('agent_id', self.target_agent_id)
-                    
+                    # Extract data from response
                     return UptimeInfo(
-                        agent_id=agent_id,
-                        uptime_percent=uptime_percent,
+                        agent_id=data.get('agent_id', self.target_agent_id),
+                        uptime_percent=data.get('uptime_percent', 85.0),
                         last_check=datetime.now(),
-                        gpu_available=data.get('gpu_count', 0) > 0
+                        gpu_available=data.get('gpu_count', 0) > 0,
+                        model_name=data.get('model_name', 'Unknown'),
+                        vram_usage_mb=data.get('vram_usage_mb', 0.0),
+                        total_models=data.get('total_models', 0)
                     )
                         
         except Exception as e:
-            print(f"❌ Error querying agent uptime: {e}")
+            print(f"❌ Error querying GPU status: {e}")
             return None
             
     def calculate_job_rate(self, uptime_percent: float) -> int:
@@ -225,23 +229,8 @@ class UptimeAwareCapabilityTester:
             
             response_time = (time.time() - start_time) * 1000  # Convert to milliseconds
             
-            # Extract uptime from response if available
-            if response.status_code == 200:
-                try:
-                    # Check X-Metadata header for uptime info
-                    metadata = response.headers.get('X-Metadata')
-                    if metadata:
-                        meta_data = json.loads(metadata)
-                        uptime = meta_data.get('uptime_percent')
-                        if uptime:
-                            self.current_uptime_info = UptimeInfo(
-                                agent_id=self.target_agent_id,
-                                uptime_percent=uptime,
-                                last_check=datetime.now(),
-                                gpu_available=True
-                            )
-                except:
-                    pass
+            # We're getting real GPU data from Ollama, so ignore response metadata
+            # The mock server's metadata would overwrite our real Ollama data
             
             return (
                 response.status_code,
@@ -269,7 +258,9 @@ class UptimeAwareCapabilityTester:
                 
                 if old_rate != self.current_job_rate:
                     print(f"\n📊 Job rate changed: {old_rate} → {self.current_job_rate} jobs/min")
-                    print(f"   Uptime: {uptime_info.uptime_percent:.1f}%")
+                    print(f"   Model: {uptime_info.model_name}")
+                    print(f"   VRAM: {uptime_info.vram_usage_mb:.0f}MB")
+                    print(f"   GPU Score: {uptime_info.uptime_percent:.1f}%")
                     
             await asyncio.sleep(self.uptime_query_interval)
             
@@ -291,7 +282,9 @@ class UptimeAwareCapabilityTester:
             if initial_uptime:
                 self.current_uptime_info = initial_uptime
                 self.current_job_rate = self.calculate_job_rate(initial_uptime.uptime_percent)
-                print(f"\n📊 Initial uptime: {initial_uptime.uptime_percent:.1f}%")
+                print(f"\n🤖 Model: {initial_uptime.model_name}")
+                print(f"💾 VRAM Usage: {initial_uptime.vram_usage_mb:.0f} MB")
+                print(f"📊 GPU Score: {initial_uptime.uptime_percent:.1f}%")
                 print(f"📊 Initial job rate: {self.current_job_rate} jobs/min")
             
             while self.running:
@@ -304,7 +297,7 @@ class UptimeAwareCapabilityTester:
                 # Check current job rate
                 if self.current_job_rate == 0:
                     # Full punishment - no jobs
-                    print(f"\n🛑 Job sending suspended - Uptime too low ({self.current_uptime_info.uptime_percent:.1f}%)")
+                    print(f"\n🛑 Job sending suspended - GPU Score too low ({self.current_uptime_info.uptime_percent:.1f}%) - VRAM: {self.current_uptime_info.vram_usage_mb:.0f}MB")
                     
                     # Record delayed requests
                     for cap in self.capabilities:
@@ -330,10 +323,19 @@ class UptimeAwareCapabilityTester:
                 else:
                     status_emoji = "❌"
                     
+                # Ensure we have valid uptime info
+                if self.current_uptime_info:
+                    model_name = self.current_uptime_info.model_name or "Unknown"
+                    vram_mb = self.current_uptime_info.vram_usage_mb or 0.0
+                else:
+                    model_name = "No data"
+                    vram_mb = 0.0
+                    
                 print(f"{status_emoji} [{datetime.now().strftime('%H:%M:%S')}] {capability}: "
                       f"{status_code} ({response_time:.0f}ms) | "
                       f"Rate: {self.current_job_rate}/min | "
-                      f"Uptime: {self.current_uptime_info.uptime_percent:.1f}%")
+                      f"Model: {model_name} | "
+                      f"VRAM: {vram_mb:.0f}MB")
                 
                 # Print statistics periodically
                 if self.jobs_sent % 50 == 0:
@@ -363,11 +365,14 @@ class UptimeAwareCapabilityTester:
         print(f"⚡ Current Job Rate: {self.current_job_rate} jobs/min")
         
         if self.current_uptime_info:
-            print(f"\n🖥️  AGENT STATUS")
+            print(f"\n🖥️  GPU STATUS (via Ollama)")
             print("-" * 40)
             print(f"  🆔 Agent ID: {self.current_uptime_info.agent_id}")
-            print(f"  📈 Uptime: {self.current_uptime_info.uptime_percent:.2f}%")
+            print(f"  🤖 Model: {self.current_uptime_info.model_name}")
+            print(f"  💾 VRAM Usage: {self.current_uptime_info.vram_usage_mb:.0f} MB ({self.current_uptime_info.vram_usage_mb/1024:.2f} GB)")
+            print(f"  📊 GPU Score: {self.current_uptime_info.uptime_percent:.2f}%")
             print(f"  🖥️  GPU Available: {'Yes' if self.current_uptime_info.gpu_available else 'No'}")
+            print(f"  📚 Total Models: {self.current_uptime_info.total_models}")
             print(f"  🕐 Last Check: {self.current_uptime_info.last_check.strftime('%H:%M:%S')}")
             
         for capability, stats in self.stats.items():

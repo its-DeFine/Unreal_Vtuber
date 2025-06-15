@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Multi-Orchestrator Uptime-Aware Capability Tester
-Tests multiple orchestrators with different agents and applies punishment logic based on GPU uptime.
+Multi-Orchestrator GPU-Aware Capability Tester
+Tests multiple orchestrators with different agents and applies punishment logic based on GPU/VRAM usage via Ollama.
 """
 
 import requests
@@ -45,6 +45,8 @@ class JobResult:
     uptime_percent: float
     timestamp: datetime
     error: Optional[str] = None
+    model_name: Optional[str] = None
+    vram_mb: Optional[float] = None
 
 class MultiOrchestratorTester:
     """Tests multiple orchestrators with uptime-aware punishment logic"""
@@ -71,28 +73,39 @@ class MultiOrchestratorTester:
         self.running = True
         self.results: List[JobResult] = []
         self.agent_uptimes: Dict[str, float] = {}
+        self.agent_models: Dict[str, str] = {}
+        self.agent_vram: Dict[str, float] = {}
         self.start_time = time.time()
         
-    async def get_agent_uptime(self, orch: OrchestratorConfig) -> float:
-        """Query GPU uptime for a specific agent from an orchestrator"""
+    async def get_agent_uptime(self, orch: OrchestratorConfig) -> Tuple[float, str, float]:
+        """Query worker GPU check endpoint for GPU/VRAM status"""
         try:
             async with aiohttp.ClientSession() as session:
-                url = f"{orch.gateway_url}/worker/gpu-check"
+                # Query worker's GPU check endpoint through gateway
+                url = f"{orch.gateway_url.rstrip('/')}/worker/gpu-check"
                 payload = {"agent_id": orch.agent_id}
                 
                 async with session.post(url, json=payload, timeout=5) as resp:
                     if resp.status != 200:
-                        print(f"{RED}❌ Failed to get uptime from {orch.name}: HTTP {resp.status}{RESET}")
-                        return 0.0
+                        print(f"{RED}❌ Failed to get GPU status for {orch.name}: HTTP {resp.status}{RESET}")
+                        return 85.0, "No GPU data", 0.0  # Default to low uptime
                         
                     data = await resp.json()
-                    uptime = data.get('uptime_percent', 0.0)
-                    self.agent_uptimes[f"{orch.name}:{orch.agent_id}"] = uptime
-                    return uptime
+                    
+                    # Extract data from response
+                    uptime = data.get('uptime_percent', 85.0)
+                    model_name = data.get('model_name', 'Unknown')
+                    total_vram_mb = data.get('vram_usage_mb', 0.0)
+                    
+                    key = f"{orch.name}:{orch.agent_id}"
+                    self.agent_uptimes[key] = uptime
+                    self.agent_models[key] = model_name
+                    self.agent_vram[key] = total_vram_mb
+                    return uptime, model_name, total_vram_mb
                     
         except Exception as e:
-            print(f"{RED}❌ Error querying {orch.name}: {e}{RESET}")
-            return 0.0
+            print(f"{RED}❌ Error querying GPU status for {orch.name}: {e}{RESET}")
+            return 85.0, "Error", 0.0
             
     def calculate_job_rate(self, uptime_percent: float) -> int:
         """Calculate jobs per minute based on uptime percentage"""
@@ -119,7 +132,7 @@ class MultiOrchestratorTester:
             'Livepeer': job_header
         }
         
-    async def send_job(self, orch: OrchestratorConfig, capability: str, uptime: float) -> JobResult:
+    async def send_job(self, orch: OrchestratorConfig, capability: str, uptime: float, model_name: str, vram_mb: float) -> JobResult:
         """Send a single job to an orchestrator"""
         start_time = time.time()
         
@@ -146,7 +159,9 @@ class MultiOrchestratorTester:
                         response_time=response_time,
                         uptime_percent=uptime,
                         timestamp=datetime.now(),
-                        error=None if resp.status == 200 else f"HTTP {resp.status}"
+                        error=None if resp.status == 200 else f"HTTP {resp.status}",
+                        model_name=model_name,
+                        vram_mb=vram_mb
                     )
                     
         except asyncio.TimeoutError:
@@ -159,7 +174,9 @@ class MultiOrchestratorTester:
                 response_time=response_time,
                 uptime_percent=uptime,
                 timestamp=datetime.now(),
-                error="Request timeout"
+                error="Request timeout",
+                model_name=model_name,
+                vram_mb=vram_mb
             )
             
         except Exception as e:
@@ -172,7 +189,9 @@ class MultiOrchestratorTester:
                 response_time=response_time,
                 uptime_percent=uptime,
                 timestamp=datetime.now(),
-                error=str(e)
+                error=str(e),
+                model_name=model_name,
+                vram_mb=vram_mb
             )
             
     async def run_test_loop(self):
@@ -186,14 +205,15 @@ class MultiOrchestratorTester:
             print(f"   - {orch.name}: {orch.gateway_url} (Agent: {orch.agent_id})")
         print("=" * 80)
         
-        # Initial uptime check for all orchestrators
-        print(f"\n{YELLOW}Checking initial uptime for all agents...{RESET}")
+        # Initial GPU check for all orchestrators
+        print(f"\n{YELLOW}Checking initial GPU status (via Ollama) for all agents...{RESET}")
         for orch in self.orchestrators:
-            uptime = await self.get_agent_uptime(orch)
-            job_rate = self.calculate_job_rate(uptime)
-            print(f"  {orch.name} ({orch.agent_id}): {uptime:.1f}% uptime → {job_rate} jobs/min")
+            gpu_score, model_name, vram_mb = await self.get_agent_uptime(orch)
+            job_rate = self.calculate_job_rate(gpu_score)
+            print(f"  {orch.name} ({orch.agent_id}): {model_name} | {vram_mb:.0f}MB VRAM | {gpu_score:.1f}% score → {job_rate} jobs/min")
         
         print(f"\n{GREEN}Starting job distribution...{RESET}")
+        print(f"{BLUE}💡 VRAM Mapping: <2GB=99.5%, 2-4GB=98%, 4-6GB=92%, >6GB=85%{RESET}")
         print("=" * 80)
         
         # Track job counts per orchestrator
@@ -204,7 +224,7 @@ class MultiOrchestratorTester:
             # Refresh uptime every 30 seconds
             if time.time() - last_uptime_check > 30:
                 for orch in self.orchestrators:
-                    await self.get_agent_uptime(orch)
+                    _, _, _ = await self.get_agent_uptime(orch)
                 last_uptime_check = time.time()
             
             # Select orchestrators that can receive jobs based on uptime
@@ -218,7 +238,7 @@ class MultiOrchestratorTester:
                     eligible_orchestrators.extend([orch] * max(1, weight))
             
             if not eligible_orchestrators:
-                print(f"\n{RED}⚠️  No orchestrators eligible for jobs (all have low uptime){RESET}")
+                print(f"\n{RED}⚠️  No orchestrators eligible for jobs (all have low GPU scores){RESET}")
                 await asyncio.sleep(5)
                 continue
             
@@ -226,12 +246,15 @@ class MultiOrchestratorTester:
             selected_orch = random.choice(eligible_orchestrators)
             capability = random.choice(self.capabilities)
             
-            # Get current uptime for the selected orchestrator
-            uptime = self.agent_uptimes.get(f"{selected_orch.name}:{selected_orch.agent_id}", 0)
+            # Get current GPU info for the selected orchestrator
+            key = f"{selected_orch.name}:{selected_orch.agent_id}"
+            uptime = self.agent_uptimes.get(key, 0)
+            model_name = self.agent_models.get(key, "Unknown")
+            vram_mb = self.agent_vram.get(key, 0.0)
             job_rate = self.calculate_job_rate(uptime)
             
             # Send the job
-            result = await self.send_job(selected_orch, capability, uptime)
+            result = await self.send_job(selected_orch, capability, uptime, model_name, vram_mb)
             self.results.append(result)
             job_counts[selected_orch.name] += 1
             
@@ -239,7 +262,7 @@ class MultiOrchestratorTester:
             status_emoji = "✅" if result.status_code == 200 else "❌"
             print(f"{status_emoji} [{datetime.now().strftime('%H:%M:%S')}] "
                   f"{selected_orch.name}: {result.status_code} ({result.response_time:.0f}ms) | "
-                  f"Uptime: {uptime:.1f}% | Rate: {job_rate}/min")
+                  f"Model: {model_name} | VRAM: {vram_mb:.0f}MB | Rate: {job_rate}/min")
             
             # Calculate delay based on aggregate job rate
             total_job_rate = sum(self.calculate_job_rate(u) for u in self.agent_uptimes.values())
@@ -275,10 +298,15 @@ class MultiOrchestratorTester:
                 
             successful = sum(1 for r in orch_results if r.status_code == 200)
             avg_response_time = sum(r.response_time for r in orch_results) / len(orch_results)
-            uptime = self.agent_uptimes.get(f"{orch.name}:{orch.agent_id}", 0)
+            key = f"{orch.name}:{orch.agent_id}"
+            uptime = self.agent_uptimes.get(key, 0)
+            model = self.agent_models.get(key, "Unknown")
+            vram = self.agent_vram.get(key, 0.0)
             
             print(f"\n  {orch.name} ({orch.agent_id}):")
-            print(f"    Uptime: {uptime:.1f}%")
+            print(f"    Model: {model}")
+            print(f"    VRAM: {vram:.0f} MB")
+            print(f"    GPU Score: {uptime:.1f}%")
             print(f"    Jobs Sent: {len(orch_results)}")
             print(f"    Successful: {successful} ({(successful/len(orch_results)*100):.1f}%)")
             print(f"    Avg Response: {avg_response_time:.1f}ms")
