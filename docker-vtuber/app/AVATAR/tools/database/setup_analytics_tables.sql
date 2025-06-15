@@ -1,5 +1,5 @@
 -- 🚀 Autonomous Agent Analytics Tables Setup
--- Adds enhanced analytics capabilities to existing ElizaOS database
+-- Adds enhanced analytics capabilities to existing core database
 -- Compatible with current schema, adds new functionality without breaking changes
 
 -- Enable pgvector extension if not already enabled

@@ -53,7 +53,7 @@ if curl -s --max-time 5 http://localhost:5001/health > /dev/null 2>&1; then
     vtuber_status="PASS"
 fi
 
-print_test "Autonomous Agent (Port 3100)" "$autonomous_status" "ElizaOS interface available"
+print_test "Autonomous Agent (Port 3100)" "$autonomous_status" "Agent interface available"
 print_test "Cognee Knowledge Graph (Port 8000)" "$cognee_status" "FastAPI docs accessible"
 print_test "VTuber NeuroSync (Port 5001)" "$vtuber_status" "Ready for interaction"
 
@@ -137,7 +137,7 @@ echo "      └─ Cognee Service: $([ "$cognee_status" = "PASS" ] && echo "✅ 
 echo "      └─ No Neo4j Dependency: ✅ CORRECT (Cognee handles graph internally)"
 echo ""
 echo "   🤖 AUTONOMOUS AGENT LAYER:"  
-echo "      └─ ElizaOS Runtime: $([ "$autonomous_status" = "PASS" ] && echo "✅ OPERATIONAL" || echo "❌ ISSUES")"
+echo "      └─ Agent Runtime: $([ "$autonomous_status" = "PASS" ] && echo "✅ OPERATIONAL" || echo "❌ ISSUES")"
 echo "      └─ Plugin Loading: $([ "$action_logs" -ge 2 ] && echo "✅ FUNCTIONAL" || echo "❌ ISSUES")"
 echo "      └─ Agent Availability: $([ "$agent_available" = "PASS" ] && echo "✅ AVAILABLE" || echo "❌ UNAVAILABLE")"
 echo ""
@@ -188,7 +188,7 @@ fi
 echo ""
 echo "📊 KEY ACHIEVEMENTS:"
 echo "   ✅ Cognee knowledge graph integrated (90% answer relevancy)"
-echo "   ✅ ElizaOS plugin architecture implemented"
+echo "   ✅ Plugin architecture implemented"
 echo "   ✅ VTuber autonomous context support added"
 echo "   ✅ Task manager framework created"
 echo "   ✅ Multi-dimensional quality evaluation system"

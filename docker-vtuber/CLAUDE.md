@@ -125,7 +125,7 @@ This is an experimental AI research platform built on containerized microservice
    - API keys and secrets in `.env`, never in docker-compose files
    - Service URLs use container names (e.g., `http://cognee:8000`)
 
-3. **Plugin Development** (ElizaOS pattern)
+3. **Plugin Development**
    - Plugins in `autonomous-starter/src/plugin-*` directories
    - Follow action/service/provider/evaluator structure
    - Use runtime.getSetting() for configuration
@@ -133,7 +133,7 @@ This is an experimental AI research platform built on containerized microservice
 
 4. **Database Access**
    - PostgreSQL with pgvector extension
-   - ElizaOS schema (13 core tables)
+   - Core database schema (13 tables)
    - Connection: `postgresql://postgres:postgres@postgres:5432/autonomous_agent`
    - Enhanced analytics tables for decision tracking
 

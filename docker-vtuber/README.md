@@ -47,7 +47,7 @@ docker-compose -f docker-compose.bridge.yml up -d
 
 ### 🎯 Core Documents
 - **[Product Requirements Document](./docs/AUTONOMOUS_AGENT_PRD.md)** - Complete vision and technical specifications
-- **[Database Analysis](./docs/DATABASE_ANALYSIS.md)** - Database schema for AutoGen with ElizaOS MCP integration
+- **[Database Analysis](./docs/DATABASE_ANALYSIS.md)** - Database schema for AutoGen with MCP integration
 - **[Implementation Summary](./docs/IMPLEMENTATION_SUMMARY.md)** - What's done and what's next
 
 ### 📖 Quick Links
@@ -71,7 +71,7 @@ docker-compose -f docker-compose.bridge.yml up -d
 │  └── Advanced Tool Orchestration                               │
 ├─────────────────────────────────────────────────────────────────┤
 │  🔧 MCP Tool Integration Layer                                 │
-│  ├── ElizaOS MCP Tool (Memory & Context)                      │
+│  ├── Memory & Context MCP Tool                                 │
 │  ├── Cognee Knowledge Graph MCP Tool                          │
 │  ├── VTuber Integration MCP Tool                              │
 │  └── Analytics & Monitoring MCP Tools                         │
@@ -95,7 +95,7 @@ docker-compose -f docker-compose.bridge.yml up -d
 ## 🎯 Current Status
 
 ### ✅ Phase 1: Foundation Complete
-- **Database Integration**: AutoGen with ElizaOS MCP tool for memory access
+- **Database Integration**: AutoGen with MCP tool for memory access
 - **Analytics Enhancement**: Tool usage, decision patterns, context archival
 - **System Monitoring**: Comprehensive logging and performance tracking
 - **Documentation**: Complete PRD, database analysis, and implementation guide
@@ -153,7 +153,7 @@ docker-compose -f docker-compose.bridge.yml up -d
 ### Architecture
 - **Language**: TypeScript/JavaScript (Node.js)
 - **Database**: PostgreSQL with pgvector extension
-- **Framework**: AutoGen orchestrator with ElizaOS as MCP tool
+- **Framework**: AutoGen orchestrator with MCP tools
 - **Containerization**: Docker & Docker Compose
 - **State Management**: Redis for SCB bridge
 

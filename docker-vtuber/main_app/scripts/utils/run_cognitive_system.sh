@@ -159,7 +159,7 @@ print_info "   ✅ Autonomous Work Execution & Evaluation"
 print_info "   ✅ Multi-dimensional Quality Scoring"
 print_info "   ✅ Task Manager with Real Work Artifacts"
 print_info "   ✅ Enhanced Decision Making with Semantic Search"
-print_info "   ✅ ElizaOS Plugin Architecture Integration"
+print_info "   ✅ Plugin Architecture Integration"
 
 echo ""
 print_info "🔧 Testing Options:"
