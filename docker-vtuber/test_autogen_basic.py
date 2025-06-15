@@ -9,7 +9,7 @@ import json
 from datetime import datetime
 
 # Configuration
-AUTOGEN_URL = "http://localhost:8201"
+AUTOGEN_URL = "http://localhost:8200"
 
 async def test_health():
     """Test system health"""
