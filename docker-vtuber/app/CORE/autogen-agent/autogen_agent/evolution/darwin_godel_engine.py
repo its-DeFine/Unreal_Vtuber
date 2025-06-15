@@ -26,6 +26,10 @@ import shutil
 import asyncio
 import re
 
+# Import our new LLM and performance modules
+from .llm_code_generator import LLMCodeGenerator, CodeImprovementPrompts
+from .performance_profiler import PerformanceProfiler, PerformanceMetrics, TestCase
+
 @dataclass
 class CodeAnalysisResult:
     """Results of code analysis"""
@@ -53,12 +57,14 @@ class DarwinGodelEngine:
     """
     
     def __init__(self, autogen_agent_dir: str = "/app/autogen_agent", 
-                 sandbox_dir: str = "/tmp/autogen_sandbox"):
+                 sandbox_dir: str = "/tmp/autogen_sandbox",
+                 cognee_service: Optional[Any] = None):
         self.agent_dir = autogen_agent_dir
         self.sandbox_dir = sandbox_dir
         self.modification_history = []
         self.safety_checks_enabled = True
         self.max_modifications_per_cycle = 3
+        self.cognee_service = cognee_service
         
         # 🚀 REAL MODIFICATION CONTROL
         self.real_modifications_enabled = os.getenv('DARWIN_GODEL_REAL_MODIFICATIONS', 'false').lower() == 'true'
@@ -69,9 +75,17 @@ class DarwinGodelEngine:
         self.baseline_metrics = {}
         self.current_metrics = {}
         
-        logging.info("🧬 [DARWIN_GODEL] Engine initialized")
+        # Initialize LLM code generator and performance profiler
+        self.llm_generator = LLMCodeGenerator(
+            model=os.getenv('DARWIN_GODEL_MODEL', 'gpt-4-turbo-preview'),
+            temperature=float(os.getenv('DARWIN_GODEL_TEMPERATURE', '0.3'))
+        )
+        self.performance_profiler = PerformanceProfiler()
+        
+        logging.info("🧬 [DARWIN_GODEL] Engine initialized with LLM support")
         logging.info(f"🔧 [DARWIN_GODEL] Real modifications: {'ENABLED' if self.real_modifications_enabled else 'SIMULATION MODE'}")
         logging.info(f"🛡️ [DARWIN_GODEL] Explicit approval required: {self.require_explicit_approval}")
+        logging.info(f"🤖 [DARWIN_GODEL] LLM Model: {self.llm_generator.model}")
     
     async def initialize(self) -> bool:
         """Initialize the Darwin-Gödel Machine"""
@@ -391,30 +405,67 @@ class DarwinGodelEngine:
         # Select the most promising opportunity
         opportunity = analysis.improvement_opportunities[0]
         
+        # Generate the improved code first
+        generated_code = await self._generate_code_for_opportunity(opportunity, analysis)
+        
+        # Read original code for comparison
+        try:
+            with open(analysis.file_path, 'r') as f:
+                original_code = f.read()
+        except Exception as e:
+            logging.error(f"Failed to read original file: {e}")
+            original_code = ""
+        
+        # Measure actual improvement if we have both codes
+        if generated_code and original_code:
+            expected_improvement = await self._estimate_improvement_impact(
+                opportunity, original_code, generated_code
+            )
+        else:
+            expected_improvement = 0.05  # Conservative default
+        
         improvement = {
             "id": f"improvement_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             "target_file": analysis.file_path,
             "opportunity": opportunity,
             "risk_level": analysis.risk_assessment,
-            "expected_improvement": self._estimate_improvement_impact(opportunity),
+            "expected_improvement": expected_improvement,
             "modification_type": self._classify_modification_type(opportunity),
-            "generated_code": await self._generate_code_for_opportunity(opportunity, analysis),
+            "generated_code": generated_code,
             "backup_created": False
         }
         
         logging.info(f"💡 [DARWIN_GODEL] Generated improvement for {os.path.basename(analysis.file_path)}")
         return improvement
     
-    def _estimate_improvement_impact(self, opportunity: str) -> float:
-        """Estimate expected performance improvement"""
-        if "naive" in opportunity.lower() or "random" in opportunity.lower():
-            return 0.4  # 40% improvement expected
-        elif "optimize" in opportunity.lower():
-            return 0.25  # 25% improvement expected
-        elif "async" in opportunity.lower():
-            return 0.3  # 30% improvement expected
-        else:
-            return 0.15  # 15% improvement expected
+    async def _estimate_improvement_impact(self, opportunity: str, original_code: str, improved_code: str) -> float:
+        """Measure actual performance improvement using profiler"""
+        try:
+            # Generate test cases for the code
+            test_cases = self.performance_profiler.generate_test_cases_from_code(original_code)
+            
+            # If no test cases generated, use a conservative estimate
+            if not test_cases:
+                logging.warning("No test cases generated, using conservative estimate")
+                return 0.05  # 5% conservative estimate
+            
+            # Compare performance
+            comparison = await self.performance_profiler.compare_performance(
+                original_code=original_code,
+                modified_code=improved_code,
+                test_cases=test_cases
+            )
+            
+            # Return actual measured improvement
+            improvement = comparison.get('overall_improvement', 0.0)
+            logging.info(f"🎯 [DARWIN_GODEL] Measured improvement: {improvement*100:.1f}%")
+            
+            return max(0.0, improvement)  # Ensure non-negative
+            
+        except Exception as e:
+            logging.error(f"Error measuring performance: {e}")
+            # Fall back to conservative estimate on error
+            return 0.05
     
     def _classify_modification_type(self, opportunity: str) -> str:
         """Classify the type of modification"""
@@ -429,14 +480,64 @@ class DarwinGodelEngine:
     
     async def _generate_code_for_opportunity(self, opportunity: str, 
                                            analysis: CodeAnalysisResult) -> str:
-        """Generate actual code for the improvement opportunity"""
+        """Generate actual code for the improvement opportunity using LLM"""
         
-        # This is where we'd use LLM to generate actual code
-        # For now, return placeholder code based on opportunity type
+        # Read the original code
+        try:
+            with open(analysis.file_path, 'r') as f:
+                original_code = f.read()
+        except Exception as e:
+            logging.error(f"Failed to read file {analysis.file_path}: {e}")
+            return ""
         
+        # Get similar improvements from Cognee if available
+        similar_improvements = []
+        if self.cognee_service:
+            try:
+                query = f"code optimization {opportunity} performance improvement"
+                similar_improvements = await self._query_similar_improvements(query)
+            except Exception as e:
+                logging.warning(f"Cognee query failed: {e}")
+        
+        # Build constraints based on the analysis
+        constraints = [
+            "Maintain all existing function signatures and interfaces",
+            "Do not add new dependencies or imports",
+            "Ensure thread safety if the code is multi-threaded",
+            f"Focus on this specific opportunity: {opportunity}",
+            "The improvement must be measurable and significant"
+        ]
+        
+        # Add specific optimization hints
+        optimization_hints = CodeImprovementPrompts.get_prompt_for_opportunity(opportunity)
+        constraints.append(optimization_hints)
+        
+        # Try LLM generation first
+        improved_code = await self.llm_generator.generate_with_retry(
+            code_context=original_code,
+            opportunity=opportunity,
+            constraints=constraints,
+            examples=similar_improvements,
+            max_retries=3
+        )
+        
+        # If LLM generation succeeded, return it
+        if improved_code:
+            logging.info("✅ [DARWIN_GODEL] Successfully generated code improvement using LLM")
+            # Store successful generation in Cognee for future learning
+            if self.cognee_service:
+                await self._store_improvement_pattern(opportunity, original_code, improved_code)
+            return improved_code
+        
+        # Fallback to template-based generation if LLM fails
+        logging.warning("⚠️ [DARWIN_GODEL] LLM generation failed, falling back to templates")
+        return self._generate_template_fallback(opportunity)
+    
+    def _generate_template_fallback(self, opportunity: str) -> str:
+        """Fallback template generation when LLM is unavailable"""
         if "scoring algorithm" in opportunity:
             return """
-# Generated by Darwin-Gödel Machine
+# Generated by Darwin-Gödel Machine (Template Fallback)
 # Improved tool selection with scoring algorithm
 
 def select_tool_with_scoring(self, context):
@@ -458,22 +559,22 @@ def _calculate_tool_score(self, tool_name, context):
     # Combined score with weights
     return historical_score * 0.6 + relevance_score * 0.4
 """
-        
-        elif "async sleep" in opportunity:
-            return """
-# Generated by Darwin-Gödel Machine
-# Replace blocking sleep with async sleep
-
-# OLD: time.sleep(LOOP_INTERVAL)
-# NEW: await asyncio.sleep(LOOP_INTERVAL)
-"""
-        
         else:
             return f"""
-# Generated by Darwin-Gödel Machine
-# Improvement for: {opportunity}
-# TODO: Implement specific optimization
+# Generated by Darwin-Gödel Machine (Template Fallback)
+# Unable to generate specific improvement for: {opportunity}
+# Manual optimization required
 """
+    
+    async def _query_similar_improvements(self, query: str) -> List[Dict]:
+        """Query Cognee for similar successful improvements"""
+        # This will be implemented when Cognee is properly integrated
+        return []
+    
+    async def _store_improvement_pattern(self, opportunity: str, original: str, improved: str):
+        """Store successful improvement pattern in Cognee"""
+        # This will be implemented when Cognee is properly integrated
+        pass
     
     async def _test_single_modification(self, improvement: Dict) -> SafetyTestResult:
         """Test a single modification in sandbox environment"""

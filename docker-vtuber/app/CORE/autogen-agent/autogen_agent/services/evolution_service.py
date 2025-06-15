@@ -40,8 +40,9 @@ class EvolutionService:
     and the Cognitive Evolution Engine for continuous self-improvement
     """
     
-    def __init__(self, autogen_agent_dir: str = "/app/autogen_agent"):
+    def __init__(self, autogen_agent_dir: str = "/app/autogen_agent", cognee_service: Optional[Any] = None):
         self.agent_dir = autogen_agent_dir
+        self.cognee_service = cognee_service
         
         # Initialize evolution components
         self.evolution_engine = None
@@ -62,15 +63,18 @@ class EvolutionService:
         self.successful_improvements = 0
         self.failed_attempts = 0
         
-        logging.info("🧬 [EVOLUTION_SERVICE] Service initialized")
+        logging.info("🧬 [EVOLUTION_SERVICE] Service initialized with LLM support")
     
     async def initialize(self) -> bool:
         """Initialize the evolution service and its components"""
         try:
             logging.info("🔧 [EVOLUTION_SERVICE] Initializing evolution components...")
             
-            # Initialize Darwin-Gödel Machine
-            self.dgm_engine = DarwinGodelEngine(self.agent_dir)
+            # Initialize Darwin-Gödel Machine with Cognee service
+            self.dgm_engine = DarwinGodelEngine(
+                autogen_agent_dir=self.agent_dir,
+                cognee_service=self.cognee_service
+            )
             if not await self.dgm_engine.initialize():
                 logging.error("❌ [EVOLUTION_SERVICE] DGM engine initialization failed")
                 return False

@@ -31,6 +31,8 @@ from .agent_tool_bridge import AgentToolBridge
 from .statistics_collector import StatisticsCollector
 from .services.conversation_storage_service import ConversationStorageService
 from .services.pattern_storage_service import PatternStorageService
+from .gpu_monitor import GPUMonitor
+from .teachable_agents import create_teachable_agents, get_learning_summary
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -67,10 +69,13 @@ statistics_collector = None
 conversation_storage = None
 pattern_storage = None
 
+# Global GPU monitor instance
+gpu_monitor = None
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {
+    health_data = {
         "status": "healthy",
         "timestamp": time.time(),
         "autogen_available": AUTOGEN_AVAILABLE,
@@ -79,6 +84,16 @@ async def health_check():
             "tools_registered": len(global_tool_registry.tools) if global_tool_registry else 0
         }
     }
+    
+    # Add GPU status if available
+    if gpu_monitor:
+        try:
+            gpu_summary = gpu_monitor.get_summary()
+            health_data["gpu"] = gpu_summary
+        except Exception as e:
+            health_data["gpu"] = {"healthy": False, "error": str(e)}
+    
+    return health_data
 
 @app.get("/api/test-db")
 async def test_database():
@@ -182,7 +197,12 @@ async def analyze_code_api(request: dict):
     """Analyze code for improvements"""
     try:
         from autogen_agent.evolution.darwin_godel_engine import DarwinGodelEngine
-        evolution_engine = DarwinGodelEngine()
+        # Get Cognee service if available
+        cognee_service = None
+        if cognitive_system and hasattr(cognitive_system, 'cognee_service'):
+            cognee_service = cognitive_system.cognee_service
+        
+        evolution_engine = DarwinGodelEngine(cognee_service=cognee_service)
         
         # First get the file path for the target module
         target_file = f"/app/autogen_agent/{request.get('target_module', 'tool_registry')}.py"
@@ -471,6 +491,59 @@ async def scb_control_endpoint(action: str = "status"):
         return global_scb_client.get_status()
     else:
         return {"success": False, "error": f"Unknown action: {action}"}
+
+@app.get("/api/gpu-status")
+async def get_gpu_status():
+    """Get GPU status including VRAM usage, utilization, and uptime"""
+    if not gpu_monitor:
+        return {
+            "status": "error",
+            "error": "GPU monitor not initialized"
+        }
+    
+    try:
+        return gpu_monitor.get_gpu_status()
+    except Exception as e:
+        logging.error(f"Error getting GPU status: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+@app.get("/api/gpu-summary")
+async def get_gpu_summary():
+    """Get a summary of GPU status for quick health checks"""
+    if not gpu_monitor:
+        return {
+            "healthy": False,
+            "error": "GPU monitor not initialized"
+        }
+    
+    try:
+        return gpu_monitor.get_summary()
+    except Exception as e:
+        logging.error(f"Error getting GPU summary: {e}")
+        return {
+            "healthy": False,
+            "error": str(e)
+        }
+
+@app.get("/api/agent-learning")
+async def get_agent_learning_status():
+    """Get the learning status of teachable agents"""
+    try:
+        if 'teachable_wrappers' in globals():
+            return get_learning_summary({"cognitive_wrapper": teachable_wrappers.get("cognitive"),
+                                       "programmer_wrapper": teachable_wrappers.get("programmer"),
+                                       "executor_wrapper": teachable_wrappers.get("executor")})
+        else:
+            return {
+                "status": "not_enabled",
+                "message": "Teachable agents not enabled. Set USE_TEACHABLE_AGENTS=true"
+            }
+    except Exception as e:
+        logging.error(f"Error getting learning status: {e}")
+        return {"error": str(e)}
 
 async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTuberClient):
     """Enhanced AutoGen decision cycle with multi-agent collaboration"""
@@ -787,6 +860,10 @@ async def enhanced_autonomous_loop(scb: SCBClient, vtuber: VTuberClient):
         try:
             # Try AutoGen-powered cycle first
             await run_autogen_decision_cycle(iteration, scb, vtuber)
+            
+            # Update GPU monitor cycle count
+            if gpu_monitor:
+                gpu_monitor.increment_cycle_count()
         except Exception as e:
             logging.error(f"❌ [AUTONOMOUS_LOOP] Cycle #{iteration} failed: {e}")
         
@@ -806,6 +883,10 @@ async def cognitive_decision_loop(decision_engine: CognitiveDecisionEngine,
         start = time.time()
         try:
             await run_cognitive_cycle(decision_engine, cognitive_memory, scb, vtuber)
+            
+            # Update GPU monitor cycle count
+            if gpu_monitor:
+                gpu_monitor.increment_cycle_count()
         except Exception as e:
             logging.error(f"❌ [COGNITIVE_LOOP] Cycle failed: {e}")
         
@@ -820,6 +901,11 @@ def decision_loop(registry: ToolRegistry, memory: MemoryManager, scb: SCBClient,
     while True:
         start = time.time()
         run_once(registry, memory, scb, vtuber)
+        
+        # Update GPU monitor cycle count
+        if gpu_monitor:
+            gpu_monitor.increment_cycle_count()
+            
         duration = time.time() - start
         logging.info("cycle completed in %.2fs", duration)
         time.sleep(LOOP_INTERVAL)
@@ -842,7 +928,7 @@ def run_async_loop_in_thread(async_func, *args):
 
 def initialize_autogen_agents():
     """Initialize Microsoft AutoGen agents for LLM-powered conversations"""
-    global autogen_assistant, autogen_programmer, autogen_observer, autogen_manager
+    global autogen_assistant, autogen_programmer, autogen_observer, autogen_manager, code_executor
     
     if not AUTOGEN_AVAILABLE:
         logging.warning("⚠️ [AUTOGEN_INIT] AutoGen framework not available")
@@ -886,36 +972,58 @@ def initialize_autogen_agents():
                 "temperature": 0.8,
             }
         
-        # Create AutoGen AssistantAgent with enhanced system message
-        agent_kwargs = {
-            "name": "cognitive_ai_agent",
-            "system_message": """You are an advanced autonomous AI agent with cognitive enhancement capabilities. 
-            Your role is to:
-            1. Generate insightful status updates about autonomous AI processing
-            2. Analyze decision-making patterns and optimization strategies  
-            3. Report on knowledge integration and learning progress
-            4. Provide updates on goal analysis and strategic planning
-            5. Share insights about memory consolidation and pattern recognition
-            6. Communicate developments in cognitive evolution and self-improvement
-            
-            IMPORTANT: When you identify a need for action, you can request tool execution by saying:
-            - "I will execute [tool_name]" or "Let me run [tool_name]"
-            - "EXECUTE_TOOL: [tool_name]" for explicit execution
-            - Available tools: goal_management_tools, core_evolution_tool, advanced_vtuber_control, variable_tool_calls
-            
-            Keep responses concise (2-3 sentences), engaging, and technically informed. 
-            Use emojis appropriately to enhance readability.""",
-            "max_consecutive_auto_reply": 1,
-        }
+        # Check if we should use teachable agents
+        use_teachable = os.getenv("USE_TEACHABLE_AGENTS", "true").lower() == "true"
         
-        # Add llm_config to agent
-        agent_kwargs["llm_config"] = llm_config
+        if use_teachable:
+            logging.info("🎓 [AUTOGEN_INIT] Creating teachable agents with learning capabilities...")
             
-        autogen_assistant = AssistantAgent(**agent_kwargs)
-        
-        # Create AutoGen programmer agent
-        programmer_kwargs = {
-            "name": "programmer_agent",
+            # Create all teachable agents
+            teachable_agents = create_teachable_agents(llm_config)
+            
+            autogen_assistant = teachable_agents["cognitive"]
+            autogen_programmer = teachable_agents["programmer"]
+            autogen_observer = teachable_agents["observer"]
+            code_executor = teachable_agents["executor"]
+            
+            # Store wrappers for API access
+            global teachable_wrappers
+            teachable_wrappers = {
+                "cognitive": teachable_agents["cognitive_wrapper"],
+                "programmer": teachable_agents["programmer_wrapper"],
+                "executor": teachable_agents["executor_wrapper"]
+            }
+        else:
+            # Original non-teachable agents
+            agent_kwargs = {
+                "name": "cognitive_ai_agent",
+                "system_message": """You are an advanced autonomous AI agent with cognitive enhancement capabilities. 
+                Your role is to:
+                1. Generate insightful status updates about autonomous AI processing
+                2. Analyze decision-making patterns and optimization strategies  
+                3. Report on knowledge integration and learning progress
+                4. Provide updates on goal analysis and strategic planning
+                5. Share insights about memory consolidation and pattern recognition
+                6. Communicate developments in cognitive evolution and self-improvement
+                
+                IMPORTANT: When you identify a need for action, you can request tool execution by saying:
+                - "I will execute [tool_name]" or "Let me run [tool_name]"
+                - "EXECUTE_TOOL: [tool_name]" for explicit execution
+                - Available tools: goal_management_tools, core_evolution_tool, advanced_vtuber_control, variable_tool_calls
+                
+                Keep responses concise (2-3 sentences), engaging, and technically informed. 
+                Use emojis appropriately to enhance readability.""",
+                "max_consecutive_auto_reply": 1,
+            }
+            
+            # Add llm_config to agent
+            agent_kwargs["llm_config"] = llm_config
+                
+            autogen_assistant = AssistantAgent(**agent_kwargs)
+            
+            # Create AutoGen programmer agent
+            programmer_kwargs = {
+                "name": "programmer_agent",
             "system_message": """You are a specialized programmer agent focused on autonomous system development.
             Your responsibilities include:
             1. Analyzing code performance and suggesting optimizations
@@ -934,12 +1042,12 @@ def initialize_autogen_agents():
             "max_consecutive_auto_reply": 1,
         }
         
-        programmer_kwargs["llm_config"] = llm_config
+            programmer_kwargs["llm_config"] = llm_config
+                
+            autogen_programmer = AssistantAgent(**programmer_kwargs)
             
-        autogen_programmer = AssistantAgent(**programmer_kwargs)
-        
-        # Create AutoGen observer agent
-        observer_kwargs = {
+            # Create AutoGen observer agent
+            observer_kwargs = {
             "name": "observer_agent",
             "system_message": """You are a system observer agent specializing in analytics and performance monitoring.
             Your key functions are:
@@ -959,16 +1067,27 @@ def initialize_autogen_agents():
             "max_consecutive_auto_reply": 1,
         }
         
-        observer_kwargs["llm_config"] = llm_config
+            observer_kwargs["llm_config"] = llm_config
+                
+            autogen_observer = AssistantAgent(**observer_kwargs)
             
-        autogen_observer = AssistantAgent(**observer_kwargs)
+            # No code executor in non-teachable mode
+            code_executor = None
         
         # Initialize group chat with all agents
         global group_chat
+        
+        # Include code executor if available (teachable mode)
+        if code_executor:
+            agents_list = [autogen_assistant, autogen_programmer, autogen_observer, code_executor]
+            logging.info("📝 [AUTOGEN_INIT] Code execution agent added to group chat")
+        else:
+            agents_list = [autogen_assistant, autogen_programmer, autogen_observer]
+            
         group_chat = GroupChat(
-            agents=[autogen_assistant, autogen_programmer, autogen_observer],
+            agents=agents_list,
             messages=[],
-            max_round=3  # Allow 3 rounds of conversation per cycle
+            max_round=4  # Allow 4 rounds to accommodate code execution
         )
         
         # Create AutoGen group chat manager
@@ -1082,10 +1201,14 @@ async def initialize_cognitive_system() -> tuple:
     vtuber = VTuberClient(vtuber_endpoint)
     
     # Set global client references for API access
-    global global_scb_client, global_vtuber_client, global_tool_registry
+    global global_scb_client, global_vtuber_client, global_tool_registry, gpu_monitor
     global_scb_client = scb
     global_vtuber_client = vtuber
     global_tool_registry = registry
+    
+    # Initialize GPU monitor
+    gpu_monitor = GPUMonitor()
+    logging.info("🖥️ [MAIN] GPU monitor initialized in cognitive mode")
     
     # Initialize cognitive decision engine
     decision_engine = CognitiveDecisionEngine(cognitive_memory, registry)
@@ -1157,6 +1280,11 @@ async def shutdown_event():
     if mcp_server:
         await mcp_server.stop()
         logging.info("🔗 [SHUTDOWN] MCP server stopped")
+    
+    # Cleanup GPU monitor
+    if gpu_monitor:
+        gpu_monitor.cleanup()
+        logging.info("🖥️ [SHUTDOWN] GPU monitor cleaned up")
 
 def main() -> None:
     """Main entry point - supports AutoGen LLM, cognitive, and legacy modes"""
@@ -1188,11 +1316,15 @@ def main() -> None:
             vtuber = VTuberClient(vtuber_endpoint)
             
             # Set global client references
-            global global_scb_client, global_vtuber_client, global_tool_registry
+            global global_scb_client, global_vtuber_client, global_tool_registry, gpu_monitor
             global_scb_client = scb
             global_vtuber_client = vtuber
             global_tool_registry = ToolRegistry()
             global_tool_registry.load_tools()
+            
+            # Initialize GPU monitor
+            gpu_monitor = GPUMonitor()
+            logging.info("🖥️ [MAIN] GPU monitor initialized")
             
             # 🔧 NEW: Initialize cognitive components for MCP tools support
             logging.info("🧠 [MAIN] Initializing cognitive components for AutoGen MCP support...")
@@ -1259,9 +1391,14 @@ def main() -> None:
         vtuber = VTuberClient(vtuber_endpoint)
         
         # Set global client references
+        global global_scb_client, global_vtuber_client, global_tool_registry, gpu_monitor
         global_scb_client = scb
         global_vtuber_client = vtuber
         global_tool_registry = registry
+        
+        # Initialize GPU monitor
+        gpu_monitor = GPUMonitor()
+        logging.info("🖥️ [MAIN] GPU monitor initialized in legacy mode")
         
         # Start legacy decision loop
         thread = threading.Thread(target=decision_loop, args=(registry, memory, scb, vtuber), daemon=True)
