@@ -5,10 +5,28 @@ Enables agents to learn from conversations and remember information across sessi
 
 import os
 import logging
-from typing import Dict, Any, Optional
-from autogen.agentchat.contrib.teachable_agent import TeachableAgent
-from autogen import ConversableAgent, UserProxyAgent
+from typing import Dict, Any, Optional, Union
+try:
+    from autogen.agentchat.contrib.teachable_agent import TeachableAgent
+    TeachableAgentAvailable = True
+except ImportError:
+    # TeachableAgent is not available in newer versions
+    TeachableAgentAvailable = False
+    logging.warning("TeachableAgent not found in autogen, will use ConversableAgent instead")
+
+try:
+    from autogen import ConversableAgent, UserProxyAgent
+except ImportError:
+    from autogen_agentchat import AssistantAgent as ConversableAgent
+    from autogen_agentchat import UserProxyAgent
+
 import autogen
+
+# Type alias for agent type
+if TeachableAgentAvailable:
+    AgentType = Union[TeachableAgent, ConversableAgent]
+else:
+    AgentType = ConversableAgent
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +49,7 @@ class TeachableCognitiveAgent:
         os.makedirs(self.teach_db_path, exist_ok=True)
         
         # Create teachable agent with enhanced system message
-        self.agent = TeachableAgent(
-            name="teachable_cognitive_ai",
-            system_message="""You are a teachable cognitive AI agent for an autonomous system.
+        system_message = """You are a teachable cognitive AI agent for an autonomous system.
             
 Your capabilities:
 1. **Learning**: You can learn new information from conversations and remember it permanently
@@ -49,20 +65,32 @@ Important behaviors:
 - Ask clarifying questions to learn more effectively
 - Maintain a growth mindset
 
-You work alongside programmer and observer agents to make intelligent decisions.""",
-            llm_config=llm_config,
-            teach_config={
-                "verbosity": 1,  # 0 = silent, 1 = basic, 2 = verbose
-                "reset_db": False,  # Don't reset on init - preserve learnings
-                "path_to_db_dir": self.teach_db_path,
-                "recall_threshold": 1.5,  # Threshold for recalling memories
-                "max_num_retrievals": 5,  # Max memories to retrieve
-            }
-        )
+You work alongside programmer and observer agents to make intelligent decisions."""
+
+        if TeachableAgentAvailable:
+            self.agent = TeachableAgent(
+                name="teachable_cognitive_ai",
+                system_message=system_message,
+                llm_config=llm_config,
+                teach_config={
+                    "verbosity": 1,  # 0 = silent, 1 = basic, 2 = verbose
+                    "reset_db": False,  # Don't reset on init - preserve learnings
+                    "path_to_db_dir": self.teach_db_path,
+                    "recall_threshold": 1.5,  # Threshold for recalling memories
+                    "max_num_retrievals": 5,  # Max memories to retrieve
+                }
+            )
+        else:
+            # Fallback to ConversableAgent
+            self.agent = ConversableAgent(
+                name="teachable_cognitive_ai",
+                system_message=system_message,
+                llm_config=llm_config
+            )
         
         logger.info(f"✅ Teachable cognitive agent initialized with DB at {self.teach_db_path}")
     
-    def get_agent(self) -> TeachableAgent:
+    def get_agent(self) -> AgentType:
         """Get the teachable agent instance"""
         return self.agent
     
@@ -143,9 +171,7 @@ class TeachableProgrammerAgent:
         self.teach_db_path = teach_db_path
         os.makedirs(self.teach_db_path, exist_ok=True)
         
-        self.agent = TeachableAgent(
-            name="teachable_programmer",
-            system_message="""You are a teachable programmer agent specializing in code generation and optimization.
+        system_message = """You are a teachable programmer agent specializing in code generation and optimization.
             
 Your enhanced capabilities:
 1. **Pattern Learning**: Learn successful code patterns and reuse them
@@ -161,20 +187,32 @@ Key behaviors:
 - Share coding knowledge with other agents
 - Continuously improve code quality based on learnings
 
-You generate, review, and optimize code while learning from each interaction.""",
-            llm_config=llm_config,
-            teach_config={
-                "verbosity": 1,
-                "reset_db": False,
-                "path_to_db_dir": self.teach_db_path,
-                "recall_threshold": 1.2,  # Lower threshold for code patterns
-                "max_num_retrievals": 10,  # More retrievals for code examples
-            }
-        )
+You generate, review, and optimize code while learning from each interaction."""
+
+        if TeachableAgentAvailable:
+            self.agent = TeachableAgent(
+                name="teachable_programmer",
+                system_message=system_message,
+                llm_config=llm_config,
+                teach_config={
+                    "verbosity": 1,
+                    "reset_db": False,
+                    "path_to_db_dir": self.teach_db_path,
+                    "recall_threshold": 1.2,  # Lower threshold for code patterns
+                    "max_num_retrievals": 10,  # More retrievals for code examples
+                }
+            )
+        else:
+            # Fallback to ConversableAgent
+            self.agent = ConversableAgent(
+                name="teachable_programmer",
+                system_message=system_message,
+                llm_config=llm_config
+            )
         
         logger.info(f"✅ Teachable programmer agent initialized with DB at {self.teach_db_path}")
     
-    def get_agent(self) -> TeachableAgent:
+    def get_agent(self) -> AgentType:
         """Get the teachable programmer agent instance"""
         return self.agent
 

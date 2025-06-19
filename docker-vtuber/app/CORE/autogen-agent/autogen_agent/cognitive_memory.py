@@ -164,6 +164,10 @@ class CognitiveMemoryManager:
     
     async def _store_in_cognee(self, content: str):
         """Store content in Cognee knowledge graph"""
+        if not self.cognee_api_key:
+            logging.warning("⚠️ [COGNITIVE_MEMORY] No Cognee API key configured, skipping storage")
+            return
+            
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -175,13 +179,22 @@ class CognitiveMemoryManager:
                     },
                     timeout=10
                 ) as response:
-                    if response.status != 200:
-                        logging.error(f"❌ [COGNITIVE_MEMORY] Cognee storage failed: {response.status}")
+                    if response.status == 200:
+                        logging.info("✅ [COGNITIVE_MEMORY] Stored in Cognee knowledge graph")
+                    elif response.status == 401:
+                        logging.error("❌ [COGNITIVE_MEMORY] Cognee authentication failed (401). Check your API key or credentials.")
+                        self.cognee_available = False  # Disable further attempts
+                    else:
+                        error_text = await response.text()
+                        logging.error(f"❌ [COGNITIVE_MEMORY] Cognee storage failed: {response.status} - {error_text}")
         except Exception as e:
             logging.error(f"❌ [COGNITIVE_MEMORY] Cognee storage error: {e}")
     
     async def _search_cognee(self, query: str, max_results: int) -> List[Dict]:
         """Search Cognee knowledge graph"""
+        if not self.cognee_api_key:
+            return []
+            
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -196,8 +209,13 @@ class CognitiveMemoryManager:
                 ) as response:
                     if response.status == 200:
                         return await response.json()
+                    elif response.status == 401:
+                        logging.error("❌ [COGNITIVE_MEMORY] Cognee authentication failed (401). Check your API key or credentials.")
+                        self.cognee_available = False  # Disable further attempts
+                        return []
                     else:
-                        logging.error(f"❌ [COGNITIVE_MEMORY] Cognee search failed: {response.status}")
+                        error_text = await response.text()
+                        logging.error(f"❌ [COGNITIVE_MEMORY] Cognee search failed: {response.status} - {error_text}")
                         return []
         except Exception as e:
             logging.error(f"❌ [COGNITIVE_MEMORY] Cognee search error: {e}")
