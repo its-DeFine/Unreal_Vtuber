@@ -1168,7 +1168,9 @@ async def initialize_cognitive_system() -> tuple:
     redis_url = os.getenv("REDIS_URL", None)  # Optional for standalone mode
     vtuber_endpoint = os.getenv("VTUBER_ENDPOINT", None)  # Optional for standalone mode
     cognee_url = os.getenv("COGNEE_URL", None)
-    cognee_api_key = os.getenv("COGNEE_API_KEY", None)
+    
+    # Cognee authentication - prefer bearer token, fallback to API key for backward compatibility
+    cognee_api_key = os.getenv("COGNEE_BEARER_TOKEN") or os.getenv("COGNEE_API_KEY", None)
     
     standalone_mode = os.getenv("STANDALONE_MODE", "true").lower() == "true"
     
@@ -1390,8 +1392,7 @@ def main() -> None:
         scb = SCBClient(redis_url)
         vtuber = VTuberClient(vtuber_endpoint)
         
-        # Set global client references
-        global global_scb_client, global_vtuber_client, global_tool_registry, gpu_monitor
+        # Global variables already declared earlier - just assign values
         global_scb_client = scb
         global_vtuber_client = vtuber
         global_tool_registry = registry

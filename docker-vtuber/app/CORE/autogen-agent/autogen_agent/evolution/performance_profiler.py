@@ -3,6 +3,7 @@ Performance Profiler for Darwin-Gödel Machine
 Measures actual performance improvements instead of using estimates
 """
 
+import ast
 import os
 import sys
 import time

@@ -15,29 +15,39 @@ Key Features:
 import aiohttp
 import logging
 import json
+import os
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta
 
 class CogneeService:
     """Official Cognee open source service integration"""
     
-    def __init__(self, base_url: str, username: str = "default_user@example.com", 
-                 password: str = "default_password", dataset_name: str = "autogen_agent"):
-        self.base_url = base_url.rstrip('/')
-        self.username = username
-        self.password = password
+    def __init__(self, base_url: str = None, username: str = None, 
+                 password: str = None, bearer_token: str = None, 
+                 dataset_name: str = "autogen_agent"):
+        # Get configuration from environment variables
+        self.base_url = (base_url or os.getenv("COGNEE_URL", "http://cognee:8000")).rstrip('/')
+        self.username = username or os.getenv("COGNEE_USERNAME", "default_user@example.com")
+        self.password = password or os.getenv("COGNEE_PASSWORD", "default_password")
+        self.bearer_token = bearer_token or os.getenv("COGNEE_BEARER_TOKEN")
         self.dataset_name = dataset_name
-        self.access_token = None
+        self.access_token = self.bearer_token  # Use bearer token if provided
         self.token_expires = None
         
-        logging.info(f"🧠 [COGNEE_SERVICE] Initialized with base URL: {self.base_url}")
+        auth_method = "bearer token" if self.bearer_token else "username/password"
+        logging.info(f"🧠 [COGNEE_SERVICE] Initialized with base URL: {self.base_url}, auth method: {auth_method}")
         
     async def initialize(self) -> bool:
         """Initialize Cognee service and get access token"""
         try:
-            await self.authenticate()
-            logging.info("✅ [COGNEE_SERVICE] Successfully initialized and authenticated")
-            return True
+            # Skip authentication if we already have a bearer token
+            if self.bearer_token:
+                logging.info("🔐 [COGNEE_SERVICE] Using pre-configured bearer token")
+                return True
+            else:
+                await self.authenticate()
+                logging.info("✅ [COGNEE_SERVICE] Successfully initialized and authenticated")
+                return True
         except Exception as e:
             logging.error(f"❌ [COGNEE_SERVICE] Initialization failed: {e}")
             return False
@@ -80,6 +90,11 @@ class CogneeService:
     
     async def _ensure_authenticated(self):
         """Ensure we have a valid access token"""
+        # If using bearer token, assume it's always valid (no expiration check)
+        if self.bearer_token:
+            return
+            
+        # For username/password auth, check expiration
         if not self.access_token or (self.token_expires and datetime.now() >= self.token_expires):
             await self.authenticate()
     
