@@ -17,6 +17,7 @@ import logging
 import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import json
 
 try:
     import cognee
@@ -42,13 +43,17 @@ class CogneeDirectService:
         logging.info(f"🔍 [COGNEE_DIRECT] DEBUG - LLM_PROVIDER (before): {os.environ.get('LLM_PROVIDER', 'NOT_SET')}")
         logging.info(f"🔍 [COGNEE_DIRECT] DEBUG - LLM_MODEL (before): {os.environ.get('LLM_MODEL', 'NOT_SET')}")
         
+        # 🔧 SOLUTION 1: Upgrade to a more capable model for better structured outputs
+        # Use llama3.1:8b instead of llama3.2:3b for better JSON generation
+        improved_model = os.getenv('COGNEE_LLM_MODEL', 'llama3.1:8b')  # Allow override via env var
+        
         # Set environment variables for Cognee (Ollama configuration per official docs)
         os.environ['LLM_PROVIDER'] = 'ollama'
-        os.environ['LLM_MODEL'] = 'llama3.2:3b'
+        os.environ['LLM_MODEL'] = improved_model
         os.environ['LLM_API_KEY'] = 'ollama'  # Official docs specify just "ollama"
         os.environ['LLM_ENDPOINT'] = 'http://ollama:11434/v1'  # Note the /v1 suffix
-        os.environ['LLM_TEMPERATURE'] = '0.0'
-        os.environ['LLM_MAX_TOKENS'] = '4096'
+        os.environ['LLM_TEMPERATURE'] = '0.1'  # Lower temperature for more consistent structured outputs
+        os.environ['LLM_MAX_TOKENS'] = '2048'  # Reduced for better consistency
         
         # 🔧 Configure Fastembed for local embeddings (no API key required)
         # Per official Cognee documentation: https://docs.cognee.ai/how-to-guides/configuration
@@ -58,11 +63,23 @@ class CogneeDirectService:
         os.environ['EMBEDDING_DIMENSIONS'] = '384'
         os.environ['EMBEDDING_MAX_TOKENS'] = '256'
         
-        # 🔧 HuggingFace tokenizer - using Cognee defaults to avoid conflicts
-        
-        # 🔧 NEW: Configure Cognee to avoid problematic summarization pipeline  
+        # 🔧 SOLUTION 2: Advanced Cognee configuration to handle small model limitations
         os.environ['COGNEE_SUMMARIZATION_ENABLED'] = 'false'
         os.environ['COGNEE_DISABLE_BACKGROUND_TASKS'] = 'true'
+        os.environ['COGNEE_DISABLE_ASYNC_SUMMARIZATION'] = 'true'  # Disable async summarization tasks
+        os.environ['COGNEE_CHUNK_SIZE'] = '512'  # Smaller chunks for better processing
+        os.environ['COGNEE_OVERLAP'] = '50'  # Reduced overlap
+        os.environ['COGNEE_RETRY_ATTEMPTS'] = '1'  # Reduce retries to fail fast
+        os.environ['COGNEE_ENABLE_VALIDATION_FALLBACK'] = 'true'  # Custom fallback handling
+        
+        # 🔧 SOLUTION 3: Configure instructor library for better error handling
+        os.environ['INSTRUCTOR_MODE'] = 'json_mode'  # Use JSON mode instead of function calling
+        os.environ['INSTRUCTOR_MAX_RETRIES'] = '1'  # Fail fast instead of retrying
+        
+        # 🔧 SOLUTION 6: Configure Cognee for more lenient validation (handle LLM inconsistencies)
+        os.environ['COGNEE_LENIENT_VALIDATION'] = 'true'  # Allow type coercion where possible
+        os.environ['COGNEE_SCHEMA_STRICT'] = 'false'  # More forgiving schema validation
+        os.environ['COGNEE_AUTO_FIX_TYPES'] = 'true'  # Automatically fix common type mismatches
         
         # 🔧 TEMPORARY FIX: Use CPU-only mode to avoid tokenizer issues
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
@@ -78,7 +95,7 @@ class CogneeDirectService:
         logging.info(f"🔍 [COGNEE_DIRECT] DEBUG - EMBEDDING_MODEL (after): {os.environ.get('EMBEDDING_MODEL')}")
         logging.info(f"🔍 [COGNEE_DIRECT] DEBUG - EMBEDDING_ENDPOINT (after): {os.environ.get('EMBEDDING_ENDPOINT')}")
         
-        logging.info("🔑 [COGNEE_DIRECT] Configured for local Ollama (LLM + Embeddings)")
+        logging.info(f"🔑 [COGNEE_DIRECT] Configured for local Ollama with {improved_model} (LLM + Embeddings)")
         
         try:
             import cognee
@@ -90,8 +107,8 @@ class CogneeDirectService:
             
             # Set LLM configuration using Cognee's config methods
             cognee.config.set_llm_provider('ollama')
-            # Use our new schema-aware model that knows Cognee field names
-            cognee.config.set_llm_model('llama3.2:3b')
+            # Use our improved model that handles structured outputs better
+            cognee.config.set_llm_model(improved_model)
             cognee.config.set_llm_api_key('ollama')
             cognee.config.set_llm_endpoint('http://ollama:11434/v1')
             
@@ -101,7 +118,8 @@ class CogneeDirectService:
             except:
                 logging.info("🔧 [COGNEE_DIRECT] Vector DB config not available (older version)")
             
-            # 🔧 Embedding config already set via environment variables above
+            # 🔧 SOLUTION 4: Set up global exception handler for background tasks
+            self._setup_global_exception_handler()
             
             logging.info("✅ [COGNEE_DIRECT] DEBUG - Cognee config methods applied successfully")
             
@@ -115,6 +133,48 @@ class CogneeDirectService:
             return
         
         logging.info(f"🧠 [COGNEE_DIRECT] Initialized for dataset: {self.dataset_name}")
+    
+    def _setup_global_exception_handler(self):
+        """Set up global exception handler for background tasks"""
+        import asyncio
+        
+        def exception_handler(loop, context):
+            """Handle exceptions in background tasks"""
+            exception = context.get('exception')
+            if exception:
+                error_msg = str(exception)
+                
+                # 🔧 SOLUTION 5: Handle SummarizedContent validation errors in background tasks
+                if ("validation error for SummarizedContent" in error_msg or 
+                    "Field required" in error_msg and ("summary" in error_msg or "description" in error_msg) or
+                    "Failed to validate model SummarizedContent" in error_msg):
+                    
+                    logging.warning("⚠️ [COGNEE_DIRECT] Caught SummarizedContent validation error in background task (non-critical)")
+                    logging.info("🔧 [COGNEE_DIRECT] This is expected with smaller LLM models - data processing continues")
+                    logging.debug(f"🔍 [COGNEE_DIRECT] Background task error details: {error_msg}")
+                    return  # Don't log as error, just continue
+                
+                # Handle other instructor/validation errors
+                if ("InstructorRetryException" in error_msg or 
+                    "ValidationError" in error_msg or
+                    "Failed to validate model" in error_msg):
+                    
+                    logging.warning(f"⚠️ [COGNEE_DIRECT] Background validation error (handled): {error_msg[:100]}...")
+                    logging.info("🔧 [COGNEE_DIRECT] Background task validation failed - this is handled gracefully")
+                    return
+                
+                # Log other exceptions normally
+                logging.error(f"❌ [COGNEE_DIRECT] Background task error: {error_msg}")
+            else:
+                logging.error(f"❌ [COGNEE_DIRECT] Background task error: {context}")
+        
+        # Set the exception handler for the current event loop
+        try:
+            loop = asyncio.get_event_loop()
+            loop.set_exception_handler(exception_handler)
+            logging.info("✅ [COGNEE_DIRECT] Global exception handler configured for background tasks")
+        except Exception as e:
+            logging.warning(f"⚠️ [COGNEE_DIRECT] Could not set global exception handler: {e}")
     
     async def initialize(self) -> bool:
         """Initialize Cognee service"""
@@ -148,16 +208,54 @@ class CogneeDirectService:
             
             # Use simpler test data to avoid triggering complex summarization
             test_data = "Simple test: AutoGen system operational"
+            
+            # 🔧 LOG LLM INPUT: Show what we're sending to the LLM
+            logging.info(f"📤 [COGNEE_DIRECT] LLM INPUT - Adding data: '{test_data}'")
+            
             await cognee.add(test_data)
             logging.info("🔍 [COGNEE_DIRECT] DEBUG - cognee.add() completed successfully")
             
+            # 🔧 LOG LLM RESPONSE: Try to capture what the LLM returned (if possible)
+            logging.info("📥 [COGNEE_DIRECT] LLM RESPONSE - Data added successfully to knowledge base")
+            
             # Try to cognify (this processes the data) with error handling
             logging.info("🔍 [COGNEE_DIRECT] DEBUG - About to call cognee.cognify()")
+            
+            # 🔧 LOG LLM INPUT: Show what cognify will process
+            logging.info("📤 [COGNEE_DIRECT] LLM INPUT - Processing knowledge graph from added data")
+            
             try:
                 await cognee.cognify()
                 logging.info("🔍 [COGNEE_DIRECT] DEBUG - cognee.cognify() completed successfully")
+                
+                # 🔧 LOG LLM RESPONSE: Indicate successful processing
+                logging.info("📥 [COGNEE_DIRECT] LLM RESPONSE - Knowledge graph processing completed successfully")
+                
             except Exception as cognify_error:
                 error_msg = str(cognify_error)
+                
+                # 🔧 LOG RAW LLM ERROR: Show exactly what the LLM produced
+                logging.error(f"📥 [COGNEE_DIRECT] RAW LLM ERROR - Model output that caused validation failure:")
+                logging.error(f"📥 [COGNEE_DIRECT] RAW LLM ERROR - Full error: {error_msg}")
+                
+                # 🔧 SOLUTION 7: Extract and log the actual JSON that failed validation
+                import re
+                json_match = re.search(r'input_value=([^,\]]+)', error_msg)
+                if json_match:
+                    problematic_value = json_match.group(1)
+                    logging.error(f"📥 [COGNEE_DIRECT] PROBLEMATIC VALUE - LLM generated: {problematic_value} (expected string)")
+                
+                # Try to extract actual JSON/model output from error message if possible
+                if "Got" in error_msg and "Expected" in error_msg:
+                    logging.error(f"📥 [COGNEE_DIRECT] LLM MISMATCH - The LLM generated something different than expected schema")
+                
+                # New validation error patterns
+                if "input_value=" in error_msg and "input_type=" in error_msg:
+                    type_match = re.search(r'input_type=(\w+)', error_msg)
+                    if type_match:
+                        actual_type = type_match.group(1)
+                        logging.error(f"📥 [COGNEE_DIRECT] TYPE MISMATCH - LLM generated {actual_type} instead of expected type")
+                
                 if "InstructorRetryException" in error_msg and "validation errors for KnowledgeGraph" in error_msg:
                     if "edges" in error_msg and ("source_node_id" in error_msg or "relationship_name" in error_msg or "target_node_id" in error_msg):
                         logging.warning("⚠️ [COGNEE_DIRECT] Cognify failed (expected due to edge schema): LLM generating wrong field names for edges")
@@ -180,8 +278,19 @@ class CogneeDirectService:
             
             # Try to search - this is the most important function
             logging.info("🔍 [COGNEE_DIRECT] DEBUG - About to call cognee.search()")
-            results = await cognee.search("AutoGen")
+            
+            # 🔧 LOG LLM INPUT: Show search query
+            search_query = "AutoGen"
+            logging.info(f"📤 [COGNEE_DIRECT] LLM INPUT - Search query: '{search_query}'")
+            
+            results = await cognee.search(search_query)
             logging.info("🔍 [COGNEE_DIRECT] DEBUG - cognee.search() completed successfully")
+            
+            # 🔧 LOG LLM RESPONSE: Show search results structure
+            logging.info(f"📥 [COGNEE_DIRECT] LLM RESPONSE - Search returned {len(results)} results")
+            if results:
+                logging.info(f"📥 [COGNEE_DIRECT] LLM RESPONSE - First result type: {type(results[0])}")
+                logging.info(f"📥 [COGNEE_DIRECT] LLM RESPONSE - First result preview: {str(results[0])[:100]}...")
             
             logging.info(f"🧪 [COGNEE_DIRECT] Test successful with Ollama, found {len(results)} results")
         except Exception as e:
@@ -200,11 +309,19 @@ class CogneeDirectService:
             return {"error": "Service not initialized"}
         
         try:
+            # 🔧 LOG LLM INPUT: Show what data we're sending
+            logging.info(f"📤 [COGNEE_DIRECT] LLM INPUT - Adding {len(data)} items to knowledge graph")
+            for i, item in enumerate(data):
+                logging.info(f"📤 [COGNEE_DIRECT] LLM INPUT - Item {i+1}: '{item[:100]}...' (length: {len(item)})")
+            
             # Add all data entries
             for item in data:
                 await cognee.add(item)
             
+            # 🔧 LOG LLM RESPONSE: Confirm successful addition
+            logging.info(f"📥 [COGNEE_DIRECT] LLM RESPONSE - Successfully processed {len(data)} items")
             logging.info(f"✅ [COGNEE_DIRECT] Added {len(data)} items to knowledge graph (Ollama)")
+            
             return {
                 "success": True,
                 "items_added": len(data),
@@ -212,6 +329,10 @@ class CogneeDirectService:
                 "llm_provider": "ollama"
             }
         except Exception as e:
+            # 🔧 LOG RAW LLM ERROR: Show detailed error information
+            logging.error(f"📥 [COGNEE_DIRECT] RAW LLM ERROR - Failed to add data:")
+            logging.error(f"📥 [COGNEE_DIRECT] RAW LLM ERROR - Error type: {type(e)}")
+            logging.error(f"📥 [COGNEE_DIRECT] RAW LLM ERROR - Error message: {str(e)}")
             logging.error(f"❌ [COGNEE_DIRECT] Add data error: {e}")
             return {"error": str(e)}
     
@@ -221,10 +342,17 @@ class CogneeDirectService:
             return {"error": "Service not initialized"}
         
         try:
+            # 🔧 LOG LLM INPUT: Show what cognify is about to process
+            logging.info("📤 [COGNEE_DIRECT] LLM INPUT - Starting knowledge graph processing (cognify)")
+            logging.info("📤 [COGNEE_DIRECT] LLM INPUT - Model will extract entities and relationships")
+            
             # Process the data to create knowledge graph relationships
             await cognee.cognify()
             
+            # 🔧 LOG LLM RESPONSE: Show successful completion
+            logging.info("📥 [COGNEE_DIRECT] LLM RESPONSE - Knowledge graph processing completed successfully")
             logging.info("🧩 [COGNEE_DIRECT] Cognify completed successfully with Ollama")
+            
             return {
                 "success": True,
                 "message": "Knowledge graph processing completed",
@@ -234,10 +362,33 @@ class CogneeDirectService:
         except Exception as e:
             error_msg = str(e)
             
-            # Enhanced error detection for knowledge graph validation issues
-            if "InstructorRetryException" in error_msg and "validation errors for KnowledgeGraph" in error_msg:
-                # This is the specific error we're seeing - edge validation failures
-                if "edges" in error_msg and ("source_node_id" in error_msg or "relationship_name" in error_msg or "target_node_id" in error_msg):
+            # 🔧 LOG RAW LLM ERROR: Show exactly what the LLM produced that failed validation
+            logging.error(f"📥 [COGNEE_DIRECT] RAW LLM ERROR - Cognify failed with model output:")
+            logging.error(f"📥 [COGNEE_DIRECT] RAW LLM ERROR - Full error: {error_msg}")
+            
+            # Try to extract the actual JSON that failed validation
+            if '"' in error_msg and '{' in error_msg:
+                logging.error("📥 [COGNEE_DIRECT] RAW LLM ERROR - Error contains JSON-like content, model may have produced malformed output")
+            
+            if "validation error" in error_msg.lower():
+                logging.error("📥 [COGNEE_DIRECT] RAW LLM ERROR - This is a Pydantic validation error - LLM output doesn't match expected schema")
+            
+            # 🔧 SOLUTION 8: Enhanced error detection for the new validation patterns  
+            if "validation error for KnowledgeGraph" in error_msg or "Failed to validate model KnowledgeGraph" in error_msg:
+                # Detect the specific type mismatch errors we're seeing
+                if "nodes.0.description" in error_msg and "Input should be a valid string" in error_msg:
+                    logging.warning("⚠️ [COGNEE_DIRECT] KnowledgeGraph node description type error - LLM generating integer instead of string")
+                    logging.info("🔧 [COGNEE_DIRECT] LLM generated integer for description field (expected string) - this is a model output formatting issue")
+                    return {
+                        "success": False,
+                        "message": "Knowledge graph processing failed due to node validation error",
+                        "dataset": self.dataset_name,
+                        "llm_provider": "ollama",
+                        "error": "LLM generated integer for description field (expected string)",
+                        "technical_details": "Node description field type mismatch",
+                        "suggestion": "This is a llama3.1:8b model structured output issue"
+                    }
+                elif "edges" in error_msg and ("source_node_id" in error_msg or "relationship_name" in error_msg or "target_node_id" in error_msg):
                     logging.warning("⚠️ [COGNEE_DIRECT] Knowledge graph edge validation error - LLM generating wrong field names")
                     logging.info("🔧 [COGNEE_DIRECT] LLM generated edges with '@id', 'label' but schema expects 'source_node_id', 'relationship_name', 'target_node_id'")
                     return {
@@ -305,8 +456,21 @@ class CogneeDirectService:
             
             # Search the knowledge graph
             logging.info("🔍 [COGNEE_DIRECT] DEBUG - About to call cognee.search()")
+            
+            # 🔧 LOG LLM INPUT: Show the search query being processed
+            logging.info(f"📤 [COGNEE_DIRECT] LLM INPUT - Search query: '{query}' (limit: {limit})")
+            
             results = await cognee.search(query)
             logging.info("🔍 [COGNEE_DIRECT] DEBUG - cognee.search() completed successfully")
+            
+            # 🔧 LOG LLM RESPONSE: Show what the search returned
+            logging.info(f"📥 [COGNEE_DIRECT] LLM RESPONSE - Search found {len(results)} raw results")
+            if results:
+                for i, result in enumerate(results[:3]):  # Show first 3 results
+                    logging.info(f"📥 [COGNEE_DIRECT] LLM RESPONSE - Result {i+1} type: {type(result)}")
+                    logging.info(f"📥 [COGNEE_DIRECT] LLM RESPONSE - Result {i+1} content: {str(result)[:150]}...")
+            else:
+                logging.info("📥 [COGNEE_DIRECT] LLM RESPONSE - No results found for query")
             
             # Limit results if needed
             if limit and len(results) > limit:

@@ -43,12 +43,12 @@ services:
       sh -c "
         echo 'Waiting for Ollama to be ready...' &&
         sleep 5 &&
-        echo 'Pulling llama3.2:3b model...' &&
-        curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"llama3.2:3b\"}' &&
+        echo 'Pulling llama3.1:8b model...' &&
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"llama3.1:8b\"}' &&
         echo 'Model pull initiated' &&
-        sleep 60 &&
+        sleep 90 &&
         echo 'Loading model into memory...' &&
-        curl -X POST http://ollama:11434/api/generate -d '{\"model\": \"llama3.2:3b\", \"prompt\": \"Hello\", \"stream\": false}' &&
+        curl -X POST http://ollama:11434/api/generate -d '{\"model\": \"llama3.1:8b\", \"prompt\": \"Hello\", \"stream\": false}' &&
         echo 'Model loaded successfully'
       "
     restart: "no"
@@ -92,7 +92,7 @@ services:
       # Ollama configuration for local LLM
       - OLLAMA_HOST=http://ollama:11434
       - USE_OLLAMA=true
-      - OLLAMA_MODEL=llama3.2:3b
+      - OLLAMA_MODEL=llama3.1:8b
       # Cognee configuration
       - COGNEE_URL=${COGNEE_URL:-http://cognee:8000}
       - COGNEE_USERNAME=${COGNEE_USERNAME:-default_user@example.com}

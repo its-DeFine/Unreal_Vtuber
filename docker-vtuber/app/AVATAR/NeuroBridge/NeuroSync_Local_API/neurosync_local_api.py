@@ -29,6 +29,9 @@ CORS(app)
 #       environment variable USE_REDIS_SCB=true and a Redis instance is
 #       available (docker-compose.bridge.yml already provides this).
 
+import sys
+import os
+sys.path.append('/app/NeuroBridge/NeuroSync_Player')
 from utils.scb import scb_store  # noqa: E402 – imported after Flask creation
 
 # Optional very lightweight API-key guard.  If NEUROSYNC_API_KEY is set, every

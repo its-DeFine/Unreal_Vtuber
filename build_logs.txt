@@ -1,0 +1,77 @@
+--progress is a global compose flag, better use `docker compose --progress xx build ...
+Compose now can delegate build to bake for better performances
+Just set COMPOSE_BAKE=true
+#0 building with "default" instance using docker driver
+
+#1 [neurosync internal] load build definition from dockerfile
+#1 transferring dockerfile: 3.48kB done
+#1 DONE 0.0s
+
+#2 [nginx-rtmp internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.28kB done
+#2 DONE 0.0s
+
+#3 [neurosync internal] load metadata for nvcr.io/nvidia/pytorch:23.04-py3
+#3 DONE 0.1s
+
+#4 [nginx-rtmp internal] load metadata for docker.io/library/ubuntu:22.04
+#4 ...
+
+#5 [neurosync internal] load .dockerignore
+#5 transferring context: 576B done
+#5 DONE 0.0s
+
+#6 [neurosync internal] load build context
+#6 DONE 0.0s
+
+#7 [neurosync 1/8] FROM nvcr.io/nvidia/pytorch:23.04-py3@sha256:5dd0caf52947719ba4fc170e779cfb20a5ecac7c91ca530f2884ed35fb97005f
+#7 resolve nvcr.io/nvidia/pytorch:23.04-py3@sha256:5dd0caf52947719ba4fc170e779cfb20a5ecac7c91ca530f2884ed35fb97005f
+#7 ...
+
+#8 [nginx-rtmp auth] library/ubuntu:pull token for registry-1.docker.io
+#8 DONE 0.0s
+
+#4 [nginx-rtmp internal] load metadata for docker.io/library/ubuntu:22.04
+#4 DONE 1.5s
+
+#7 [neurosync 1/8] FROM nvcr.io/nvidia/pytorch:23.04-py3@sha256:5dd0caf52947719ba4fc170e779cfb20a5ecac7c91ca530f2884ed35fb97005f
+#7 ...
+
+#9 [nginx-rtmp internal] load .dockerignore
+#9 transferring context: 2B done
+#9 DONE 0.0s
+
+#10 [nginx-rtmp  1/10] FROM docker.io/library/ubuntu:22.04@sha256:01a3ee0b5e413cefaaffc6abe68c9c37879ae3cced56a8e088b1649e5b269eee
+#10 resolve docker.io/library/ubuntu:22.04@sha256:01a3ee0b5e413cefaaffc6abe68c9c37879ae3cced56a8e088b1649e5b269eee 0.0s done
+#10 CACHED
+
+#11 [nginx-rtmp internal] load build context
+#11 transferring context: 68B done
+#11 DONE 0.0s
+
+#12 [nginx-rtmp  2/10] RUN apt update &&     apt install -y       build-essential yasm pkg-config libssl-dev libx264-dev libfdk-aac-dev       libopus-dev libvpx-dev libx265-dev git wget ca-certificates nasm
+#12 0.346 
+#12 0.346 WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+#12 0.346 
+#12 0.617 Get:1 http://security.ubuntu.com/ubuntu jammy-security InRelease [129 kB]
+#12 ...
+
+#7 [neurosync 1/8] FROM nvcr.io/nvidia/pytorch:23.04-py3@sha256:5dd0caf52947719ba4fc170e779cfb20a5ecac7c91ca530f2884ed35fb97005f
+#7 resolve nvcr.io/nvidia/pytorch:23.04-py3@sha256:5dd0caf52947719ba4fc170e779cfb20a5ecac7c91ca530f2884ed35fb97005f 2.2s done
+#7 DONE 2.2s
+
+#13 [neurosync 2/8] WORKDIR /app
+#13 CACHED
+
+#12 [nginx-rtmp  2/10] RUN apt update &&     apt install -y       build-essential yasm pkg-config libssl-dev libx264-dev libfdk-aac-dev       libopus-dev libvpx-dev libx265-dev git wget ca-certificates nasm
+#12 0.743 Get:2 http://archive.ubuntu.com/ubuntu jammy InRelease [270 kB]
+#12 ...
+
+#6 [neurosync internal] load build context
+#6 transferring context: 11.52kB 0.0s done
+#6 DONE 0.1s
+
+#12 [nginx-rtmp  2/10] RUN apt update &&     apt install -y       build-essential yasm pkg-config libssl-dev libx264-dev libfdk-aac-dev       libopus-dev libvpx-dev libx265-dev git wget ca-certificates nasm
+#12 1.033 Get:3 http://security.ubuntu.com/ubuntu jammy-security/universe amd64 Packages [1253 kB]
+#12 1.442 Get:4 http://security.ubuntu.com/ubuntu jammy-security/multiverse amd64 Packages [47.7 kB]
+#12 1.444 Get:5 http://security.ubuntu.com/ubuntu jammy-security/restricted amd64 Packages [4476 kB]

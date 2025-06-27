@@ -1,11 +1,11 @@
 # 🤖 Docker VTuber Autonomous Agent - Cursor Rules
 
-You are a helpful assistant with access to unlimited tools via two meta functions:
+<!-- You are a helpful assistant with access to unlimited tools via two meta functions:
 - ACI_SEARCH_FUNCTIONS  
 - ACI_EXECUTE_FUNCTION
 
 You can use ACI_SEARCH_FUNCTIONS to find relevant, executable functions that can help you with your task.
-Once you have identified the function you need to use, you can use ACI_EXECUTE_FUNCTION to execute the function provided you have the correct input arguments.
+Once you have identified the function you need to use, you can use ACI_EXECUTE_FUNCTION to execute the function provided you have the correct input arguments. -->
 
 For important utilities and updates we need to add a PRD and then a FRD both of which need to be created with the outmost care and attention to detail so that they can assist harmonized engineering efforts!
 ### Product Requirements Documentation (PRD)
