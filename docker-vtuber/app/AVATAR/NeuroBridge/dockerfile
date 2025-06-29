@@ -3,7 +3,7 @@ FROM nvcr.io/nvidia/pytorch:23.04-py3
 # ---------- Paths & environment ----------
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONPATH="/app/NeuroBridge:/app/NeuroBridge/NeuroSync_Local_API:/app/NeuroBridge/NeuroSync_Player:/app/neurosync-worker:${PYTHONPATH}"
+    PYTHONPATH="/app/NeuroBridge:/app/NeuroBridge/NeuroSync_Local_API:/app/NeuroBridge/NeuroSync_Player:${PYTHONPATH}"
 
 # ---------- System deps (Install these first for better caching) ----------
 # Fix Ubuntu repository issues and add proper error handling
@@ -44,7 +44,7 @@ RUN apt-get update --fix-missing && \
 
 # ---------- Copy source (Copy after system deps for better caching of above layer) ----------
 COPY ./app/AVATAR/NeuroBridge /app/NeuroBridge
-COPY ./decide/BYOC_OLD/neurosync-worker /app/neurosync-worker
+# COPY ./decide/BYOC_OLD/neurosync-worker /app/neurosync-worker  # Not needed for current implementation
 
 # ---------- Python deps ----------
 RUN pip install --no-cache-dir flask flask-cors numpy jsonschema && \
