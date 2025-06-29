@@ -1,3 +1,0 @@
-#!/bin/bash
-# Simple wrapper for the docker-manager script
-exec "$(dirname "$0")/scripts/docker-manager.sh" "$@" 
