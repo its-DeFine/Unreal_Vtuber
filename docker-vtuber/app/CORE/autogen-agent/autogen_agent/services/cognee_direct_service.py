@@ -33,6 +33,8 @@ class CogneeDirectService:
         self.dataset_name = dataset_name
         self.initialized = False
         
+
+        
         if not COGNEE_AVAILABLE:
             logging.error("❌ [COGNEE_DIRECT] Cognee library not available")
             return
@@ -45,13 +47,15 @@ class CogneeDirectService:
         
         # 🔧 SOLUTION 1: Upgrade to a more capable model for better structured outputs
         # Use llama3.1:8b instead of llama3.2:3b for better JSON generation
-        improved_model = os.getenv('COGNEE_LLM_MODEL', 'llama3.1:8b')  # Allow override via env var
+        # Use llama3.1 which now exists as an alias to llama3.1:8b
+        improved_model = os.getenv('COGNEE_LLM_MODEL', 'llama3.1')  # Now works with the alias we created
         
         # Set environment variables for Cognee (Ollama configuration per official docs)
         os.environ['LLM_PROVIDER'] = 'ollama'
         os.environ['LLM_MODEL'] = improved_model
         os.environ['LLM_API_KEY'] = 'ollama'  # Official docs specify just "ollama"
-        os.environ['LLM_ENDPOINT'] = 'http://ollama:11434/v1'  # Note the /v1 suffix
+        # Use the LLM_ENDPOINT from environment or default to vtuber-ollama
+        os.environ['LLM_ENDPOINT'] = os.getenv('LLM_ENDPOINT', 'http://vtuber-ollama:11434/v1')  # Use env var or correct hostname
         os.environ['LLM_TEMPERATURE'] = '0.1'  # Lower temperature for more consistent structured outputs
         os.environ['LLM_MAX_TOKENS'] = '2048'  # Reduced for better consistency
         
@@ -110,7 +114,8 @@ class CogneeDirectService:
             # Use our improved model that handles structured outputs better
             cognee.config.set_llm_model(improved_model)
             cognee.config.set_llm_api_key('ollama')
-            cognee.config.set_llm_endpoint('http://ollama:11434/v1')
+            # Use the endpoint from environment variable (which we set above)
+            cognee.config.set_llm_endpoint(os.environ.get('LLM_ENDPOINT', 'http://vtuber-ollama:11434/v1'))
             
             # 🔧 Configure vector database to handle embedding issues
             try:
@@ -178,6 +183,7 @@ class CogneeDirectService:
     
     async def initialize(self) -> bool:
         """Initialize Cognee service"""
+
         if not COGNEE_AVAILABLE:
             return False
         

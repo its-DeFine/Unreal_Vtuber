@@ -19,7 +19,7 @@ class OllamaMonitor:
     
     def __init__(self):
         """Initialize Ollama monitor"""
-        self.ollama_host = os.getenv('OLLAMA_HOST', 'http://ollama:11434')
+        self.ollama_host = os.getenv('OLLAMA_HOST', 'http://vtuber-ollama:11434')
         self.start_time = time.time()
         self.agent_id = os.getenv('AGENT_ID', 'autogen-ollama-001')
         self.tokens_generated = 0
