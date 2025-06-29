@@ -1280,13 +1280,24 @@ async def shutdown_event():
         logging.info("💬 [SHUTDOWN] Conversation storage closed")
         
     if mcp_server:
-        await mcp_server.stop()
-        logging.info("🔗 [SHUTDOWN] MCP server stopped")
+        try:
+            # Check if stop method exists before calling it
+            if hasattr(mcp_server, 'stop'):
+                await mcp_server.stop()
+                logging.info("🔗 [SHUTDOWN] MCP server stopped")
+            else:
+                logging.info("🔗 [SHUTDOWN] MCP server cleanup skipped (no stop method)")
+        except Exception as e:
+            logging.warning(f"⚠️ [SHUTDOWN] MCP server stop failed: {e}")
     
     # Cleanup GPU monitor
     if gpu_monitor:
-        gpu_monitor.cleanup()
-        logging.info("🖥️ [SHUTDOWN] GPU monitor cleaned up")
+        try:
+            if hasattr(gpu_monitor, 'cleanup'):
+                gpu_monitor.cleanup()
+                logging.info("🖥️ [SHUTDOWN] GPU monitor cleaned up")
+        except Exception as e:
+            logging.warning(f"⚠️ [SHUTDOWN] GPU monitor cleanup failed: {e}")
 
 def main() -> None:
     """Main entry point - supports AutoGen LLM, cognitive, and legacy modes"""

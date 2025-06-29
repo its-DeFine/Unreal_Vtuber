@@ -43,8 +43,8 @@ RUN apt-get update --fix-missing && \
     rm -rf /var/lib/apt/lists/*
 
 # ---------- Copy source (Copy after system deps for better caching of above layer) ----------
-COPY ./NeuroBridge /app/NeuroBridge
-COPY ./BYOC_OLD/neurosync-worker /app/neurosync-worker
+COPY ./app/AVATAR/NeuroBridge /app/NeuroBridge
+COPY ./decide/BYOC_OLD/neurosync-worker /app/neurosync-worker
 
 # ---------- Python deps ----------
 RUN pip install --no-cache-dir flask flask-cors numpy jsonschema && \
