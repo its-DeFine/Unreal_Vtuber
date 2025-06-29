@@ -112,19 +112,31 @@ services:
       # Ollama configuration for local LLM - Use shared vtuber-ollama
       - OLLAMA_HOST=http://vtuber-ollama:11434
       - USE_OLLAMA=true
-      - OLLAMA_MODEL=llama3.1:8b
+      - OLLAMA_MODEL=llama3.1:8b  # For AutoGen direct Ollama usage (with :8b)
       # VTuber integration with NeuroSync
       - VTUBER_ENDPOINT_URL=http://neurosync:5001/process_text
       # OpenAI fallback for Darwin-Gödel (from .env file)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4o-mini
-      # Cognee configuration
-      - COGNEE_URL=${COGNEE_URL:-http://cognee:8000}
-      - COGNEE_USERNAME=${COGNEE_USERNAME:-default_user@example.com}
-      - COGNEE_PASSWORD=${COGNEE_PASSWORD:-default_password}
-      - COGNEE_BEARER_TOKEN=${COGNEE_BEARER_TOKEN:-}
-      - COGNEE_API_KEY=${COGNEE_API_KEY:-}
-      - LLM_API_KEY=ollama  # Dummy API key for Cognee validation
+      # Cognee + Ollama Configuration (with Fastembed for embeddings)
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=llama3.1
+      - COGNEE_LLM_MODEL=llama3.1  # For Cognee/LiteLLM (now works with alias)
+      - LLM_API_KEY=ollama
+      - LLM_ENDPOINT=http://vtuber-ollama:11434/v1
+      - LLM_TEMPERATURE=0.1
+      - LLM_MAX_TOKENS=2048
+      # Use Fastembed for embeddings (recommended for codegraph pipeline per docs)
+      - EMBEDDING_PROVIDER=fastembed
+      - EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+      - EMBEDDING_DIMENSIONS=384
+      - EMBEDDING_MAX_TOKENS=256
+      - HUGGINGFACE_TOKENIZER=sentence-transformers/all-MiniLM-L6-v2  # Same as embedding model for Fastembed
+      # Disable problematic settings
+      - COGNEE_SUMMARIZATION_ENABLED=false
+      - COGNEE_DISABLE_BACKGROUND_TASKS=true
+      - INSTRUCTOR_MODE=json_mode
+      - INSTRUCTOR_MAX_RETRIES=1
       # Evolution Configuration - Enable Real Modifications
       - DARWIN_GODEL_REAL_MODIFICATIONS=true
       - DARWIN_GODEL_REQUIRE_APPROVAL=false
@@ -164,6 +176,7 @@ services:
       timeout: 10s
       retries: 3
 
+
   # Ollama model loader - pulls models after Ollama is ready
   ollama-loader:
     image: curlimages/curl:latest
@@ -178,9 +191,11 @@ services:
         sleep 10 &&
         echo 'Pulling llama3.1:8b model for AutoGen...' &&
         curl -X POST http://vtuber-ollama:11434/api/pull -d '{\"name\": \"llama3.1:8b\"}' &&
-        echo 'Model pull initiated' &&
-        sleep 90 &&
-        echo 'Loading model into memory...' &&
+        echo 'Pulling nomic-embed-text model for Cognee embeddings...' &&
+        curl -X POST http://vtuber-ollama:11434/api/pull -d '{\"name\": \"nomic-embed-text:latest\"}' &&
+        echo 'Models pull initiated' &&
+        sleep 120 &&
+        echo 'Loading llama3.1:8b model into memory...' &&
         curl -X POST http://vtuber-ollama:11434/api/generate -d '{\"model\": \"llama3.1:8b\", \"prompt\": \"Hello\", \"stream\": false}' &&
         echo 'Model loaded successfully'
       "
