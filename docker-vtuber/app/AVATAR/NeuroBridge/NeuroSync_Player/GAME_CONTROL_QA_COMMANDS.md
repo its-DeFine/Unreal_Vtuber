@@ -1,369 +1,271 @@
-# Game Control QA Testing Commands
+# Game Control QA Testing Commands (Natural Language)
 
-This document provides all available game control commands for direct testing via the `/game_control` API endpoint.
+This document provides all available game control commands for direct testing via the `/game_control` API endpoint using **natural language prompts**.
 
 ## 🎮 **Direct Game Control Endpoint**
 
 **Base URL:** `POST http://localhost:5001/game_control`
 
-## 📋 **Complete Command Reference**
+**Format:** The API uses natural language prompts that get converted to TCP commands automatically.
+
+```bash
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "NATURAL LANGUAGE DESCRIPTION"}'
+```
+
+## 📋 **QA Test Commands by Category**
 
 ### **LEVELS/SCENES**
 ```bash
 # Cloud Environment (Default)
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["LVL.Home"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "home environment"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "cloud scene"}'
 
 # Medieval Castle Scene
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["LVL.Medieval"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "medieval castle scene"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "fantasy medieval environment"}'
 
 # DJ/Party Environment
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["LVL.DJ"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "DJ party environment"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "music party scene"}'
 
 # Cozy Lofi Scene
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["LVL.Lofi"]}'
-
-# Split Screen Variants
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["LVL.Split"]}'
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["LVL.Split3"]}'
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["LVL.Split4"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "cozy lofi scene"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "ambient cozy setting"}'
 ```
 
-### **CHARACTER PRESETS**
+### **CHARACTER APPEARANCE**
 ```bash
-# Feminine Build
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["PRS.Fem"]}'
+# Character Build
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "feminine character build"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "masculine character build"}'
 
-# Masculine Build
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["PRS.Masc"]}'
-
-# Feminine Variant
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["PRS.Fem1"]}'
-
-# Masculine Variant
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["PRS.Masc1"]}'
+# Complete Appearance Changes
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "feminine character with maid dress"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "masculine character with default outfit"}'
 ```
 
-### **OUTFITS**
-```bash
-# Default Outfit
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["OF.Default"]}'
-
-# Maid Dress
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["OF.Maid Dress"]}'
-
-# Pop Star Outfit
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["OF.Pop Star"]}'
-
-# Kimono
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["OF.Kimono"]}'
-
-# Black Dress
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["OF.Black Dress"]}'
-```
-
-### **HAIR STYLES**
-```bash
-# Default Hair
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["HS.Default"]}'
-
-# Buzz Cut
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["HS.Buzz"]}'
-
-# Crop Style
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["HS.Crop"]}'
-```
-
-### **HAIR COLORS (RGB 0.0-1.0)**
+### **HAIR COLORS**
 ```bash
 # Red Hair
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["HCR.0.9", "HCG.0.1", "HCB.0.1"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "red hair"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "bright red hair color"}'
 
 # Blonde Hair
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["HCR.0.9", "HCG.0.8", "HCB.0.3"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "blonde hair"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "yellow blonde hair"}'
 
 # Blue Hair
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["HCR.0.1", "HCG.0.3", "HCB.0.9"]}'
-
-# Yellow Hair
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["HCR.0.9", "HCG.0.9", "HCB.0.2"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "blue hair"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "bright blue hair color"}'
 
 # Purple Hair
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["HCR.0.7", "HCG.0.2", "HCB.0.9"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "purple hair"}'
 
 # Green Hair
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["HCR.0.2", "HCG.0.8", "HCB.0.3"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "green hair"}'
 
 # Black Hair
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["HCR.0.1", "HCG.0.1", "HCB.0.1"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "black hair"}'
 
 # White Hair
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["HCR.0.9", "HCG.0.9", "HCB.0.9"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "white hair"}'
 ```
 
-### **SKIN COLOR**
+### **OUTFITS & STYLES**
 ```bash
-# Very Light Skin
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["SKC.0.3"]}'
+# Maid Dress
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "maid dress outfit"}'
 
-# Light Skin
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["SKC.0.5"]}'
+# Pop Star Outfit
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "pop star outfit"}'
 
-# Medium Skin (Default)
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["SKC.0.7"]}'
+# Kimono
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "kimono outfit"}'
 
-# Tan Skin
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["SKC.0.9"]}'
+# Black Dress
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "black dress"}'
 
-# Dark Skin
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["SKC.1.1"]}'
+# Default Outfit
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "default outfit"}'
 ```
 
-### **EYE COLOR**
+### **FACIAL FEATURES**
 ```bash
-# Blue Eyes
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["EC.0.6", "ES.15000"]}'
-
-# Green Eyes
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["EC.0.3", "ES.15000"]}'
-
-# Brown Eyes
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["EC.0.1", "ES.15000"]}'
-
-# Purple Eyes
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["EC.0.8", "ES.15000"]}'
-
-# Red Eyes
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["EC.0.0", "ES.15000"]}'
-```
-
-### **BONE SCALING (Body Proportions)**
-```bash
-# Larger Head
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["BNH.1.3"]}'
-
-# Smaller Head
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["BNH.0.8"]}'
-
-# Larger Chest
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["BNC.1.2"]}'
-
-# Smaller Chest
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["BNC.0.7"]}'
-
-# Larger Arms
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["BNAR.1.3"]}'
-
-# Longer Legs
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["BNL.1.2"]}'
-
-# Larger Feet
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["BNF.1.2"]}'
-```
-
-### **FACIAL MORPH TARGETS (0.0-1.0)**
-```bash
-# Wider Nose
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["MTNW.0.8"]}'
-
-# Narrower Nose
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["MTNW.0.3"]}'
-
-# Wider Chin
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["MTCW.0.8"]}'
-
-# Narrower Chin
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["MTCW.0.3"]}'
-
 # Larger Eyes
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["MTEYW.0.8"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "bigger eyes"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "large eyes"}'
 
-# Smaller Eyes
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["MTEYW.0.3"]}'
+# Nose Changes
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "wider nose"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "narrow nose"}'
 
-# Taller Head
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["MTHT.0.7"]}'
+# Chin Changes
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "wider chin"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "narrow chin"}'
+```
 
-# Wider Head Sides
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["MTHS.0.7"]}'
+### **ENVIRONMENT LIGHTING**
+```bash
+# Day Time
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "day time bright lighting"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "bright sunny day"}'
+
+# Night Time
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "night time"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "dark night scene"}'
+
+# Sunset
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "sunset lighting"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "golden hour sunset"}'
+
+# Stars
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "bright stars"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "starry night sky"}'
 ```
 
 ### **ANIMATIONS**
 ```bash
 # Dance Animation
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["ANIM.Dance"]}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "dance animation"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "start dancing"}'
 ```
 
-### **ENVIRONMENT LIGHTING**
-```bash
-# Day Time (High Sun)
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["SNH.0.8"]}'
-
-# Sunset
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["SNH.0.4"]}'
-
-# Night Time
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["SNH.0.1"]}'
-
-# Bright Stars
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["STRB.0.9"]}'
-
-# Dim Stars
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["STRB.0.3"]}'
-
-# No Stars
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["STRB.0.0"]}'
-```
-
-### **CLOUD SETTINGS**
-```bash
-# Fast Clouds
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["CLDS.0.8"]}'
-
-# Slow Clouds
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["CLDS.0.2"]}'
-
-# Static Clouds
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["CLDS.0.0"]}'
-
-# Dense Clouds
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["CLDO.0.9"]}'
-
-# Light Clouds
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["CLDO.0.3"]}'
-```
-
-## 🧪 **QA Test Scenarios**
+## 🧪 **Comprehensive QA Test Scenarios**
 
 ### **Scenario 1: Complete Character Makeover**
 ```bash
 curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{
-  "commands": [
-    "PRS.Fem",
-    "OF.Maid Dress", 
-    "HS.Crop",
-    "HCR.0.9", "HCG.0.1", "HCB.0.1",
-    "EC.0.6", "ES.15000",
-    "SKC.0.5",
-    "LVL.Medieval"
-  ]
+  "prompt": "feminine character with red hair, maid dress, larger eyes, medieval castle scene"
 }'
 ```
 
 ### **Scenario 2: DJ Party Setup**
 ```bash
 curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{
-  "commands": [
-    "LVL.DJ",
-    "OF.Pop Star",
-    "HCR.0.1", "HCG.0.3", "HCB.0.9",
-    "ANIM.Dance",
-    "SNH.0.2",
-    "STRB.0.9"
-  ]
+  "prompt": "DJ party environment with blue hair, pop star outfit, dance animation, night time lighting"
 }'
 ```
 
 ### **Scenario 3: Cozy Evening Scene**
 ```bash
 curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{
-  "commands": [
-    "LVL.Lofi",
-    "OF.Kimono",
-    "HCR.0.7", "HCG.0.2", "HCB.0.9",
-    "SNH.0.2",
-    "STRB.0.8",
-    "CLDS.0.3"
-  ]
+  "prompt": "cozy lofi scene with purple hair, kimono outfit, sunset lighting, bright stars"
 }'
 ```
 
 ### **Scenario 4: Fantasy Adventure Look**
 ```bash
 curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{
-  "commands": [
-    "LVL.Medieval",
-    "PRS.Fem",
-    "OF.Black Dress",
-    "HS.Default",
-    "HCR.0.9", "HCG.0.8", "HCB.0.3",
-    "EC.0.3", "ES.15000",
-    "SNH.0.6"
-  ]
+  "prompt": "medieval fantasy scene with blonde hair, black dress, feminine character, day time"
 }'
 ```
 
-### **Scenario 5: Natural Language Test**
+### **Scenario 5: Natural Variations**
 ```bash
-# Test natural language processing
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{
-  "prompt": "Change to medieval scene with red hair, feminine character, and maid dress"
-}'
+# Test different phrasings for same result
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "Change hair to red color"}'
 
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{
-  "prompt": "Blue hair, DJ environment, pop star outfit, dance animation"
-}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "Make the hair red"}'
 
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{
-  "prompt": "Night time with bright stars and slow clouds"
-}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "Red hair please"}'
 ```
 
-## 🔍 **Testing Commands**
+## 🔍 **Available TCP Commands (Generated Automatically)**
+
+The system automatically converts natural language to these TCP commands:
+
+### **Levels:** `LVL.Home`, `LVL.Medieval`, `LVL.DJ`, `LVL.Lofi`
+### **Character Presets:** `PRS.Fem`, `PRS.Masc`, `PRS.Fem1`, `PRS.Masc1`  
+### **Outfits:** `OF.Default`, `OF.Maid Dress`, `OF.Pop Star`, `OF.Kimono`, `OF.Black Dress`
+### **Hair Colors:** `HCR.X`, `HCG.X`, `HCB.X` (RGB values 0.0-1.0)
+### **Facial Morphs:** `MTEYW.X` (eyes), `MTNW.X` (nose), `MTCW.X` (chin)
+### **Environment:** `SNH.X` (sun height), `STRB.X` (stars), `ANIM.Dance`
+
+## 🎯 **Testing Specific Features**
+
+### **Hair Color Variations**
+```bash
+# Test all major colors
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "red hair"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "blue hair"}'  
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "green hair"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "yellow hair"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "purple hair"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "white hair"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "black hair"}'
+```
+
+### **Scene Changes**
+```bash
+# Test all environments
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "home scene"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "medieval scene"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "DJ scene"}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "lofi scene"}'
+```
+
+### **Complex Combinations**
+```bash
+# Test multiple changes at once
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "red hair, medieval scene, maid dress, bigger eyes"}'
+
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "blue hair, DJ environment, pop star outfit, dance"}'
+
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "night time, bright stars, purple hair, kimono"}'
+```
+
+## 🔍 **System Monitoring Commands**
 
 ### **Health Check**
 ```bash
-curl -s http://localhost:5001/health | jq .
+curl -s http://localhost:5001/game_control/health | jq .
 ```
 
-### **Check Last Game Control Result**
+### **Available Features**
 ```bash
-# (Game control responses include command success count)
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"commands": ["LVL.Home"]}' | jq .
+curl -s http://localhost:5001/game_control/features | jq .
 ```
 
-### **Reset to Default**
+### **Test Basic Connectivity**
 ```bash
-curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{
-  "commands": [
-    "PRS.Fem",
-    "OF.Default", 
-    "HS.Default",
-    "HCR.0.9", "HCG.0.8", "HCB.0.3",
-    "EC.0.3", "ES.15000",
-    "SKC.0.7",
-    "LVL.Home",
-    "SNH.0.6",
-    "STRB.0.5"
-  ]
-}'
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "test"}' | jq .
 ```
 
 ## 📝 **Response Format**
 
-All commands return JSON with success information:
+All commands return JSON with execution details:
 ```json
 {
-  "commands_sent": 3,
+  "status": "completed",
+  "prompt": "red hair, medieval scene",
+  "commands_generated": 3,
   "commands_successful": 3,
-  "tcp_connection": "healthy",
-  "message": "Commands executed successfully"
+  "commands_failed": 0,
+  "tcp_host": "host.docker.internal", 
+  "tcp_port": 7777,
+  "orchestrator_enabled": true
 }
 ```
 
-## ⚠️ **Important Notes**
+## 🚨 **Important Testing Notes**
 
-1. **RGB Values**: Hair colors use RGB values from 0.0 to 1.0
-2. **Bone Scaling**: Values typically range from 0.5 to 1.5
-3. **Morph Targets**: Facial features use 0.0 to 1.0 range
-4. **Environment**: Some combinations work better than others
-5. **TCP Connection**: Commands are sent via TCP to Unreal Engine
-6. **Error Handling**: Invalid commands are ignored, valid ones still execute
+1. **Natural Language**: Use descriptive phrases, not technical commands
+2. **Multiple Changes**: Combine multiple changes in one prompt for efficiency
+3. **Validation**: Check `commands_successful` count in response
+4. **TCP Connection**: System connects to Unreal Engine on port 7777
+5. **Error Handling**: Failed commands are logged but don't stop others
 
-## 🚨 **Known Issues**
+## ⚠️ **Known Issues & Limitations**
 
-- Environment changes may occasionally crash the game (use with caution)
-- Some command combinations may not work as expected
-- TCP connection issues may cause commands to fail silently
-- Always test individual commands before combining multiple ones
+- Some complex combinations may not work as expected
+- Environment changes may occasionally cause game instability  
+- TCP connection issues may cause silent failures
+- Natural language parsing may misinterpret some requests
+- Always test simple changes before complex combinations
 
-Use these commands for comprehensive QA testing of the VTuber appearance and environment system! 
+## 🔄 **Reset to Default**
+```bash
+curl -X POST http://localhost:5001/game_control -H "Content-Type: application/json" -d '{"prompt": "reset to default appearance, home scene, feminine character"}'
+```
+
+Use these natural language commands for comprehensive QA testing of the VTuber system! 
