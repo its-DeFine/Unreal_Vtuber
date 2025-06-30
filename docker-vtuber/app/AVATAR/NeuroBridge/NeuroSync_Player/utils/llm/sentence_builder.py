@@ -123,17 +123,39 @@ def clean_text_for_tts(text: str) -> str:
     Remove unwanted patterns from text:
       - Anything between asterisks, e.g. *some words*
       - Anything between parentheses, e.g. (some words)
+      - Anything between square brackets, e.g. [some words]
+      - Stage directions and action descriptions
+      - Multiple spaces and extra whitespace
     Then trim whitespace. If the result is empty or only punctuation,
     return an empty string.
     """
-    # Remove text enclosed in asterisks (e.g., *example*)
-    text = re.sub(r'\*[^*]+\*', '', text)
-    # Remove text enclosed in parentheses (e.g., (example))
+    if not text:
+        return ""
+    
+    # Remove text enclosed in asterisks (e.g., *action* or *emotion*)
+    text = re.sub(r'\*[^*]*\*', '', text)
+    
+    # Remove any remaining standalone asterisks
+    text = text.replace('*', '')
+    
+    # Remove text enclosed in parentheses (e.g., (whispers))
     text = re.sub(r'\([^)]*\)', '', text)
+    
+    # Remove text enclosed in square brackets (e.g., [sound effect])
+    text = re.sub(r'\[[^\]]*\]', '', text)
+    
+    # Remove common stage direction markers
+    text = re.sub(r'\b(stage direction|action|emotion|sound effect|sfx):', '', text, flags=re.IGNORECASE)
+    
+    # Clean up multiple spaces and normalize whitespace
+    text = re.sub(r'\s+', ' ', text)
+    
     # Trim whitespace
     clean_text = text.strip()
+    
     # If the cleaned text is empty, exactly '...', or only punctuation/spaces, return empty.
-    if (not clean_text or clean_text == "..." or 
+    if (not clean_text or clean_text == "..." or clean_text == "…" or
         all(char in string.punctuation or char.isspace() for char in clean_text)):
         return ""
+        
     return clean_text

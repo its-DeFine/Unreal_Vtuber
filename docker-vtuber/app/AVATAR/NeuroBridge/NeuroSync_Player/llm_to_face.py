@@ -284,6 +284,23 @@ def handle_process_text():
     if direct_speech:
         app.logger.info(f"🎯 Direct speech mode - bypassing LLM")
 
+    def clean_speech_text(text: str) -> str:
+        """Clean text for speech by removing unwanted characters"""
+        if not text:
+            return text
+        
+        # Remove asterisks and other stage directions
+        cleaned = text.replace('*', '')
+        
+        # Remove other common unwanted characters
+        cleaned = cleaned.replace('[', '').replace(']', '')
+        cleaned = cleaned.replace('(', '').replace(')', '')
+        
+        # Clean up extra whitespace
+        cleaned = ' '.join(cleaned.split())
+        
+        return cleaned.strip()
+
     # Check if this is a request FROM the orchestrator to prevent infinite loops
     is_from_orchestrator = autonomous_context and (
         "orchestrator_speech" in str(autonomous_context) or 
@@ -302,6 +319,10 @@ def handle_process_text():
         # Direct speech - skip LLM and send directly to TTS
         app.logger.info(f"🗣️ Direct speech: {user_input[:100]}...")
         
+        # Clean the text for speech
+        cleaned_text = clean_speech_text(user_input)
+        app.logger.info(f"🧹 Cleaned speech: {cleaned_text[:100]}...")
+        
         # Get necessary objects
         chunk_queue = system_objects['chunk_queue']
         audio_queue = system_objects['audio_queue']
@@ -315,13 +336,13 @@ def handle_process_text():
         if pygame.mixer.get_init():
             pygame.mixer.stop()
         
-        # Send directly to TTS as a single chunk
-        chunk_queue.put(user_input)
+        # Send cleaned text directly to TTS as a single chunk
+        chunk_queue.put(cleaned_text)
         chunk_queue.put(None)  # End marker
         
         # Log to SCB
         from utils.scb import scb_store
-        scb_store.append_chat(user_input, actor="orchestrator")
+        scb_store.append_chat(cleaned_text, actor="orchestrator")
         
         response_data = {
             "status": "direct_speech",

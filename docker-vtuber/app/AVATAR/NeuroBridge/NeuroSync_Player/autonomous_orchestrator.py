@@ -29,6 +29,7 @@ from enum import Enum
 import queue
 import json
 import os
+import hashlib
 
 # SCB Integration (if available)
 try:
@@ -366,11 +367,13 @@ class AutonomousOrchestrator:
         
         # Streaming context for more aware autonomous content
         self.streaming_context = {
-            "stream_purpose": "AI Avatar Streaming and Interaction Demo",
+            "stream_purpose": "AI interactive demonstration and conversation",
             "interaction_count": 0,
-            "recent_activities": [],
             "previous_topics": [],
-            "last_environment_theme": "default"
+            "recent_activities": [],
+            "last_environment_theme": "default",
+            "recent_content": [],  # Track recent content to avoid repetition
+            "last_content_hashes": set()  # Track content hashes to prevent duplicates
         }
         
         # System 2 Integration
@@ -884,6 +887,62 @@ class AutonomousOrchestrator:
             
         return Priority.MEDIUM
         
+    def _is_content_duplicate(self, content: str, content_type: str = "speech") -> bool:
+        """Check if content is too similar to recently generated content"""
+        
+        # Create a simple hash of the content
+        content_hash = hashlib.md5(content.lower().encode()).hexdigest()[:8]
+        
+        # Check if we've used this exact content recently
+        if content_hash in self.streaming_context["last_content_hashes"]:
+            self.logger.debug(f"🔄 Duplicate content detected: {content[:50]}...")
+            return True
+            
+        # Check if content is too similar to recent content
+        for recent in self.streaming_context["recent_content"][-5:]:  # Check last 5
+            if self._content_similarity(content, recent["content"]) > 0.7:
+                self.logger.debug(f"🔄 Similar content detected: {content[:50]}...")
+                return True
+                
+        return False
+        
+    def _content_similarity(self, text1: str, text2: str) -> float:
+        """Calculate simple similarity between two texts"""
+        words1 = set(text1.lower().split())
+        words2 = set(text2.lower().split())
+        
+        if not words1 or not words2:
+            return 0.0
+            
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+        
+        return len(intersection) / len(union) if union else 0.0
+        
+    def _track_generated_content(self, content: str, content_type: str = "speech"):
+        """Track generated content to prevent future duplicates"""
+        
+        content_hash = hashlib.md5(content.lower().encode()).hexdigest()[:8]
+        
+        # Add to tracking
+        self.streaming_context["recent_content"].append({
+            "content": content,
+            "type": content_type,
+            "timestamp": time.time(),
+            "hash": content_hash
+        })
+        
+        # Keep only last 20 pieces of content
+        self.streaming_context["recent_content"] = self.streaming_context["recent_content"][-20:]
+        
+        # Add to hash set (keep last 50 hashes)
+        self.streaming_context["last_content_hashes"].add(content_hash)
+        if len(self.streaming_context["last_content_hashes"]) > 50:
+            # Remove oldest hashes (simple approach - just clear and rebuild from recent content)
+            self.streaming_context["last_content_hashes"] = {
+                item["hash"] for item in self.streaming_context["recent_content"][-30:]
+            }
+        
     def _estimate_speech_duration(self, text: str) -> float:
         """Estimate speech duration based on text length"""
         words = len(text) / 5
@@ -980,6 +1039,20 @@ class AutonomousOrchestrator:
         # Pick and queue the content
         content = random.choice(content_options)
         
+        # Check for duplicates and try alternatives if needed
+        attempts = 0
+        while self._is_content_duplicate(content) and attempts < 5:
+            content = random.choice(content_options)
+            attempts += 1
+            
+        # If still duplicate after attempts, modify the content slightly
+        if self._is_content_duplicate(content):
+            self.logger.info("🔄 Modifying content to avoid repetition")
+            content = f"You know, {content.lower()}"
+            
+        # Track the content we're about to generate
+        self._track_generated_content(content, "engaging")
+        
         # Add SCB context to metadata but NOT to the speech content itself
         metadata = {
             "auto_generated": True, 
@@ -995,10 +1068,11 @@ class AutonomousOrchestrator:
             metadata=metadata
         )
         
-        # Sometimes follow up with an environment change
-        if random.random() < 0.3:  # 30% chance
-            await asyncio.sleep(0.5)  # Small delay
-            self._suggest_environment_change()
+        # DISABLED: Environment changes break the game - commenting out for now
+        # # Sometimes follow up with an environment change
+        # if random.random() < 0.3:  # 30% chance
+        #     await asyncio.sleep(0.5)  # Small delay
+        #     self._suggest_environment_change()
             
     async def _generate_conversation_continuation(self, current_state: SystemState):
         """Generate natural conversation continuation based on context"""
@@ -1029,6 +1103,29 @@ class AutonomousOrchestrator:
                 "As an AI streamer, I'm always learning from our conversations. What's on your mind?"
             ]
             content = random.choice(continuations)
+            
+        # Check for duplicates and try alternatives
+        attempts = 0
+        while self._is_content_duplicate(content) and attempts < 3:
+            if keywords:
+                keyword = random.choice(keywords)
+                continuations = [
+                    f"Speaking of {keyword}, have you ever wondered how AI perceives these concepts?",
+                    f"That reminds me, {keyword} is actually really relevant to what we're doing here in the stream...",
+                    f"I find {keyword} fascinating, especially in the context of virtual interactions like this."
+                ]
+                content = random.choice(continuations)
+            else:
+                continuations = [
+                    "So, what aspect of AI or virtual avatars interests you most?",
+                    "I'm here to demonstrate and chat. What would you like to explore?",
+                    "As an AI streamer, I'm always learning from our conversations. What's on your mind?"
+                ]
+                content = random.choice(continuations)
+            attempts += 1
+            
+        # Track the content
+        self._track_generated_content(content, "continuation")
             
         self.queue_action(
             ActionType.SPEECH,
@@ -1073,6 +1170,35 @@ class AutonomousOrchestrator:
             ]
             content = random.choice(awareness)
             
+        # Check for duplicates
+        attempts = 0
+        while self._is_content_duplicate(content) and attempts < 3:
+            if action_type == "thoughtful":
+                thoughts = [
+                    "Hmm, I wonder what else we could explore today...",
+                    "This virtual space has so many possibilities, doesn't it?",
+                    "I love how technology lets us connect like this."
+                ]
+                content = random.choice(thoughts)
+            elif action_type == "interactive":
+                interactions = [
+                    "Feel free to ask me anything or suggest what to do next!",
+                    "I'm here to chat and demonstrate. What catches your interest?",
+                    "*glances at the virtual environment* This setup is pretty cool, right?"
+                ]
+                content = random.choice(interactions)
+            elif action_type == "self_aware":
+                awareness = [
+                    "As an AI, I find these real-time interactions fascinating.",
+                    "It's interesting being a virtual streamer - I can be anything or anywhere!",
+                    "I appreciate you spending time here. Every conversation helps me learn."
+                ]
+                content = random.choice(awareness)
+            attempts += 1
+            
+        # Track the content
+        self._track_generated_content(content, f"ambient_{action_type}")
+            
         self.queue_action(
             ActionType.SPEECH,
             content,
@@ -1087,51 +1213,56 @@ class AutonomousOrchestrator:
     def _suggest_environment_change(self):
         """Suggest an environment change that makes sense in the streaming context"""
         
-        current_env = self.streaming_context.get("last_environment_theme", "default")
+        # DISABLED: Environment changes break the game - commenting out for now
+        self.logger.info("🚫 Environment changes disabled - they break the game")
+        return
         
-        # Check if SCB has environmental suggestions
-        current_state = self.state_monitor.get_state_snapshot()
-        scb_suggestions = []
-        
-        if current_state.scb_priority_context:
-            scb_env_suggestions = current_state.scb_priority_context.get("environmental_suggestions", [])
-            if scb_env_suggestions:
-                self.logger.info(f"🧠 SCB environmental suggestions: {scb_env_suggestions}")
-                # Convert SCB suggestions to our format
-                for suggestion in scb_env_suggestions[:2]:  # Take top 2
-                    scb_suggestions.append((
-                        f"System 2 suggests: {suggestion}",
-                        suggestion
-                    ))
-        
-        # Default environment suggestions based on streaming flow
-        default_suggestions = [
-            ("How about we change the mood? Let me set up a cozy evening scene.", "Set scene to cozy fireplace with warm lighting"),
-            ("Let's try something different. How about a futuristic setting?", "Change to cyberpunk tech lab with neon lights"),
-            ("I think a change of scenery would be nice. Let me show you a peaceful garden.", "Switch to Japanese garden scene"),
-            ("Want to see something cool? Let me change the atmosphere.", "Create mystical forest environment with particles")
-        ]
-        
-        # Combine SCB suggestions with defaults, prioritizing SCB
-        all_suggestions = scb_suggestions + default_suggestions
-        
-        speech, action = random.choice(all_suggestions[:4])  # Pick from top 4 options
-        
-        # Queue the speech announcement
-        self.queue_action(
-            ActionType.SPEECH,
-            speech,
-            Priority.MEDIUM,
-            metadata={"auto_generated": True, "type": "environment_suggestion", "scb_influenced": len(scb_suggestions) > 0}
-        )
-        
-        # Queue the actual environment change
-        self.queue_action(
-            ActionType.ENVIRONMENT,
-            action,
-            Priority.LOW,
-            metadata={"auto_generated": True, "type": "environment_execution", "scb_influenced": len(scb_suggestions) > 0}
-        )
+        # COMMENTED OUT CODE BELOW:
+        # current_env = self.streaming_context.get("last_environment_theme", "default")
+        # 
+        # # Check if SCB has environmental suggestions
+        # current_state = self.state_monitor.get_state_snapshot()
+        # scb_suggestions = []
+        # 
+        # if current_state.scb_priority_context:
+        #     scb_env_suggestions = current_state.scb_priority_context.get("environmental_suggestions", [])
+        #     if scb_env_suggestions:
+        #         self.logger.info(f"🧠 SCB environmental suggestions: {scb_env_suggestions}")
+        #         # Convert SCB suggestions to our format
+        #         for suggestion in scb_env_suggestions[:2]:  # Take top 2
+        #             scb_suggestions.append((
+        #                 f"System 2 suggests: {suggestion}",
+        #                 suggestion
+        #             ))
+        # 
+        # # Default environment suggestions based on streaming flow
+        # default_suggestions = [
+        #     ("How about we change the mood? Let me set up a cozy evening scene.", "Set scene to cozy fireplace with warm lighting"),
+        #     ("Let's try something different. How about a futuristic setting?", "Change to cyberpunk tech lab with neon lights"),
+        #     ("I think a change of scenery would be nice. Let me show you a peaceful garden.", "Switch to Japanese garden scene"),
+        #     ("Want to see something cool? Let me change the atmosphere.", "Create mystical forest environment with particles")
+        # ]
+        # 
+        # # Combine SCB suggestions with defaults, prioritizing SCB
+        # all_suggestions = scb_suggestions + default_suggestions
+        # 
+        # speech, action = random.choice(all_suggestions[:4])  # Pick from top 4 options
+        # 
+        # # Queue the speech announcement
+        # self.queue_action(
+        #     ActionType.SPEECH,
+        #     speech,
+        #     Priority.MEDIUM,
+        #     metadata={"auto_generated": True, "type": "environment_suggestion", "scb_influenced": len(scb_suggestions) > 0}
+        # )
+        # 
+        # # Queue the actual environment change
+        # self.queue_action(
+        #     ActionType.ENVIRONMENT,
+        #     action,
+        #     Priority.LOW,
+        #     metadata={"auto_generated": True, "type": "environment_execution", "scb_influenced": len(scb_suggestions) > 0}
+        # )
 
 
 def create_autonomous_orchestrator(neurosync_player=None) -> AutonomousOrchestrator:
