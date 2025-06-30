@@ -340,26 +340,35 @@ class OrchestrationWrapper:
             
         state = self.orchestrator.state_monitor.get_state_snapshot()
         
+        current_action_info = {
+            "is_speaking": state.is_speaking,
+            "tts_queue_size": state.tts_queue_size,
+            "blendshape_active": state.blendshape_active,
+            "current_environment": state.current_environment,
+            "environment_changing": state.environment_changing,
+            "conversation_active": state.conversation_active,
+            "last_input_time": state.last_input_time
+        }
+        
+        system_state_info = {
+            "current_environment": state.current_environment,
+            "environment_changing": state.environment_changing,
+            "conversation_active": state.conversation_active,
+            "last_input_time": state.last_input_time
+        }
+        
         return {
-            "enabled": True,
-            "status": "active" if self.orchestrator.running else "stopped",
+            "enabled": self.config.enabled,
+            "running": self.orchestrator.running if self.orchestrator else False,
+            "current_action": current_action_info,
+            "pending_actions": len(self.orchestrator.action_queue) if self.orchestrator else 0,
+            "last_decision_time": self.orchestrator.last_action_time if self.orchestrator else None,
+            "system_state": system_state_info,
             "config": {
-                "auto_interrupt": self.config.auto_interrupt_enabled,
-                "decision_interval": self.config.decision_loop_interval,
-                "scb_integration": self.config.scb_integration_enabled,
                 "interrupt_threshold": self.config.interrupt_threshold,
-                "idle_timeout": self.config.idle_timeout
-            },
-            "current_state": {
-                "is_speaking": state.is_speaking,
-                "tts_queue_size": state.tts_queue_size,
-                "blendshape_active": state.blendshape_active,
-                "current_environment": state.current_environment,
-                "environment_changing": state.environment_changing,
-                "conversation_active": state.conversation_active,
-                "last_input_time": state.last_input_time
-            },
-            "pending_actions": len(self.orchestrator.pending_actions) if self.orchestrator else 0
+                "idle_timeout": self.config.idle_timeout,
+                "autonomous_environment_enabled": self.config.autonomous_environment_enabled
+            }
         }
         
     def interrupt_current_activities(self):

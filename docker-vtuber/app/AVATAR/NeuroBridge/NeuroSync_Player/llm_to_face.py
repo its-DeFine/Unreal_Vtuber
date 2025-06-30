@@ -286,12 +286,52 @@ def handle_process_text():
 
     # Check if this is a request FROM the orchestrator to prevent infinite loops
     is_from_orchestrator = autonomous_context and (
-        "orchestrator_speech" in autonomous_context or 
-        "orchestrator_environment" in autonomous_context
+        "orchestrator_speech" in str(autonomous_context) or 
+        "orchestrator_environment" in str(autonomous_context)
     )
     
-    # Orchestrator processing - only if enabled AND not from orchestrator itself
-    if (orchestrator_wrapper and 
+    # Check if this is direct speech that should bypass LLM
+    should_use_direct_speech = (
+        direct_speech or 
+        (autonomous_context and isinstance(autonomous_context, dict) and 
+         autonomous_context.get("direct_speech", False))
+    )
+    
+    # Direct speech processing - highest priority
+    if should_use_direct_speech and is_from_orchestrator:
+        # Direct speech - skip LLM and send directly to TTS
+        app.logger.info(f"🗣️ Direct speech: {user_input[:100]}...")
+        
+        # Get necessary objects
+        chunk_queue = system_objects['chunk_queue']
+        audio_queue = system_objects['audio_queue']
+        
+        # Flush queues first
+        from utils.llm.turn_processing import flush_queue
+        flush_queue(chunk_queue)
+        flush_queue(audio_queue)
+        
+        # Stop any playing audio
+        if pygame.mixer.get_init():
+            pygame.mixer.stop()
+        
+        # Send directly to TTS as a single chunk
+        chunk_queue.put(user_input)
+        chunk_queue.put(None)  # End marker
+        
+        # Log to SCB
+        from utils.scb import scb_store
+        scb_store.append_chat(user_input, actor="orchestrator")
+        
+        response_data = {
+            "status": "direct_speech",
+            "message": "Direct speech sent to TTS",
+            "llm_provider": "none",
+            "orchestrator_enabled": orchestrator_wrapper is not None
+        }
+        
+    # Orchestrator processing - only if enabled AND not from orchestrator itself AND not direct speech
+    elif (orchestrator_wrapper and 
         not is_from_orchestrator and
         orchestrator_wrapper.should_orchestrate_request(user_input, autonomous_context)):
         app.logger.info("🎭 Orchestrator handling request")
@@ -304,7 +344,7 @@ def handle_process_text():
             "orchestrator_enabled": True
         }
     else:
-        # Standard processing
+        # Standard LLM processing
         chunk_queue = system_objects['chunk_queue']
         audio_queue = system_objects['audio_queue']
         
@@ -312,55 +352,26 @@ def handle_process_text():
         if orchestrator_wrapper and orchestrator_wrapper.state_hooks:
             orchestrator_wrapper.state_hooks.hook_conversation_input(user_input, autonomous_context)
         
-        # Check if this is direct speech from orchestrator
-        if direct_speech:
-            # Direct speech - skip LLM and send directly to TTS
-            app.logger.info(f"🗣️ Direct speech: {user_input[:100]}...")
-            
-            # Flush queues first
-            from utils.llm.turn_processing import flush_queue
-            flush_queue(chunk_queue)
-            flush_queue(audio_queue)
-            
-            # Stop any playing audio
-            if pygame.mixer.get_init():
-                pygame.mixer.stop()
-            
-            # Send directly to TTS as a single chunk
-            chunk_queue.put(user_input)
-            chunk_queue.put(None)  # End marker
-            
-            # Log to SCB
-            from utils.scb import scb_store
-            scb_store.append_chat(user_input, actor="orchestrator")
-            
-            response_data = {
-                "status": "direct_speech",
-                "message": "Direct speech sent to TTS",
-                "llm_provider": "none",
-                "orchestrator_enabled": orchestrator_wrapper is not None
-            }
-        else:
-            # Normal LLM processing
-            updated_chat_history = process_turn(
-                user_input, 
-                chat_history_global, 
-                full_history_global, 
-                llm_config_global, 
-                chunk_queue, 
-                audio_queue, 
-                vector_db, 
-                base_system_message=BASE_SYSTEM_MESSAGE,
-                autonomous_context=autonomous_context
-            )
-            chat_history_global = updated_chat_history
+        # Normal LLM processing
+        updated_chat_history = process_turn(
+            user_input, 
+            chat_history_global, 
+            full_history_global, 
+            llm_config_global, 
+            chunk_queue, 
+            audio_queue, 
+            vector_db, 
+            base_system_message=BASE_SYSTEM_MESSAGE,
+            autonomous_context=autonomous_context
+        )
+        chat_history_global = updated_chat_history
 
-            response_data = {
-                "status": "processing", 
-                "message": "Input processed.",
-                "llm_provider": provider,
-                "orchestrator_enabled": orchestrator_wrapper is not None
-            }
+        response_data = {
+            "status": "processing", 
+            "message": "Input processed.",
+            "llm_provider": provider,
+            "orchestrator_enabled": orchestrator_wrapper is not None
+        }
     
     app.logger.info(f"✅ Text processing completed with {provider}")
     return jsonify(response_data), 200
