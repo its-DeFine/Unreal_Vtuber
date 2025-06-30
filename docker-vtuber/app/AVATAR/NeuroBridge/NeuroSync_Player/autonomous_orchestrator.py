@@ -361,6 +361,9 @@ class AutonomousOrchestrator:
         self.decision_task = None
         self.scb_monitor_task = None
         
+        # Decision loop tracking
+        self.decision_count = 0  # Debug counter
+        
         # Streaming context for more aware autonomous content
         self.streaming_context = {
             "stream_purpose": "AI Avatar Streaming and Interaction Demo",
