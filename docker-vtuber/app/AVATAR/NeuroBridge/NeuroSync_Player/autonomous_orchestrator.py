@@ -31,7 +31,7 @@ import json
 
 # SCB Integration (if available)
 try:
-    from utils.scb.scb_client import SCBClient
+    from utils.scb.orchestrator_scb_client import OrchestratorSCBClient
     SCB_AVAILABLE = True
 except ImportError:
     SCB_AVAILABLE = False
@@ -245,16 +245,36 @@ class DecisionEngine:
         # Check for urgent flags from System 2
         if scb_context.get("urgent_response_needed"):
             boost += 2
+            self.logger.info("🚨 SCB: Urgent response needed - boosting priority by 2")
             
         # Check for emotional context
         emotion = scb_context.get("emotional_state")
         if emotion in ["excited", "urgent", "concerned"]:
             boost += 1
+            self.logger.info(f"😊 SCB: Emotional state '{emotion}' - boosting priority by 1")
             
         # Check for environmental change requests
         if scb_context.get("environment_change_requested"):
             if request.action_type == ActionType.ENVIRONMENT:
                 boost += 1
+                self.logger.info("🎮 SCB: Environment change requested - boosting environment action")
+                
+        # Check recent directives relevance
+        directives = scb_context.get("recent_directives", [])
+        for directive in directives[:3]:  # Check top 3 directives
+            directive_text = directive.get("text", "").lower()
+            request_text = request.content.lower()
+            
+            # Simple keyword matching for relevance
+            matching_keywords = 0
+            for word in directive_text.split():
+                if len(word) > 3 and word in request_text:
+                    matching_keywords += 1
+                    
+            if matching_keywords >= 2:  # At least 2 matching keywords
+                boost += 1
+                self.logger.info(f"🎯 SCB: Request matches directive - boosting priority")
+                break
                 
         return boost
         
@@ -327,7 +347,7 @@ class AutonomousOrchestrator:
         self.scb_client = None
         if SCB_AVAILABLE:
             try:
-                self.scb_client = SCBClient()
+                self.scb_client = OrchestratorSCBClient()
                 self.logger.info("✅ SCB integration enabled")
             except Exception as e:
                 self.logger.warning(f"⚠️ SCB integration failed: {e}")
@@ -716,9 +736,22 @@ class AutonomousOrchestrator:
     async def _read_scb_updates(self) -> Optional[Dict[str, Any]]:
         """Read updates from System 2 through SCB"""
         try:
-            # This would integrate with the actual SCB client
-            # For now, return empty dict
-            return {}
+            if not self.scb_client or not self.scb_client.should_check_scb():
+                return None
+                
+            # Get context from SCB
+            scb_context = self.scb_client.get_context_for_decision()
+            
+            # Convert to dictionary format for state monitor
+            return {
+                "urgent_response_needed": len(scb_context.urgent_flags) > 0,
+                "emotional_state": scb_context.emotional_state,
+                "environment_change_requested": len(scb_context.environmental_suggestions) > 0,
+                "recent_directives": scb_context.recent_directives,
+                "high_salience_events": scb_context.high_salience_events,
+                "formatted_prompt": self.scb_client.format_context_for_prompt(scb_context)
+            }
+            
         except Exception as e:
             self.logger.error(f"Error reading SCB updates: {e}")
             return None
@@ -828,8 +861,25 @@ class AutonomousOrchestrator:
         recent_topics = self.streaming_context.get("previous_topics", [])[-3:]  # Last 3 topics
         stream_purpose = self.streaming_context.get("stream_purpose", "")
         
+        # Get SCB context if available
+        scb_prompt_addition = ""
+        if current_state.scb_priority_context and current_state.scb_priority_context.get("formatted_prompt"):
+            scb_prompt_addition = current_state.scb_priority_context["formatted_prompt"]
+            self.logger.info(f"🧠 Using SCB context: {scb_prompt_addition[:100]}...")
+        
         # Choose content based on streaming context
         content_options = []
+        
+        # If SCB has urgent directives, prioritize those
+        if current_state.scb_priority_context and current_state.scb_priority_context.get("urgent_response_needed"):
+            directives = current_state.scb_priority_context.get("recent_directives", [])
+            if directives:
+                directive_text = directives[0].get("text", "")
+                content_options.extend([
+                    f"I just received an important update: {directive_text}",
+                    f"System 2 has flagged something urgent: {directive_text}",
+                    f"Let me address this priority: {directive_text}"
+                ])
         
         # If we haven't talked much, introduce the stream
         if self.streaming_context["interaction_count"] < 2:
@@ -857,11 +907,20 @@ class AutonomousOrchestrator:
         
         # Pick and queue the content
         content = random.choice(content_options)
+        
+        # Add SCB context to metadata but NOT to the speech content itself
+        metadata = {
+            "auto_generated": True, 
+            "type": "engaging", 
+            "context": "stream_aware",
+            "scb_context": scb_prompt_addition  # Store for decision-making, not speech
+        }
+        
         self.queue_action(
             ActionType.SPEECH,
             content,
             Priority.MEDIUM,
-            metadata={"auto_generated": True, "type": "engaging", "context": "stream_aware"}
+            metadata=metadata
         )
         
         # Sometimes follow up with an environment change
@@ -958,22 +1017,40 @@ class AutonomousOrchestrator:
         
         current_env = self.streaming_context.get("last_environment_theme", "default")
         
-        # Environment suggestions based on streaming flow
-        suggestions = [
+        # Check if SCB has environmental suggestions
+        current_state = self.state_monitor.get_state_snapshot()
+        scb_suggestions = []
+        
+        if current_state.scb_priority_context:
+            scb_env_suggestions = current_state.scb_priority_context.get("environmental_suggestions", [])
+            if scb_env_suggestions:
+                self.logger.info(f"🧠 SCB environmental suggestions: {scb_env_suggestions}")
+                # Convert SCB suggestions to our format
+                for suggestion in scb_env_suggestions[:2]:  # Take top 2
+                    scb_suggestions.append((
+                        f"System 2 suggests: {suggestion}",
+                        suggestion
+                    ))
+        
+        # Default environment suggestions based on streaming flow
+        default_suggestions = [
             ("How about we change the mood? Let me set up a cozy evening scene.", "Set scene to cozy fireplace with warm lighting"),
             ("Let's try something different. How about a futuristic setting?", "Change to cyberpunk tech lab with neon lights"),
             ("I think a change of scenery would be nice. Let me show you a peaceful garden.", "Switch to Japanese garden scene"),
             ("Want to see something cool? Let me change the atmosphere.", "Create mystical forest environment with particles")
         ]
         
-        speech, action = random.choice(suggestions)
+        # Combine SCB suggestions with defaults, prioritizing SCB
+        all_suggestions = scb_suggestions + default_suggestions
+        
+        speech, action = random.choice(all_suggestions[:4])  # Pick from top 4 options
         
         # Queue the speech announcement
         self.queue_action(
             ActionType.SPEECH,
             speech,
             Priority.MEDIUM,
-            metadata={"auto_generated": True, "type": "environment_suggestion"}
+            metadata={"auto_generated": True, "type": "environment_suggestion", "scb_influenced": len(scb_suggestions) > 0}
         )
         
         # Queue the actual environment change
@@ -981,7 +1058,7 @@ class AutonomousOrchestrator:
             ActionType.ENVIRONMENT,
             action,
             Priority.LOW,
-            metadata={"auto_generated": True, "type": "environment_execution"}
+            metadata={"auto_generated": True, "type": "environment_execution", "scb_influenced": len(scb_suggestions) > 0}
         )
 
 
