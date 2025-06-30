@@ -8,48 +8,77 @@
 
 This document provides all available TCP commands for direct testing and control of the Unreal Engine VTuber application. These commands bypass the natural language processing layer and communicate directly with the game engine.
 
-### 📡 **Connection Details**
-- **Host:** `127.0.0.1` (localhost) or `host.docker.internal` (from Docker)
+### 📡 **Connection Details (IMPORTANT - WSL/Docker Setup)**
+- **From WSL (command line):** Use Windows host IP (typically `10.255.255.254` or check `/etc/resolv.conf`)
+- **From Docker container:** `host.docker.internal` (already configured in NeuroSync)
+- **From Windows host:** `127.0.0.1` or `localhost`
 - **Port:** `7777`
 - **Protocol:** TCP
 - **Format:** Plain text commands ending with newline `\n`
+
+**Note:** The Unreal Engine VTuber application must be running and have TCP Listener enabled on port 7777
 
 ---
 
 ## 🧪 **Direct TCP Testing Methods**
 
-### **Method 1: Using `telnet`**
+### **Method 1: Using `telnet`** 
 ```bash
-telnet 127.0.0.1 7777
+# From WSL (find your Windows host IP first)
+WSL_HOST_IP=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+telnet $WSL_HOST_IP 7777
+
+# Or use specific IP if known
+telnet 10.255.255.254 7777
+
 # Then type commands directly, press Enter after each
 LVL.Medieval
 HCR.0.9
 quit
 ```
 
-### **Method 2: Using `nc` (netcat)**
+### **Method 2: Using `nc` (netcat)** 
 ```bash
+# From WSL - get Windows host IP dynamically
+WSL_HOST_IP=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+
 # Single command
-echo "LVL.Medieval" | nc 127.0.0.1 7777
+echo "LVL.Medieval" | nc $WSL_HOST_IP 7777
 
 # Multiple commands
-(echo "HCR.0.9"; echo "HCG.0.1"; echo "HCB.0.1"; echo "LVL.Medieval") | nc 127.0.0.1 7777
+(echo "HCR.0.9"; echo "HCG.0.1"; echo "HCB.0.1"; echo "LVL.Medieval") | nc $WSL_HOST_IP 7777
+
+# Or use specific IP directly
+echo "LVL.Medieval" | nc 10.255.255.254 7777
 ```
 
 ### **Method 3: Using `printf` and `nc`**
 ```bash
+# From WSL with dynamic host discovery
+WSL_HOST_IP=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+
 # With explicit newlines
-printf "LVL.Medieval\n" | nc 127.0.0.1 7777
+printf "LVL.Medieval\n" | nc $WSL_HOST_IP 7777
 
 # Multiple commands with timing
-printf "HCR.0.9\nHCG.0.1\nHCB.0.1\nLVL.Medieval\n" | nc 127.0.0.1 7777
+printf "HCR.0.9\nHCG.0.1\nHCB.0.1\nLVL.Medieval\n" | nc $WSL_HOST_IP 7777
 ```
 
 ### **Method 4: From Docker Container**
 ```bash
-# From inside the neurosync container
+# From inside the neurosync container (already configured correctly)
 docker exec -it neurosync_s1 bash
 echo "LVL.Medieval" | nc host.docker.internal 7777
+```
+
+### **Method 5: Windows Host IP Discovery**
+```bash
+# Find your Windows host IP from WSL
+cat /etc/resolv.conf | grep nameserver | awk '{print $2}'
+
+# Test connectivity
+WSL_HOST_IP=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+nc -zv $WSL_HOST_IP 7777  # Should connect if Unreal Engine is running
 ```
 
 ---
@@ -69,7 +98,9 @@ LVL.Split4        # Loads a quadruple split-screen level
 
 **Test Example:**
 ```bash
-echo "LVL.Medieval" | nc 127.0.0.1 7777
+# From WSL
+WSL_HOST_IP=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+echo "LVL.Medieval" | nc $WSL_HOST_IP 7777
 ```
 
 ### 👤 **Character Preset Commands**
@@ -82,7 +113,9 @@ PRS.Fem1          # Feminine, medium height, and average weight preset
 
 **Test Example:**
 ```bash
-echo "PRS.Fem" | nc 127.0.0.1 7777
+# From WSL
+WSL_HOST_IP=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+echo "PRS.Fem" | nc $WSL_HOST_IP 7777
 ```
 
 ### 👗 **Outfit Commands**
@@ -96,7 +129,9 @@ OF.Black Dress    # Black dress outfit (Fem or Fem1)
 
 **Test Example:**
 ```bash
-echo "OF.Maid Dress" | nc 127.0.0.1 7777
+# From WSL
+WSL_HOST_IP=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+echo "OF.Maid Dress" | nc $WSL_HOST_IP 7777
 ```
 
 ### 💇 **Hair Style Commands**
