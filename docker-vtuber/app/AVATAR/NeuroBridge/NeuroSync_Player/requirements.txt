@@ -10,3 +10,4 @@ scipy
 openai==1.75.0
 redis==4.6.0
 dotenv
+aiohttp==3.9.5
