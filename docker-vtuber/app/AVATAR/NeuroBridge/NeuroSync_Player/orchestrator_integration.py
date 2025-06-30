@@ -197,10 +197,29 @@ class OrchestrationWrapper:
     4. Maintains backward compatibility
     """
     
-    def __init__(self, app: Flask, config: OrchestrationConfig = None):
+    def __init__(self, app: Flask, config: OrchestrationConfig, system_objects=None):
+        """Initialize orchestration wrapper
+        
+        Args:
+            app: Flask application instance
+            config: Orchestration configuration
+            system_objects: System objects including queues for interruption
+        """
+        
         self.app = app
-        self.config = config or OrchestrationConfig()
-        self.logger = logging.getLogger("OrchestrationWrapper")
+        self.config = config
+        self.logger = logging.getLogger(__name__)
+        
+        # Create the orchestrator
+        self.orchestrator = AutonomousOrchestrator()
+        
+        # Pass system objects if available
+        if system_objects:
+            self.orchestrator.system_objects = system_objects
+            self.logger.info("✅ System objects passed to orchestrator for interruption support")
+        
+        # Create state hooks for monitoring
+        self.state_hooks = StateHookManager(self.orchestrator)
         
         # Set up logging
         orchestrator_logger = logging.getLogger("AutonomousOrchestrator")
@@ -214,8 +233,6 @@ class OrchestrationWrapper:
         orchestrator_logger.addHandler(console_handler)
         
         # Initialize orchestrator if enabled
-        self.orchestrator = None
-        self.state_hooks = None
         self.orchestrator_task = None
         
         if self.config.enabled:
@@ -228,10 +245,6 @@ class OrchestrationWrapper:
     def _initialize_orchestrator(self):
         """Initialize the autonomous orchestrator"""
         try:
-            self.orchestrator = create_autonomous_orchestrator()
-            self.state_hooks = StateHookManager(self.orchestrator)
-            
-            # Configure orchestrator parameters
             self.orchestrator.decision_engine.interruption_threshold = Priority(self.config.interrupt_threshold)
             self.orchestrator.decision_engine.idle_timeout = self.config.idle_timeout
             self.orchestrator.decision_loop_interval = self.config.decision_loop_interval

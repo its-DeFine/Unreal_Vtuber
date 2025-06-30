@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import queue
 import json
+import os
 
 # SCB Integration (if available)
 try:
@@ -328,46 +329,64 @@ class AutonomousOrchestrator:
     """
     
     def __init__(self, neurosync_player=None):
+        """Initialize the Autonomous Orchestrator
+        
+        Args:
+            neurosync_player: Optional reference to the NeuroSync Player instance
+        """
         self.neurosync_player = neurosync_player
-        self.logger = logging.getLogger("AutonomousOrchestrator")
+        self.system_objects = None  # Will be set later
+        self.logger = logging.getLogger(__name__)
+        
+        # Load configuration from environment
+        self.enabled = os.getenv("AUTONOMOUS_ORCHESTRATION_ENABLED", "false").lower() == "true"
+        self.auto_interrupt_enabled = os.getenv("AUTO_INTERRUPT_ENABLED", "true").lower() == "true"
+        self.decision_interval = float(os.getenv("DECISION_LOOP_INTERVAL", "0.1"))
+        self.interrupt_threshold = int(os.getenv("INTERRUPT_THRESHOLD", "4"))  # HIGH priority
+        self.idle_timeout = float(os.getenv("ORCHESTRATOR_IDLE_TIMEOUT", "2.0"))
+        self.autonomous_environment_enabled = os.getenv("AUTONOMOUS_ENVIRONMENT_ENABLED", "true").lower() == "true"
+        self.scb_poll_interval = float(os.getenv("SCB_POLL_INTERVAL", "2.0"))
         
         # Core components
         self.state_monitor = StateMonitor()
         self.decision_engine = DecisionEngine(self.state_monitor)
-        
-        # Action management
-        self.pending_actions = []
-        self.action_lock = threading.Lock()
-        
-        # Control flags
+        self.action_queue: List[ActionRequest] = []
         self.running = False
-        self.decision_loop_task = None
         
-        # SCB Integration
+        # Execution tracking
+        self.current_action: Optional[ActionRequest] = None
+        self.last_action_time = time.time()
+        
+        # Background tasks
+        self.decision_task = None
+        self.scb_monitor_task = None
+        
+        # Streaming context for more aware autonomous content
+        self.streaming_context = {
+            "stream_purpose": "AI Avatar Streaming and Interaction Demo",
+            "interaction_count": 0,
+            "recent_activities": [],
+            "previous_topics": [],
+            "last_environment_theme": "default"
+        }
+        
+        # System 2 Integration
         self.scb_client = None
+        self._initialize_scb_client()
+        
+        # Register state change callback
+        self.state_monitor.register_callback(self._on_state_change)
+        
+        self.logger.info(f"🤖 Autonomous Orchestrator initialized (enabled: {self.enabled})")
+        
+    def _initialize_scb_client(self):
+        """Initialize SCB client if available"""
         if SCB_AVAILABLE:
             try:
                 self.scb_client = OrchestratorSCBClient()
                 self.logger.info("✅ SCB integration enabled")
             except Exception as e:
                 self.logger.warning(f"⚠️ SCB integration failed: {e}")
-                
-        # Configuration
-        self.decision_loop_interval = 0.1  # 100ms decision loop
-        self.scb_poll_interval = 1.0  # 1 second SCB polling
-        self.decision_count = 0  # Debug counter
-        
-        # Streaming context - track what we're doing and why
-        self.streaming_context = {
-            "stream_purpose": "Interactive AI conversation and demonstration",
-            "previous_topics": [],
-            "recent_activities": [],
-            "interaction_count": 0,
-            "last_environment_theme": "default"
-        }
-        
-        # Set up state change callbacks
-        self.state_monitor.register_callback(self._on_state_change)
         
     async def start(self):
         """Start the autonomous orchestrator"""
@@ -409,9 +428,17 @@ class AutonomousOrchestrator:
                     priority: Priority = Priority.MEDIUM, 
                     metadata: Dict[str, Any] = None,
                     interrupt_current: bool = False) -> None:
-        """Queue an action for execution"""
+        """Queue an action request for execution
         
-        action = ActionRequest(
+        Args:
+            action_type: Type of action (SPEECH, ENVIRONMENT, etc.)
+            content: The content/payload for the action
+            priority: Priority level for the action
+            metadata: Additional metadata for the action
+            interrupt_current: Whether to interrupt current action
+        """
+        
+        request = ActionRequest(
             action_type=action_type,
             priority=priority,
             content=content,
@@ -419,10 +446,8 @@ class AutonomousOrchestrator:
             interrupt_current=interrupt_current
         )
         
-        with self.action_lock:
-            self.pending_actions.append(action)
-            
-        self.logger.info(f"📝 Queued {action_type.value} action: {content[:50]}...")
+        self.action_queue.append(request)
+        self.logger.debug(f"📥 Queued {action_type.value} action with priority {priority.value}")
         
     def process_external_input(self, text: str, autonomous_context: str = None) -> None:
         """Process external input and decide on appropriate action"""
@@ -528,7 +553,7 @@ class AutonomousOrchestrator:
         while self.running:
             try:
                 await self._make_decision()
-                await asyncio.sleep(self.decision_loop_interval)
+                await asyncio.sleep(self.decision_interval)
                 
             except asyncio.CancelledError:
                 break
@@ -549,34 +574,37 @@ class AutonomousOrchestrator:
         current_state = self.state_monitor.get_state_snapshot()
         
         # Get pending actions
-        with self.action_lock:
-            pending_actions = self.pending_actions.copy()
-            
+        pending_actions = self.action_queue.copy()
+        
         if not pending_actions:
-            # Generate autonomous actions if system is idle
-            self.logger.debug("📋 No pending actions - checking for autonomous content generation")
+            # No pending actions - check if we should generate autonomous content
             await self._generate_autonomous_actions(current_state)
             return
             
-        # Use decision engine to select next action
+        # Let decision engine select the best action
         selected_action = self.decision_engine.select_next_action(
             pending_actions, current_state
         )
         
         if selected_action:
             # Execute the selected action
+            self.logger.info(f"🎯 Executing {selected_action.action_type.value} action")
+            self.current_action = selected_action
+            
+            # Remove from queue
+            if selected_action in self.action_queue:
+                self.action_queue.remove(selected_action)
+                
+            # Execute the action
             success = await self._execute_action(selected_action)
             
-            # Remove executed action from pending list
-            with self.action_lock:
-                if selected_action in self.pending_actions:
-                    self.pending_actions.remove(selected_action)
-                    
             if success:
                 self.logger.info(f"✅ Successfully executed {selected_action.action_type.value}")
             else:
                 self.logger.error(f"❌ Failed to execute {selected_action.action_type.value}")
-                
+            
+            self.current_action = None
+            
     async def _execute_action(self, action: ActionRequest) -> bool:
         """Execute an action request"""
         
@@ -611,14 +639,22 @@ class AutonomousOrchestrator:
             # Call the real NeuroSync Player process_text endpoint
             import aiohttp
             async with aiohttp.ClientSession() as session:
+                # Check if this is direct speech content from orchestrator
+                is_direct_speech = action.metadata.get("auto_generated", False)
+                
                 payload = {
                     "text": action.content,
                     "autonomous_context": {
                         "source": action.metadata.get("autonomous_context", "orchestrator_speech"),
-                        "is_directive": False,
-                        "auto_generated": action.metadata.get("auto_generated", False)
+                        "is_directive": is_direct_speech,  # Mark as directive for direct speech
+                        "auto_generated": action.metadata.get("auto_generated", False),
+                        "direct_speech": is_direct_speech  # Explicit flag for direct speech
                     }
                 }
+                
+                # If it's direct speech from orchestrator, add a flag
+                if is_direct_speech:
+                    payload["direct_speech"] = True
                 
                 # Call localhost since we're in the same container
                 async with session.post("http://localhost:5001/process_text", json=payload) as response:
@@ -702,8 +738,41 @@ class AutonomousOrchestrator:
         
         self.logger.info(f"⚡ Executing interruption action")
         
+        # Get access to system objects if available
+        if hasattr(self, 'system_objects') and self.system_objects:
+            try:
+                # 1. Stop pygame audio playback
+                import pygame
+                if pygame.mixer.get_init():
+                    pygame.mixer.stop()
+                    self.logger.info("🔇 Stopped pygame audio playback")
+                
+                # 2. Flush the audio queue
+                audio_queue = self.system_objects.get('audio_queue')
+                if audio_queue:
+                    while not audio_queue.empty():
+                        try:
+                            audio_queue.get_nowait()
+                        except:
+                            break
+                    self.logger.info("🗑️ Flushed audio queue")
+                
+                # 3. Flush the chunk queue (TTS chunks)
+                chunk_queue = self.system_objects.get('chunk_queue')
+                if chunk_queue:
+                    while not chunk_queue.empty():
+                        try:
+                            chunk_queue.get_nowait()
+                        except:
+                            break
+                    self.logger.info("🗑️ Flushed TTS chunk queue")
+                    
+            except Exception as e:
+                self.logger.error(f"❌ Error during interruption: {e}")
+        
         # Update states to reflect interruption
         self.state_monitor.update_audio_state(is_speaking=False, queue_size=0)
+        self.state_monitor.update_blendshape_state(active=False, queue_size=0)
         self.state_monitor.update_environment_state(
             environment="interrupted", 
             changing=False

@@ -13,18 +13,75 @@
 ### Prerequisites
 - Docker & Docker Compose
 - PostgreSQL with pgvector extension
-- OpenAI API key
+- **ElevenLabs API Key** (for TTS)
+- **OpenAI API Key** (for LLM)
 - Optional Cognee server (started via `docker-compose.bridge.yml`)
 
-### Launch System
+### 🔑 Environment Configuration
+Before starting the system, create a `.env` file in the project root with the following required API keys:
+
 ```bash
-# Quick start with Docker management script
+# Required API Keys
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Optional: Additional AI Provider Keys
+ANTHROPIC_API_KEY=your_anthropic_key_here
+GROQ_API_KEY=your_groq_key_here
+
+# VTuber System Configuration
+VTUBER_PAYMENT_ENABLED=false
+VTUBER_ENDPOINT_URL=http://neurosync:5001
+```
+
+### 🐳 Docker Initialization
+
+#### Build NeuroSync VTuber System (System 1)
+```bash
+# Build the NeuroSync containers with clean cache
+docker-compose -f docker-compose.neurobridge.yml build --no-cache
+
+# Start the NeuroSync VTuber system
+docker-compose -f docker-compose.neurobridge.yml up -d
+```
+
+#### Build AutoGen Cognitive System (System 2)
+```bash
+# Build and start the AutoGen autonomous agent
+docker-compose -f docker-compose.bridge.yml build --no-cache
+docker-compose -f docker-compose.bridge.yml up -d
+```
+
+#### Quick Start with Docker Management Script
+```bash
+# Build and run all containers
 ./docker-manager --build-run    # Build and run all containers
 ./docker-manager --test         # Test the system endpoint
 ./docker-manager --status       # Check system status
+```
 
-# Alternative: Manual commands
-docker-compose -f docker-compose.bridge.yml up -d
+### 🗣️ VTuber Communication Methods
+
+#### Direct API Calls to VTuber System
+```bash
+# Method 1: Direct HTTP POST to NeuroSync
+curl -X POST http://localhost:5001/process_text \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello, this is a test message for the VTuber to speak!", "autonomous_context": true}'
+
+# Method 2: Using the orchestrator endpoint
+curl -X POST http://localhost:3000/vtuber/speak \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello from the orchestrator!", "emotion": "happy"}'
+```
+
+#### Environment Variables for VTuber Control
+```bash
+# Required environment variables for VTuber communication
+VTUBER_ENDPOINT_URL=http://neurosync:5001    # NeuroSync service endpoint
+VTUBER_PAYMENT_ENABLED=false                # Disable payment for continuous access
+NEUROSYNC_TTS_PROVIDER=kokoro               # TTS provider (kokoro/elevenlabs)
+NEUROSYNC_LLM_PROVIDER=openai               # LLM provider for responses
 ```
 
 ### Monitor & Test
@@ -38,6 +95,77 @@ docker-compose -f docker-compose.bridge.yml up -d
 # View container logs
 ./docker-manager --logs
 ```
+
+---
+
+## 🧠 Dual Cognitive Systems Architecture
+
+This system implements a **dual-process cognitive architecture** inspired by human cognition, with two complementary systems working in harmony:
+
+### 🎭 System 1: NeuroSync (Neural Bridge) - "Fast Thinking"
+**Role**: Reactive, intuitive, immediate responses and character embodiment
+
+**Characteristics**:
+- **Speed**: Sub-second response times for natural conversation flow
+- **Function**: Real-time TTS, facial animation, emotion expression
+- **Processing**: Pattern-based, automated responses
+- **Technology Stack**: 
+  - KOKORO TTS for natural speech synthesis
+  - Live Link facial animation system
+  - Emotion-driven character control
+  - Direct audio/visual output pipeline
+
+**Key Features**:
+- Immediate text-to-speech conversion
+- Real-time facial expression generation
+- Emotion-based animation blending
+- Natural conversation timing and flow
+- Character personality embodiment
+
+### 🤖 System 2: AutoGen Cognitive - "Slow Thinking"
+**Role**: Deliberative, analytical, strategic decision-making and learning
+
+**Characteristics**:
+- **Speed**: 30-45 second decision cycles for thoughtful responses
+- **Function**: Complex reasoning, tool orchestration, memory management
+- **Processing**: Multi-step analysis, pattern learning, strategic planning
+- **Technology Stack**:
+  - AutoGen orchestrator with MCP tools
+  - Cognee knowledge graph memory
+  - Darwin-Gödel self-improvement engine
+  - Advanced tool selection algorithms
+
+**Key Features**:
+- Deep contextual understanding
+- Long-term memory and learning
+- Complex tool orchestration
+- Strategic conversation planning
+- Self-optimization and evolution
+
+### 🔄 System Integration Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    DUAL COGNITIVE FLOW                         │
+├─────────────────────────────────────────────────────────────────┤
+│  Input → System 2 (AutoGen) Analysis                           │
+│    ↓                                                            │
+│  Strategic Decision & Context Processing                        │
+│    ↓                                                            │
+│  System 1 (NeuroSync) Execution                               │
+│    ↓                                                            │
+│  Immediate TTS + Animation Output                              │
+│    ↓                                                            │
+│  System 2 Learning & Memory Update                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Benefits of Dual System Architecture**:
+- **Natural Interaction**: System 1 provides immediate, natural responses
+- **Intelligent Depth**: System 2 ensures thoughtful, contextual decision-making  
+- **Continuous Learning**: Both systems learn from interactions to improve over time
+- **Scalable Intelligence**: Can handle both reactive and complex cognitive tasks
+- **Human-like Cognition**: Mirrors human fast/slow thinking processes
 
 ---
 

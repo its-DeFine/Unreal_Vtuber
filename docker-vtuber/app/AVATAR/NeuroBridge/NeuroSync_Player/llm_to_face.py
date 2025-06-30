@@ -166,7 +166,7 @@ def main_setup():
 
 def setup_orchestration():
     """Initialize the autonomous orchestrator"""
-    global orchestrator_wrapper, orchestrator_config
+    global orchestrator_wrapper, orchestrator_config, system_objects
     
     print("🤖 Initializing Autonomous Orchestration System...")
     print("=" * 70)
@@ -180,8 +180,8 @@ def setup_orchestration():
             if line.strip():
                 print(f"   {line}")
         
-        # Create orchestration wrapper
-        orchestrator_wrapper = OrchestrationWrapper(app, orchestrator_config)
+        # Create orchestration wrapper with system objects
+        orchestrator_wrapper = OrchestrationWrapper(app, orchestrator_config, system_objects)
         
         # Add custom routes for orchestrator
         add_orchestrator_routes()
@@ -273,12 +273,16 @@ def handle_process_text():
         return jsonify({"error": "Input text cannot be empty"}), 400
 
     autonomous_context = request.json.get('autonomous_context', None)
+    direct_speech = request.json.get('direct_speech', False)
     
     provider = llm_config_global.get("LLM_PROVIDER", "openai")
     app.logger.info(f"📝 Processing text with {provider.upper()}: {user_input[:100]}{'...' if len(user_input) > 100 else ''}")
     
     if autonomous_context:
         app.logger.info(f"🤖 Autonomous context detected: {autonomous_context}")
+    
+    if direct_speech:
+        app.logger.info(f"🎯 Direct speech mode - bypassing LLM")
 
     # Check if this is a request FROM the orchestrator to prevent infinite loops
     is_from_orchestrator = autonomous_context and (
@@ -308,25 +312,55 @@ def handle_process_text():
         if orchestrator_wrapper and orchestrator_wrapper.state_hooks:
             orchestrator_wrapper.state_hooks.hook_conversation_input(user_input, autonomous_context)
         
-        updated_chat_history = process_turn(
-            user_input, 
-            chat_history_global, 
-            full_history_global, 
-            llm_config_global, 
-            chunk_queue, 
-            audio_queue, 
-            vector_db, 
-            base_system_message=BASE_SYSTEM_MESSAGE,
-            autonomous_context=autonomous_context
-        )
-        chat_history_global = updated_chat_history
+        # Check if this is direct speech from orchestrator
+        if direct_speech:
+            # Direct speech - skip LLM and send directly to TTS
+            app.logger.info(f"🗣️ Direct speech: {user_input[:100]}...")
+            
+            # Flush queues first
+            from utils.llm.turn_processing import flush_queue
+            flush_queue(chunk_queue)
+            flush_queue(audio_queue)
+            
+            # Stop any playing audio
+            if pygame.mixer.get_init():
+                pygame.mixer.stop()
+            
+            # Send directly to TTS as a single chunk
+            chunk_queue.put(user_input)
+            chunk_queue.put(None)  # End marker
+            
+            # Log to SCB
+            from utils.scb import scb_store
+            scb_store.append_chat(user_input, actor="orchestrator")
+            
+            response_data = {
+                "status": "direct_speech",
+                "message": "Direct speech sent to TTS",
+                "llm_provider": "none",
+                "orchestrator_enabled": orchestrator_wrapper is not None
+            }
+        else:
+            # Normal LLM processing
+            updated_chat_history = process_turn(
+                user_input, 
+                chat_history_global, 
+                full_history_global, 
+                llm_config_global, 
+                chunk_queue, 
+                audio_queue, 
+                vector_db, 
+                base_system_message=BASE_SYSTEM_MESSAGE,
+                autonomous_context=autonomous_context
+            )
+            chat_history_global = updated_chat_history
 
-        response_data = {
-            "status": "processing", 
-            "message": "Input processed.",
-            "llm_provider": provider,
-            "orchestrator_enabled": orchestrator_wrapper is not None
-        }
+            response_data = {
+                "status": "processing", 
+                "message": "Input processed.",
+                "llm_provider": provider,
+                "orchestrator_enabled": orchestrator_wrapper is not None
+            }
     
     app.logger.info(f"✅ Text processing completed with {provider}")
     return jsonify(response_data), 200
