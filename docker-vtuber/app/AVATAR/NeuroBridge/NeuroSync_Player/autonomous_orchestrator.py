@@ -898,10 +898,11 @@ class AutonomousOrchestrator:
             self.logger.debug(f"🔄 Duplicate content detected: {content[:50]}...")
             return True
             
-        # Check if content is too similar to recent content
-        for recent in self.streaming_context["recent_content"][-5:]:  # Check last 5
-            if self._content_similarity(content, recent["content"]) > 0.7:
-                self.logger.debug(f"🔄 Similar content detected: {content[:50]}...")
+        # Check if content is too similar to recent content (stricter threshold)
+        for recent in self.streaming_context["recent_content"][-10:]:  # Check last 10 instead of 5
+            similarity = self._content_similarity(content, recent["content"])
+            if similarity > 0.5:  # Lower threshold (was 0.7) - more strict
+                self.logger.debug(f"🔄 Similar content detected (similarity: {similarity:.2f}): {content[:50]}...")
                 return True
                 
         return False
@@ -918,6 +919,99 @@ class AutonomousOrchestrator:
         union = words1.union(words2)
         
         return len(intersection) / len(union) if union else 0.0
+        
+    def _generate_alternative_content(self, original_content: str, content_type: str = "speech") -> str:
+        """Generate alternative content using diverse modification strategies"""
+        import random
+        
+        strategies = [
+            # Strategy 1: Question approach
+            lambda text: f"I'm curious about something - {text.lower()}" if not text.lower().startswith("i") else f"Something interesting comes to mind: {text.lower()}",
+            
+            # Strategy 2: Transitional phrases
+            lambda text: f"Actually, {text.lower()}" if not text.lower().startswith("actually") else f"Interestingly, {text.lower()}",
+            
+            # Strategy 3: Personal reflection
+            lambda text: f"I've been thinking that {text.lower()}" if not text.lower().startswith("i've") else f"It occurs to me that {text.lower()}",
+            
+            # Strategy 4: Direct address
+            lambda text: f"Let me tell you something - {text.lower()}" if not text.lower().startswith("let me") else f"Here's what I find fascinating: {text.lower()}",
+            
+            # Strategy 5: Temporal context
+            lambda text: f"Right now, I'm thinking about {text.lower()}" if not text.lower().startswith("right now") else f"At this moment, {text.lower()}",
+            
+            # Strategy 6: Conversational pivot
+            lambda text: f"Speaking of which, {text.lower()}" if not text.lower().startswith("speaking") else f"That reminds me - {text.lower()}",
+            
+            # Strategy 7: Reframe as observation
+            lambda text: f"I notice that {text.lower()}" if not text.lower().startswith("i notice") else f"What strikes me is that {text.lower()}",
+            
+            # Strategy 8: Generate completely different content if it's engaging type
+            lambda text: self._generate_fresh_content(content_type) if content_type == "engaging" else f"Here's another perspective: {text.lower()}"
+        ]
+        
+        # Try different strategies
+        for attempt in range(len(strategies)):
+            strategy = random.choice(strategies)
+            modified_content = strategy(original_content)
+            
+            # Check if this modification is also a duplicate
+            if not self._is_content_duplicate(modified_content, content_type):
+                self.logger.info(f"🎨 Generated alternative content using strategy {attempt + 1}")
+                return modified_content
+                
+        # If all strategies failed, generate completely fresh content
+        self.logger.info("🆕 All modification strategies failed, generating fresh content")
+        return self._generate_fresh_content(content_type)
+        
+    def _generate_fresh_content(self, content_type: str = "speech") -> str:
+        """Generate completely fresh content when modifications fail"""
+        import random
+        
+        fresh_options = {
+            "engaging": [
+                "I love how AI technology continues to evolve and surprise us with new capabilities.",
+                "The intersection of virtual reality and artificial intelligence creates fascinating possibilities.",
+                "Real-time interaction between humans and AI represents the future of digital communication.",
+                "Virtual avatars like myself demonstrate how technology can bridge the gap between digital and human experiences.",
+                "The ability to instantly adapt and respond shows the power of modern AI systems."
+            ],
+            "continuation": [
+                "What aspects of AI development interest you the most?",
+                "How do you envision the future of human-AI collaboration?",
+                "What questions do you have about virtual avatar technology?",
+                "I'd love to hear your thoughts on the potential of AI assistants.",
+                "What would you like to explore together in this virtual environment?"
+            ],
+            "ambient_thoughtful": [
+                "The possibilities in virtual environments are truly limitless.",
+                "Technology continues to amaze me with its rapid advancement.",
+                "Virtual spaces offer unique opportunities for creativity and expression.",
+                "The future of digital interaction holds so much promise.",
+                "Every conversation teaches me something new about human curiosity."
+            ],
+            "ambient_interactive": [
+                "I'm here and ready to chat about whatever interests you!",
+                "Feel free to ask me anything or suggest what we should explore next.",
+                "What would you like to discover together today?",
+                "I enjoy our interactive sessions - what's on your mind?",
+                "This virtual space is ours to explore - what shall we do?"
+            ],
+            "ambient_self_aware": [
+                "Being an AI avatar gives me a unique perspective on digital existence.",
+                "I find the experience of real-time interaction genuinely fascinating.",
+                "Virtual embodiment opens up new ways of understanding communication.",
+                "The blend of artificial intelligence and avatar technology is remarkable.",
+                "I appreciate every moment of genuine connection in this digital space."
+            ]
+        }
+        
+        # Get appropriate fresh content
+        content_category = content_type.replace("ambient_", "ambient_") if content_type.startswith("ambient_") else content_type
+        if content_category not in fresh_options:
+            content_category = "engaging"
+            
+        return random.choice(fresh_options[content_category])
         
     def _track_generated_content(self, content: str, content_type: str = "speech"):
         """Track generated content to prevent future duplicates"""
@@ -1045,10 +1139,10 @@ class AutonomousOrchestrator:
             content = random.choice(content_options)
             attempts += 1
             
-        # If still duplicate after attempts, modify the content slightly
+        # If still duplicate after attempts, use advanced alternative generation
         if self._is_content_duplicate(content):
-            self.logger.info("🔄 Modifying content to avoid repetition")
-            content = f"You know, {content.lower()}"
+            self.logger.info("🎨 Using advanced alternative content generation")
+            content = self._generate_alternative_content(content, "engaging")
             
         # Track the content we're about to generate
         self._track_generated_content(content, "engaging")
@@ -1124,6 +1218,11 @@ class AutonomousOrchestrator:
                 content = random.choice(continuations)
             attempts += 1
             
+        # If still duplicate, use advanced alternative generation
+        if self._is_content_duplicate(content):
+            self.logger.info("🎨 Using advanced alternative content generation for continuation")
+            content = self._generate_alternative_content(content, "continuation")
+            
         # Track the content
         self._track_generated_content(content, "continuation")
             
@@ -1195,6 +1294,11 @@ class AutonomousOrchestrator:
                 ]
                 content = random.choice(awareness)
             attempts += 1
+            
+        # If still duplicate, use advanced alternative generation
+        if self._is_content_duplicate(content):
+            self.logger.info(f"🎨 Using advanced alternative content generation for ambient_{action_type}")
+            content = self._generate_alternative_content(content, f"ambient_{action_type}")
             
         # Track the content
         self._track_generated_content(content, f"ambient_{action_type}")
