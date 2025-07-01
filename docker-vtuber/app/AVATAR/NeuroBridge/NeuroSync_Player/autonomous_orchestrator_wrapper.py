@@ -7,14 +7,16 @@ import asyncio
 import logging
 import time
 import threading
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Any, Dict
 from enum import Enum
 from flask import Flask, request, jsonify
 
 # Import for type checking only to avoid circular imports
 if TYPE_CHECKING:
-    from autonomous_orchestrator_v2 import AutonomousOrchestratorV2
+    from .autonomous_orchestrator_v2 import AutonomousOrchestratorV2
 
+# Import simple speech system (using absolute import)
+from simple_autonomous_speech import start_simple_autonomous_speech, get_simple_speech_instance
 
 # Export the enums for compatibility
 class ActionType(Enum):
@@ -35,79 +37,98 @@ class Priority(Enum):
 
 # Global orchestrator instance and thread management
 orchestrator_v2: Optional['AutonomousOrchestratorV2'] = None
-orchestrator_thread: Optional[object] = None  
+orchestrator_thread: Optional[threading.Thread] = None
 orchestrator_loop: Optional[asyncio.AbstractEventLoop] = None
+simple_speech_task: Optional[asyncio.Task] = None
 
 
 def initialize_orchestrator_v2(app: Flask = None):
-    """Initialize the V2 orchestrator"""
-    global orchestrator_v2, orchestrator_thread, orchestrator_loop
+    """Initialize and start the Autonomous Orchestrator V2 with Simple Speech System"""
+    global orchestrator_v2, orchestrator_thread, orchestrator_loop, simple_speech_task
     
     logger = logging.getLogger(__name__)
-    logger.info("🔄 Initializing Autonomous Orchestrator V2...")
+    logger.info("🔄 Initializing Hybrid Autonomous Orchestrator System...")
     
-    # Create the V2 orchestrator  
-    from autonomous_orchestrator_v2 import AutonomousOrchestratorV2
-    orchestrator_v2 = AutonomousOrchestratorV2()
-    orchestrator_loop = None
-    
-    # Start it in a background thread with its own event loop
-    
-    def run_orchestrator():
-        """Run orchestrator in background thread with proper cleanup"""
-        global orchestrator_loop
-        try:
-            orchestrator_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(orchestrator_loop)
-            orchestrator_loop.run_until_complete(orchestrator_v2.start())
-        except Exception as e:
-            logger.error(f"❌ Error running orchestrator: {e}")
-        finally:
-            # Proper cleanup of event loop and tasks
-            try:
-                if orchestrator_loop and not orchestrator_loop.is_closed():
-                    # Cancel all pending tasks
-                    pending = asyncio.all_tasks(orchestrator_loop)
-                    if pending:
-                        for task in pending:
-                            task.cancel()
-                        # Wait for cancelled tasks to finish
-                        orchestrator_loop.run_until_complete(
-                            asyncio.gather(*pending, return_exceptions=True)
-                        )
-                    orchestrator_loop.close()
-                    logger.info("🧹 Orchestrator event loop cleaned up")
-            except Exception as cleanup_error:
-                logger.error(f"❌ Error during orchestrator cleanup: {cleanup_error}")
-    
-    # Start orchestrator in background thread
-    orchestrator_thread = threading.Thread(target=run_orchestrator, daemon=True)
-    orchestrator_thread.start()
-    
-    # Give the thread a moment to start
-    time.sleep(0.1)
-    
-    logger.info("✅ Autonomous Orchestrator V2 initialized and started in background")
-    
-    # Add Flask routes if app provided
-    if app:
-        add_orchestrator_routes(app)
+    try:
+        # Import here to avoid circular imports
+        from autonomous_orchestrator_v2 import create_autonomous_orchestrator_v2
         
-    return orchestrator_v2
+        # Create orchestrator instance
+        orchestrator_v2 = create_autonomous_orchestrator_v2()
+        
+        def run_orchestrator():
+            """Run both orchestrators in a hybrid approach"""
+            global orchestrator_loop, simple_speech_task
+            
+            try:
+                # Create new event loop for this thread
+                orchestrator_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(orchestrator_loop)
+                
+                logger.info("🧠 Starting Hybrid Orchestrator System...")
+                
+                async def start_hybrid_system():
+                    """Start both the enhanced orchestrator and simple speech system"""
+                    
+                    # Start the enhanced orchestrator (for complex decision making)
+                    if orchestrator_v2:
+                        await orchestrator_v2.start()
+                        logger.info("✅ Enhanced Orchestrator V2 started")
+                    
+                    # Start the simple speech system (for reliable autonomous speech)
+                    simple_speech_task = asyncio.create_task(start_simple_autonomous_speech())
+                    logger.info("✅ Simple Autonomous Speech started")
+                    
+                    # Keep both systems running
+                    while orchestrator_v2 and orchestrator_v2.running:
+                        await asyncio.sleep(1.0)
+                        
+                # Run the hybrid system
+                orchestrator_loop.run_until_complete(start_hybrid_system())
+                
+            except Exception as e:
+                logger.error(f"❌ Error in orchestrator thread: {e}")
+            finally:
+                logger.info("🧹 Orchestrator event loop cleaned up")
+                
+        # Start in background thread
+        orchestrator_thread = threading.Thread(target=run_orchestrator, daemon=True)
+        orchestrator_thread.start()
+        
+        # Brief pause to ensure initialization
+        time.sleep(0.5)
+        
+        # Add routes if Flask app provided
+        if app:
+            add_orchestrator_routes(app)
+            add_simple_speech_routes(app)
+            
+        logger.info("✅ Hybrid Autonomous Orchestrator System initialized and started")
+        return orchestrator_v2
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize orchestrator: {e}")
+        return None
 
 
 def shutdown_orchestrator_v2():
-    """Properly shutdown the orchestrator and clean up background thread"""
-    global orchestrator_v2, orchestrator_thread, orchestrator_loop
+    """Properly shutdown both orchestrators and clean up background thread"""
+    global orchestrator_v2, orchestrator_thread, orchestrator_loop, simple_speech_task
     
     logger = logging.getLogger(__name__)
-    logger.info("🛑 Shutting down Autonomous Orchestrator V2...")
+    logger.info("🛑 Shutting down Hybrid Autonomous Orchestrator System...")
     
     try:
+        # Stop the enhanced orchestrator
         if orchestrator_v2:
             orchestrator_v2.enabled = False
             
-        # Give the orchestrator a moment to stop
+        # Stop the simple speech system
+        simple_speech_instance = get_simple_speech_instance()
+        if simple_speech_instance.running:
+            asyncio.create_task(simple_speech_instance.stop())
+            
+        # Give both systems a moment to stop
         time.sleep(0.5)
         
         # If we have access to the event loop, signal it to stop
@@ -118,7 +139,7 @@ def shutdown_orchestrator_v2():
             except Exception as e:
                 logger.error(f"❌ Error signaling loop shutdown: {e}")
         
-        logger.info("✅ Orchestrator shutdown initiated")
+        logger.info("✅ Hybrid orchestrator shutdown initiated")
         
     except Exception as e:
         logger.error(f"❌ Error during orchestrator shutdown: {e}")
@@ -199,6 +220,75 @@ def add_orchestrator_routes(app: Flask):
             
         else:
             return jsonify({"error": "Unknown action"}), 400
+
+    @app.route('/orchestrator/event', methods=['POST'])
+    def orchestrator_event():
+        """Endpoint to send external environment events to orchestrator"""
+        if not orchestrator_v2:
+            return jsonify({"error": "Orchestrator not initialized"}), 500
+        try:
+            data = request.json or {}
+            event_type = data.get('event_type', 'unknown')
+            payload = data.get('payload', {})
+            priority = data.get('priority', 'medium')  # Currently unused but reserved
+            # Process event in orchestrator loop thread-safe
+            if orchestrator_loop and not orchestrator_loop.is_closed():
+                asyncio.run_coroutine_threadsafe(
+                    orchestrator_v2.process_external_event(event_type, payload),
+                    orchestrator_loop
+                )
+            else:
+                # Fallback to current loop
+                asyncio.create_task(orchestrator_v2.process_external_event(event_type, payload))
+            return jsonify({"status": "event_processed", "event_type": event_type})
+        except Exception as e:
+            return jsonify({"error": f"Failed to process event: {e}"}), 500
+
+
+def add_simple_speech_routes(app: Flask):
+    """Add simple speech control routes to Flask app"""
+    
+    @app.route('/simple_speech/status', methods=['GET'])
+    def simple_speech_status():
+        """Get simple speech system status"""
+        try:
+            speech_system = get_simple_speech_instance()
+            status = speech_system.get_status()
+            return jsonify(status)
+        except Exception as e:
+            return jsonify({"error": f"Failed to get speech system status: {e}"}), 500
+            
+    @app.route('/simple_speech/control', methods=['POST'])
+    def simple_speech_control():
+        """Control simple speech system"""
+        try:
+            speech_system = get_simple_speech_instance()
+            data = request.json
+            action = data.get('action')
+            
+            if action == 'pause':
+                speech_system.config.enabled = False
+                return jsonify({"status": "paused"})
+                
+            elif action == 'resume':
+                speech_system.config.enabled = True
+                return jsonify({"status": "resumed"})
+                
+            elif action == 'set_interval':
+                interval = float(data.get('interval', 15.0))
+                speech_system.config.speech_interval = interval
+                return jsonify({"status": "interval_updated", "new_interval": interval})
+                
+            elif action == 'trigger_now':
+                # Trigger immediate speech generation
+                speech_system.last_speech_time = 0.0  # Force next cycle
+                return jsonify({"status": "triggered"})
+                
+            else:
+                return jsonify({"error": "Unknown action"}), 400
+                
+        except Exception as e:
+            return jsonify({"error": f"Failed to control speech system: {e}"}), 500
 
 
 # Compatibility layer for old orchestrator interface

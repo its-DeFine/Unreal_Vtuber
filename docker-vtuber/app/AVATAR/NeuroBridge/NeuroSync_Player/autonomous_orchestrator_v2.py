@@ -489,6 +489,12 @@ class AutonomousOrchestratorV2:
             except Exception as e:
                 self.logger.warning(f"⚠️ SCB integration failed: {e}")
                 
+        # Limit how many SCB memories/inputs to inject per prompt
+        self.SCB_MAX_INPUTS = int(os.getenv("SCB_MAX_INPUTS", "3"))
+        
+        # External environment context store
+        self.environment_context: Dict[str, Any] = {}
+        
         # Register blendshape callbacks
         self.blendshape_monitor.register_callback('on_complete', self._on_speech_complete)
         
@@ -1042,6 +1048,29 @@ class AutonomousOrchestratorV2:
                 "current_action": self.current_action.id if self.current_action else None
             }
         }
+
+    async def process_external_event(self, event_type: str, payload: Dict[str, Any]):
+        """Allow external systems to influence orchestrator context (e.g., new viewers)"""
+        self.logger.info(f"[EXT-EVENT] Received event '{event_type}' payload={payload}")
+        # Store in environment context
+        self.environment_context[event_type] = payload
+        
+        # Simple handling for 'new_viewers'
+        if event_type == 'new_viewers':
+            names = payload.get('names', [])
+            if names:
+                # Construct a synthetic user input to update conversation context
+                synthetic_input = f"We have new viewers joining: {', '.join(names)}."
+                self.content_generator.update_conversation_context(synthetic_input)
+                # Also log state change
+                self.state_logger.log_state_change('new_viewers', None, names)
+        
+        # Forward to SCB if available and within limit
+        if self.scb_client:
+            try:
+                await self.scb_client.push_event(event_type, payload, max_inputs=self.SCB_MAX_INPUTS)
+            except Exception as e:
+                self.logger.warning(f"SCB push_event failed: {e}")
 
 
 # Factory function
