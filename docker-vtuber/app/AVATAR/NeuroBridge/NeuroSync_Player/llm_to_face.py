@@ -186,6 +186,21 @@ def setup_orchestration():
         # Add custom routes for orchestrator
         add_orchestrator_routes()
         
+        # -------------------------------------------------------------
+        # Integrate enhanced Hybrid Orchestrator V2 (if available)
+        # This registers additional routes like /orchestrator/event and
+        # starts the background decision loop in its own thread.
+        # -------------------------------------------------------------
+        try:
+            from autonomous_orchestrator_wrapper import initialize_orchestrator_v2
+
+            # Initialize V2 orchestrator with the same Flask app so routes
+            # are attached to this server instance (port 5001)
+            initialize_orchestrator_v2()  # Initialize without adding duplicate routes
+            print("✅ Hybrid Orchestrator V2 initialized (background thread)")
+        except Exception as e:
+            print(f"⚠️ Failed to initialize Hybrid Orchestrator V2: {e}")
+        
         print("✅ Autonomous Orchestrator ready!")
         print("🚀 System will now make autonomous decisions about speech and environment!")
         
@@ -247,6 +262,71 @@ def add_orchestrator_routes():
             
         else:
             return jsonify({"error": f"Unknown action: {action}"}), 400
+
+    # ------------------------------------------------------------------
+    # NEW: External Event & Config Endpoints (for dynamic influence)
+    # ------------------------------------------------------------------
+
+    @app.route("/orchestrator/event", methods=['POST'])
+    def orchestrator_event():
+        """Inject external context/event into the orchestrator & SCB"""
+        if not orchestrator_wrapper:
+            return jsonify({"error": "Orchestrator not enabled"}), 503
+        if not request.json:
+            return jsonify({"error": "Missing JSON payload"}), 400
+
+        event_type = request.json.get('event_type', 'unknown')
+        payload = request.json.get('payload', {}) or {}
+
+        try:
+            # Push to SCB (if available) so LLM can immediately see it
+            from utils.scb.scb_store import scb_store
+
+            if event_type == 'change_subject':
+                topic = payload.get('topic', '')
+                if topic:
+                    scb_store.append_directive(f"Change subject to: {topic}", actor="external", ttl=120)
+            else:
+                text = payload.get('text') or str(payload)
+                scb_store.append_chat(text, actor="external", salience=0.8)
+        except Exception as e:
+            app.logger.warning(f"SCB update failed: {e}")
+
+        # Optionally notify orchestrator to refresh context
+        try:
+            orchestrator_wrapper.process_orchestrated_input(
+                payload.get('topic') or payload.get('text') or str(payload),
+                autonomous_context="external_event"
+            )
+        except Exception as e:
+            app.logger.warning(f"Failed to forward event to orchestrator: {e}")
+
+        return jsonify({"status": "event_processed", "event_type": event_type}), 200
+
+    @app.route("/orchestrator/config", methods=['POST'])
+    def orchestrator_config():
+        """Update orchestrator runtime configuration (limited set)"""
+        if not orchestrator_wrapper:
+            return jsonify({"error": "Orchestrator not enabled"}), 503
+        if not request.json:
+            return jsonify({"error": "Missing JSON payload"}), 400
+
+        updates = {}
+        scb_max_inputs = request.json.get('scb_max_inputs')
+        if scb_max_inputs is not None:
+            try:
+                val = int(scb_max_inputs)
+                # Attempt to propagate to underlying orchestrator if method exists
+                if hasattr(orchestrator_wrapper.orchestrator, 'update_config'):
+                    orchestrator_wrapper.orchestrator.update_config(scb_max_inputs=val)
+                updates['scb_max_inputs'] = val
+            except ValueError:
+                return jsonify({"error": "scb_max_inputs must be integer"}), 400
+
+        if not updates:
+            return jsonify({"error": "No recognised config fields provided"}), 400
+
+        return jsonify({"status": "config_updated", **updates}), 200
 
 
 @app.route("/process_text", methods=['POST'])
