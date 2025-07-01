@@ -125,6 +125,8 @@ class ContentGenerator:
     """Enhanced content generator with contextual awareness and conversation flow"""
     
     def __init__(self):
+        import os
+        # Recent conversation tracking
         self.recent_topics = []
         self.conversation_context = {
             'user_interests': [],
@@ -132,6 +134,19 @@ class ContentGenerator:
             'engagement_level': 'moderate',
             'last_user_sentiment': 'neutral'
         }
+
+        # Optional behaviour flags
+        self.use_default_idle = os.getenv("USE_DEFAULT_IDLE_LINES", "true").lower() == "true"
+
+        # SCB integration (may be None if SCB disabled)
+        try:
+            from utils.scb.scb_store import scb_store  # type: ignore
+            self._scb_store = scb_store
+        except Exception:
+            self._scb_store = None
+        self._last_scb_ts: float = 0.0
+
+        # Template phrases (used only if default idle lines enabled)
         self.content_templates = {
             'ambient': [
                 "Hmm...",
@@ -189,21 +204,27 @@ class ContentGenerator:
     def generate_idle_content(self, idle_duration: float, state: SystemStateV2) -> Optional[str]:
         """Generate sophisticated contextual content based on idle time and conversation history"""
         
-        # Determine content category
+        # First preference: SCB driven content
+        scb_line = self._generate_scb_content()
+        if scb_line:
+            return scb_line
+
+        # If we intentionally disable filler lines, do not proceed further
+        if not self.use_default_idle:
+            return None
+
+        # Otherwise continue with legacy generation
         content_category = self._determine_content_category(idle_duration)
-        
-        # Generate contextual content if we have conversation history
+
         if self.recent_topics and idle_duration > 30:
             contextual_content = self._generate_contextual_content(content_category)
             if contextual_content:
                 return contextual_content
-                
-        # Generate time-aware content
+
         time_content = self._generate_time_aware_content(content_category)
         if time_content:
             return time_content
-            
-        # Fall back to basic content
+
         return self._generate_basic_content(content_category, state.recent_content_hashes)
         
     def _determine_content_category(self, idle_duration: float) -> str:
@@ -349,6 +370,30 @@ class ContentGenerator:
                 return content
                 
         # If all are duplicates, return None to skip this cycle
+        return None
+
+    # ------------------------------------------------------------
+    # SCB helper
+    # ------------------------------------------------------------
+    def _generate_scb_content(self) -> Optional[str]:
+        """Return newest SCB directive/event that hasn't been surfaced yet."""
+        if not self._scb_store:
+            return None
+        try:
+            entries = self._scb_store.get_log_entries(20)
+            for entry in entries:
+                ts = entry.get("t", 0)
+                if ts <= self._last_scb_ts:
+                    continue
+                text = entry.get("text", "").strip()
+                if not text:
+                    continue
+                # Update pointer and return once
+                self._last_scb_ts = ts
+                return text
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"SCB fetch failed: {e}")
         return None
 
 
