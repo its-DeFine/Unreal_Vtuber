@@ -1,0 +1,44 @@
+Compose now can delegate build to bake for better performances
+Just set COMPOSE_BAKE=true
+#0 building with "default" instance using docker driver
+
+#1 [neurosync internal] load build definition from dockerfile
+#1 transferring dockerfile: 3.52kB done
+#1 DONE 0.0s
+
+#2 [neurosync internal] load metadata for nvcr.io/nvidia/pytorch:23.04-py3
+#2 DONE 0.0s
+
+#3 [neurosync internal] load .dockerignore
+#3 transferring context: 576B done
+#3 DONE 0.0s
+
+#4 [neurosync 1/7] FROM nvcr.io/nvidia/pytorch:23.04-py3@sha256:5dd0caf52947719ba4fc170e779cfb20a5ecac7c91ca530f2884ed35fb97005f
+#4 resolve nvcr.io/nvidia/pytorch:23.04-py3@sha256:5dd0caf52947719ba4fc170e779cfb20a5ecac7c91ca530f2884ed35fb97005f 0.0s done
+#4 DONE 0.1s
+
+#5 [neurosync 2/7] WORKDIR /app
+#5 CACHED
+
+#6 [neurosync internal] load build context
+#6 transferring context: 13.89kB 0.0s done
+#6 DONE 0.1s
+
+#7 [neurosync 3/7] RUN apt-get update --fix-missing &&     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --fix-missing         gstreamer1.0-tools         gstreamer1.0-plugins-base         gstreamer1.0-plugins-good         python3-gi         python3-gst-1.0         gir1.2-gstreamer-1.0         libasound2         libsndfile1         libportaudio2         portaudio19-dev         libasound2-dev         build-essential         python3-dev         pkg-config         gfortran         libblas-dev         liblapack-dev &&     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --fix-missing         gstreamer1.0-plugins-bad         gstreamer1.0-plugins-ugly         gstreamer1.0-libav || echo "Warning: Some GStreamer plugins failed to install but continuing..." &&     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --fix-missing         ffmpeg || echo "Warning: ffmpeg install failed but continuing..." &&     apt-get clean &&     rm -rf /var/lib/apt/lists/*
+#7 0.570 Get:1 http://archive.ubuntu.com/ubuntu focal InRelease [265 kB]
+#7 0.743 Get:2 http://security.ubuntu.com/ubuntu focal-security InRelease [128 kB]
+#7 1.072 Get:3 http://archive.ubuntu.com/ubuntu focal-updates InRelease [128 kB]
+#7 1.245 Get:4 http://archive.ubuntu.com/ubuntu focal-backports InRelease [128 kB]
+#7 1.355 Get:5 http://archive.ubuntu.com/ubuntu focal/restricted amd64 Packages [33.4 kB]
+#7 1.371 Get:6 http://archive.ubuntu.com/ubuntu focal/multiverse amd64 Packages [177 kB]
+#7 1.467 Get:7 http://archive.ubuntu.com/ubuntu focal/universe amd64 Packages [11.3 MB]
+#7 1.875 Get:8 http://security.ubuntu.com/ubuntu focal-security/main amd64 Packages [4431 kB]
+#7 2.493 Get:9 http://archive.ubuntu.com/ubuntu focal/main amd64 Packages [1275 kB]
+#7 2.574 Get:10 http://archive.ubuntu.com/ubuntu focal-updates/main amd64 Packages [4919 kB]
+#7 1.149 Get:11 http://archive.ubuntu.com/ubuntu focal-updates/universe amd64 Packages [1599 kB]
+#7 1.286 Get:12 http://archive.ubuntu.com/ubuntu focal-updates/restricted amd64 Packages [4998 kB]
+#7 1.644 Get:13 http://archive.ubuntu.com/ubuntu focal-updates/multiverse amd64 Packages [36.8 kB]
+#7 1.645 Get:14 http://archive.ubuntu.com/ubuntu focal-backports/universe amd64 Packages [28.6 kB]
+#7 1.646 Get:15 http://archive.ubuntu.com/ubuntu focal-backports/main amd64 Packages [55.2 kB]
+#7 CANCELED
+exit status 130
