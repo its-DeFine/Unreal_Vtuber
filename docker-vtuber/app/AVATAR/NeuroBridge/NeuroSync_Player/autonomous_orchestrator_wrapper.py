@@ -244,6 +244,15 @@ def add_orchestrator_routes(app: Flask):
         except Exception as e:
             return jsonify({"error": f"Failed to process event: {e}"}), 500
 
+    @app.route('/orchestrator/config', methods=['POST'])
+    def orchestrator_config():
+        """Update orchestrator runtime config (e.g., scb_max_inputs)"""
+        if not orchestrator_v2:
+            return jsonify({"error": "Orchestrator not initialized"}), 500
+        data = request.json or {}
+        orchestrator_loop.call_soon_threadsafe(lambda: orchestrator_v2.update_config(**data))
+        return jsonify({"status": "config_updated", **data})
+
 
 def add_simple_speech_routes(app: Flask):
     """Add simple speech control routes to Flask app"""

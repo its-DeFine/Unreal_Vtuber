@@ -1065,12 +1065,26 @@ class AutonomousOrchestratorV2:
                 # Also log state change
                 self.state_logger.log_state_change('new_viewers', None, names)
         
-        # Forward to SCB if available and within limit
-        if self.scb_client:
-            try:
-                await self.scb_client.push_event(event_type, payload, max_inputs=self.SCB_MAX_INPUTS)
-            except Exception as e:
-                self.logger.warning(f"SCB push_event failed: {e}")
+        # Push to SCB so it appears at the top (most recent)
+        try:
+            from utils.scb.scb_store import scb_store
+            if event_type == 'change_subject':
+                text = payload.get('topic', '')
+                if text:
+                    scb_store.append_directive(f"Change subject to: {text}", actor="external", ttl=120)
+            else:
+                # Generic event logged as high salience event
+                txt = payload.get('text') or str(payload)
+                scb_store.append_chat(txt, actor="external", salience=0.8)
+        except Exception as e:
+            self.logger.warning(f"Failed to push event to SCB: {e}")
+
+    def update_config(self, **kwargs):
+        """Update orchestrator runtime configuration dynamically"""
+        if 'scb_max_inputs' in kwargs:
+            value = int(kwargs['scb_max_inputs'])
+            self.logger.info(f"[CONFIG] Updating SCB_MAX_INPUTS: {self.SCB_MAX_INPUTS} -> {value}")
+            self.SCB_MAX_INPUTS = value
 
 
 # Factory function
