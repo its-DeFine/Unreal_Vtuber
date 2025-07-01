@@ -31,8 +31,8 @@ import time
 from typing import Dict, Any, Optional
 from flask import Flask, request, jsonify
 
-from autonomous_orchestrator import (
-    AutonomousOrchestrator, 
+from autonomous_orchestrator_wrapper import (
+    AutonomousOrchestratorCompat as AutonomousOrchestrator, 
     ActionType, 
     Priority, 
     create_autonomous_orchestrator

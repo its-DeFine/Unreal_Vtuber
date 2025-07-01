@@ -24,7 +24,7 @@ from config import BASE_SYSTEM_MESSAGE, get_llm_config, setup_warnings
 
 # Import orchestrator components
 from orchestrator_integration import OrchestrationWrapper, OrchestrationConfig
-from autonomous_orchestrator import Priority, ActionType
+from autonomous_orchestrator_wrapper import Priority, ActionType
 
 # --- Global Variables for Flask App ---
 app = Flask(__name__)
@@ -612,16 +612,13 @@ def start_orchestrator_async():
         asyncio.set_event_loop(loop)
         
         try:
-            # Start orchestrator and keep loop running
+            # Start orchestrator
             loop.run_until_complete(orchestrator_wrapper.start_orchestrator())
             
-            # Keep the loop running to maintain background tasks
-            pending = asyncio.all_tasks(loop)
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            else:
-                # If no background tasks, run forever until stopped
-                loop.run_forever()
+            # Keep the loop running forever to maintain background tasks
+            # This is essential for the decision loop to continue running
+            print("🔄 Orchestrator event loop running to maintain decision loop...")
+            loop.run_forever()
                 
         except Exception as e:
             print(f"❌ Orchestrator thread error: {e}")
@@ -633,6 +630,7 @@ def start_orchestrator_async():
                     task.cancel()
                 loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             loop.close()
+            print("🧹 Orchestrator event loop cleaned up")
 
 
 def cleanup_resources():

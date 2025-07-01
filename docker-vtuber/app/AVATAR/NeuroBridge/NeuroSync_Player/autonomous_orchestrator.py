@@ -342,9 +342,9 @@ class AutonomousOrchestrator:
         # Load configuration from environment
         self.enabled = os.getenv("AUTONOMOUS_ORCHESTRATION_ENABLED", "false").lower() == "true"
         self.auto_interrupt_enabled = os.getenv("AUTO_INTERRUPT_ENABLED", "true").lower() == "true"
-        self.decision_interval = float(os.getenv("DECISION_LOOP_INTERVAL", "0.1"))
+        self.decision_interval = float(os.getenv("DECISION_LOOP_INTERVAL", "1.0"))  # FIXED: Was 0.1s
         self.interrupt_threshold = int(os.getenv("INTERRUPT_THRESHOLD", "4"))  # HIGH priority
-        self.idle_timeout = float(os.getenv("ORCHESTRATOR_IDLE_TIMEOUT", "2.0"))
+        self.idle_timeout = float(os.getenv("ORCHESTRATOR_IDLE_TIMEOUT", "15.0"))  # FIXED: Was 2.0s
         self.autonomous_environment_enabled = os.getenv("AUTONOMOUS_ENVIRONMENT_ENABLED", "true").lower() == "true"
         self.scb_poll_interval = float(os.getenv("SCB_POLL_INTERVAL", "2.0"))
         
@@ -364,6 +364,10 @@ class AutonomousOrchestrator:
         
         # Decision loop tracking
         self.decision_count = 0  # Debug counter
+        
+        # FIXED: Track speech timing to prevent rapid-fire
+        self.last_speech_time = 0
+        self.MIN_SPEECH_GAP = 5.0  # Minimum 5 seconds between speeches
         
         # Streaming context for more aware autonomous content
         self.streaming_context = {
@@ -454,6 +458,10 @@ class AutonomousOrchestrator:
         
         self.action_queue.append(request)
         self.logger.debug(f"📥 Queued {action_type.value} action with priority {priority.value}")
+        
+        # FIXED: Track when we queue speech actions
+        if action_type == ActionType.SPEECH and metadata and metadata.get("auto_generated"):
+            self.last_speech_time = time.time()
         
     def process_external_input(self, text: str, autonomous_context: str = None) -> None:
         """Process external input and decide on appropriate action"""
@@ -668,6 +676,12 @@ class AutonomousOrchestrator:
                         self.logger.info(f"✅ Speech action completed successfully")
                         # Update state to indicate speech finished
                         self.state_monitor.update_audio_state(is_speaking=False, queue_size=0)
+                        
+                        # FIXED: Update last input time for autonomous content
+                        if action.metadata.get("auto_generated"):
+                            self.state_monitor.update_conversation_context([], active=True)
+                            self.logger.info("📍 Updated last_input_time after autonomous speech")
+                        
                         return True
                     else:
                         error_text = await response.text()
@@ -1051,6 +1065,12 @@ class AutonomousOrchestrator:
             self.logger.debug(f"🔄 System busy: speaking={current_state.is_speaking}, env_changing={current_state.environment_changing}")
             return
             
+        # FIXED: Check minimum gap between speeches
+        time_since_last_speech = time.time() - self.last_speech_time
+        if time_since_last_speech < self.MIN_SPEECH_GAP:
+            self.logger.debug(f"⏳ Too soon for next speech ({time_since_last_speech:.1f}s < {self.MIN_SPEECH_GAP}s)")
+            return
+            
         # Check idle time
         if not current_state.last_input_time:
             self.logger.warning("⚠️ No last_input_time set - cannot calculate idle time")
@@ -1061,21 +1081,21 @@ class AutonomousOrchestrator:
         idle_time = time.time() - current_state.last_input_time
         self.logger.debug(f"⏰ Idle time: {idle_time:.1f}s since last input")
         
-        # Only generate content if idle for more than 3 seconds
-        if idle_time < 3.0:
+        # Only generate content if idle for more than 10 seconds
+        if idle_time < 10.0:  # FIXED: Was 3.0s
             self.logger.debug(f"⏳ Too soon for autonomous content (idle: {idle_time:.1f}s < 3.0s)")
             return
         
         # Generate different types of content based on idle time
-        if idle_time > 30.0:  # Very idle - generate engaging content
+        if idle_time > 60.0:  # Very idle - generate engaging content  # FIXED: Was 30.0s
             self.logger.info("🎭 Generating engaging content after 30s idle")
             await self._generate_engaging_content(current_state)
             
-        elif idle_time > 15.0:  # Moderately idle - continue conversation
+        elif idle_time > 45.0:  # Moderately idle - continue conversation  # FIXED: Was 15.0s
             self.logger.info("💭 Continuing conversation after 15s idle")
             await self._generate_conversation_continuation(current_state)
             
-        elif idle_time > 5.0:  # Slightly idle - ambient actions
+        elif idle_time > 20.0:  # Slightly idle - ambient actions  # FIXED: Was 5.0s
             self.logger.info("🌟 Generating ambient action after 5s idle")
             await self._generate_ambient_action(current_state)
                 
