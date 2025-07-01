@@ -1079,6 +1079,38 @@ class AutonomousOrchestratorV2:
         except Exception as e:
             self.logger.warning(f"Failed to push event to SCB: {e}")
 
+        # --- Immediate reaction speech generation ---
+        try:
+            if event_type == 'change_subject':
+                topic = payload.get('topic', '')
+                if topic:
+                    speech_text = (
+                        f"Switching gears! Let's talk about {topic}. "
+                        f"It's always exciting to explore new topics together."
+                    )
+                    # Queue with URGENT priority so it speaks next
+                    self.queue_speech_external(
+                        speech_text,
+                        priority=Priority.URGENT,
+                        interruptible=False,
+                        metadata={"source": "external_event", "event_type": event_type}
+                    )
+            elif event_type == 'tweet_mention':
+                txt = payload.get('text') or ''
+                author = payload.get('author', '')
+                speech_text = (
+                    f"Hey everyone! We just got a mention on Twitter from {author}: {txt}. "
+                    f"What do you all think about that?"
+                )
+                self.queue_speech_external(
+                    speech_text,
+                    priority=Priority.HIGH,
+                    interruptible=True,
+                    metadata={"source": "external_event", "event_type": event_type}
+                )
+        except Exception as e:
+            self.logger.warning(f"Failed to queue speech for event {event_type}: {e}")
+
     def update_config(self, **kwargs):
         """Update orchestrator runtime configuration dynamically"""
         if 'scb_max_inputs' in kwargs:
