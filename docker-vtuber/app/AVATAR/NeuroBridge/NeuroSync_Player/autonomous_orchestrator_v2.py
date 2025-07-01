@@ -1071,6 +1071,13 @@ class AutonomousOrchestratorV2:
             if event_type == 'change_subject':
                 text = payload.get('topic', '')
                 if text:
+                    # Update conversation context so generator picks it up
+                    synthetic_input = f"Let's discuss about {text}."
+                    try:
+                        self.content_generator.update_conversation_context(synthetic_input)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to update conversation context: {e}")
+
                     scb_store.append_directive(f"Change subject to: {text}", actor="external", ttl=120)
             else:
                 # Generic event logged as high salience event
