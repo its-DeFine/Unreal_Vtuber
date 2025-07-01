@@ -30,6 +30,12 @@ import sounddevice as sd  # type: ignore
 import soundfile as sf  # type: ignore
 import openai  # type: ignore
 
+# Optional .env support
+try:
+    from dotenv import load_dotenv  # type: ignore
+except ImportError:
+    load_dotenv = None
+
 # ---------------------------------------------------------------------------
 # Audio helpers
 # ---------------------------------------------------------------------------
@@ -67,8 +73,15 @@ def main():
     parser.add_argument("-d", "--duration", type=float, default=5.0, help="Recording duration in seconds (default 5)")
     parser.add_argument("-e", "--endpoint", default="http://localhost:5001", help="Orchestrator base URL")
     parser.add_argument("--api-key", help="OpenAI API key (overrides env)")
+    parser.add_argument("--env-file", help="Path to .env file containing OPENAI_API_KEY")
     parser.add_argument("--model", default="whisper-1", help="OpenAI Whisper model")
     args = parser.parse_args()
+
+    # Load .env if requested or if dotenv is available and env file exists
+    if args.env_file and load_dotenv:
+        load_dotenv(args.env_file)
+    elif load_dotenv and Path('.env').exists():
+        load_dotenv('.env')
 
     api_key = args.api_key or os.getenv("OPENAI_API_KEY")
     if not api_key:
