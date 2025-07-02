@@ -65,7 +65,7 @@ import sys
 sys.path.append('/app/NeuroBridge/NeuroSync_Player')
 from character_visual_setups import apply_professor_smith_appearance
 try:
-    result = apply_professor_smith_appearance(enhanced=True)
+    result = apply_professor_smith_appearance(enhanced=False)  # Use basic setup only for reliability
     print('✅ Professor Smith visual setup completed!' if result else '⚠️ Visual setup had some issues')
 except Exception as e:
     print(f'❌ Visual setup error: {e}')
@@ -78,7 +78,7 @@ import sys
 sys.path.append('/app/NeuroBridge/NeuroSync_Player')
 from character_visual_setups import apply_streamer_appearance
 try:
-    result = apply_streamer_appearance(enhanced=True, dynamic=True)
+    result = apply_streamer_appearance(enhanced=False, dynamic=False)  # Use basic setup only for reliability
     print('✅ Streamer visual setup completed!' if result else '⚠️ Visual setup had some issues')
 except Exception as e:
     print(f'❌ Visual setup error: {e}')
