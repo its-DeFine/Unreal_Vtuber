@@ -127,7 +127,7 @@ test_character() {
     log "Step 2: Asking identity question"
     curl -X POST "$BASE_URL/api/v1/reactive/event/chat" \
          -H "Content-Type: application/json" \
-         -d "{\"text\": \"$identity_question\"}" \
+         -d "{\"message\": \"$identity_question\"}" \
          -w "\\n"
     
     log "⏱️ Waiting ${REACTIVE_WAIT_TIME}s for identity response processing..."
@@ -138,7 +138,7 @@ test_character() {
     log "Step 3: Asking subject-specific question"
     curl -X POST "$BASE_URL/api/v1/reactive/event/chat" \
          -H "Content-Type: application/json" \
-         -d "{\"text\": \"$subject_question\"}" \
+         -d "{\"message\": \"$subject_question\"}" \
          -w "\\n"
     
     log "⏱️ Waiting ${REACTIVE_WAIT_TIME}s for subject response processing..."
@@ -149,7 +149,7 @@ test_character() {
     log "Step 4: Asking specialized question"
     curl -X POST "$BASE_URL/api/v1/reactive/event/chat" \
          -H "Content-Type: application/json" \
-         -d "{\"text\": \"$specialized_question\"}" \
+         -d "{\"message\": \"$specialized_question\"}" \
          -w "\\n"
     
     log "⏱️ Waiting ${REACTIVE_WAIT_TIME}s for specialized response processing..."
