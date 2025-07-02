@@ -60,6 +60,13 @@ class CharacterProfile:
     speech_rate: float = 1.0
     pitch_adjustment: float = 0.0
     
+    # Autonomous Mode Configuration
+    autonomous_enabled: bool = True
+    autonomous_behaviors: Dict[str, Any] = field(default_factory=dict)
+    autonomous_topics: List[str] = field(default_factory=list)
+    autonomous_interval: float = 30.0  # seconds between autonomous actions
+    autonomous_variety_threshold: float = 0.7  # similarity threshold for content variety
+    
     # Metadata
     version: str = "1.0"
     created_at: str = ""
@@ -91,6 +98,35 @@ Remember to stay in character and follow these guidelines."""
     def get_response_pattern(self, pattern_type: str) -> Optional[str]:
         """Get a specific response pattern with fallback"""
         return self.response_patterns.get(pattern_type, "")
+    
+    def get_autonomous_behavior(self, behavior_type: str) -> Optional[str]:
+        """Get autonomous behavior configuration"""
+        return self.autonomous_behaviors.get(behavior_type, "")
+    
+    def to_autonomous_prompt_context(self) -> str:
+        """Convert character profile to autonomous mode LLM prompt context"""
+        autonomous_config = self.autonomous_behaviors
+        
+        prompt = f"""Autonomous Character Profile: {self.name}
+Role: {self.role} (AUTONOMOUS MODE)
+
+AUTONOMOUS BEHAVIOR:
+{autonomous_config.get('description', 'Generate engaging content continuously without waiting for user input')}
+
+Content Focus: {', '.join(self.autonomous_topics) if self.autonomous_topics else 'General topics related to expertise'}
+Domain Expertise: {', '.join(self.domain_expertise)}
+
+AUTONOMOUS RULES:
+{chr(10).join(f'- {rule}' for rule in autonomous_config.get('rules', []))}
+
+Content Generation Guidelines:
+- Be proactive and take initiative
+- Provide educational or entertaining content
+- Avoid repetition - vary your approach and topics
+- {autonomous_config.get('content_style', 'Maintain your character personality while being engaging')}
+
+Remember: You are in AUTONOMOUS MODE - generate content without waiting for user prompts."""
+        return prompt
 
 
 class CharacterFileHandler(FileSystemEventHandler):
@@ -115,6 +151,11 @@ class CharacterManager:
         self.characters: Dict[str, CharacterProfile] = {}
         self.current_character_id: Optional[str] = None
         self.character_history: List[Dict[str, Any]] = []
+        
+        # Mode management
+        self.current_mode: str = "reactive"  # "reactive" or "autonomous"
+        self.autonomous_active: bool = False
+        self.mode_history: List[Dict[str, Any]] = []
         
         # File watcher for hot-reload
         self.observer = Observer()
@@ -161,7 +202,28 @@ class CharacterManager:
             "scb_context_lines": 50,
             "conversation_history_size": 100,
             "priority_topics": ["meetings", "deadlines", "urgent emails"],
-            "formality_level": "formal"
+            "formality_level": "formal",
+            "autonomous_enabled": True,
+            "autonomous_behaviors": {
+                "description": "Proactively provide business tips, productivity advice, and professional insights without waiting for requests",
+                "rules": [
+                    "Share productivity tips and time management strategies",
+                    "Provide professional development insights",
+                    "Suggest organizational improvements",
+                    "Offer business etiquette and communication advice",
+                    "Present solutions to common workplace challenges"
+                ],
+                "content_style": "Professional and actionable, with practical business focus"
+            },
+            "autonomous_topics": [
+                "productivity strategies",
+                "meeting efficiency",
+                "email management",
+                "workplace organization",
+                "professional communication",
+                "time management"
+            ],
+            "autonomous_interval": 40.0
         }
         
         # Teacher template
@@ -193,7 +255,27 @@ class CharacterManager:
             "conversation_history_size": 150,
             "priority_topics": ["student progress", "misconceptions", "learning goals"],
             "formality_level": "neutral",
-            "technical_level": "adaptive"
+            "technical_level": "adaptive",
+            "autonomous_enabled": True,
+            "autonomous_behaviors": {
+                "description": "Continuously teach subjects in depth, progressing through topics systematically without repetition",
+                "rules": [
+                    "Start with fundamentals and build complexity gradually",
+                    "Use varied teaching methods (examples, analogies, exercises)",
+                    "Provide practical applications and real-world connections",
+                    "Assess understanding through rhetorical questions",
+                    "Transition smoothly between related topics"
+                ],
+                "content_style": "Educational and progressive, building knowledge step by step"
+            },
+            "autonomous_topics": [
+                "mathematics fundamentals",
+                "science concepts",
+                "critical thinking",
+                "problem-solving strategies",
+                "learning techniques"
+            ],
+            "autonomous_interval": 45.0
         }
         
         # Save templates if they don't exist
@@ -358,6 +440,67 @@ class CharacterManager:
         
         if "character_history" in state:
             self.character_history = state["character_history"]
+    
+    def switch_mode(self, mode: str) -> bool:
+        """Switch between reactive and autonomous modes"""
+        if mode not in ["reactive", "autonomous"]:
+            logger.error(f"Invalid mode: {mode}. Must be 'reactive' or 'autonomous'")
+            return False
+        
+        character = self.get_current_character()
+        if mode == "autonomous" and character and not character.autonomous_enabled:
+            logger.error(f"Character {character.name} does not support autonomous mode")
+            return False
+        
+        # Record mode switch in history
+        self.mode_history.append({
+            "from": self.current_mode,
+            "to": mode,
+            "character_id": self.current_character_id,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        self.current_mode = mode
+        if mode == "autonomous":
+            self.autonomous_active = True
+        else:
+            self.autonomous_active = False
+        
+        logger.info(f"Switched to {mode} mode")
+        return True
+    
+    def get_current_mode(self) -> str:
+        """Get the current mode (reactive or autonomous)"""
+        return self.current_mode
+    
+    def is_autonomous_mode(self) -> bool:
+        """Check if currently in autonomous mode"""
+        return self.current_mode == "autonomous" and self.autonomous_active
+    
+    def is_reactive_mode(self) -> bool:
+        """Check if currently in reactive mode"""
+        return self.current_mode == "reactive"
+    
+    def start_autonomous_mode(self) -> bool:
+        """Start autonomous content generation"""
+        if self.current_mode != "autonomous":
+            logger.error("Must be in autonomous mode to start autonomous content generation")
+            return False
+        
+        character = self.get_current_character()
+        if not character or not character.autonomous_enabled:
+            logger.error("Current character does not support autonomous mode")
+            return False
+        
+        self.autonomous_active = True
+        logger.info(f"Started autonomous content generation for {character.name}")
+        return True
+    
+    def stop_autonomous_mode(self) -> bool:
+        """Stop autonomous content generation"""
+        self.autonomous_active = False
+        logger.info("Stopped autonomous content generation")
+        return True
     
     def cleanup(self):
         """Clean up resources"""

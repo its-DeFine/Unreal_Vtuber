@@ -236,6 +236,110 @@ def delete_character(character_id: str):
         return jsonify({"error": str(e)}), 500
 
 
+@reactive_api.route('/mode/status', methods=['GET'])
+def get_mode_status():
+    """Get current mode status"""
+    try:
+        character_manager = get_character_manager()
+        character = character_manager.get_current_character()
+        
+        return jsonify({
+            "current_mode": character_manager.get_current_mode(),
+            "autonomous_active": character_manager.autonomous_active,
+            "character_supports_autonomous": character.autonomous_enabled if character else False,
+            "character_id": character_manager.current_character_id,
+            "mode_history": character_manager.mode_history[-5:]  # Last 5 mode switches
+        })
+    except Exception as e:
+        logger.error(f"Error getting mode status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@reactive_api.route('/mode/switch', methods=['POST'])
+@require_orchestrator
+def switch_mode():
+    """Switch between reactive and autonomous modes"""
+    try:
+        data = request.get_json() if request.is_json else {}
+        mode = data.get('mode', '').lower()
+        
+        if mode not in ['reactive', 'autonomous']:
+            return jsonify({"error": "Mode must be 'reactive' or 'autonomous'"}), 400
+        
+        character_manager = get_character_manager()
+        success = character_manager.switch_mode(mode)
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "mode": character_manager.get_current_mode(),
+                "autonomous_active": character_manager.autonomous_active
+            })
+        else:
+            return jsonify({"error": "Failed to switch mode"}), 400
+            
+    except Exception as e:
+        logger.error(f"Error switching mode: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@reactive_api.route('/mode/autonomous/start', methods=['POST'])
+@require_orchestrator
+@async_route
+async def start_autonomous_mode():
+    """Start autonomous content generation"""
+    try:
+        data = request.get_json() if request.is_json else {}
+        topic = data.get('topic')
+        
+        orchestrator: ReactiveOrchestrator = current_app.config['REACTIVE_ORCHESTRATOR']
+        character_manager = get_character_manager()
+        
+        # Switch to autonomous mode if not already
+        if not character_manager.is_autonomous_mode():
+            character_manager.switch_mode('autonomous')
+        
+        # Start autonomous content generation
+        success = await orchestrator.start_autonomous_mode(topic)
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "Autonomous mode started",
+                "topic": topic,
+                "character": character_manager.get_current_character().name
+            })
+        else:
+            return jsonify({"error": "Failed to start autonomous mode"}), 400
+            
+    except Exception as e:
+        logger.error(f"Error starting autonomous mode: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@reactive_api.route('/mode/autonomous/stop', methods=['POST'])
+@require_orchestrator
+@async_route
+async def stop_autonomous_mode():
+    """Stop autonomous content generation"""
+    try:
+        orchestrator: ReactiveOrchestrator = current_app.config['REACTIVE_ORCHESTRATOR']
+        character_manager = get_character_manager()
+        
+        # Stop autonomous content generation
+        await orchestrator.stop_autonomous_mode()
+        character_manager.stop_autonomous_mode()
+        
+        return jsonify({
+            "success": True,
+            "message": "Autonomous mode stopped"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error stopping autonomous mode: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 # Event Processing Endpoints
 # ==========================
 

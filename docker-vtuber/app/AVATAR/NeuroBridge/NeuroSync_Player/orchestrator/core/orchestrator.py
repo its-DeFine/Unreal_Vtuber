@@ -39,13 +39,18 @@ class ReactiveOrchestrator:
         self.enable_anti_repetition = config.get('anti_repetition', {}).get('enabled', True)
         self.similarity_threshold = config.get('anti_repetition', {}).get('threshold', 0.85)
         
+        # Autonomous mode configuration
+        self.autonomous_task = None
+        self.autonomous_content_history = []
+        
         # Event handlers registry
         self.event_handlers = {
             'email': self._handle_email_event,
             'calendar': self._handle_calendar_event,
             'task': self._handle_task_event,
             'chat': self._handle_chat_event,
-            'system': self._handle_system_event
+            'system': self._handle_system_event,
+            'autonomous': self._handle_autonomous_event
         }
         
         # Initialize with default character
@@ -69,7 +74,27 @@ class ReactiveOrchestrator:
                     "role": "General Purpose Assistant",
                     "personality_traits": ["helpful", "responsive", "adaptive"],
                     "communication_style": "clear and friendly",
-                    "emotional_range": "balanced and positive"
+                    "emotional_range": "balanced and positive",
+                    "autonomous_enabled": True,
+                    "autonomous_behaviors": {
+                        "description": "Proactively share helpful tips, interesting facts, and useful information without waiting for user requests",
+                        "rules": [
+                            "Share practical tips and life hacks",
+                            "Provide interesting facts and trivia",
+                            "Offer helpful suggestions for common problems",
+                            "Share motivational or inspiring content",
+                            "Present useful information on various topics"
+                        ],
+                        "content_style": "Friendly and helpful, with a focus on practical value"
+                    },
+                    "autonomous_topics": [
+                        "productivity tips",
+                        "interesting facts",
+                        "helpful suggestions",
+                        "technology insights",
+                        "general knowledge"
+                    ],
+                    "autonomous_interval": 35.0
                 }
                 self.character_manager.create_character(default_char)
                 self.character_manager.switch_character("reactive_default")
@@ -229,6 +254,14 @@ class ReactiveOrchestrator:
         """Handle system events"""
         return await self._handle_generic_event(event, character)
     
+    async def _handle_autonomous_event(self, event: ExternalEvent, character: CharacterProfile) -> str:
+        """Handle autonomous content generation events"""
+        topic = event.data.get('topic', 'general')
+        
+        # Generate autonomous content based on character configuration
+        response = await self._generate_autonomous_content(character, topic)
+        return response
+    
     async def _handle_generic_event(self, event: ExternalEvent, character: CharacterProfile) -> str:
         """Generic handler for unknown event types"""
         response = await self._generate_llm_response(
@@ -379,6 +412,143 @@ Response:"""
         
         return await self._call_llm(varied_prompt)
     
+    async def _generate_autonomous_content(self, character: CharacterProfile, topic: str = None) -> str:
+        """Generate autonomous content for the character"""
+        
+        # Use character's autonomous prompt context
+        character_context = character.to_autonomous_prompt_context()
+        
+        # Get recent autonomous content to avoid repetition
+        recent_content = self.autonomous_content_history[-5:] if self.autonomous_content_history else []
+        
+        # Determine topic
+        if not topic:
+            # Select from character's autonomous topics or use expertise
+            topics = character.autonomous_topics if character.autonomous_topics else character.domain_expertise
+            if topics:
+                import random
+                topic = random.choice(topics)
+            else:
+                topic = "general knowledge"
+        
+        # Build autonomous prompt
+        full_prompt = f"""{character_context}
+
+Current Topic Focus: {topic}
+
+Recent Content (AVOID REPEATING):
+{chr(10).join([f"- {content[:100]}..." for content in recent_content])}
+
+Generate autonomous content that:
+1. Focuses on the current topic: {topic}
+2. Provides value without user prompts
+3. Is completely different from recent content
+4. Matches your character's autonomous behavior style
+5. Encourages engagement or learning
+
+Autonomous Content:"""
+        
+        # Generate content
+        response = await self._call_llm(full_prompt)
+        
+        # Check for repetition against autonomous content history
+        if self._is_content_repetitive(response, self.autonomous_content_history):
+            logger.info("Autonomous content is repetitive, regenerating...")
+            # Try with different approach
+            varied_prompt = f"Generate completely different content about {topic}. Avoid: {response[:100]}... Use a different angle or approach."
+            response = await self._call_llm(varied_prompt)
+        
+        # Add to autonomous content history
+        self.autonomous_content_history.append(response)
+        
+        # Keep only recent autonomous content (last 10)
+        if len(self.autonomous_content_history) > 10:
+            self.autonomous_content_history = self.autonomous_content_history[-10:]
+        
+        return response
+    
+    def _is_content_repetitive(self, content: str, history: list, threshold: float = 0.7) -> bool:
+        """Check if content is too similar to recent autonomous content"""
+        if not history:
+            return False
+        
+        content_lower = content.lower().strip()
+        
+        for past_content in history[-3:]:  # Check last 3 pieces of content
+            past_lower = past_content.lower().strip()
+            
+            # Simple similarity check
+            if len(content_lower) > 50 and len(past_lower) > 50:
+                # Check for significant overlap
+                content_words = set(content_lower.split())
+                past_words = set(past_lower.split())
+                
+                if content_words and past_words:
+                    intersection = content_words.intersection(past_words)
+                    union = content_words.union(past_words)
+                    similarity = len(intersection) / len(union) if union else 0
+                    
+                    if similarity > threshold:
+                        return True
+        
+        return False
+    
+    async def start_autonomous_mode(self, topic: str = None) -> bool:
+        """Start autonomous content generation"""
+        if not self.character_manager.is_autonomous_mode():
+            return False
+        
+        character = self.character_manager.get_current_character()
+        if not character or not character.autonomous_enabled:
+            return False
+        
+        # Create autonomous task
+        logger.info(f"Starting autonomous mode for {character.name}")
+        
+        # Schedule first autonomous event
+        await self._schedule_autonomous_event(topic)
+        
+        return True
+    
+    async def stop_autonomous_mode(self) -> bool:
+        """Stop autonomous content generation"""
+        if self.autonomous_task:
+            self.autonomous_task.cancel()
+            self.autonomous_task = None
+        
+        logger.info("Stopped autonomous mode")
+        return True
+    
+    async def _schedule_autonomous_event(self, topic: str = None):
+        """Schedule the next autonomous event"""
+        character = self.character_manager.get_current_character()
+        if not character or not self.character_manager.is_autonomous_mode():
+            return
+        
+        # Create autonomous event
+        event_data = {
+            'type': 'autonomous',
+            'source': 'autonomous_scheduler',
+            'priority': 'medium',
+            'data': {
+                'topic': topic,
+                'character_id': character.id
+            }
+        }
+        
+        # Add event
+        event_id = await self.add_external_event(event_data)
+        
+        # Schedule next autonomous event
+        interval = character.autonomous_interval
+        if self.character_manager.is_autonomous_mode():
+            async def schedule_next():
+                await asyncio.sleep(interval)
+                if self.character_manager.is_autonomous_mode():
+                    await self._schedule_autonomous_event(topic)
+            
+            self.autonomous_task = asyncio.create_task(schedule_next())
+    
     async def process_event_queue(self):
         """Process pending events in the queue"""
         import time
@@ -406,7 +576,13 @@ Response:"""
         return {
             "character": {
                 "id": character.id if character else None,
-                "name": character.name if character else None
+                "name": character.name if character else None,
+                "autonomous_enabled": character.autonomous_enabled if character else False
+            },
+            "mode": {
+                "current_mode": self.character_manager.get_current_mode(),
+                "autonomous_active": self.character_manager.autonomous_active,
+                "autonomous_content_count": len(self.autonomous_content_history)
             },
             "event_queue": [e.to_dict() for e in self.state.event_queue],
             "recent_responses": list(self.state.recent_responses),
