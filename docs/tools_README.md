@@ -6,7 +6,7 @@ This directory contains various utility scripts and tools organized by category:
 
 - **monitoring/**: Scripts for system monitoring and log management
   - `FINAL_WORKING_MONITOR.sh` - Main monitoring script
-  - `monitor_autonomous_system_fixed.sh` - Fixed autonomous system monitor
+  - `monitor_autonomous_system.sh` - Production-ready autonomous system monitor (moved to scripts/monitoring/)
   - `simple_monitor_test.sh` - Simple monitoring test
   - `clean_duplicate_logs.sh` - Log cleanup utility
 

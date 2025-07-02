@@ -14,16 +14,16 @@ This repository contains two main projects:
 ### Container Management (Primary Tool)
 ```bash
 # From root directory
-./docker-vtuber/main_app/scripts/utils/docker-manager.sh --build-run    # Build and run containers
-./docker-vtuber/main_app/scripts/utils/docker-manager.sh --stop         # Stop all containers
-./docker-vtuber/main_app/scripts/utils/docker-manager.sh --logs         # Show container logs
-./docker-vtuber/main_app/scripts/utils/docker-manager.sh --test         # Test endpoints
-./docker-vtuber/main_app/scripts/utils/docker-manager.sh --status       # Check container status
+./scripts/docker/docker-manager.sh --build-run    # Build and run containers
+./scripts/docker/docker-manager.sh --stop         # Stop all containers
+./scripts/docker/docker-manager.sh --logs         # Show container logs
+./scripts/docker/docker-manager.sh --test         # Test endpoints
+./scripts/docker/docker-manager.sh --status       # Check container status
 
-# From docker-vtuber directory
-./scripts/utils/docker-manager.sh --autonomous   # Run autonomous agent only
-./scripts/utils/docker-manager.sh --cognitive    # Run with Ollama LLM
-./scripts/utils/docker-manager.sh --full-stack   # Run complete system
+# Docker manager options
+./scripts/docker/docker-manager.sh --autonomous   # Run autonomous agent only
+./scripts/docker/docker-manager.sh --cognitive    # Run with Ollama LLM
+./scripts/docker/docker-manager.sh --full-stack   # Run complete system
 ```
 
 ### Async Docker Builds
@@ -63,10 +63,10 @@ npm run build    # Production build
 ### Monitoring & Debugging
 ```bash
 # Monitor autonomous system
-./docker-vtuber/app/AVATAR/tools/monitoring/monitor_autonomous_system_fixed.sh
+./scripts/monitoring/monitor_autonomous_system.sh
 
 # Database investigation
-./docker-vtuber/app/AVATAR/tools/database/investigate_database.sh
+./scripts/database/investigate_database.sh
 
 # Health checks
 curl http://localhost:3100/health    # Autonomous Agent
@@ -215,4 +215,4 @@ Core database schema with 13 tables plus analytics:
 4. **Error handling is basic** - needs hardening for production use
 5. **Monitoring is minimal** - add comprehensive observability for production
 6. Always check container logs when debugging issues
-7. Use the docker-manager.sh script as the primary management tool
+7. Use the scripts/docker/docker-manager.sh script as the primary management tool
