@@ -86,17 +86,46 @@ class FilterLevel(Enum):
 
 def _create_autogen_llm_config(base_config: Dict[str, Any], temperature: float = 0.7) -> Dict[str, Any]:
     """Create properly formatted llm_config for AutoGen agents"""
-    config_list = [{
-        "model": base_config.get("model", "gpt-3.5-turbo"),
-        "api_key": base_config.get("api_key", ""),
-        "temperature": temperature,
-        "max_tokens": base_config.get("max_tokens", 150)
-    }]
+    # Extract API key and model from base config
+    api_key = base_config.get("api_key", "")
+    model = base_config.get("model", "gpt-3.5-turbo")
+    
+    # AutoGen expects different formats for different providers
+    if "gpt" in model.lower() or "openai" in model.lower():
+        config_list = [{
+            "model": model,
+            "api_key": api_key,
+            "api_type": "openai",
+            "base_url": base_config.get("base_url", "https://api.openai.com/v1")
+        }]
+    elif "claude" in model.lower() or "anthropic" in model.lower():
+        config_list = [{
+            "model": model,
+            "api_key": api_key,
+            "api_type": "anthropic",
+            "base_url": base_config.get("base_url", "https://api.anthropic.com")
+        }]
+    else:
+        # Generic format for other providers
+        config_list = [{
+            "model": model,
+            "api_key": api_key,
+            "base_url": base_config.get("base_url", None)
+        }]
+    
+    # Add temperature and other params to each config
+    for config in config_list:
+        config.update({
+            "temperature": temperature,
+            "max_tokens": base_config.get("max_tokens", 150),
+            "timeout": 30
+        })
     
     return {
         "config_list": config_list,
+        "cache_seed": 42,  # Enable caching for efficiency
         "timeout": 60,
-        "cache_seed": None
+        "temperature": temperature
     }
 
 
@@ -112,8 +141,9 @@ def create_orchestrator_agent(persona_config: Any, llm_config: Dict[str, Any]) -
     """
     if not AUTOGEN_AVAILABLE:
         return None
-        
-    system_message = f"""You are the Orchestrator for a VTuber streaming system.
+    
+    try:
+        system_message = f"""You are the Orchestrator for a VTuber streaming system.
     
     Current Persona: {persona_config.name}
     Persona Description: {persona_config.orchestrator_prompt}
@@ -135,13 +165,29 @@ def create_orchestrator_agent(persona_config: Any, llm_config: Dict[str, Any]) -
     
     Action types: speech, environment, suppress, batch
     """
-    
-    return AssistantAgent(
-        name="orchestrator",
-        system_message=system_message,
-        llm_config=_create_autogen_llm_config(llm_config, temperature=0.3),
-        max_consecutive_auto_reply=1
-    )
+        
+        agent = AssistantAgent(
+            name="orchestrator",
+            system_message=system_message,
+            llm_config=_create_autogen_llm_config(llm_config, temperature=0.3),
+            max_consecutive_auto_reply=1,
+            human_input_mode="NEVER"  # Ensure autonomous operation
+        )
+        
+        # Test the agent configuration
+        test_response = agent.generate_reply(
+            messages=[{"role": "user", "content": "Test: respond with OK"}]
+        )
+        
+        if test_response is None:
+            logging.getLogger(__name__).warning("Orchestrator agent test failed, returning mock agent")
+            return MockAgent("orchestrator", system_message)
+            
+        return agent
+        
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Failed to create orchestrator agent: {e}")
+        return MockAgent("orchestrator", f"Mock orchestrator for {persona_config.name}")
 
 
 def create_content_filter_agent(persona_config: Any, llm_config: Dict[str, Any]) -> Optional[Agent]:

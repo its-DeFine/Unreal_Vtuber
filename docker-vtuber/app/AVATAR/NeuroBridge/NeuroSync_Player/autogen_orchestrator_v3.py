@@ -654,6 +654,17 @@ class AutoGenOrchestratorV3:
     
     async def _generate_autonomous_content(self):
         """Generate autonomous content using content strategies"""
+        # Get SCB context if available
+        scb_context_str = ""
+        if self.scb_client:
+            try:
+                scb_context = self.scb_client.get_context_for_decision()
+                if scb_context:
+                    scb_context_str = self.scb_client.format_context_for_prompt(scb_context)
+                    self.logger.debug(f"SCB Context available: {len(scb_context_str)} chars")
+            except Exception as e:
+                self.logger.warning(f"Failed to get SCB context: {e}")
+        
         # Get content from strategy manager
         content_strategy = self.content_strategy_manager.select_strategy(self.state_manager)
         content = self.content_strategy_manager.generate_content(content_strategy, self.state_manager)
@@ -663,7 +674,10 @@ class AutoGenOrchestratorV3:
         
         # Use idle content agent for enhancement if available
         if self.agents.get("idle_content"):
-            content = await self._enhance_content_with_agent(content, content_strategy)
+            content = await self._enhance_content_with_agent(content, content_strategy, scb_context_str)
+        elif scb_context_str:
+            # If no agent available but SCB context exists, incorporate it directly
+            content = f"{content} {scb_context_str[:50]}..." if len(scb_context_str) > 50 else f"{content} {scb_context_str}"
         
         # Queue the content
         await self._queue_speech(
@@ -672,7 +686,8 @@ class AutoGenOrchestratorV3:
             metadata={
                 "source": "autonomous_content",
                 "strategy": content_strategy.value,
-                "is_autonomous": True
+                "is_autonomous": True,
+                "has_scb_context": bool(scb_context_str)
             }
         )
         
@@ -680,7 +695,7 @@ class AutoGenOrchestratorV3:
         self.state_manager.update_autonomous_generation_time()
         self.content_strategy_manager.record_content_generation(content_strategy, content)
     
-    async def _enhance_content_with_agent(self, content: str, strategy: ContentStrategy) -> str:
+    async def _enhance_content_with_agent(self, content: str, strategy: ContentStrategy, scb_context: str = "") -> str:
         """Enhance content using the idle content agent"""
         if not self.agents.get("idle_content"):
             return content
@@ -692,10 +707,15 @@ class AutoGenOrchestratorV3:
                 "viewer_interests": self.state.conversation_context.user_interests
             }
             
+            # Include SCB context if available
+            if scb_context:
+                context["scb_memory"] = scb_context
+            
             message = f"""
             Enhance this autonomous content for a VTuber stream:
             Original: {content}
             Context: {json.dumps(context, indent=2)}
+            {"SCB Memory Context: " + scb_context if scb_context else ""}
             Keep it natural, engaging, and under 100 characters.
             """
             

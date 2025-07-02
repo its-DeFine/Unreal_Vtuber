@@ -38,10 +38,10 @@ services:
       - DECISION_LOOP_INTERVAL=0.5
       # Thresholds for different types of content (seconds)
       - IDLE_AMBIENT_THRESHOLD=5.0
-      - IDLE_CONTINUATION_THRESHOLD=10.0
-      - IDLE_ENGAGING_THRESHOLD=20.0
+      - IDLE_CONTINUATION_THRESHOLD=5.0
+      - IDLE_ENGAGING_THRESHOLD=5.0
       # Maximum characters for autonomous generated content
-      - AUTONOMOUS_MAX_CHARS=150
+      - AUTONOMOUS_MAX_CHARS=350
     deploy: # Add deploy configuration for GPU access
       resources:
         reservations:
