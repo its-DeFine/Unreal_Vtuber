@@ -124,6 +124,118 @@ def get_current_character():
         return jsonify({"error": str(e)}), 500
 
 
+@reactive_api.route('/character/load', methods=['POST'])
+def load_character():
+    """Load/switch to a different character"""
+    try:
+        data = request.get_json() if request.is_json else {}
+        character_id = data.get('character_id')
+        
+        if not character_id:
+            return jsonify({"error": "character_id is required"}), 400
+        
+        character_manager = get_character_manager()
+        success = character_manager.switch_character(character_id)
+        
+        if success:
+            character = character_manager.get_current_character()
+            return jsonify({
+                "success": True,
+                "character": {
+                    "id": character.id,
+                    "name": character.name,
+                    "role": character.role
+                }
+            })
+        else:
+            return jsonify({"error": f"Character {character_id} not found"}), 404
+            
+    except Exception as e:
+        logger.error(f"Error loading character: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@reactive_api.route('/character/create', methods=['POST'])
+def create_character():
+    """Create a new character"""
+    try:
+        data = request.get_json() if request.is_json else {}
+        
+        # Validate required fields
+        required_fields = ['id', 'name', 'role']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"{field} is required"}), 400
+        
+        character_manager = get_character_manager()
+        character = character_manager.create_character(data)
+        
+        return jsonify({
+            "success": True,
+            "character": {
+                "id": character.id,
+                "name": character.name,
+                "role": character.role
+            }
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"Error creating character: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@reactive_api.route('/character/update', methods=['PUT'])
+def update_character():
+    """Update current character's configuration"""
+    try:
+        data = request.get_json() if request.is_json else {}
+        character_manager = get_character_manager()
+        character = character_manager.get_current_character()
+        
+        if not character:
+            return jsonify({"error": "No character currently active"}), 404
+        
+        # Update allowed fields
+        updatable_fields = [
+            'personality_traits', 'communication_style', 'emotional_range',
+            'response_patterns', 'behavioral_rules', 'scb_context_lines',
+            'conversation_history_size', 'priority_topics'
+        ]
+        
+        for field in updatable_fields:
+            if field in data:
+                setattr(character, field, data[field])
+        
+        # Save updated character
+        character_manager.save_character(character)
+        
+        return jsonify({
+            "success": True,
+            "character_id": character.id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating character: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@reactive_api.route('/character/delete/<character_id>', methods=['DELETE'])
+def delete_character(character_id: str):
+    """Delete a character"""
+    try:
+        character_manager = get_character_manager()
+        success = character_manager.delete_character(character_id)
+        
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"error": "Cannot delete current character or character not found"}), 400
+            
+    except Exception as e:
+        logger.error(f"Error deleting character: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 # Event Processing Endpoints
 # ==========================
 
