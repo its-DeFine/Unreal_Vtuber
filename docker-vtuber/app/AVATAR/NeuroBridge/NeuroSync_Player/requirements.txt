@@ -18,3 +18,9 @@ numpy>=1.24.0,<2.0.0
 # Audio processing dependencies with compatible versions
 librosa>=0.10.0,<0.11.0
 numba>=0.57.0,<0.60.0
+
+# Reactive VTuber System dependencies
+watchdog>=3.0.0  # For hot-reloading character files
+pyyaml>=6.0  # For YAML character configuration
+dataclasses-json>=0.6.0  # For better dataclass serialization
+python-dateutil>=2.8.0  # For date/time handling

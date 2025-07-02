@@ -3,10 +3,10 @@ Orchestrator Version Manager
 ===========================
 
 This module manages the selection and initialization of the appropriate orchestrator version
-based on environment configuration. It provides a seamless way to switch between V2 (deprecated)
-and V3 (AutoGen-based) orchestrators.
+based on environment configuration. It provides a seamless way to switch between V2 (deprecated),
+V3 (AutoGen-based), and Reactive (character-driven) orchestrators.
 
-Default: V3 (AutoGen)
+Default: reactive (Character-driven reactive system)
 """
 
 import os
@@ -22,7 +22,7 @@ class OrchestratorVersionManager:
     """Manages orchestrator version selection and initialization"""
     
     def __init__(self):
-        self.version = os.getenv("ORCHESTRATOR_VERSION", "v3").lower()
+        self.version = os.getenv("ORCHESTRATOR_VERSION", "reactive").lower()
         self.orchestrator_instance = None
         self.wrapper_instance = None
         
@@ -30,7 +30,12 @@ class OrchestratorVersionManager:
         if self.version == "v2":
             logger.warning(
                 "⚠️ DEPRECATION WARNING: Orchestrator V2 is deprecated and will be removed in a future release. "
-                "Please migrate to V3 (AutoGen-based orchestrator) by setting ORCHESTRATOR_VERSION=v3"
+                "Please migrate to V3 (AutoGen) or Reactive (character-driven) orchestrator"
+            )
+        elif self.version == "v3":
+            logger.info(
+                "ℹ️ Using AutoGen-based orchestrator V3. Consider the new Reactive orchestrator for "
+                "simplified character-driven interactions"
             )
         
         logger.info(f"🎯 Orchestrator Version Manager initialized with version: {self.version.upper()}")
@@ -38,14 +43,49 @@ class OrchestratorVersionManager:
     def initialize_orchestrator(self, app: Flask, system_objects: dict = None) -> Optional[Any]:
         """Initialize the appropriate orchestrator version"""
         
-        if self.version == "v3":
+        if self.version == "reactive":
+            return self._initialize_reactive_orchestrator(app, system_objects)
+        elif self.version == "v3":
             return self._initialize_v3_orchestrator(app, system_objects)
         elif self.version == "v2":
             return self._initialize_v2_orchestrator(app, system_objects)
         else:
-            logger.error(f"❌ Unknown orchestrator version: {self.version}. Defaulting to V3.")
+            logger.error(f"❌ Unknown orchestrator version: {self.version}. Defaulting to Reactive.")
+            self.version = "reactive"
+            return self._initialize_reactive_orchestrator(app, system_objects)
+    
+    def _initialize_reactive_orchestrator(self, app: Flask, system_objects: dict = None) -> Optional[Any]:
+        """Initialize the Reactive (character-driven) orchestrator"""
+        logger.info("🎭 Initializing Reactive (Character-driven) Orchestrator...")
+        
+        try:
+            # Import Reactive orchestrator components
+            from reactive_llm_integration import initialize_reactive_orchestrator
+            
+            # Initialize reactive wrapper
+            self.wrapper_instance = initialize_reactive_orchestrator(app, system_objects)
+            
+            if self.wrapper_instance:
+                # Get the orchestrator instance
+                self.orchestrator_instance = self.wrapper_instance.orchestrator
+                
+                logger.info("✅ Reactive Orchestrator initialized successfully")
+                logger.info("🎯 Character-driven system ready for external events and reactive responses")
+                return self.wrapper_instance
+            else:
+                logger.error("❌ Failed to initialize Reactive orchestrator wrapper")
+                return None
+            
+        except ImportError as e:
+            logger.error(f"❌ Failed to import Reactive orchestrator components: {e}")
+            logger.info("📝 Falling back to V3 orchestrator...")
             self.version = "v3"
             return self._initialize_v3_orchestrator(app, system_objects)
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Reactive orchestrator: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
     
     def _initialize_v3_orchestrator(self, app: Flask, system_objects: dict = None) -> Optional[Any]:
         """Initialize the V3 (AutoGen) orchestrator"""
@@ -97,7 +137,7 @@ class OrchestratorVersionManager:
             # Log deprecation warning again
             logger.warning(
                 "⚠️ You are using the deprecated V2 orchestrator. "
-                "Please update your configuration to use V3 by setting ORCHESTRATOR_VERSION=v3"
+                "Please update your configuration to use Reactive by setting ORCHESTRATOR_VERSION=reactive"
             )
             
             # Create V2 configuration
@@ -135,6 +175,10 @@ class OrchestratorVersionManager:
     def is_v2(self):
         """Check if using V2 orchestrator"""
         return self.version == "v2"
+    
+    def is_reactive(self):
+        """Check if using Reactive orchestrator"""
+        return self.version == "reactive"
 
 
 # Singleton instance
