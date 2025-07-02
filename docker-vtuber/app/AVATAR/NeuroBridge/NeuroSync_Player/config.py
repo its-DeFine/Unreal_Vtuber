@@ -183,14 +183,42 @@ def get_enhanced_system_message_with_timing(next_cycle_seconds=30):
     return enhanced_message
 
 
+def get_character_aware_system_message():
+    """
+    Returns character-specific system message instead of hardcoded Livy prompt.
+    Uses the current active character's prompt configuration.
+    """
+    try:
+        # Import here to avoid circular imports
+        from character_config import get_character_manager
+        
+        character_manager = get_character_manager()
+        current_character = character_manager.get_current_character()
+        
+        if current_character:
+            # Use character-specific prompt context
+            character_prompt = current_character.to_prompt_context()
+            print(f"🎭 Using character-aware system message for: {current_character.name}")
+            return character_prompt
+        else:
+            print("⚠️ No current character found, using default system message")
+            return BASE_SYSTEM_MESSAGE
+            
+    except Exception as e:
+        print(f"⚠️ Error getting character-aware system message: {e}")
+        print("📋 Falling back to default system message")
+        return BASE_SYSTEM_MESSAGE
+
+
 def get_llm_config(system_message=None, next_cycle_seconds=30):
     """
     Returns a dictionary of LLM configuration parameters with enhanced local model support.
     
-    If no system_message is provided, it defaults to BASE_SYSTEM_MESSAGE.
+    If no system_message is provided, it uses character-aware system message instead of BASE_SYSTEM_MESSAGE.
     """
     if system_message is None:
-        system_message = BASE_SYSTEM_MESSAGE
+        # NEW: Use character-aware system message instead of hardcoded Livy
+        system_message = get_character_aware_system_message()
     
     return {
         # Core Configuration

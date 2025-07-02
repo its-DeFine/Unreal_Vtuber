@@ -20,7 +20,7 @@ from utils.llm.turn_processing import process_turn
 from utils.llm.llm_initialiser import initialize_system
 from utils.game_control.game_control_processor import GameControlProcessor
 from utils.game_control.unreal_tcp_controller import UnrealTCPController, TCPConnectionConfig
-from config import BASE_SYSTEM_MESSAGE, get_llm_config, setup_warnings
+from config import get_llm_config, setup_warnings
 
 # Import orchestrator version manager
 from orchestrator_version_manager import (
@@ -92,50 +92,13 @@ def main_setup():
     print("🚀 Initializing NeuroSync Player with Autonomous Orchestration")
     print("=" * 70)
     
-    llm_config_global = get_llm_config(system_message=BASE_SYSTEM_MESSAGE)
+    # === LLM Configuration Setup ===
+    # Get LLM configuration with character-aware system message (NOT hardcoded Livy)
+    llm_config_global = get_llm_config()  # Now uses character-aware system message by default
     
-    # Enhanced LLM configuration logging
-    provider = llm_config_global.get("LLM_PROVIDER", "openai")
-    print(f"🤖 LLM Provider: {provider.upper()}")
-    
-    if provider == "ollama":
-        endpoint = llm_config_global.get("OLLAMA_API_ENDPOINT", "http://vtuber-ollama:11434")
-        model = llm_config_global.get("OLLAMA_MODEL", "llama3.2:3b")
-        streaming = llm_config_global.get("OLLAMA_STREAMING", True)
-        print(f"🦙 Ollama Configuration:")
-        print(f"   📡 Endpoint: {endpoint}")
-        print(f"   🤖 Model: {model}")
-        print(f"   ⚡ Streaming: {'Enabled' if streaming else 'Disabled'}")
-        
-        # Test Ollama connection
-        try:
-            import requests
-            response = requests.get(f"{endpoint}/api/tags", timeout=3)
-            if response.ok:
-                models = response.json().get('models', [])
-                print(f"   ✅ Connection successful ({len(models)} models available)")
-                model_names = [m.get('name', 'unknown') for m in models[:3]]
-                if model_names:
-                    print(f"   📋 Available models: {', '.join(model_names)}")
-            else:
-                print(f"   ⚠️ Connection warning: HTTP {response.status_code}")
-        except Exception as e:
-            print(f"   ❌ Connection test failed: {e}")
-            print("   💡 Make sure Ollama is running: docker-compose -f docker-compose.ollama.yml up -d")
-            
-    elif provider == "openai":
-        model = llm_config_global.get("OPENAI_MODEL", "gpt-4o")
-        api_key = llm_config_global.get("OPENAI_API_KEY", "")
-        print(f"🎯 OpenAI Configuration:")
-        print(f"   🤖 Model: {model}")
-        print(f"   🔑 API Key: {'✅ Set' if api_key else '❌ Missing'}")
-        
-    elif provider == "custom_local":
-        api_url = llm_config_global.get("LLM_API_URL", "")
-        stream_url = llm_config_global.get("LLM_STREAM_URL", "")
-        print(f"🔧 Custom Local LLM Configuration:")
-        print(f"   📡 API URL: {api_url}")
-        print(f"   🌊 Stream URL: {stream_url}")
+    app.logger.info(f"🤖 LLM Configuration: Provider={llm_config_global.get('LLM_PROVIDER', 'unknown')}")
+    app.logger.info(f"🎭 System Message Source: Character-aware (not hardcoded Livy)")
+    app.logger.info(f"📝 System Message Preview: {llm_config_global.get('system_message', '')[:100]}...")
     
     streaming = llm_config_global.get("USE_STREAMING", True)
     print(f"⚡ Streaming: {'Enabled' if streaming else 'Disabled'}")
@@ -384,7 +347,7 @@ def handle_process_text():
             chunk_queue, 
             audio_queue, 
             vector_db, 
-            base_system_message=BASE_SYSTEM_MESSAGE,
+            base_system_message=llm_config_global.get('system_message', ''),
             autonomous_context=autonomous_context
         )
         chat_history_global = updated_chat_history
@@ -607,32 +570,23 @@ def handle_game_control_features():
 
 
 def start_orchestrator_async():
-    """Start the orchestrator in a separate thread with persistent event loop"""
+    """Start the orchestrator background processing - UPDATED TO PREVENT COMPETING LLM PROCESSES"""
     if orchestrator_wrapper:
-        # Create and set a new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
         try:
-            # Start orchestrator
-            loop.run_until_complete(orchestrator_wrapper.start_orchestrator())
+            # NEW: Use the improved method that prevents duplicate LLM calls
+            orchestrator_wrapper.start_background_processing()
+            app.logger.info("✅ Orchestrator wrapper started (background processing disabled)")
+            app.logger.info("📌 Reactive API routes active - autonomous mode via direct API calls only")
             
-            # Keep the loop running forever to maintain background tasks
-            # This is essential for the decision loop to continue running
-            print("🔄 Orchestrator event loop running to maintain decision loop...")
-            loop.run_forever()
+            # Keep thread alive to maintain API routes but no competing background processing
+            import time
+            while True:
+                time.sleep(10)  # Simple keepalive, no processing
                 
         except Exception as e:
-            print(f"❌ Orchestrator thread error: {e}")
-        finally:
-            # Clean shutdown
-            pending = asyncio.all_tasks(loop)
-            if pending:
-                for task in pending:
-                    task.cancel()
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            loop.close()
-            print("🧹 Orchestrator event loop cleaned up")
+            print(f"❌ Orchestrator wrapper error: {e}")
+    else:
+        print("⚠️ No orchestrator wrapper available")
 
 
 def cleanup_resources():

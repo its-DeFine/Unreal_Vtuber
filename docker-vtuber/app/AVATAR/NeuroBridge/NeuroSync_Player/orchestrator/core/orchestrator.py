@@ -520,79 +520,105 @@ Autonomous Content:"""
     async def stop_autonomous_mode(self) -> bool:
         """Stop autonomous content generation"""
         if self.autonomous_task:
-            self.autonomous_task.cancel()
             try:
-                # Wait for the task to be properly cancelled
-                await asyncio.wait_for(self.autonomous_task, timeout=2.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                # Task was cancelled or timed out, which is expected
-                pass
+                # Cancel the task
+                self.autonomous_task.cancel()
+                
+                # Wait for cancellation with proper exception handling
+                try:
+                    await asyncio.wait_for(self.autonomous_task, timeout=3.0)
+                except asyncio.CancelledError:
+                    # Task was cancelled successfully
+                    logger.info("🛑 Autonomous task cancelled successfully")
+                except asyncio.TimeoutError:
+                    # Task didn't respond to cancellation in time
+                    logger.warning("⚠️ Autonomous task cancellation timed out")
+                except Exception as e:
+                    # Other exceptions during cancellation
+                    logger.warning(f"⚠️ Exception during autonomous task cancellation: {e}")
+                
             except Exception as e:
-                logger.warning(f"Error waiting for autonomous task to cancel: {e}")
+                # Exception during the cancellation process itself
+                logger.warning(f"⚠️ Error stopping autonomous task: {e}")
             finally:
+                # Always clean up the task reference
                 self.autonomous_task = None
         
         logger.info("Stopped autonomous mode")
         return True
     
     async def _autonomous_content_loop(self, topic: str = None):
-        """Continuous loop for autonomous content generation - SIMPLE APPROACH"""
-        logger.info(f"🤖 Starting continuous autonomous content loop (simple approach)")
+        """Continuous loop for autonomous content generation - IMPROVED EVENT LOOP HANDLING"""
+        logger.info(f"🤖 Starting autonomous content loop with topic: {topic}")
         
         try:
             while self.character_manager.is_autonomous_mode():
+                # Check if task was cancelled
+                if asyncio.current_task().cancelled():
+                    logger.info("🛑 Autonomous loop detected cancellation")
+                    break
+                
                 character = self.character_manager.get_current_character()
                 if not character or not character.autonomous_enabled:
                     logger.info("Character no longer supports autonomous mode, stopping loop")
                     break
                 
-                logger.info(f"🔄 Generating autonomous content for {character.name} (interval: {character.autonomous_interval}s)")
+                logger.info(f"🔄 Generating autonomous content for {character.name}")
                 
-                # SIMPLE: Just call the same LLM function that reactive mode uses
                 try:
-                    # Create a simple autonomous prompt
+                    # Generate content using character-specific autonomous prompt
                     autonomous_prompt = f"""You are {character.name}.
 {character.role}
 
-Current topic focus: {topic or 'general content'}
+Personality: {', '.join(character.personality_traits) if character.personality_traits else 'helpful, engaging'}
+Communication Style: {character.communication_style or 'clear and conversational'}
+
+Current topic focus: {topic or 'your area of expertise'}
 
 You are in AUTONOMOUS MODE - generate engaging content without waiting for user prompts.
 Provide educational, entertaining, or helpful content that matches your character.
 Keep it conversational and engaging.
+Avoid repetition from recent content.
 
 Generate autonomous content:"""
                     
-                    # Call the SAME LLM function that reactive mode uses
+                    # Call LLM with improved error handling
                     response = await self._call_llm(autonomous_prompt)
                     
                     if response and response.strip():
                         logger.info(f"✅ Generated autonomous content: {response[:100]}...")
                         
-                        # Send directly to TTS - SAME as reactive mode
-                        self._send_response_to_tts(response, character.id)
+                        # Send to TTS with error handling
+                        try:
+                            self._send_response_to_tts(response, character.id)
+                        except Exception as tts_error:
+                            logger.error(f"❌ TTS error: {tts_error}")
                         
-                        # Add to history (same as reactive mode)
+                        # Add to history
                         self.autonomous_content_history.append(response)
                         if len(self.autonomous_content_history) > 10:
                             self.autonomous_content_history = self.autonomous_content_history[-10:]
                     else:
                         logger.warning("❌ No autonomous content generated")
                         
-                except Exception as e:
-                    logger.error(f"❌ Error generating autonomous content: {e}")
+                except Exception as content_error:
+                    logger.error(f"❌ Error generating autonomous content: {content_error}")
                 
-                # Wait for the character's autonomous interval
-                logger.info(f"⏱️ Waiting {character.autonomous_interval}s until next autonomous content...")
-                await asyncio.sleep(character.autonomous_interval)
+                # Wait with cancellation checking
+                try:
+                    logger.info(f"⏱️ Waiting {character.autonomous_interval}s until next autonomous content...")
+                    await asyncio.sleep(character.autonomous_interval)
+                except asyncio.CancelledError:
+                    logger.info("🛑 Autonomous sleep cancelled")
+                    break
                 
         except asyncio.CancelledError:
             logger.info("🛑 Autonomous content loop cancelled")
-            raise
+            raise  # Re-raise CancelledError so asyncio handles it properly
         except Exception as e:
             logger.error(f"❌ Error in autonomous content loop: {e}")
-            await asyncio.sleep(5)  # Brief pause before retrying
-        
-        logger.info("🏁 Autonomous content loop ended")
+        finally:
+            logger.info("🏁 Autonomous content loop ended")
     
     def _send_response_to_tts(self, text: str, character_id: str):
         """Send response to TTS pipeline - CENTRALIZED for ALL response types"""

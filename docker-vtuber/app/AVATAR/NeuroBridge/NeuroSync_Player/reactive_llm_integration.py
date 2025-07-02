@@ -143,42 +143,30 @@ class ReactiveOrchestratorWrapper:
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
     
-    async def start_orchestrator(self):
-        """Start the orchestrator background processing"""
-        logger.info("Starting Reactive Orchestrator background processing")
-        
-        # Start event processing loop
-        self.processing_task = asyncio.create_task(self._background_processing())
+    def start_background_processing(self):
+        """Start background orchestrator processing - DISABLED TO PREVENT DUPLICATE LLM CALLS"""
+        logger.info("🚫 BACKGROUND PROCESSING DISABLED: Preventing duplicate LLM calls and rapid audio generation")
+        logger.info("✅ Only API routes active - autonomous mode handled via direct API calls")
+        # COMMENTED OUT: This was causing competing LLM processes
+        # if self.processing_task is None:
+        #     self.processing_task = asyncio.create_task(self._background_processing_loop())
+        #     logger.info("Starting Reactive Orchestrator background processing")
     
-    async def _background_processing(self):
-        """Background task to process events"""
-        while True:
-            try:
-                # Process event queue periodically
-                await self.orchestrator.process_event_queue()
-                
-                # Wait before next check
-                await asyncio.sleep(1.0)
-                
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in background processing: {e}")
-                await asyncio.sleep(5.0)  # Wait longer on error
+    def stop_background_processing(self):
+        """Stop background processing"""
+        logger.info("Background processing stop requested (was already disabled)")
+        # COMMENTED OUT: This was part of the competing system
+        # if self.processing_task:
+        #     self.processing_task.cancel()
+        #     self.processing_task = None
+        #     logger.info("Stopped Reactive Orchestrator background processing")
     
-    async def stop_orchestrator(self):
-        """Stop the orchestrator"""
-        logger.info("Stopping Reactive Orchestrator")
-        
-        if self.processing_task:
-            self.processing_task.cancel()
-            try:
-                await self.processing_task
-            except asyncio.CancelledError:
-                pass
-        
-        # Cleanup
-        self.orchestrator.cleanup()
+    async def _background_processing_loop(self):
+        """Background processing loop - DISABLED"""
+        logger.info("🚫 Background processing loop disabled to prevent LLM competition")
+        # This was causing the competing LLM calls and rapid audio generation
+        # The loop would process events every few seconds, conflicting with direct API calls
+        pass
     
     def register_speech_completion_callback(self, system_objects: Dict[str, Any]):
         """Register callback for speech completion events"""
