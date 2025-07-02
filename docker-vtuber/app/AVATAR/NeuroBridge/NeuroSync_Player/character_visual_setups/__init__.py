@@ -5,14 +5,14 @@ Provides automated visual appearance configuration for different character types
 Each character has a distinct visual identity with specific colors, outfits, and environments.
 
 Available Characters:
-- Professor Smith: Blue hair, blue eyes, professional academic look
+- Professor Agatha: Blue hair, blue eyes, professional academic look
 - Streamer: Pink/purple hair, bright violet eyes, modern streaming setup
 
 Usage:
-    from character_visual_setups import apply_professor_smith_appearance, apply_streamer_appearance
+    from character_visual_setups import apply_professor_agatha_appearance, apply_streamer_appearance
     
-    # Apply Professor Smith's look
-    apply_professor_smith_appearance(enhanced=True)
+    # Apply Professor Agatha's look
+    apply_professor_agatha_appearance(enhanced=True)
     
     # Apply Streamer's look  
     apply_streamer_appearance(enhanced=True, dynamic=True)
@@ -21,12 +21,12 @@ Usage:
 import os
 import socket
 
-from .professor_smith_setup import apply_professor_smith_appearance, ProfessorSmithVisualSetup
+from .professor_agatha_setup import apply_professor_agatha_appearance, ProfessorAgathaVisualSetup
 from .streamer_setup import apply_streamer_appearance, StreamerVisualSetup
 
 __all__ = [
-    'apply_professor_smith_appearance',
-    'ProfessorSmithVisualSetup', 
+    'apply_professor_agatha_appearance',
+    'ProfessorAgathaVisualSetup', 
     'apply_streamer_appearance',
     'StreamerVisualSetup',
     'get_tcp_host'
@@ -73,8 +73,8 @@ def test_tcp_connection(host: str = None, port: int = 7777, timeout: float = 2.0
 
 # Character mapping for easy access
 CHARACTER_SETUPS = {
-    'demo_teacher': apply_professor_smith_appearance,
-    'professor_smith': apply_professor_smith_appearance,
+    'demo_teacher': apply_professor_agatha_appearance,
+    'professor_agatha': apply_professor_agatha_appearance,
     'reactive_default': apply_streamer_appearance,
     'streamer': apply_streamer_appearance,
     'streaming_star': apply_streamer_appearance

@@ -1,0 +1,10 @@
+[0;34m[17:09:31][0m 🔍 Checking NeuroSync API availability...
+[0;32m✅ NeuroSync API is responsive[0m
+[0;34m[17:09:31][0m ==========================================
+[0;34m[17:09:31][0m 🎭 Testing Character: Professor Smith (demo_teacher)
+[0;34m[17:09:31][0m ==========================================
+[0;34m[17:09:31][0m Step 1: Initializing character and switching to reactive mode
+[0;32m✅ Character initialized: Professor Smith[0m
+[0;34m[17:09:36][0m Step 1.5: Applying character-specific visual appearance...
+[0;35m🎭 Applying Professor Smith visual appearance...[0m
+[0;34m[17:09:36][0m 🎓 Setting up Professor Smith visual appearance (Blue hair, blue eyes, academic look)

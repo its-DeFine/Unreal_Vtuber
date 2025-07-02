@@ -25,11 +25,11 @@ HOST = get_tcp_host()  # Dynamic host detection for Docker/host environments
 PORT = 7777
 TIMEOUT = 2.0
 
-class ProfessorSmithVisualSetup:
-    """Visual setup controller for Professor Smith character"""
+class ProfessorAgathaVisualSetup:
+    """Visual setup controller for Professor Agatha character"""
     
     def __init__(self):
-        self.character_name = "Professor Smith"
+        self.character_name = "Professor Agatha"
         self.character_id = "demo_teacher"
         logger.info(f"🎭 Initializing visual setup for {self.character_name}")
     
@@ -49,7 +49,7 @@ class ProfessorSmithVisualSetup:
             return False
     
     def apply_basic_professor_setup(self) -> bool:
-        """Apply Professor Smith's signature academic look"""
+        """Apply Professor Agatha's signature academic look (no background change)"""
         print(f"🎓 Applying {self.character_name} Visual Setup...")
         print("=" * 60)
         
@@ -99,20 +99,15 @@ class ProfessorSmithVisualSetup:
         total_commands += 1
         time.sleep(0.5)
         
-        # 5. Set Academic Environment
-        print("🏛️ Setting academic environment...")
-        if self.send_command("LVL.Medieval"):  # Classical academic setting
-            success_count += 1
-        total_commands += 1
-        time.sleep(0.5)
+        # Note: No background change for focused character testing
         
         print("\n" + "=" * 60)
-        print(f"🎓 PROFESSOR SMITH SETUP COMPLETE! ✨")
+        print(f"🎓 PROFESSOR AGATHA SETUP COMPLETE! ✨")
         print(f"👩‍🏫 Character: {self.character_name}")
         print("💙 Hair: Distinguished blue")
         print("👁️ Eyes: Intelligent blue")
         print("📚 Outfit: Professional Kimono")
-        print("🏛️ Environment: Academic Medieval")
+        print("🎯 Background: Unchanged (focused character test)")
         print(f"📊 Success Rate: {success_count}/{total_commands} commands")
         print("=" * 60)
         
@@ -149,8 +144,8 @@ class ProfessorSmithVisualSetup:
         return success_count == total_commands
     
     def quick_professor_test(self) -> bool:
-        """Quick test to apply just the essential Professor Smith look"""
-        print("⚡ Quick Professor Smith Test...")
+        """Quick test to apply just the essential Professor Agatha look"""
+        print("⚡ Quick Professor Agatha Test...")
         
         essential_commands = [
             "PRS.Fem",
@@ -168,9 +163,9 @@ class ProfessorSmithVisualSetup:
         print(f"⚡ Quick test {'✅ Complete' if success else '❌ Failed'}!")
         return success
 
-def apply_professor_smith_appearance(enhanced: bool = True) -> bool:
+def apply_professor_agatha_appearance(enhanced: bool = True) -> bool:
     """
-    Main function to apply Professor Smith's visual appearance
+    Main function to apply Professor Agatha's visual appearance
     
     Args:
         enhanced: Whether to apply enhanced facial features
@@ -178,7 +173,7 @@ def apply_professor_smith_appearance(enhanced: bool = True) -> bool:
     Returns:
         True if setup completed successfully
     """
-    setup = ProfessorSmithVisualSetup()
+    setup = ProfessorAgathaVisualSetup()
     
     # Apply basic setup
     basic_success = setup.apply_basic_professor_setup()
@@ -194,19 +189,19 @@ def apply_professor_smith_appearance(enhanced: bool = True) -> bool:
     overall_success = basic_success and enhanced_success
     
     if overall_success:
-        logger.info("✅ Professor Smith visual setup completed successfully!")
+        logger.info("✅ Professor Agatha visual setup completed successfully!")
     else:
-        logger.warning("⚠️ Professor Smith visual setup completed with some issues")
+        logger.warning("⚠️ Professor Agatha visual setup completed with some issues")
     
     return overall_success
 
 def main():
-    """Interactive menu for Professor Smith visual setup"""
-    print("🎓 PROFESSOR SMITH VISUAL SETUP TOOL 🎓")
+    """Interactive menu for Professor Agatha visual setup"""
+    print("🎓 PROFESSOR AGATHA VISUAL SETUP TOOL 🎓")
     print(f"📡 Target: {HOST}:{PORT}")
     print("=" * 60)
     
-    setup = ProfessorSmithVisualSetup()
+    setup = ProfessorAgathaVisualSetup()
     
     while True:
         print(f"\n{setup.character_name} Setup Options:")
@@ -216,7 +211,6 @@ def main():
         print("  4. 💙 Hair Only (Blue)")
         print("  5. 👁️ Eyes Only (Blue)")
         print("  6. 📚 Outfit Only (Professional)")
-        print("  7. 🏛️ Environment Only (Academic)")
         print("  q. Quit")
         
         choice = input("\nEnter choice: ").strip().lower()
@@ -246,10 +240,6 @@ def main():
             print("📚 Applying professional outfit...")
             setup.send_command("OF.Kimono")
             print("✅ Professional outfit applied!")
-        elif choice == '7':
-            print("🏛️ Applying academic environment...")
-            setup.send_command("LVL.Medieval")
-            print("✅ Academic environment applied!")
         else:
             print("❌ Invalid choice!")
 
