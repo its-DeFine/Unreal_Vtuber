@@ -761,3 +761,150 @@ __all__ = [
     'autogen_api',
     'register_autogen_routes'
 ]
+
+@autogen_api.route('/orchestrator/v3/agents/test', methods=['POST'])
+@require_orchestrator
+def test_agents():
+    """Test individual AutoGen agents to verify they're working"""
+    orchestrator: AutoGenOrchestrationWrapper = current_app.config['AUTOGEN_ORCHESTRATOR']
+    
+    data = request.get_json() if request.is_json else {}
+    agent_name = data.get('agent', 'all')
+    test_message = data.get('message', 'Test: respond with a brief acknowledgment')
+    
+    if not orchestrator.orchestrator or not orchestrator.orchestrator.agents:
+        return jsonify({
+            "error": "No agents available",
+            "available_agents": []
+        }), 503
+    
+    results = {}
+    agents_to_test = orchestrator.orchestrator.agents.keys() if agent_name == 'all' else [agent_name]
+    
+    for name in agents_to_test:
+        agent = orchestrator.orchestrator.agents.get(name)
+        if not agent:
+            results[name] = {
+                "status": "not_found",
+                "error": f"Agent '{name}' not found"
+            }
+            continue
+        
+        try:
+            # Test the agent
+            response = agent.generate_reply(
+                messages=[{"role": "user", "content": test_message}]
+            )
+            
+            if response is None:
+                results[name] = {
+                    "status": "failed",
+                    "error": "Agent returned None response",
+                    "agent_type": type(agent).__name__
+                }
+            elif hasattr(agent, 'name') and 'Mock' in type(agent).__name__:
+                results[name] = {
+                    "status": "mock",
+                    "response": response,
+                    "message": "Using mock agent - check API configuration"
+                }
+            else:
+                results[name] = {
+                    "status": "success",
+                    "response": response[:100] + "..." if len(response) > 100 else response,
+                    "agent_type": type(agent).__name__
+                }
+                
+        except Exception as e:
+            results[name] = {
+                "status": "error",
+                "error": str(e),
+                "agent_type": type(agent).__name__
+            }
+    
+    # Summary
+    summary = {
+        "total_agents": len(agents_to_test),
+        "successful": len([r for r in results.values() if r["status"] == "success"]),
+        "mock_agents": len([r for r in results.values() if r["status"] == "mock"]),
+        "failed": len([r for r in results.values() if r["status"] in ["failed", "error", "not_found"]])
+    }
+    
+    return jsonify({
+        "summary": summary,
+        "agent_results": results,
+        "recommendations": _get_agent_troubleshooting_recommendations(results)
+    }), 200
+
+
+def _get_agent_troubleshooting_recommendations(results: Dict[str, Any]) -> List[str]:
+    """Generate troubleshooting recommendations based on test results"""
+    recommendations = []
+    
+    mock_count = len([r for r in results.values() if r["status"] == "mock"])
+    failed_count = len([r for r in results.values() if r["status"] in ["failed", "error"]])
+    
+    if mock_count > 0:
+        recommendations.append("⚠️ Some agents are using mock implementations - check API key configuration in .env file")
+    
+    if failed_count > 0:
+        recommendations.append("❌ Some agents failed to respond - verify LLM provider is accessible")
+    
+    # Check for specific patterns
+    none_responses = [name for name, result in results.items() if result.get("error") == "Agent returned None response"]
+    if none_responses:
+        recommendations.append(f"🔧 Agents returning None: {', '.join(none_responses)} - check LLM configuration format")
+    
+    api_errors = [name for name, result in results.items() if "API" in result.get("error", "")]
+    if api_errors:
+        recommendations.append(f"🔑 API errors detected for: {', '.join(api_errors)} - verify API keys and quotas")
+    
+    if all(r["status"] == "success" for r in results.values()):
+        recommendations.append("✅ All agents working correctly!")
+    
+    return recommendations
+
+
+@autogen_api.route('/orchestrator/v3/config/debug', methods=['GET'])
+@require_orchestrator  
+def get_debug_config():
+    """Get detailed configuration for debugging"""
+    orchestrator: AutoGenOrchestrationWrapper = current_app.config['AUTOGEN_ORCHESTRATOR']
+    
+    config_debug = {
+        "autogen_available": True,  # We know it's available since orchestrator exists
+        "orchestrator_config": {
+            "enabled": orchestrator.config.autogen_enabled,
+            "persona": orchestrator.config.persona,
+            "group_chat_enabled": orchestrator.config.group_chat_enabled
+        },
+        "llm_config": {
+            "model": orchestrator.orchestrator.config["llm_config"].get("model") if orchestrator.orchestrator else "unknown",
+            "has_api_key": bool(orchestrator.orchestrator.config["llm_config"].get("api_key")) if orchestrator.orchestrator else False,
+            "api_key_length": len(orchestrator.orchestrator.config["llm_config"].get("api_key", "")) if orchestrator.orchestrator else 0
+        },
+        "agents": {},
+        "group_chat": {
+            "initialized": orchestrator.orchestrator.group_chat is not None if orchestrator.orchestrator else False,
+            "agent_count": len(orchestrator.orchestrator.group_chat.agents) if orchestrator.orchestrator and orchestrator.orchestrator.group_chat else 0
+        }
+    }
+    
+    # Agent details
+    if orchestrator.orchestrator and orchestrator.orchestrator.agents:
+        for name, agent in orchestrator.orchestrator.agents.items():
+            if agent:
+                config_debug["agents"][name] = {
+                    "type": type(agent).__name__,
+                    "is_mock": "Mock" in type(agent).__name__,
+                    "has_llm_config": hasattr(agent, 'llm_config'),
+                    "system_message_length": len(getattr(agent, 'system_message', ''))
+                }
+            else:
+                config_debug["agents"][name] = {
+                    "type": "None",
+                    "is_mock": False,
+                    "error": "Agent is None"
+                }
+    
+    return jsonify(config_debug), 200

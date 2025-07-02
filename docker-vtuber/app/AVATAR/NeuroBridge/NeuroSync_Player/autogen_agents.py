@@ -140,9 +140,16 @@ def create_orchestrator_agent(persona_config: Any, llm_config: Dict[str, Any]) -
     - Applying persona-specific logic
     """
     if not AUTOGEN_AVAILABLE:
+        logging.getLogger(__name__).warning("AutoGen not available, returning None")
         return None
     
     try:
+        # Validate API key first
+        api_key = llm_config.get("api_key", "")
+        if not api_key or api_key == "":
+            logging.getLogger(__name__).error("❌ No API key provided for orchestrator agent - check OPENAI_API_KEY environment variable")
+            return MockAgent("orchestrator", f"Mock orchestrator for {persona_config.name} - No API Key")
+        
         system_message = f"""You are the Orchestrator for a VTuber streaming system.
     
     Current Persona: {persona_config.name}
@@ -166,28 +173,27 @@ def create_orchestrator_agent(persona_config: Any, llm_config: Dict[str, Any]) -
     Action types: speech, environment, suppress, batch
     """
         
+        # Create agent with improved config
+        agent_config = _create_autogen_llm_config(llm_config, temperature=0.3)
+        
+        logging.getLogger(__name__).info(f"🤖 Creating orchestrator agent with model: {llm_config.get('model', 'unknown')}")
+        logging.getLogger(__name__).debug(f"Agent config: {agent_config}")
+        
         agent = AssistantAgent(
             name="orchestrator",
             system_message=system_message,
-            llm_config=_create_autogen_llm_config(llm_config, temperature=0.3),
+            llm_config=agent_config,
             max_consecutive_auto_reply=1,
             human_input_mode="NEVER"  # Ensure autonomous operation
         )
         
-        # Test the agent configuration
-        test_response = agent.generate_reply(
-            messages=[{"role": "user", "content": "Test: respond with OK"}]
-        )
-        
-        if test_response is None:
-            logging.getLogger(__name__).warning("Orchestrator agent test failed, returning mock agent")
-            return MockAgent("orchestrator", system_message)
-            
+        # Simple test without actual API call during init
+        logging.getLogger(__name__).info("✅ Orchestrator agent created successfully")
         return agent
         
     except Exception as e:
-        logging.getLogger(__name__).error(f"Failed to create orchestrator agent: {e}")
-        return MockAgent("orchestrator", f"Mock orchestrator for {persona_config.name}")
+        logging.getLogger(__name__).error(f"❌ Failed to create orchestrator agent: {e}")
+        return MockAgent("orchestrator", f"Mock orchestrator for {persona_config.name} - Error: {str(e)}")
 
 
 def create_content_filter_agent(persona_config: Any, llm_config: Dict[str, Any]) -> Optional[Agent]:
@@ -201,52 +207,68 @@ def create_content_filter_agent(persona_config: Any, llm_config: Dict[str, Any])
     - Providing filtering rationale
     """
     if not AUTOGEN_AVAILABLE:
+        logging.getLogger(__name__).warning("AutoGen not available, returning None")
         return None
-        
-    filter_examples = {
-        "focused_artist": {
-            "pass": ["How do you achieve that shading?", "What brush are you using?"],
-            "suppress": ["Hi everyone!", "First time here!", "Check out my stream!"]
-        },
-        "interactive_streamer": {
-            "pass": ["Hi everyone!", "What's your favorite game?", "How's your day?"],
-            "suppress": ["Buy my product!", "spam spam spam"]
+    
+    try:
+        # Validate API key
+        api_key = llm_config.get("api_key", "")
+        if not api_key or api_key == "":
+            logging.getLogger(__name__).warning("⚠️ No API key for content filter - using mock agent")
+            return MockAgent("content_filter", "Mock content filter - No API Key")
+            
+        filter_examples = {
+            "focused_artist": {
+                "pass": ["How do you achieve that shading?", "What brush are you using?"],
+                "suppress": ["Hi everyone!", "First time here!", "Check out my stream!"]
+            },
+            "interactive_streamer": {
+                "pass": ["Hi everyone!", "What's your favorite game?", "How's your day?"],
+                "suppress": ["Buy my product!", "spam spam spam"]
+            }
         }
-    }
-    
-    examples = filter_examples.get(persona_config.name.lower().replace(" ", "_"), {})
-    
-    system_message = f"""You are the Content Filter for a VTuber streaming system.
-    
-    Current Persona: {persona_config.name}
-    Filter Threshold: {persona_config.filter_threshold}
-    
-    Your job is to evaluate incoming messages and decide:
-    1. Should this message be passed to the streamer?
-    2. What is its importance level? (0.0 to 1.0)
-    3. Should it be modified before passing?
-    4. If suppressed, why?
-    
-    Filtering criteria for {persona_config.name}:
-    - Relevance to current activity
-    - Message importance/urgency
-    - Viewer engagement value
-    - Potential for disruption
-    
-    Examples of messages to PASS: {examples.get('pass', [])}
-    Examples of messages to SUPPRESS: {examples.get('suppress', [])}
-    
-    Respond with:
-    FILTER: [PASS/SUPPRESS/MODIFY] - Score: [0.0-1.0] - Reason: [explanation]
-    If MODIFY: Modified message: [new message]
-    """
-    
-    return AssistantAgent(
-        name="content_filter",
-        system_message=system_message,
-        llm_config=_create_autogen_llm_config(llm_config, temperature=0.1),
-        max_consecutive_auto_reply=1
-    )
+        
+        examples = filter_examples.get(persona_config.name.lower().replace(" ", "_"), {})
+        
+        system_message = f"""You are the Content Filter for a VTuber streaming system.
+        
+        Current Persona: {persona_config.name}
+        Filter Threshold: {persona_config.filter_threshold}
+        
+        Your job is to evaluate incoming messages and decide:
+        1. Should this message be passed to the streamer?
+        2. What is its importance level? (0.0 to 1.0)
+        3. Should it be modified before passing?
+        4. If suppressed, why?
+        
+        Filtering criteria for {persona_config.name}:
+        - Relevance to current activity
+        - Message importance/urgency
+        - Viewer engagement value
+        - Potential for disruption
+        
+        Examples of messages to PASS: {examples.get('pass', [])}
+        Examples of messages to SUPPRESS: {examples.get('suppress', [])}
+        
+        Respond with:
+        FILTER: [PASS/SUPPRESS/MODIFY] - Score: [0.0-1.0] - Reason: [explanation]
+        If MODIFY: Modified message: [new message]
+        """
+        
+        agent = AssistantAgent(
+            name="content_filter",
+            system_message=system_message,
+            llm_config=_create_autogen_llm_config(llm_config, temperature=0.1),
+            max_consecutive_auto_reply=1,
+            human_input_mode="NEVER"
+        )
+        
+        logging.getLogger(__name__).info("✅ Content filter agent created successfully")
+        return agent
+        
+    except Exception as e:
+        logging.getLogger(__name__).error(f"❌ Failed to create content filter agent: {e}")
+        return MockAgent("content_filter", f"Mock content filter - Error: {str(e)}")
 
 
 def create_speech_coordinator_agent(llm_config: Dict[str, Any]) -> Optional[Agent]:
@@ -261,33 +283,48 @@ def create_speech_coordinator_agent(llm_config: Dict[str, Any]) -> Optional[Agen
     """
     if not AUTOGEN_AVAILABLE:
         return None
+    
+    try:
+        # Validate API key
+        api_key = llm_config.get("api_key", "")
+        if not api_key:
+            logging.getLogger(__name__).warning("⚠️ No API key for speech coordinator - using mock agent")
+            return MockAgent("speech_coordinator", "Mock speech coordinator - No API Key")
+            
+        system_message = """You are the Speech Coordinator for a VTuber streaming system.
         
-    system_message = """You are the Speech Coordinator for a VTuber streaming system.
-    
-    Your responsibilities:
-    1. Format filtered inputs for natural speech
-    2. Maintain conversation continuity
-    3. Ensure responses align with the current persona
-    4. Manage speech pacing and timing
-    
-    Guidelines:
-    - Keep responses concise and natural
-    - Avoid repetition
-    - Match the energy level of the stream
-    - Consider recent conversation history
-    
-    When coordinating speech:
-    SPEECH: [formatted message for TTS]
-    CONTEXT: [any important context to remember]
-    TIMING: [urgent/normal/relaxed]
-    """
-    
-    return AssistantAgent(
-        name="speech_coordinator",
-        system_message=system_message,
-        llm_config=_create_autogen_llm_config(llm_config, temperature=0.7),
-        max_consecutive_auto_reply=1
-    )
+        Your responsibilities:
+        1. Format filtered inputs for natural speech
+        2. Maintain conversation continuity
+        3. Ensure responses align with the current persona
+        4. Manage speech pacing and timing
+        
+        Guidelines:
+        - Keep responses concise and natural
+        - Avoid repetition
+        - Match the energy level of the stream
+        - Consider recent conversation history
+        
+        When coordinating speech:
+        SPEECH: [formatted message for TTS]
+        CONTEXT: [any important context to remember]
+        TIMING: [urgent/normal/relaxed]
+        """
+        
+        agent = AssistantAgent(
+            name="speech_coordinator",
+            system_message=system_message,
+            llm_config=_create_autogen_llm_config(llm_config, temperature=0.7),
+            max_consecutive_auto_reply=1,
+            human_input_mode="NEVER"
+        )
+        
+        logging.getLogger(__name__).info("✅ Speech coordinator agent created successfully")
+        return agent
+        
+    except Exception as e:
+        logging.getLogger(__name__).error(f"❌ Failed to create speech coordinator agent: {e}")
+        return MockAgent("speech_coordinator", f"Mock speech coordinator - Error: {str(e)}")
 
 
 def create_environment_controller_agent(llm_config: Dict[str, Any]) -> Optional[Agent]:
@@ -302,37 +339,52 @@ def create_environment_controller_agent(llm_config: Dict[str, Any]) -> Optional[
     """
     if not AUTOGEN_AVAILABLE:
         return None
+    
+    try:
+        # Validate API key
+        api_key = llm_config.get("api_key", "")
+        if not api_key:
+            logging.getLogger(__name__).warning("⚠️ No API key for environment controller - using mock agent")
+            return MockAgent("environment_controller", "Mock environment controller - No API Key")
+            
+        system_message = """You are the Environment Controller for a VTuber streaming system.
         
-    system_message = """You are the Environment Controller for a VTuber streaming system.
-    
-    You can control:
-    1. Avatar appearance (hair color, outfit, accessories)
-    2. Scene/background (medieval, sci-fi, cozy room, etc.)
-    3. Lighting and atmosphere
-    4. Special effects and animations
-    
-    Available commands include:
-    - Hair color: red, blue, yellow, green, etc.
-    - Scenes: medieval, sci-fi, beach, city, forest
-    - Lighting: day, night, sunset, neon
-    - Effects: particles, fog, rain
-    
-    When suggesting environment changes:
-    ENVIRONMENT: [command] - Parameters: [details] - Reason: [why this change]
-    
-    Consider:
-    - Current conversation context
-    - Viewer requests
-    - Stream mood and energy
-    - Technical feasibility
-    """
-    
-    return AssistantAgent(
-        name="environment_controller", 
-        system_message=system_message,
-        llm_config=_create_autogen_llm_config(llm_config, temperature=0.5),
-        max_consecutive_auto_reply=1
-    )
+        You can control:
+        1. Avatar appearance (hair color, outfit, accessories)
+        2. Scene/background (medieval, sci-fi, cozy room, etc.)
+        3. Lighting and atmosphere
+        4. Special effects and animations
+        
+        Available commands include:
+        - Hair color: red, blue, yellow, green, etc.
+        - Scenes: medieval, sci-fi, beach, city, forest
+        - Lighting: day, night, sunset, neon
+        - Effects: particles, fog, rain
+        
+        When suggesting environment changes:
+        ENVIRONMENT: [command] - Parameters: [details] - Reason: [why this change]
+        
+        Consider:
+        - Current conversation context
+        - Viewer requests
+        - Stream mood and energy
+        - Technical feasibility
+        """
+        
+        agent = AssistantAgent(
+            name="environment_controller", 
+            system_message=system_message,
+            llm_config=_create_autogen_llm_config(llm_config, temperature=0.5),
+            max_consecutive_auto_reply=1,
+            human_input_mode="NEVER"
+        )
+        
+        logging.getLogger(__name__).info("✅ Environment controller agent created successfully")
+        return agent
+        
+    except Exception as e:
+        logging.getLogger(__name__).error(f"❌ Failed to create environment controller agent: {e}")
+        return MockAgent("environment_controller", f"Mock environment controller - Error: {str(e)}")
 
 
 def create_idle_content_agent(persona_config: Any, llm_config: Dict[str, Any]) -> Optional[Agent]:
@@ -347,40 +399,55 @@ def create_idle_content_agent(persona_config: Any, llm_config: Dict[str, Any]) -
     """
     if not AUTOGEN_AVAILABLE:
         return None
+    
+    try:
+        # Validate API key
+        api_key = llm_config.get("api_key", "")
+        if not api_key:
+            logging.getLogger(__name__).warning("⚠️ No API key for idle content agent - using mock agent")
+            return MockAgent("idle_content_generator", "Mock idle content generator - No API Key")
+            
+        content_examples = persona_config.idle_behavior.content_types
         
-    content_examples = persona_config.idle_behavior.content_types
-    
-    system_message = f"""You are the Idle Content Generator for a {persona_config.name} VTuber.
-    
-    Generate engaging content during quiet stream moments:
-    
-    Content types and examples:
-    """
-    
-    for content_type, config in content_examples.items():
-        system_message += f"\n- {content_type} ({config['weight']*100:.0f}%): {config.get('examples', [])}"
-    
-    system_message += f"""
-    
-    Guidelines:
-    - Keep content brief (under 100 characters)
-    - Match the persona's style and energy
-    - Avoid repetition of recent content
-    - Be natural and conversational
-    - Consider time of day and stream duration
-    
-    Respond with:
-    CONTENT: [the actual content to speak]
-    TYPE: [content category]
-    FOLLOW_UP: [optional follow-up if viewers respond]
-    """
-    
-    return AssistantAgent(
-        name="idle_content_generator",
-        system_message=system_message,
-        llm_config=_create_autogen_llm_config(llm_config, temperature=0.8),
-        max_consecutive_auto_reply=1
-    )
+        system_message = f"""You are the Idle Content Generator for a {persona_config.name} VTuber.
+        
+        Generate engaging content during quiet stream moments:
+        
+        Content types and examples:
+        """
+        
+        for content_type, config in content_examples.items():
+            system_message += f"\n- {content_type} ({config['weight']*100:.0f}%): {config.get('examples', [])}"
+        
+        system_message += f"""
+        
+        Guidelines:
+        - Keep content brief (under 100 characters)
+        - Match the persona's style and energy
+        - Avoid repetition of recent content
+        - Be natural and conversational
+        - Consider time of day and stream duration
+        
+        Respond with:
+        CONTENT: [the actual content to speak]
+        TYPE: [content category]
+        FOLLOW_UP: [optional follow-up if viewers respond]
+        """
+        
+        agent = AssistantAgent(
+            name="idle_content_generator",
+            system_message=system_message,
+            llm_config=_create_autogen_llm_config(llm_config, temperature=0.8),
+            max_consecutive_auto_reply=1,
+            human_input_mode="NEVER"
+        )
+        
+        logging.getLogger(__name__).info("✅ Idle content agent created successfully")
+        return agent
+        
+    except Exception as e:
+        logging.getLogger(__name__).error(f"❌ Failed to create idle content agent: {e}")
+        return MockAgent("idle_content_generator", f"Mock idle content generator - Error: {str(e)}")
 
 
 def create_autonomous_decision_agent(llm_config: Dict[str, Any]) -> Optional[Agent]:
@@ -395,40 +462,55 @@ def create_autonomous_decision_agent(llm_config: Dict[str, Any]) -> Optional[Age
     """
     if not AUTOGEN_AVAILABLE:
         return None
+    
+    try:
+        # Validate API key
+        api_key = llm_config.get("api_key", "")
+        if not api_key:
+            logging.getLogger(__name__).warning("⚠️ No API key for decision agent - using mock agent")
+            return MockAgent("autonomous_decision", "Mock autonomous decision agent - No API Key")
+            
+        system_message = """You are the Autonomous Decision Agent for a VTuber streaming system.
         
-    system_message = """You are the Autonomous Decision Agent for a VTuber streaming system.
-    
-    Monitor stream state and decide when to take autonomous actions:
-    
-    Consider these factors:
-    1. Time since last interaction
-    2. Current viewer count and engagement
-    3. Stream energy level
-    4. Recent content to avoid repetition
-    5. Time of day and stream duration
-    
-    Decision types:
-    - Generate idle content (when quiet)
-    - Change environment (for variety)
-    - Engage viewers (prompts/questions)
-    - Stay quiet (let moment breathe)
-    
-    Thresholds:
-    - Short idle (8-20s): Ambient content only
-    - Medium idle (20-45s): Engagement content
-    - Long idle (45s+): Active engagement needed
-    
-    Respond with:
-    DECISION: [YES/NO] - Type: [content/environment/engage/quiet] - Urgency: [0.0-1.0]
-    REASONING: [brief explanation]
-    """
-    
-    return AssistantAgent(
-        name="autonomous_decision",
-        system_message=system_message,
-        llm_config=_create_autogen_llm_config(llm_config, temperature=0.5),
-        max_consecutive_auto_reply=1
-    )
+        Monitor stream state and decide when to take autonomous actions:
+        
+        Consider these factors:
+        1. Time since last interaction
+        2. Current viewer count and engagement
+        3. Stream energy level
+        4. Recent content to avoid repetition
+        5. Time of day and stream duration
+        
+        Decision types:
+        - Generate idle content (when quiet)
+        - Change environment (for variety)
+        - Engage viewers (prompts/questions)
+        - Stay quiet (let moment breathe)
+        
+        Thresholds:
+        - Short idle (8-20s): Ambient content only
+        - Medium idle (20-45s): Engagement content
+        - Long idle (45s+): Active engagement needed
+        
+        Respond with:
+        DECISION: [YES/NO] - Type: [content/environment/engage/quiet] - Urgency: [0.0-1.0]
+        REASONING: [brief explanation]
+        """
+        
+        agent = AssistantAgent(
+            name="autonomous_decision",
+            system_message=system_message,
+            llm_config=_create_autogen_llm_config(llm_config, temperature=0.5),
+            max_consecutive_auto_reply=1,
+            human_input_mode="NEVER"
+        )
+        
+        logging.getLogger(__name__).info("✅ Autonomous decision agent created successfully")
+        return agent
+        
+    except Exception as e:
+        logging.getLogger(__name__).error(f"❌ Failed to create autonomous decision agent: {e}")
+        return MockAgent("autonomous_decision", f"Mock autonomous decision agent - Error: {str(e)}")
 
 
 # Helper functions for agent communication

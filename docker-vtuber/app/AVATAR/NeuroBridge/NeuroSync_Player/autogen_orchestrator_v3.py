@@ -298,38 +298,52 @@ class AutoGenOrchestratorV3:
         return agents
     
     def _initialize_group_chat(self):
-        """Initialize AutoGen group chat for multi-agent coordination"""
-        if not self.agents:
+        """Initialize AutoGen group chat with created agents"""
+        if not AUTOGEN_AVAILABLE:
+            self.logger.warning("AutoGen not available for group chat")
             return
         
-        # Create group chat with all agents
-        agent_list = [agent for agent in self.agents.values() if agent is not None]
+        # Get available agents (excluding None/mock agents for group chat)
+        available_agents = []
+        for name, agent in self.agents.items():
+            if agent and not (hasattr(agent, '__class__') and 'Mock' in agent.__class__.__name__):
+                available_agents.append(agent)
+                self.logger.debug(f"Adding {name} to group chat")
+            else:
+                self.logger.warning(f"Skipping {name} from group chat (None or Mock)")
         
-        self.group_chat = GroupChat(
-            agents=agent_list,
-            messages=[],
-            max_round=self.config["group_chat"]["max_rounds"],
-            speaker_selection_method=self.config["group_chat"]["speaker_selection_method"]
-        )
+        if len(available_agents) < 2:
+            self.logger.warning(f"Insufficient agents for group chat: {len(available_agents)} available")
+            # Don't initialize group chat with fewer than 2 agents
+            self.group_chat = None
+            self.chat_manager = None
+            return
         
-        # Create group chat manager with proper config
-        manager_llm_config = {
-            "config_list": [{
-                "model": self.config["llm_config"].get("model", "gpt-3.5-turbo"),
-                "api_key": self.config["llm_config"].get("api_key", ""),
-                "temperature": 0.5,
-                "max_tokens": self.config["llm_config"].get("max_tokens", 150)
-            }],
-            "timeout": 60,
-            "cache_seed": None
-        }
-        
-        self.chat_manager = GroupChatManager(
-            groupchat=self.group_chat,
-            llm_config=manager_llm_config
-        )
-        
-        self.logger.info("🎭 Group chat initialized for multi-agent coordination")
+        try:
+            # Create group chat with available agents
+            self.group_chat = GroupChat(
+                agents=available_agents,
+                messages=[],
+                max_round=5,  # Limit conversation rounds
+                speaker_selection_method="round_robin"  # Or "auto" for more sophisticated selection
+            )
+            
+            # Create group chat manager
+            # Use the first available agent's LLM config for the manager
+            manager_config = available_agents[0].llm_config if hasattr(available_agents[0], 'llm_config') else {}
+            
+            self.chat_manager = GroupChatManager(
+                groupchat=self.group_chat,
+                llm_config=manager_config,
+                human_input_mode="NEVER"  # Fully autonomous
+            )
+            
+            self.logger.info(f"✅ Group chat initialized with {len(available_agents)} agents")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to initialize group chat: {e}")
+            self.group_chat = None
+            self.chat_manager = None
     
     async def start(self):
         """Start the orchestrator and all background tasks"""
@@ -459,42 +473,89 @@ class AutoGenOrchestratorV3:
     
     async def _run_agent_discussion(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Run multi-agent discussion through AutoGen"""
-        if not self.chat_manager:
+        if not self.chat_manager or not self.group_chat:
+            self.logger.warning("No group chat available, using fallback")
             return []
         
         try:
-            # Get the orchestrator agent as the initial sender
-            orchestrator_agent = self.agents.get("orchestrator")
-            if not orchestrator_agent:
-                self.logger.warning("No orchestrator agent available for discussion")
-                return []
+            # Clear previous conversation if needed
+            self.group_chat.reset()
             
-            # Get another agent as recipient (try content filter first, then idle content)
-            recipient_agent = self.agents.get("content_filter") or self.agents.get("idle_content")
-            if not recipient_agent:
-                self.logger.warning("No recipient agent available for discussion")
-                # Just return a simple decision without group chat
-                return [{
-                    "name": "orchestrator",
-                    "content": f"DECISION: {message['content']}",
-                    "role": "assistant"
-                }]
+            # Create a proper user message for the group chat
+            user_message = {
+                "role": "user", 
+                "content": message["content"],
+                "name": "user"
+            }
             
-            # Initiate chat between orchestrator and recipient
-            orchestrator_agent.initiate_chat(
-                recipient=recipient_agent,
-                message=message["content"],
-                clear_history=False
+            # Start the group chat discussion
+            # The chat manager will coordinate agents to respond
+            self.logger.debug(f"Starting group chat with message: {message['content']}")
+            
+            # Use the chat manager to facilitate the conversation
+            conversation_result = self.chat_manager.initiate_chat(
+                message=user_message,
+                max_turns=3  # Limit to prevent long conversations
             )
             
-            # Get conversation history from the chat manager or group chat
+            # Get messages from the group chat
+            messages = []
             if hasattr(self.group_chat, 'messages') and self.group_chat.messages:
-                return self.group_chat.messages
+                messages = self.group_chat.messages
+                self.logger.debug(f"Group chat generated {len(messages)} messages")
             else:
-                return []
+                self.logger.warning("No messages found in group chat after discussion")
+                
+            return messages
             
         except Exception as e:
             self.logger.error(f"Error in agent discussion: {e}")
+            # Try simple agent-to-agent chat as fallback
+            return await self._simple_agent_chat(message)
+    
+    async def _simple_agent_chat(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Simple agent-to-agent chat as fallback when group chat fails"""
+        try:
+            orchestrator_agent = self.agents.get("orchestrator")
+            content_filter_agent = self.agents.get("content_filter")
+            
+            if not orchestrator_agent or not content_filter_agent:
+                self.logger.warning("Required agents not available for simple chat")
+                return []
+            
+            # Direct conversation between two agents
+            messages = []
+            
+            # Orchestrator processes the input first
+            try:
+                orchestrator_response = orchestrator_agent.generate_reply(
+                    messages=[{"role": "user", "content": message["content"]}]
+                )
+                if orchestrator_response:
+                    messages.append({
+                        "name": "orchestrator",
+                        "content": orchestrator_response,
+                        "role": "assistant"
+                    })
+                    
+                    # Filter agent responds to orchestrator's decision
+                    filter_response = content_filter_agent.generate_reply(
+                        messages=[{"role": "user", "content": f"Evaluate this decision: {orchestrator_response}"}]
+                    )
+                    if filter_response:
+                        messages.append({
+                            "name": "content_filter", 
+                            "content": filter_response,
+                            "role": "assistant"
+                        })
+                        
+            except Exception as e:
+                self.logger.error(f"Error in simple agent chat: {e}")
+                
+            return messages
+            
+        except Exception as e:
+            self.logger.error(f"Error in simple agent chat fallback: {e}")
             return []
     
     async def _process_input_directly(self, input_data: Dict[str, Any]) -> List[Dict[str, Any]]:
