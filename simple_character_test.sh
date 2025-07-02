@@ -4,7 +4,7 @@
 # Flow: Visual Setup → Character API Setup → 2 Questions (20s each) → Repeat for next character
 
 BASE_URL="http://localhost:5001"
-QUESTION_WAIT_TIME=20  # 20 seconds wait between questions
+QUESTION_WAIT_TIME=40  # 20 seconds wait between questions
 
 # Colors for output
 RED='\033[0;31m'

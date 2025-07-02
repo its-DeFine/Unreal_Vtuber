@@ -125,7 +125,7 @@ def test_teacher_character():
     # Create teacher character
     teacher_char = {
         "id": "demo_teacher",
-        "name": "Professor Smith",
+        "name": "Professor Agatha",
         "role": "Interactive Teacher",
         "personality_traits": ["patient", "encouraging", "knowledgeable"],
         "communication_style": "clear and educational",

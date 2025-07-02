@@ -95,17 +95,17 @@ class StreamerVisualSetup:
         
         # 4. Apply Trendy Streaming Outfit
         print("👗 Setting trendy streaming outfit...")
-        if self.send_command("OF.Pop Star"):  # Modern and trendy
+        if self.send_command("OF.PopStar"):  # Modern and trendy
             success_count += 1
         total_commands += 1
         time.sleep(0.5)
         
-        # 5. Set Streaming Environment
-        print("🎵 Setting streaming environment...")
-        if self.send_command("LVL.DJ"):  # Perfect for streaming/content creation
-            success_count += 1
-        total_commands += 1
-        time.sleep(0.5)
+        # # 5. Set Streaming Environment
+        # print("🎵 Setting streaming environment...")
+        # if self.send_command("LVL.DJ"):  # Perfect for streaming/content creation
+        #     success_count += 1
+        # total_commands += 1
+        # time.sleep(0.5)
         
         # 6. Add Streaming Animation
         print("💃 Adding streaming dance animation...")
