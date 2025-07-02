@@ -319,16 +319,29 @@ async def start_autonomous_mode():
 
 @reactive_api.route('/mode/autonomous/stop', methods=['POST'])
 @require_orchestrator
-@async_route
-async def stop_autonomous_mode():
-    """Stop autonomous content generation"""
+def stop_autonomous_mode():
+    """Stop autonomous content generation - FIXED event loop handling"""
     try:
         orchestrator: ReactiveOrchestrator = current_app.config['REACTIVE_ORCHESTRATOR']
         character_manager = get_character_manager()
         
-        # Stop autonomous content generation
-        await orchestrator.stop_autonomous_mode()
+        # FIXED: Handle event loop mismatch by using thread-safe cancellation
+        if orchestrator.autonomous_task:
+            try:
+                # Cancel the task directly without await (which causes loop mismatch)
+                orchestrator.autonomous_task.cancel()
+                logger.info("🛑 Autonomous task cancellation requested")
+                
+                # Clean up the task reference
+                orchestrator.autonomous_task = None
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Error during task cancellation: {e}")
+        
+        # Stop character manager autonomous mode
         character_manager.stop_autonomous_mode()
+        
+        logger.info("✅ Autonomous mode stopped successfully")
         
         return jsonify({
             "success": True,
