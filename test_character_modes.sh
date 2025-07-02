@@ -60,7 +60,7 @@ apply_visual_setup() {
     case $character_id in
         "demo_teacher")
             log "🎓 Setting up Professor Smith visual appearance (Blue hair, blue eyes, academic look)"
-            docker exec neurosync python3 -c "
+            docker exec neurosync_s1 python3 -c "
 import sys
 sys.path.append('/app/NeuroBridge/NeuroSync_Player')
 from character_visual_setups import apply_professor_smith_appearance
@@ -73,7 +73,7 @@ except Exception as e:
             ;;
         "reactive_default")
             log "🎬 Setting up Streamer visual appearance (Pink/purple hair, violet eyes, streaming look)"
-            docker exec neurosync python3 -c "
+            docker exec neurosync_s1 python3 -c "
 import sys
 sys.path.append('/app/NeuroBridge/NeuroSync_Player')
 from character_visual_setups import apply_streamer_appearance
