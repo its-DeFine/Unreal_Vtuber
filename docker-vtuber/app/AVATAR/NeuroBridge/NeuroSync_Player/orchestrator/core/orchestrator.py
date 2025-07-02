@@ -159,6 +159,9 @@ class ReactiveOrchestrator:
                     }
                 )
                 
+                # CRITICAL: Send ALL responses to TTS pipeline (not just chat API responses)
+                self._send_response_to_tts(response, character.id)
+                
                 logger.info(f"Returning final response for event {event.id}: {repr(response)}")
                 return response
             else:
@@ -334,9 +337,9 @@ Response:"""
         return response
     
     async def _call_llm(self, prompt: str) -> str:
-        """Call the LLM service using existing infrastructure"""
+        """Call the LLM service using existing infrastructure - SIMPLE SYNCHRONOUS APPROACH"""
         try:
-            # Use the existing LLM configuration
+            # Use the existing LLM configuration - EXACTLY like reactive mode
             from utils.llm.llm_utils import stream_llm_chunks
             from queue import Queue
             from config import get_config
@@ -356,13 +359,9 @@ Response:"""
             chunk_queue = Queue()
             chat_history = []
             
-            # Call the LLM using thread executor for Python 3.8 compatibility
-            # The prompt becomes the user input, system message is handled by the base config
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: stream_llm_chunks(prompt, chat_history, chunk_queue, llm_config)
-            )
+            # SIMPLE: Just call synchronously like the original system does
+            # No executor, no async wrapper - just direct call
+            response = stream_llm_chunks(prompt, chat_history, chunk_queue, llm_config)
             
             logger.info(f"Raw LLM response: {repr(response)}")
             final_response = response.strip() if response else "I understand and will help with that."
@@ -495,59 +494,138 @@ Autonomous Content:"""
     
     async def start_autonomous_mode(self, topic: str = None) -> bool:
         """Start autonomous content generation"""
-        if not self.character_manager.is_autonomous_mode():
+        try:
+            if not self.character_manager.is_autonomous_mode():
+                logger.warning("Character manager not in autonomous mode")
+                return False
+            
+            character = self.character_manager.get_current_character()
+            if not character or not character.autonomous_enabled:
+                logger.warning(f"Character not suitable for autonomous mode: {character}")
+                return False
+            
+            # Stop any existing autonomous task properly
+            await self.stop_autonomous_mode()
+            
+            # Create continuous autonomous task
+            logger.info(f"Starting autonomous mode for {character.name}")
+            self.autonomous_task = asyncio.create_task(self._autonomous_content_loop(topic))
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error starting autonomous mode: {e}")
             return False
-        
-        character = self.character_manager.get_current_character()
-        if not character or not character.autonomous_enabled:
-            return False
-        
-        # Create autonomous task
-        logger.info(f"Starting autonomous mode for {character.name}")
-        
-        # Schedule first autonomous event
-        await self._schedule_autonomous_event(topic)
-        
-        return True
     
     async def stop_autonomous_mode(self) -> bool:
         """Stop autonomous content generation"""
         if self.autonomous_task:
             self.autonomous_task.cancel()
-            self.autonomous_task = None
+            try:
+                # Wait for the task to be properly cancelled
+                await asyncio.wait_for(self.autonomous_task, timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                # Task was cancelled or timed out, which is expected
+                pass
+            except Exception as e:
+                logger.warning(f"Error waiting for autonomous task to cancel: {e}")
+            finally:
+                self.autonomous_task = None
         
         logger.info("Stopped autonomous mode")
         return True
     
-    async def _schedule_autonomous_event(self, topic: str = None):
-        """Schedule the next autonomous event"""
-        character = self.character_manager.get_current_character()
-        if not character or not self.character_manager.is_autonomous_mode():
-            return
+    async def _autonomous_content_loop(self, topic: str = None):
+        """Continuous loop for autonomous content generation - SIMPLE APPROACH"""
+        logger.info(f"🤖 Starting continuous autonomous content loop (simple approach)")
         
-        # Create autonomous event
-        event_data = {
-            'type': 'autonomous',
-            'source': 'autonomous_scheduler',
-            'priority': 'medium',
-            'data': {
-                'topic': topic,
-                'character_id': character.id
+        try:
+            while self.character_manager.is_autonomous_mode():
+                character = self.character_manager.get_current_character()
+                if not character or not character.autonomous_enabled:
+                    logger.info("Character no longer supports autonomous mode, stopping loop")
+                    break
+                
+                logger.info(f"🔄 Generating autonomous content for {character.name} (interval: {character.autonomous_interval}s)")
+                
+                # SIMPLE: Just call the same LLM function that reactive mode uses
+                try:
+                    # Create a simple autonomous prompt
+                    autonomous_prompt = f"""You are {character.name}.
+{character.role}
+
+Current topic focus: {topic or 'general content'}
+
+You are in AUTONOMOUS MODE - generate engaging content without waiting for user prompts.
+Provide educational, entertaining, or helpful content that matches your character.
+Keep it conversational and engaging.
+
+Generate autonomous content:"""
+                    
+                    # Call the SAME LLM function that reactive mode uses
+                    response = await self._call_llm(autonomous_prompt)
+                    
+                    if response and response.strip():
+                        logger.info(f"✅ Generated autonomous content: {response[:100]}...")
+                        
+                        # Send directly to TTS - SAME as reactive mode
+                        self._send_response_to_tts(response, character.id)
+                        
+                        # Add to history (same as reactive mode)
+                        self.autonomous_content_history.append(response)
+                        if len(self.autonomous_content_history) > 10:
+                            self.autonomous_content_history = self.autonomous_content_history[-10:]
+                    else:
+                        logger.warning("❌ No autonomous content generated")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Error generating autonomous content: {e}")
+                
+                # Wait for the character's autonomous interval
+                logger.info(f"⏱️ Waiting {character.autonomous_interval}s until next autonomous content...")
+                await asyncio.sleep(character.autonomous_interval)
+                
+        except asyncio.CancelledError:
+            logger.info("🛑 Autonomous content loop cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"❌ Error in autonomous content loop: {e}")
+            await asyncio.sleep(5)  # Brief pause before retrying
+        
+        logger.info("🏁 Autonomous content loop ended")
+    
+    def _send_response_to_tts(self, text: str, character_id: str):
+        """Send response to TTS pipeline - CENTRALIZED for ALL response types"""
+        import requests
+        
+        logger.info(f"🔊 CORE TTS: Sending response to TTS pipeline: {text[:100]}...")
+        
+        try:
+            payload = {
+                'text': text,
+                'autonomous_context': {
+                    'source': 'reactive_orchestrator',
+                    'character_id': character_id
+                },
+                'direct_speech': True
             }
-        }
-        
-        # Add event
-        event_id = await self.add_external_event(event_data)
-        
-        # Schedule next autonomous event
-        interval = character.autonomous_interval
-        if self.character_manager.is_autonomous_mode():
-            async def schedule_next():
-                await asyncio.sleep(interval)
-                if self.character_manager.is_autonomous_mode():
-                    await self._schedule_autonomous_event(topic)
             
-            self.autonomous_task = asyncio.create_task(schedule_next())
+            # Call the process_text endpoint for TTS processing
+            response = requests.post(
+                'http://localhost:5001/process_text',
+                json=payload,
+                timeout=10
+            )
+            
+            logger.info(f"🔊 CORE TTS: HTTP response status: {response.status_code}")
+            
+            if response.status_code != 200:
+                logger.error(f"❌ CORE TTS: Failed to send to TTS pipeline: {response.text}")
+            else:
+                logger.info(f"✅ CORE TTS: Successfully sent response to TTS pipeline")
+                
+        except Exception as e:
+            logger.error(f"❌ CORE TTS: Error sending to TTS pipeline: {e}")
     
     async def process_event_queue(self):
         """Process pending events in the queue"""

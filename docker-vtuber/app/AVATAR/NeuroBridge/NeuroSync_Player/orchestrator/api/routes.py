@@ -344,60 +344,93 @@ async def stop_autonomous_mode():
 # ==========================
 
 @reactive_api.route('/event/chat', methods=['POST'])
-@require_orchestrator
-@async_route
-async def chat_event():
-    """Submit a chat message and get immediate response"""
+def chat_event():
+    """Submit a chat message - SIMPLIFIED to use proven /process_text endpoint"""
     try:
-        orchestrator: ReactiveOrchestrator = current_app.config['REACTIVE_ORCHESTRATOR']
-        data = request.get_json() if request.is_json else {}
+        import requests
         
+        data = request.get_json() if request.is_json else {}
         message = data.get('message', '').strip()
+        
         if not message:
             return jsonify({"error": "Message is required"}), 400
         
-        # Create chat event
-        event_data = {
-            'type': 'chat',
-            'source': data.get('source', 'api'),
-            'priority': 'high',
-            'data': {
-                'message': message,
-                'user_id': data.get('user_id', 'anonymous')
+        character_manager = get_character_manager()
+        character = character_manager.get_current_character()
+        
+        # Get conversation history for better continuity
+        conversation_context = ""
+        try:
+            # Try to get recent conversation from the system
+            if hasattr(current_app.config, 'REACTIVE_ORCHESTRATOR'):
+                orchestrator = current_app.config.get('REACTIVE_ORCHESTRATOR')
+                if orchestrator and hasattr(orchestrator, 'conversation_history'):
+                    recent_turns = orchestrator.conversation_history.get_recent_turns(limit=4)
+                    if recent_turns:
+                        conversation_context = "\nRecent Conversation:\n"
+                        for turn in recent_turns[-4:]:  # Last 4 turns for context
+                            conversation_context += f"{turn['speaker'].title()}: {turn['text'][:100]}...\n"
+                        conversation_context += "\n"
+        except Exception as e:
+            logger.warning(f"Could not get conversation history: {e}")
+        
+        # Build character-aware prompt for the message
+        character_context = ""
+        if character:
+            character_context = f"""Character Profile: {character.name}
+Role: {character.role}
+
+Personality Traits: {', '.join(character.personality_traits) if character.personality_traits else 'helpful, responsive'}
+Communication Style: {character.communication_style or 'clear and friendly'}
+Emotional Range: {character.emotional_range or 'balanced and positive'}
+
+Behavioral Rules:
+- Adapt explanations to student level
+- Use examples and analogies  
+- Encourage questions
+- Provide positive reinforcement
+- Continue naturally from recent conversation context
+- Build upon previous topics when relevant
+
+{conversation_context}Remember to stay in character and follow these guidelines.
+
+
+"""
+        
+        # Create the full prompt with character and conversation context
+        full_prompt = f"{character_context}User: {message}\n\nRespond naturally in character, building upon the conversation context if relevant:"
+        
+        # Call the proven /process_text endpoint directly with orchestrator bypass
+        payload = {
+            'text': full_prompt,
+            'autonomous_context': {
+                'source': 'reactive_orchestrator',  # This bypasses orchestrator processing
+                'character_id': character.id if character else 'default'
             }
         }
         
-        # Add event (high priority events are processed automatically)
-        event_id = await orchestrator.add_external_event(event_data)
+        logger.info(f"📨 Sending to /process_text: {message}")
         
-        # Get the event and check if it was already processed
-        event = next((e for e in orchestrator.state.event_queue if e.id == event_id), None)
-        if event:
-            if event.processed:
-                # Event was already processed automatically (high priority)
-                # Get the response from the recent responses
-                recent_responses = list(orchestrator.state.recent_responses)
-                response = recent_responses[-1]['text'] if recent_responses else None
-            else:
-                # Process the event manually
-                response = await orchestrator.process_event(event)
-            
-            # Send response to TTS pipeline for audio output
-            if response:
-                logger.info(f"Sending chat response to TTS pipeline: {response[:100]}...")
-                _send_to_tts_pipeline(response, orchestrator.character_manager.current_character_id)
-            
+        # Call the working endpoint
+        response = requests.post(
+            'http://localhost:5001/process_text',
+            json=payload,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
             return jsonify({
                 "success": True,
-                "response": response,
-                "event_id": event_id,
-                "character": orchestrator.character_manager.get_current_character().name
+                "response": f"Message processed: {message}",
+                "character": character.name if character else "default",
+                "method": "simplified_process_text"
             })
         else:
-            return jsonify({"error": "Event processing failed"}), 500
+            logger.error(f"Error calling /process_text: {response.status_code} - {response.text}")
+            return jsonify({"error": "Failed to process message"}), 500
             
     except Exception as e:
-        logger.error(f"Error processing chat: {e}")
+        logger.error(f"Error in simplified chat: {e}")
         logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 

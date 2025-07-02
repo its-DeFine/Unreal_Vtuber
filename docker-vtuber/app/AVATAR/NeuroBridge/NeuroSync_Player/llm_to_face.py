@@ -299,6 +299,8 @@ def handle_process_text():
          autonomous_context.get("direct_speech", False))
     )
     
+
+    
     # Direct speech processing - highest priority
     if should_use_direct_speech and is_from_orchestrator:
         # Direct speech - skip LLM and send directly to TTS
@@ -360,19 +362,10 @@ def handle_process_text():
             "orchestrator_enabled": orchestrator_wrapper is not None
         }
         
-    # Orchestrator processing - only if enabled AND not from orchestrator itself AND not direct speech
-    elif (orchestrator_wrapper and 
-        not is_from_orchestrator and
-        orchestrator_wrapper.should_orchestrate_request(user_input, autonomous_context)):
-        app.logger.info("🎭 Orchestrator handling request")
-        orchestrator_wrapper.process_orchestrated_input(user_input, autonomous_context)
-        
-        response_data = {
-            "status": "orchestrated",
-            "message": "Input processed by autonomous orchestrator",
-            "llm_provider": provider,
-            "orchestrator_enabled": True
-        }
+    # Orchestrator processing - DISABLED to prevent duplicate processing
+    # Our simplified API route handles character-aware responses directly
+    elif False:  # Temporarily disabled to eliminate duplicate processing
+        pass
     else:
         # Standard LLM processing
         chunk_queue = system_objects['chunk_queue']
