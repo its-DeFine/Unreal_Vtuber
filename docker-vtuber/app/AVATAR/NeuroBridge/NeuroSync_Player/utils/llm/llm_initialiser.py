@@ -31,9 +31,12 @@ setup_warnings()
 llm_config = get_llm_config(system_message=BASE_SYSTEM_MESSAGE)
 
 
-def initialize_system():
+def initialize_system(orchestrator=None):
     """
     Encapsulates all common initialization steps for the system.
+    
+    Args:
+        orchestrator: Optional orchestrator instance for speech completion callbacks
     
     Returns:
         dict: A dictionary containing the initialized objects:
@@ -86,10 +89,16 @@ def initialize_system():
     )
     tts_worker_thread.start()
     
+    # Prepare completion callback for orchestrator
+    completion_callback = None
+    if orchestrator and hasattr(orchestrator, 'notify_speech_complete'):
+        completion_callback = orchestrator.notify_speech_complete
+        print("🔊 Speech completion callback registered with orchestrator")
+    
     # Start the audio face worker thread.
     audio_worker_thread = Thread(
         target=audio_face_queue_worker,
-        args=(audio_queue, py_face, socket_connection, default_animation_thread, ENABLE_EMOTE_CALLS)
+        args=(audio_queue, py_face, socket_connection, default_animation_thread, ENABLE_EMOTE_CALLS, completion_callback)
     )
     audio_worker_thread.start()
     

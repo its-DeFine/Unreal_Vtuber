@@ -1,0 +1,262 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector for embeddings and state storage
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: vtuber_postgres
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=vtuber_autogen
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./app/AVATAR/NeuroBridge/NeuroSync_Player/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5435:5432"
+    restart: unless-stopped
+    networks:
+      - vtuber_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and pub/sub
+  redis:
+    image: redis:7-alpine
+    container_name: vtuber_redis
+    ports:
+      - "6380:6379"
+    restart: unless-stopped
+    networks:
+      - vtuber_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # AutoGen Orchestrator Service
+  autogen_orchestrator:
+    build:
+      context: ./app/AVATAR/NeuroBridge/NeuroSync_Player
+      dockerfile: Dockerfile.autogen
+    container_name: autogen_orchestrator
+    environment:
+      # AutoGen Configuration
+      - AUTOGEN_ORCHESTRATOR_ENABLED=true
+      - ORCHESTRATOR_PERSONA=interactive_streamer
+      - AUTONOMOUS_CONTENT_ENABLED=true
+      - GROUP_CHAT_ENABLED=true
+      - SCB_INTEGRATION_ENABLED=true
+      
+      # LLM Configuration (OpenAI)
+      - AUTOGEN_MODEL=${OPENAI_MODEL:-gpt-3.5-turbo}
+      - AUTOGEN_TEMPERATURE=0.7
+      - AUTOGEN_MAX_TOKENS=150
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      
+      # Timing Configuration
+      - DECISION_INTERVAL=0.5
+      - MIN_IDLE_TIME=8.0
+      - MAX_IDLE_TIME=45.0
+      - MIN_SPEECH_GAP=2.5
+      
+      # Agent Configuration
+      - FILTER_AGENT_ENABLED=true
+      - SPEECH_AGENT_ENABLED=true
+      - ENVIRONMENT_AGENT_ENABLED=true
+      - IDLE_AGENT_ENABLED=true
+      
+      # Performance Settings
+      - AGENT_TIMEOUT=5.0
+      - MAX_AGENT_ROUNDS=10
+      - CACHE_DECISIONS=true
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/vtuber_autogen
+      - REDIS_URL=redis://redis:6379/0
+      
+      # Monitoring
+      - METRICS_ENABLED=true
+      - TRACE_ENABLED=false
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8300:8000"
+    restart: unless-stopped
+    networks:
+      - vtuber_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/orchestrator/v3/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    volumes:
+      - ./app/AVATAR/NeuroBridge/NeuroSync_Player:/app
+      - ./logs/autogen:/app/logs
+
+  # NeuroSync Player with AutoGen Integration
+  neurosync_player:
+    build:
+      context: ./app/AVATAR/NeuroBridge/NeuroSync_Player
+      dockerfile: Dockerfile
+    container_name: neurosync_player_autogen
+    environment:
+      # VTuber System Configuration
+      - PLAYER_PORT=5001
+      - VTUBER_PAYMENT_ENABLED=false
+      - USE_LIVELINK=true
+      - USE_GAME_CONTROL=true
+      
+      # AutoGen Integration
+      - AUTONOMOUS_ORCHESTRATION_ENABLED=true
+      - AUTOGEN_ORCHESTRATOR_URL=http://autogen_orchestrator:8000
+      - AUTO_INTERRUPT_ENABLED=true
+      - DECISION_LOOP_INTERVAL=0.1
+      - INTERRUPT_THRESHOLD=4
+      - ORCHESTRATOR_IDLE_TIMEOUT=2.0
+      
+      # LLM Configuration
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - USE_STREAMING=true
+      - USE_VECTOR_DB=true
+      
+      # TTS Configuration
+      - TTS_SERVICE=${TTS_SERVICE:-kokoro}
+      - KOKORO_API_KEY=${KOKORO_API_KEY}
+      - KOKORO_VOICE_ID=${KOKORO_VOICE_ID}
+      
+      # Game Control
+      - UNREAL_TCP_HOST=host.docker.internal
+      - UNREAL_TCP_PORT=7777
+      
+      # Database Configuration
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/vtuber_autogen
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      autogen_orchestrator:
+        condition: service_healthy
+    ports:
+      - "5001:5001"
+    restart: unless-stopped
+    networks:
+      - vtuber_net
+    volumes:
+      - ./app/AVATAR/NeuroBridge/NeuroSync_Player:/app
+      - ./logs/neurosync:/app/logs
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # SCB Bridge Service (optional)
+  scb_bridge:
+    build:
+      context: ./app/AVATAR/NeuroBridge/NeuroSync_Player
+      dockerfile: Dockerfile.scb
+    container_name: scb_bridge
+    environment:
+      - SCB_PORT=5000
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/vtuber_autogen
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+    networks:
+      - vtuber_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus for metrics collection (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: vtuber_prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    networks:
+      - vtuber_net
+    depends_on:
+      - autogen_orchestrator
+      - neurosync_player
+
+  # Grafana for visualization (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: vtuber_grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+    networks:
+      - vtuber_net
+    depends_on:
+      - prometheus
+
+  # Nginx reverse proxy (optional, for production)
+  nginx:
+    image: nginx:alpine
+    container_name: vtuber_nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/sites-enabled:/etc/nginx/sites-enabled
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+    networks:
+      - vtuber_net
+    depends_on:
+      - neurosync_player
+      - autogen_orchestrator
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  vtuber_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

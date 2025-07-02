@@ -22,8 +22,12 @@ from utils.game_control.game_control_processor import GameControlProcessor
 from utils.game_control.unreal_tcp_controller import UnrealTCPController, TCPConnectionConfig
 from config import BASE_SYSTEM_MESSAGE, get_llm_config, setup_warnings
 
-# Import orchestrator components
-from orchestrator_integration import OrchestrationWrapper, OrchestrationConfig
+# Import orchestrator version manager
+from orchestrator_version_manager import (
+    initialize_orchestrator as init_orchestrator,
+    get_current_wrapper,
+    get_orchestrator_version
+)
 from autonomous_orchestrator_wrapper import Priority, ActionType
 
 # --- Global Variables for Flask App ---
@@ -50,7 +54,6 @@ tcp_controller = None
 
 # Orchestrator objects
 orchestrator_wrapper = None
-orchestrator_config = None
 
 # --- End Global Variables ---
 
@@ -165,45 +168,46 @@ def main_setup():
 
 
 def setup_orchestration():
-    """Initialize the autonomous orchestrator"""
-    global orchestrator_wrapper, orchestrator_config, system_objects
+    """Initialize the autonomous orchestrator using version manager"""
+    global orchestrator_wrapper, system_objects
     
     print("🤖 Initializing Autonomous Orchestration System...")
     print("=" * 70)
     
-    orchestrator_config = OrchestrationConfig()
+    # Get the orchestrator version
+    version = get_orchestrator_version()
+    print(f"📌 Orchestrator Version: {version.upper()}")
     
-    if orchestrator_config.enabled:
+    # Check if orchestration is enabled
+    orchestration_enabled = os.getenv("AUTONOMOUS_ORCHESTRATION_ENABLED", "true").lower() == "true"
+    
+    if orchestration_enabled:
         print("✅ Autonomous Orchestration: ENABLED")
-        print(f"🎯 Configuration:")
-        for line in str(orchestrator_config).split('\n'):
-            if line.strip():
-                print(f"   {line}")
         
-        # Create orchestration wrapper with system objects
-        orchestrator_wrapper = OrchestrationWrapper(app, orchestrator_config, system_objects)
+        # Initialize orchestrator using version manager
+        orchestrator_wrapper = init_orchestrator(app, system_objects)
         
-        # Add custom routes for orchestrator
-        add_orchestrator_routes()
-        
-        # -------------------------------------------------------------
-        # Integrate enhanced Hybrid Orchestrator V2 (if available)
-        # This registers additional routes like /orchestrator/event and
-        # starts the background decision loop in its own thread.
-        # -------------------------------------------------------------
-        try:
-            from autonomous_orchestrator_wrapper import initialize_orchestrator_v2
-
-            # Initialize V2 orchestrator with the same Flask app so routes
-            # are attached to this server instance (port 5001)
-            initialize_orchestrator_v2()  # Initialize without adding duplicate routes
-            print("✅ Hybrid Orchestrator V2 initialized (background thread)")
-        except Exception as e:
-            print(f"⚠️ Failed to initialize Hybrid Orchestrator V2: {e}")
-        
-        print("✅ Autonomous Orchestrator ready!")
-        print("🚀 System will now make autonomous decisions about speech and environment!")
-        
+        if orchestrator_wrapper:
+            # Register speech completion callback for proper state management
+            if hasattr(orchestrator_wrapper, 'register_speech_completion_callback'):
+                orchestrator_wrapper.register_speech_completion_callback(system_objects)
+            
+            # Display configuration based on version
+            if version == "v3":
+                print("🎯 Using AutoGen-based Orchestrator V3")
+                print(f"   Persona: {os.getenv('ORCHESTRATOR_PERSONA', 'interactive_streamer')}")
+                print(f"   Autonomous Content: {os.getenv('AUTONOMOUS_CONTENT_ENABLED', 'true')}")
+                print(f"   Group Chat: {os.getenv('GROUP_CHAT_ENABLED', 'true')}")
+                print(f"   SCB Integration: {os.getenv('SCB_INTEGRATION_ENABLED', 'true')}")
+            else:
+                print("⚠️ Using deprecated Orchestrator V2")
+                print("💡 Migrate to V3 by setting ORCHESTRATOR_VERSION=v3")
+            
+            print("✅ Autonomous Orchestrator ready!")
+            print("🚀 System will now make autonomous decisions about speech and environment!")
+        else:
+            print("❌ Failed to initialize orchestrator")
+            orchestrator_wrapper = None
     else:
         print("⚠️ Autonomous Orchestration: DISABLED")
         print("💡 Set AUTONOMOUS_ORCHESTRATION_ENABLED=true to enable")
@@ -213,120 +217,7 @@ def setup_orchestration():
     return orchestrator_wrapper
 
 
-def add_orchestrator_routes():
-    """Add orchestrator-specific routes"""
-    
-    @app.route("/orchestrator/status", methods=['GET'])
-    def orchestrator_status():
-        if not orchestrator_wrapper:
-            return jsonify({"error": "Orchestrator not enabled"}), 503
-        
-        status = orchestrator_wrapper.get_orchestrator_status()
-        return jsonify(status), 200
-    
-    @app.route("/orchestrator/control", methods=['POST'])
-    def orchestrator_control():
-        if not orchestrator_wrapper:
-            return jsonify({"error": "Orchestrator not enabled"}), 503
-        
-        if not request.json:
-            return jsonify({"error": "Missing JSON payload"}), 400
-        
-        action = request.json.get('action')
-        
-        if action == "interrupt":
-            orchestrator_wrapper.interrupt_current_activities()
-            return jsonify({"status": "interrupted"}), 200
-            
-        elif action == "queue_speech":
-            text = request.json.get('text', '')
-            priority = request.json.get('priority', 'medium')
-            interrupt = request.json.get('interrupt', False)
-            
-            if not text:
-                return jsonify({"error": "Missing text for speech"}), 400
-            
-            orchestrator_wrapper.queue_speech_action(text, priority, interrupt)
-            return jsonify({"status": "queued", "action": "speech", "text": text}), 200
-            
-        elif action == "queue_environment":
-            prompt = request.json.get('prompt', '')
-            priority = request.json.get('priority', 'medium')
-            interrupt = request.json.get('interrupt', False)
-            
-            if not prompt:
-                return jsonify({"error": "Missing prompt for environment"}), 400
-            
-            orchestrator_wrapper.queue_environment_action(prompt, priority, interrupt)
-            return jsonify({"status": "queued", "action": "environment", "prompt": prompt}), 200
-            
-        else:
-            return jsonify({"error": f"Unknown action: {action}"}), 400
-
-    # ------------------------------------------------------------------
-    # NEW: External Event & Config Endpoints (for dynamic influence)
-    # ------------------------------------------------------------------
-
-    @app.route("/orchestrator/event", methods=['POST'])
-    def orchestrator_event():
-        """Inject external context/event into the orchestrator & SCB"""
-        if not orchestrator_wrapper:
-            return jsonify({"error": "Orchestrator not enabled"}), 503
-        if not request.json:
-            return jsonify({"error": "Missing JSON payload"}), 400
-
-        event_type = request.json.get('event_type', 'unknown')
-        payload = request.json.get('payload', {}) or {}
-
-        try:
-            # Push to SCB (if available) so LLM can immediately see it
-            from utils.scb.scb_store import scb_store
-
-            if event_type == 'change_subject':
-                topic = payload.get('topic', '')
-                if topic:
-                    scb_store.append_directive(f"Change subject to: {topic}", actor="external", ttl=120)
-            else:
-                text = payload.get('text') or str(payload)
-                scb_store.append_chat(text, actor="external", salience=0.8)
-        except Exception as e:
-            app.logger.warning(f"SCB update failed: {e}")
-
-        # Optionally notify orchestrator to refresh context
-        try:
-            orchestrator_wrapper.process_orchestrated_input(
-                payload.get('topic') or payload.get('text') or str(payload),
-                autonomous_context="external_event"
-            )
-        except Exception as e:
-            app.logger.warning(f"Failed to forward event to orchestrator: {e}")
-
-        return jsonify({"status": "event_processed", "event_type": event_type}), 200
-
-    @app.route("/orchestrator/config", methods=['POST'])
-    def orchestrator_config():
-        """Update orchestrator runtime configuration (limited set)"""
-        if not orchestrator_wrapper:
-            return jsonify({"error": "Orchestrator not enabled"}), 503
-        if not request.json:
-            return jsonify({"error": "Missing JSON payload"}), 400
-
-        updates = {}
-        scb_max_inputs = request.json.get('scb_max_inputs')
-        if scb_max_inputs is not None:
-            try:
-                val = int(scb_max_inputs)
-                # Attempt to propagate to underlying orchestrator if method exists
-                if hasattr(orchestrator_wrapper.orchestrator, 'update_config'):
-                    orchestrator_wrapper.orchestrator.update_config(scb_max_inputs=val)
-                updates['scb_max_inputs'] = val
-            except ValueError:
-                return jsonify({"error": "scb_max_inputs must be integer"}), 400
-
-        if not updates:
-            return jsonify({"error": "No recognised config fields provided"}), 400
-
-        return jsonify({"status": "config_updated", **updates}), 200
+# Routes are now handled by the version manager and registered automatically
 
 
 @app.route("/process_text", methods=['POST'])
@@ -365,9 +256,20 @@ def handle_process_text():
         app.logger.info(f"🎯 Direct speech mode - bypassing LLM")
 
     def clean_speech_text(text: str) -> str:
-        """Clean text for speech by removing unwanted characters"""
+        """Clean text for speech by removing unwanted characters and extracting content"""
         if not text:
             return text
+        
+        # Extract content after "CONTENT:" if present (orchestrator output format)
+        if "CONTENT:" in text:
+            # Split by "CONTENT:" and take the part after it
+            content_part = text.split("CONTENT:", 1)[1]
+            
+            # Remove "TYPE:" section if present (orchestrator also includes TYPE: info)
+            if "TYPE:" in content_part:
+                content_part = content_part.split("TYPE:")[0]
+            
+            text = content_part.strip()
         
         # Remove asterisks and other stage directions
         cleaned = text.replace('*', '')
@@ -384,7 +286,10 @@ def handle_process_text():
     # Check if this is a request FROM the orchestrator to prevent infinite loops
     is_from_orchestrator = autonomous_context and (
         "orchestrator_speech" in str(autonomous_context) or 
-        "orchestrator_environment" in str(autonomous_context)
+        "orchestrator_environment" in str(autonomous_context) or
+        "autogen_orchestrator_v3" in str(autonomous_context) or
+        (isinstance(autonomous_context, dict) and 
+         autonomous_context.get("source") in ["autogen_orchestrator_v3", "autonomous_content"])
     )
     
     # Check if this is direct speech that should bypass LLM
@@ -416,9 +321,33 @@ def handle_process_text():
         if pygame.mixer.get_init():
             pygame.mixer.stop()
         
-        # Send cleaned text directly to TTS as a single chunk
-        chunk_queue.put(cleaned_text)
-        chunk_queue.put(None)  # End marker
+        # Process direct speech through proper TTS pipeline
+        from utils.llm.sentence_builder import SentenceBuilder
+        from queue import Queue
+        from threading import Thread
+        
+        # Create a token queue and sentence builder for proper TTS processing
+        token_queue = Queue()
+        max_chunk_length = llm_config_global.get("max_chunk_length", 500)
+        flush_token_count = llm_config_global.get("flush_token_count", 10)
+        
+        sentence_builder = SentenceBuilder(chunk_queue, max_chunk_length, flush_token_count)
+        sb_thread = Thread(target=sentence_builder.run, args=(token_queue,))
+        sb_thread.start()
+        
+        # Send the cleaned text as tokens to trigger proper TTS processing
+        app.logger.info(f"🎯 Processing direct speech through TTS pipeline")
+        
+        # Split text into words for more natural processing
+        words = cleaned_text.split()
+        for word in words:
+            token_queue.put(word + " ")
+        
+        # Signal end of input
+        token_queue.put(None)
+        
+        # Wait for sentence builder to complete
+        sb_thread.join()
         
         # Log to SCB
         from utils.scb import scb_store
@@ -426,7 +355,7 @@ def handle_process_text():
         
         response_data = {
             "status": "direct_speech",
-            "message": "Direct speech sent to TTS",
+            "message": "Direct speech processed through TTS pipeline",
             "llm_provider": "none",
             "orchestrator_enabled": orchestrator_wrapper is not None
         }

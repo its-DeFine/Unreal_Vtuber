@@ -23,8 +23,20 @@ if not logger.handlers:
 
 queue_lock = Lock()
 
+# Global completion callback mechanism
+_global_completion_callback = None
 
-def audio_face_queue_worker(audio_face_queue, py_face, socket_connection, default_animation_thread, enable_emote_calls=True):
+def set_global_completion_callback(callback):
+    """Set a global completion callback that will be called when speech completes"""
+    global _global_completion_callback
+    _global_completion_callback = callback
+    logger.info("🔊 Global speech completion callback set")
+
+def get_global_completion_callback():
+    """Get the current global completion callback"""
+    return _global_completion_callback
+
+def audio_face_queue_worker(audio_face_queue, py_face, socket_connection, default_animation_thread, enable_emote_calls=True, completion_callback=None):
     speaking = False
     while True:
         item = audio_face_queue.get()
@@ -58,9 +70,27 @@ def audio_face_queue_worker(audio_face_queue, py_face, socket_connection, defaul
 
             audio_face_queue.task_done()
 
+            # Check if this was the last item and speech is complete
             if speaking and audio_face_queue.empty() and enable_emote_calls:
                 EmoteConnect.send_emote("stopspeaking")
                 speaking = False
+                
+                # Notify orchestrator that speech is complete via callback parameter
+                if completion_callback:
+                    try:
+                        completion_callback()
+                        logger.info("🔊 Speech completion callback invoked")
+                    except Exception as e:
+                        logger.error(f"Error in speech completion callback: {e}")
+                
+                # Also notify via global callback mechanism (for post-initialization setup)
+                global_callback = get_global_completion_callback()
+                if global_callback:
+                    try:
+                        global_callback()
+                        logger.info("🔊 Global speech completion callback invoked")
+                    except Exception as e:
+                        logger.error(f"Error in global speech completion callback: {e}")
         finally:
              # Clean up the temporary file
              if temp_audio_file and os.path.exists(temp_audio_path):

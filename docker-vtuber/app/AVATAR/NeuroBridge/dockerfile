@@ -47,7 +47,8 @@ COPY ./app/AVATAR/NeuroBridge /app/NeuroBridge
 # COPY ./decide/BYOC_OLD/neurosync-worker /app/neurosync-worker  # Not needed for current implementation
 
 # ---------- Python deps ----------
-RUN pip install --no-cache-dir flask flask-cors numpy jsonschema && \
+RUN pip install --no-cache-dir "numpy>=1.24.0,<2.0.0" && \
+    pip install --no-cache-dir flask flask-cors jsonschema && \
     # Install PyAudio and pygame separately first, as they can be tricky
     pip install --no-cache-dir PyAudio==0.2.14 pygame==2.6.1 && \
     pip install --no-cache-dir -r /app/NeuroBridge/NeuroSync_Player/requirements.txt && \

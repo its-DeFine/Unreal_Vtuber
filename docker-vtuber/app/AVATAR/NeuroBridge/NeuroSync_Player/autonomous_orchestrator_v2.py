@@ -1,6 +1,10 @@
 """
 Autonomous Orchestrator V2 - Complete Redesign
 Addresses all issues with non-stop talking and provides natural, interruptible speech
+
+⚠️ DEPRECATION WARNING: This orchestrator version (V2) is deprecated and will be removed in a future release.
+Please migrate to V3 (AutoGen-based orchestrator) by setting ORCHESTRATOR_VERSION=v3 in your .env file.
+V3 provides superior multi-agent coordination, better content variety, and more sophisticated decision-making.
 """
 
 import asyncio
@@ -548,6 +552,12 @@ class AutonomousOrchestratorV2:
             f"Min Idle: {self.MIN_IDLE_FOR_CONTENT}s | "
             f"Speech Gap: {self.MIN_SPEECH_GAP}s | "
             f"Decision Rate: {self.DECISION_INTERVAL}s"
+        )
+        
+        # Log deprecation warning
+        self.logger.warning(
+            "⚠️ DEPRECATION: Orchestrator V2 is deprecated. "
+            "Please migrate to V3 by setting ORCHESTRATOR_VERSION=v3"
         )
         
     async def start(self):
