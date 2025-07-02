@@ -28,7 +28,7 @@ from orchestrator_version_manager import (
     get_current_wrapper,
     get_orchestrator_version
 )
-from autonomous_orchestrator_wrapper import Priority, ActionType
+# Priority and ActionType imports removed - not used in this file
 
 # --- Global Variables for Flask App ---
 app = Flask(__name__)

@@ -63,7 +63,13 @@ class ReactiveOrchestratorWrapper:
     
     def process_orchestrated_input(self, user_input: str, autonomous_context: Any):
         """Process input through reactive orchestrator"""
-        asyncio.create_task(self._process_input_async(user_input, autonomous_context))
+        try:
+            # Run async processing synchronously for Flask compatibility
+            asyncio.run(self._process_input_async(user_input, autonomous_context))
+        except Exception as e:
+            logger.error(f"Error in process_orchestrated_input: {e}")
+            # Fallback: send direct response
+            self._send_to_llm_face("I understand your message and will respond accordingly.")
     
     async def _process_input_async(self, user_input: str, autonomous_context: Any):
         """Async processing of input"""

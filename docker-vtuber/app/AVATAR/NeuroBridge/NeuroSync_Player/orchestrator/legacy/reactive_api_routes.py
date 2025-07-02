@@ -254,13 +254,20 @@ async def chat_event():
             }
         }
         
-        # Add and process immediately
+        # Add event (high priority events are processed automatically)
         event_id = await orchestrator.add_external_event(event_data)
         
-        # Get the event and process it
+        # Get the event and check if it was already processed
         event = next((e for e in orchestrator.state.event_queue if e.id == event_id), None)
         if event:
-            response = await orchestrator.process_event(event)
+            if event.processed:
+                # Event was already processed automatically (high priority)
+                # Get the response from the recent responses
+                recent_responses = list(orchestrator.state.recent_responses)
+                response = recent_responses[-1]['text'] if recent_responses else None
+            else:
+                # Process the event manually
+                response = await orchestrator.process_event(event)
             
             return jsonify({
                 "success": True,

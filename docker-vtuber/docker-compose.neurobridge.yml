@@ -26,8 +26,10 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - VTUBER_PAYMENT_ENABLED=false
       # ======================================
-      # Autonomous Orchestrator V2 Configuration
+      # Orchestrator Configuration
       # ======================================
+      # Set orchestrator version (v2, v3, reactive)
+      - ORCHESTRATOR_VERSION=reactive
       # Enable autonomous orchestration
       - AUTONOMOUS_ORCHESTRATION_ENABLED=true
       # Minimum idle time before generating autonomous content (seconds)

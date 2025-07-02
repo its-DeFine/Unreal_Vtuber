@@ -194,11 +194,14 @@ class ReactiveOrchestrator:
             
             # Generate context-aware response
             response = await handler(event, character)
+            logger.info(f"Handler response for event {event.id}: {repr(response)}")
             
             if response:
                 # Check for repetition
                 if self.enable_anti_repetition and self._is_repetitive(response):
+                    logger.info("Response detected as repetitive, regenerating...")
                     response = await self._regenerate_non_repetitive(event, character, response)
+                    logger.info(f"Regenerated response: {repr(response)}")
                 
                 # Update state
                 event.processed = True
@@ -215,7 +218,10 @@ class ReactiveOrchestrator:
                     }
                 )
                 
+                logger.info(f"Returning final response for event {event.id}: {repr(response)}")
                 return response
+            else:
+                logger.warning(f"Handler returned empty response for event {event.id}")
                 
         except Exception as e:
             logger.error(f"Error processing event {event.id}: {e}")
@@ -382,26 +388,37 @@ Response:"""
         """Call the LLM service using existing infrastructure"""
         try:
             # Use the existing LLM configuration
-            from utils.llm.llm_handler import send_to_llm
+            from utils.llm.llm_utils import stream_llm_chunks
+            from queue import Queue
+            from config import get_config
             
-            # Create a minimal config for the LLM call
+            # Get base configuration from the system
+            base_config = get_config()
+            
+            # Create a config for the LLM call
             llm_config = {
-                **self.llm_config,
+                **base_config,  # Use system's LLM configuration
+                **self.llm_config,   # Override with orchestrator specifics
                 'USE_STREAMING': False,  # Disable streaming for orchestrator
-                'max_tokens': 150  # Shorter responses for orchestrator
+                'max_tokens': 150,  # Shorter responses for orchestrator
             }
             
-            # Call the LLM synchronously
-            response = await asyncio.to_thread(
-                send_to_llm,
-                prompt,
-                llm_config,
-                {},  # Empty chat history
-                None,  # No token queue needed
-                None   # No vector db
+            # Create a queue to collect chunks
+            chunk_queue = Queue()
+            chat_history = []
+            
+            # Call the LLM using thread executor for Python 3.8 compatibility
+            # The prompt becomes the user input, system message is handled by the base config
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: stream_llm_chunks(prompt, chat_history, chunk_queue, llm_config)
             )
             
-            return response.strip()
+            logger.info(f"Raw LLM response: {repr(response)}")
+            final_response = response.strip() if response else "I understand and will help with that."
+            logger.info(f"Final processed response: {repr(final_response)}")
+            return final_response
             
         except Exception as e:
             logger.error(f"Error calling LLM: {e}")
