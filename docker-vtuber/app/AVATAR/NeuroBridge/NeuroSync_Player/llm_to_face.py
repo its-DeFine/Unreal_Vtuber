@@ -289,7 +289,7 @@ def handle_process_text():
         "orchestrator_environment" in str(autonomous_context) or
         "autogen_orchestrator_v3" in str(autonomous_context) or
         (isinstance(autonomous_context, dict) and 
-         autonomous_context.get("source") in ["autogen_orchestrator_v3", "autonomous_content"])
+         autonomous_context.get("source") in ["autogen_orchestrator_v3", "autonomous_content", "reactive_orchestrator"])
     )
     
     # Check if this is direct speech that should bypass LLM

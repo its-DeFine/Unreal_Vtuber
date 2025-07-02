@@ -19,6 +19,45 @@ logger = logging.getLogger(__name__)
 reactive_api = Blueprint('reactive_api', __name__, url_prefix='/api/v1/reactive')
 
 
+def _send_to_tts_pipeline(text: str, character_id: str):
+    """Send text through the TTS pipeline for audio output"""
+    import requests
+    
+    logger.info(f"_send_to_tts_pipeline called with text: {text[:100]}...")
+    
+    try:
+        payload = {
+            'text': text,
+            'autonomous_context': {
+                'source': 'reactive_orchestrator',
+                'character_id': character_id
+            },
+            'direct_speech': True  # Use direct speech for orchestrator output
+        }
+        
+        logger.info(f"Sending HTTP POST to /process_text for TTS with payload: {payload}")
+        
+        # Call the process_text endpoint with our response
+        response = requests.post(
+            'http://localhost:5001/process_text',
+            json=payload,
+            timeout=10
+        )
+        
+        logger.info(f"TTS HTTP response status: {response.status_code}")
+        logger.info(f"TTS HTTP response body: {response.text}")
+        
+        if response.status_code != 200:
+            logger.error(f"Failed to send to TTS pipeline: {response.text}")
+        else:
+            logger.info(f"Successfully sent response to TTS pipeline")
+            
+    except Exception as e:
+        logger.error(f"Error sending to TTS pipeline: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+
+
 def require_orchestrator(f):
     """Decorator to ensure orchestrator is available"""
     @wraps(f)
@@ -126,6 +165,11 @@ async def chat_event():
             else:
                 # Process the event manually
                 response = await orchestrator.process_event(event)
+            
+            # Send response to TTS pipeline for audio output
+            if response:
+                logger.info(f"Sending chat response to TTS pipeline: {response[:100]}...")
+                _send_to_tts_pipeline(response, orchestrator.character_manager.current_character_id)
             
             return jsonify({
                 "success": True,

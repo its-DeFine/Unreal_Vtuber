@@ -92,10 +92,15 @@ class ReactiveOrchestratorWrapper:
             event = next((e for e in self.orchestrator.state.event_queue if e.id == event_id), None)
             if event:
                 response = await self.orchestrator.process_event(event)
+                logger.info(f"Orchestrator generated response: {repr(response)}")
                 
                 if response:
                     # Send response through the existing system
+                    logger.info(f"Sending response to TTS pipeline: {response[:100]}...")
                     self._send_to_llm_face(response)
+                    logger.info(f"Response sent to TTS pipeline successfully")
+                else:
+                    logger.warning(f"No response generated for event {event_id}")
             
         except Exception as e:
             logger.error(f"Error processing orchestrated input: {e}")
@@ -104,25 +109,39 @@ class ReactiveOrchestratorWrapper:
         """Send text through the existing llm_to_face process_text endpoint"""
         import requests
         
+        logger.info(f"_send_to_llm_face called with text: {text[:100]}...")
+        
         try:
+            payload = {
+                'text': text,
+                'autonomous_context': {
+                    'source': 'reactive_orchestrator',
+                    'character_id': self.orchestrator.character_manager.current_character_id
+                },
+                'direct_speech': True  # Use direct speech for orchestrator output
+            }
+            
+            logger.info(f"Sending HTTP POST to /process_text with payload: {payload}")
+            
             # Call the process_text endpoint with our response
             response = requests.post(
                 'http://localhost:5001/process_text',
-                json={
-                    'text': text,
-                    'autonomous_context': {
-                        'source': 'reactive_orchestrator',
-                        'character_id': self.orchestrator.character_manager.current_character_id
-                    },
-                    'direct_speech': True  # Use direct speech for orchestrator output
-                }
+                json=payload,
+                timeout=10
             )
+            
+            logger.info(f"HTTP response status: {response.status_code}")
+            logger.info(f"HTTP response body: {response.text}")
             
             if response.status_code != 200:
                 logger.error(f"Failed to send to llm_to_face: {response.text}")
+            else:
+                logger.info(f"Successfully sent response to TTS pipeline")
                 
         except Exception as e:
             logger.error(f"Error sending to llm_to_face: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
     
     async def start_orchestrator(self):
         """Start the orchestrator background processing"""
