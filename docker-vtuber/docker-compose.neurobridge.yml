@@ -20,25 +20,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       # - LIVELINK_UDP_IP=your_host_ip_address_here # Commented out to use default 'host.docker.internal'
       # Add other NeuroSync env vars as needed (e.g., USE_REDIS_SCB)
-      # ---- LLM Provider (Ollama instead of OpenAI) ----
-      - LLM_PROVIDER=ollama
-      - OLLAMA_API_ENDPOINT=http://vtuber-ollama:11434
-      - OLLAMA_MODEL=llama3.1:8b
-      - OLLAMA_STREAMING=true
-      - USE_STREAMING=true
-      # Backup OpenAI config (comment out the active lines)
-      # - LLM_PROVIDER=openai
-      # - OPENAI_MODEL=gpt-4o
-      # - OPENAI_API_KEY=${OPENAI_API_KEY}
-      
-      # ---- TTS Provider (Kokoro instead of ElevenLabs) ----
-      - TTS_PROVIDER=kokoro
-      - KOKORO_TTS_SERVER_URL=http://localhost:6006
-      - KOKORO_DEFAULT_VOICE=af_sarah
-      - KOKORO_TTS_TIMEOUT=30
-      - KOKORO_TTS_LANGUAGE=en
-      
-      # Other settings
+      # ---- LLM Provider (OpenAI) ----
+      - LLM_PROVIDER=openai
+      - OPENAI_MODEL=gpt-4o
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - VTUBER_PAYMENT_ENABLED=false
       # ======================================
       # Orchestrator Configuration
