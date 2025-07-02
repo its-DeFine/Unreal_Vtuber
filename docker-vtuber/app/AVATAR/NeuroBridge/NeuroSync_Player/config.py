@@ -247,6 +247,34 @@ def get_tts_config():
     }
 
 
+def get_config():
+    """
+    Returns a dictionary of configuration parameters for the reactive orchestrator.
+    This provides compatibility with the orchestrator's expected configuration format.
+    """
+    return {
+        # LLM Configuration
+        **get_llm_config(),
+        
+        # TTS Configuration
+        **get_tts_config(),
+        
+        # Additional settings
+        "ENABLE_EMOTE_CALLS": ENABLE_EMOTE_CALLS,
+        "USE_VECTOR_DB": USE_VECTOR_DB,
+        "EMOTE_SERVER_ADDRESS": EMOTE_SERVER_ADDRESS,
+        "EMOTE_SERVER_PORT": EMOTE_SERVER_PORT,
+        "TRANSCRIPTION_SERVER_URL": TRANSCRIPTION_SERVER_URL,
+        "USE_OPENAI_EMBEDDING": USE_OPENAI_EMBEDDING,
+        "EMBEDDING_LOCAL_SERVER_URL": EMBEDDING_LOCAL_SERVER_URL,
+        "EMBEDDING_OPENAI_MODEL": EMBEDDING_OPENAI_MODEL,
+        "LOCAL_EMBEDDING_SIZE": LOCAL_EMBEDDING_SIZE,
+        "OPENAI_EMBEDDING_SIZE": OPENAI_EMBEDDING_SIZE,
+        "NEUROSYNC_LOCAL_URL": NEUROSYNC_LOCAL_URL,
+        "TTS_WITH_BLENDSHAPES_REALTIME_API": TTS_WITH_BLENDSHAPES_REALTIME_API,
+    }
+
+
 def setup_warnings():
     """
     Set up warnings and logging configuration.

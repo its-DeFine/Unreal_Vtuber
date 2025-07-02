@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional
 from queue import Queue
 import os
 
-from reactive_orchestrator import ReactiveOrchestrator
+from orchestrator import ReactiveOrchestrator
 from character_config import get_character_manager
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class ReactiveOrchestratorWrapper:
     
     def _register_routes(self):
         """Register reactive API routes with the Flask app"""
-        from reactive_api_routes import reactive_api
+        from orchestrator.api import reactive_api
         self.app.register_blueprint(reactive_api)
         logger.info("Reactive API routes registered")
     
