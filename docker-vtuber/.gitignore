@@ -170,3 +170,7 @@ ollama_data/
 
 node_modules/
 *.pth
+
+# Generated content
+generated/
+wav_input/
