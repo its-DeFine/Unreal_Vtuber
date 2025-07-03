@@ -83,6 +83,7 @@ from .utils.metrics import MetricsCollector
 from .models.stimuli import ProcessingResult
 from .integrations.system1_interface import System1Interface
 from .integrations.system2_interface import System2Interface
+from .config.settings import System1Config, System2Config
 
 
 logger = get_structured_logger("background_tasks")
@@ -96,9 +97,13 @@ class BackgroundTaskManager:
         self.config = config
         self.metrics_collector = MetricsCollector()
         
-        # Extract system interface configs from nested structure
-        system1_config = config.get("system1", {})
-        system2_config = config.get("system2", {})
+        # Extract system interface configs from nested structure and create config objects
+        system1_config_dict = config.get("system1", {})
+        system2_config_dict = config.get("system2", {})
+        
+        # Create proper config objects
+        system1_config = System1Config(**system1_config_dict) if system1_config_dict else System1Config()
+        system2_config = System2Config(**system2_config_dict) if system2_config_dict else System2Config()
         
         self.system1_interface = System1Interface(system1_config)
         self.system2_interface = System2Interface(system2_config)
