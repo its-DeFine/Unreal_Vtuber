@@ -1,0 +1,161 @@
+{
+  "decision_rules": {
+    "DIRECT_ADMIN": {
+      "default_decision": "AVATAR_AND_ANALYSIS",
+      "confidence_threshold": 0.9,
+      "priority_override": "urgent",
+      "conditions": [
+        {
+          "if": "contains_shutdown_command",
+          "then": "ANALYSIS_ONLY"
+        }
+      ]
+    },
+    "USER_INTERACTION": {
+      "default_decision": "AVATAR_AND_ANALYSIS",
+      "confidence_threshold": 0.7,
+      "conditions": [
+        {
+          "if": "sentiment_negative_high",
+          "then": "AVATAR_AND_ANALYSIS",
+          "priority_boost": 1.2
+        },
+        {
+          "if": "question_type",
+          "then": "AVATAR_AND_ANALYSIS"
+        },
+        {
+          "if": "simple_greeting",
+          "then": "LOG_ONLY"
+        }
+      ]
+    },
+    "SYSTEM_NOTIFICATION": {
+      "default_decision": "ANALYSIS_ONLY",
+      "confidence_threshold": 0.6,
+      "conditions": [
+        {
+          "if": "critical_error",
+          "then": "AVATAR_AND_ANALYSIS",
+          "priority_override": "urgent"
+        },
+        {
+          "if": "routine_update",
+          "then": "LOG_ONLY"
+        }
+      ]
+    },
+    "SOCIAL_MEDIA": {
+      "default_decision": "ANALYSIS_ONLY",
+      "confidence_threshold": 0.6,
+      "conditions": [
+        {
+          "if": "viral_threshold_exceeded",
+          "then": "AVATAR_AND_ANALYSIS"
+        },
+        {
+          "if": "mention_from_verified",
+          "then": "AVATAR_AND_ANALYSIS"
+        },
+        {
+          "if": "automated_post",
+          "then": "LOG_ONLY"
+        }
+      ]
+    },
+    "AUTONOMOUS_TRIGGER": {
+      "default_decision": "AVATAR_AND_ANALYSIS",
+      "confidence_threshold": 0.8,
+      "conditions": [
+        {
+          "if": "idle_time_exceeded",
+          "then": "AVATAR_AND_ANALYSIS"
+        },
+        {
+          "if": "scheduled_event",
+          "then": "AVATAR_AND_ANALYSIS"
+        }
+      ]
+    },
+    "EMERGENCY": {
+      "default_decision": "AVATAR_AND_ANALYSIS",
+      "confidence_threshold": 0.95,
+      "priority_override": "urgent",
+      "bypass_rate_limit": true
+    },
+    "CONTEXTUAL_UPDATE": {
+      "default_decision": "LOG_ONLY",
+      "confidence_threshold": 0.5,
+      "conditions": [
+        {
+          "if": "relevant_to_current_topic",
+          "then": "ANALYSIS_ONLY"
+        }
+      ]
+    }
+  },
+  "priority_weights": {
+    "urgent": 2.0,
+    "high": 1.5,
+    "medium": 1.0,
+    "low": 0.5
+  },
+  "context_factors": {
+    "user_engagement_history": {
+      "weight": 0.3,
+      "lookback_minutes": 60
+    },
+    "system_load": {
+      "weight": 0.2,
+      "threshold_high": 0.8,
+      "threshold_critical": 0.95
+    },
+    "time_of_day": {
+      "weight": 0.1,
+      "peak_hours": [18, 19, 20, 21],
+      "off_hours": [2, 3, 4, 5]
+    },
+    "recent_activity": {
+      "weight": 0.4,
+      "cooldown_seconds": 30
+    }
+  },
+  "execution_paths": {
+    "AVATAR_AND_ANALYSIS": {
+      "description": "Trigger both avatar response and multi-agent analysis",
+      "steps": [
+        "validate_stimuli",
+        "prepare_avatar_context",
+        "trigger_system1_avatar",
+        "submit_to_system2_analysis",
+        "await_responses",
+        "aggregate_results"
+      ],
+      "timeout_seconds": 10,
+      "parallel_execution": true
+    },
+    "ANALYSIS_ONLY": {
+      "description": "Submit to multi-agent analysis without avatar response",
+      "steps": [
+        "validate_stimuli",
+        "prepare_analysis_context",
+        "submit_to_system2_analysis",
+        "await_analysis",
+        "store_insights"
+      ],
+      "timeout_seconds": 30,
+      "parallel_execution": false
+    },
+    "LOG_ONLY": {
+      "description": "Log for context without active processing",
+      "steps": [
+        "validate_stimuli",
+        "enrich_metadata",
+        "store_in_context_db",
+        "update_metrics"
+      ],
+      "timeout_seconds": 2,
+      "parallel_execution": false
+    }
+  }
+}

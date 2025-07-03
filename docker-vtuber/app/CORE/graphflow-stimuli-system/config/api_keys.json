@@ -1,0 +1,32 @@
+{
+  "development": {
+    "dev-key-001": {
+      "name": "Development Key 1",
+      "permissions": ["submit:user_chat", "submit:test", "status:read"],
+      "rate_limit": 1000,
+      "expires": null
+    },
+    "dev-key-002": {
+      "name": "Development Key 2",
+      "permissions": ["submit:admin_console", "submit:system", "status:read", "admin:all"],
+      "rate_limit": 5000,
+      "expires": null
+    }
+  },
+  "testing": {
+    "test-key-001": {
+      "name": "Test Key 1",
+      "permissions": ["submit:test", "status:read"],
+      "rate_limit": 100,
+      "expires": null
+    }
+  },
+  "production": {
+    "prod-key-example": {
+      "name": "Production Key Template",
+      "permissions": ["submit:user_chat", "status:read"],
+      "rate_limit": 500,
+      "expires": "2025-12-31T23:59:59Z"
+    }
+  }
+}

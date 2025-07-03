@@ -1,0 +1,51 @@
+version: '3.8'
+
+# Test environment configuration
+services:
+  graphflow-gateway:
+    environment:
+      - GRAPHFLOW_LOG_LEVEL=DEBUG
+      - TESTING_MODE=true
+      - MOCK_INTEGRATIONS=true
+    depends_on:
+      - mock-system1
+      - mock-system2
+
+  # Mock services for testing
+  mock-system1:
+    image: mockserver/mockserver:latest
+    ports:
+      - "5001:1080"
+    environment:
+      - MOCKSERVER_LOG_LEVEL=INFO
+    networks:
+      - graphflow-network
+
+  mock-system2:
+    image: mockserver/mockserver:latest
+    ports:
+      - "3100:1080"
+    environment:
+      - MOCKSERVER_LOG_LEVEL=INFO
+    networks:
+      - graphflow-network
+
+  # Test runner service
+  test-runner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test
+    volumes:
+      - ../src:/app/src
+      - ../tests:/app/tests
+      - ../coverage:/app/coverage
+    environment:
+      - GRAPHFLOW_ENDPOINT=http://graphflow-gateway:8080
+      - MOCK_MODE=true
+    depends_on:
+      - graphflow-gateway
+      - redis
+      - postgres
+    command: ["pytest", "-v", "--cov=src", "--cov-report=html:coverage", "--cov-report=term"]
+    networks:
+      - graphflow-network

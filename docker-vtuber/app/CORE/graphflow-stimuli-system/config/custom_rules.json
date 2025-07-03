@@ -1,0 +1,77 @@
+{
+  "custom_business_rules": [
+    {
+      "id": "custom_vip_user",
+      "condition": "metadata.get('user_type') == 'vip' and category == 'USER_INTERACTION'",
+      "decision": "AVATAR_AND_ANALYSIS",
+      "priority": 95,
+      "description": "VIP users always get avatar responses",
+      "enabled": true,
+      "metadata": {
+        "rule_type": "business",
+        "created": "2025-01-01"
+      }
+    },
+    {
+      "id": "custom_scheduled_maintenance",
+      "condition": "metadata.get('scheduled_maintenance', False) == True",
+      "decision": "LOG_ONLY",
+      "priority": 88,
+      "description": "During scheduled maintenance, only log stimuli",
+      "enabled": false,
+      "metadata": {
+        "rule_type": "operational"
+      }
+    }
+  ],
+  "custom_content_rules": [
+    {
+      "id": "custom_profanity_filter",
+      "condition": "contains(metadata.get('content', ''), 'profanity_detected')",
+      "decision": "LOG_ONLY",
+      "priority": 92,
+      "description": "Filter out content with detected profanity",
+      "enabled": true,
+      "metadata": {
+        "rule_type": "content_moderation"
+      }
+    },
+    {
+      "id": "custom_language_support",
+      "condition": "metadata.get('language') not in ['en', 'es', 'fr']",
+      "decision": "ANALYSIS_ONLY",
+      "priority": 55,
+      "description": "Non-supported languages go to analysis only",
+      "enabled": true,
+      "metadata": {
+        "rule_type": "language"
+      }
+    }
+  ],
+  "custom_time_based_rules": [
+    {
+      "id": "custom_night_mode",
+      "condition": "environmental_analysis.get('time_of_day_factor', 1.0) < 0.3",
+      "decision": "ANALYSIS_ONLY",
+      "priority": 52,
+      "description": "During night hours, prefer quiet analysis mode",
+      "enabled": true,
+      "metadata": {
+        "rule_type": "temporal",
+        "quiet_hours": "22:00-06:00"
+      }
+    },
+    {
+      "id": "custom_peak_hours",
+      "condition": "environmental_analysis.get('time_of_day_factor', 1.0) > 0.8 and system_state.get('queue_size', 0) < 5",
+      "decision": "AVATAR_AND_ANALYSIS",
+      "priority": 67,
+      "description": "During peak hours with low queue, maximize engagement",
+      "enabled": true,
+      "metadata": {
+        "rule_type": "temporal",
+        "peak_hours": "18:00-22:00"
+      }
+    }
+  ]
+}

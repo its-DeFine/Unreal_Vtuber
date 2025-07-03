@@ -1,0 +1,40 @@
+{
+  "api_keys": [
+    {
+      "key": "test_api_key_123",
+      "name": "Test Client",
+      "permissions": {
+        "read": true,
+        "write": true,
+        "admin": false
+      },
+      "rate_limit": 100,
+      "allowed_endpoints": ["*"],
+      "allowed_sources": ["test_client", "development"]
+    },
+    {
+      "key": "system1_integration_key",
+      "name": "System1 VTuber Integration",
+      "permissions": {
+        "read": true,
+        "write": false,
+        "admin": false
+      },
+      "rate_limit": 1000,
+      "allowed_endpoints": ["/api/v1/status", "/api/v1/stimuli/results"],
+      "allowed_sources": ["system1"]
+    },
+    {
+      "key": "monitoring_readonly_key",
+      "name": "Monitoring Dashboard",
+      "permissions": {
+        "read": true,
+        "write": false,
+        "admin": false
+      },
+      "rate_limit": 60,
+      "allowed_endpoints": ["/api/v1/status", "/metrics", "/health"],
+      "allowed_sources": ["monitoring"]
+    }
+  ]
+}
