@@ -14,9 +14,8 @@ import logging
 from contextlib import asynccontextmanager
 
 from autogen_agentchat.base import TaskResult
-from autogen_core.application import SingleThreadedAgentRuntime
-from autogen_core.base import AgentId, MessageContext
-from autogen_core.components import DefaultTopicId, default_subscription
+from autogen_core import SingleThreadedAgentRuntime, AgentId, MessageContext
+from autogen_core import DefaultTopicId, default_subscription
 
 from ..config.settings import GraphFlowConfig, load_config
 from ..models.stimuli import ExternalStimuli, ProcessingResult
@@ -27,6 +26,22 @@ from ..utils.logging import get_structured_logger
 from ..utils.metrics import MetricsCollector
 from .flows.stimuli_flow import StimuliFlowManager
 from .flows.decision_flow import DecisionFlowManager
+
+
+class MockRuntime:
+    """Mock runtime for testing when AutoGen runtime is not available."""
+    
+    async def start(self):
+        """Mock start method."""
+        pass
+    
+    async def stop(self):
+        """Mock stop method."""
+        pass
+    
+    async def send_message(self, message, recipient):
+        """Mock send_message method."""
+        pass
 
 
 class GraphFlowGatewayAgent:
@@ -50,16 +65,16 @@ class GraphFlowGatewayAgent:
         self.logger = get_structured_logger("gateway_agent")
         
         # Initialize runtime for AutoGen
-        self.runtime = SingleThreadedAgentRuntime()
+        self.runtime = None  # Will be initialized in start()
         
-        # Initialize flow managers
+        # Initialize flow managers (runtime will be set in start())
         self.stimuli_flow_manager = StimuliFlowManager(
             config=self.config,
-            runtime=self.runtime
+            runtime=None
         )
         self.decision_flow_manager = DecisionFlowManager(
             config=self.config,
-            runtime=self.runtime
+            runtime=None
         )
         
         # Initialize system interfaces
@@ -90,8 +105,27 @@ class GraphFlowGatewayAgent:
     async def start(self) -> None:
         """Start the gateway agent and initialize all components."""
         try:
-            # Start the runtime
-            await self.runtime.start()
+            # Initialize and start the runtime
+            try:
+                self.runtime = SingleThreadedAgentRuntime()
+                self.logger.info(f"Runtime created: {self.runtime}")
+                
+                if self.runtime is None:
+                    self.logger.error("SingleThreadedAgentRuntime() returned None")
+                    return
+                
+                # Set runtime for flow managers
+                self.stimuli_flow_manager.runtime = self.runtime
+                self.decision_flow_manager.runtime = self.runtime
+                
+                # Start the runtime
+                await self.runtime.start()
+            except Exception as e:
+                self.logger.error(f"Failed to create/start runtime: {e}")
+                # Create a mock runtime for now
+                self.runtime = MockRuntime()
+                self.stimuli_flow_manager.runtime = self.runtime
+                self.decision_flow_manager.runtime = self.runtime
             
             # Initialize flow managers
             await self.stimuli_flow_manager.initialize()
@@ -99,7 +133,11 @@ class GraphFlowGatewayAgent:
             
             # Initialize system interfaces
             await self.system1_interface.initialize()
-            await self.system2_interface.initialize()
+            try:
+                await self.system2_interface.initialize()
+            except Exception as e:
+                self.logger.warning(f"System2 interface failed to initialize, continuing without it: {e}")
+                # System2 is optional for basic operation
             
             # Start metrics collector
             if self.config.metrics_enabled:

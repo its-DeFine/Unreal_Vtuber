@@ -13,6 +13,7 @@ import os
 from typing import Optional
 from contextlib import asynccontextmanager
 from datetime import datetime
+from dataclasses import asdict
 
 import uvicorn
 
@@ -60,7 +61,7 @@ class GraphFlowApplication:
         logger.info("Starting background task manager")
         self.background_manager = await start_background_tasks(
             self.gateway,
-            self.config.dict()
+            asdict(self.config)
         )
         
         # Create FastAPI app with enhanced features
@@ -155,6 +156,31 @@ def main():
         logger.error(f"Application failed: {e}")
         sys.exit(1)
 
+
+# For uvicorn, create a simple app instance
+from fastapi import FastAPI
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager."""
+    # Startup
+    logger.info("Starting GraphFlow Gateway")
+    application = GraphFlowApplication()
+    await application.initialize()
+    app.state.application = application
+    yield
+    # Shutdown
+    logger.info("Shutting down GraphFlow Gateway")
+    if hasattr(app.state, 'application'):
+        await app.state.application.shutdown()
+
+# Create FastAPI app with lifespan
+app = FastAPI(
+    title="GraphFlow External Stimuli Gateway",
+    description="External Stimuli Processing Gateway for GraphFlow System",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 if __name__ == "__main__":
     main()

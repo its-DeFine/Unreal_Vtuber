@@ -54,6 +54,14 @@ class MetricsCollector:
     storage for analysis and debugging.
     """
     
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls, enabled: bool = True, port: int = 9090):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
     def __init__(self, enabled: bool = True, port: int = 9090):
         """
         Initialize metrics collector.
@@ -62,6 +70,9 @@ class MetricsCollector:
             enabled: Whether metrics collection is enabled
             port: Port for Prometheus metrics server
         """
+        if self._initialized:
+            return
+            
         self.enabled = enabled
         self.port = port
         self.logger = get_structured_logger("metrics_collector")
@@ -144,20 +155,33 @@ class MetricsCollector:
             )
         else:
             # Create dummy metrics when Prometheus is not available
-            self.stimuli_received = Counter()
-            self.stimuli_processed = Counter()
-            self.processing_time = Histogram()
-            self.categorization_accuracy = Gauge()
-            self.active_requests = Gauge()
-            self.queue_size = Gauge()
-            self.system_health = Gauge()
-            self.decision_distribution = Counter()
-            self.execution_success_rate = Gauge()
-            self.processing_errors = Counter()
-            self.node_processing_time = Histogram()
-            self.resource_utilization = Gauge()
+            class DummyMetric:
+                def inc(self, amount=1, **kwargs): pass
+                def dec(self, amount=1, **kwargs): pass
+                def set(self, value, **kwargs): pass
+                def observe(self, amount, **kwargs): pass
+                def time(self): return DummyTimer()
+                def labels(self, **kwargs): return self
+            
+            class DummyTimer:
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+            
+            self.stimuli_received = DummyMetric()
+            self.stimuli_processed = DummyMetric()
+            self.processing_time = DummyMetric()
+            self.categorization_accuracy = DummyMetric()
+            self.active_requests = DummyMetric()
+            self.queue_size = DummyMetric()
+            self.system_health = DummyMetric()
+            self.decision_distribution = DummyMetric()
+            self.execution_success_rate = DummyMetric()
+            self.processing_errors = DummyMetric()
+            self.node_processing_time = DummyMetric()
+            self.resource_utilization = DummyMetric()
         
         self._server_started = False
+        self._initialized = True
     
     async def start(self) -> None:
         """Start the metrics collection server."""

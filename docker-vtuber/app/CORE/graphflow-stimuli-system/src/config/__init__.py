@@ -18,10 +18,11 @@ from .settings import (
     ContextAnalysisDepth,
     Priority,
     StimuliCategory,
-    ProcessingDecision,
     load_config,
     save_config
 )
+
+from ..models.decisions import ProcessingDecision
 
 from .decision_matrix import (
     DecisionRule,

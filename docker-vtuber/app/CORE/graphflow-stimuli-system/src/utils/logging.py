@@ -10,6 +10,7 @@ import structlog
 from typing import Any, Dict, Optional
 import sys
 import json
+import uuid
 from datetime import datetime
 
 
@@ -30,6 +31,16 @@ structlog.configure(
     logger_factory=structlog.stdlib.LoggerFactory(),
     cache_logger_on_first_use=True,
 )
+
+
+def create_correlation_id() -> str:
+    """
+    Generate a unique correlation ID for tracking requests.
+    
+    Returns:
+        UUID-based correlation ID as string
+    """
+    return str(uuid.uuid4())
 
 
 def get_structured_logger(name: str) -> structlog.BoundLogger:
@@ -306,3 +317,95 @@ def configure_logging(
                 )
             )
         logging.root.addHandler(file_handler)
+
+
+def log_stimuli_processed(
+    logger: structlog.BoundLogger,
+    stimuli_id: str,
+    processing_time: float,
+    **kwargs
+) -> None:
+    """
+    Log stimuli processing completion.
+    
+    Args:
+        logger: Logger instance
+        stimuli_id: Stimuli identifier
+        processing_time: Time taken to process
+        **kwargs: Additional log data
+    """
+    logger.info(
+        "Stimuli processed",
+        stimuli_id=stimuli_id,
+        processing_time=processing_time,
+        **kwargs
+    )
+
+
+def log_processing_error(
+    logger: structlog.BoundLogger,
+    stimuli_id: str,
+    error: str,
+    **kwargs
+) -> None:
+    """
+    Log processing error.
+    
+    Args:
+        logger: Logger instance
+        stimuli_id: Stimuli identifier
+        error: Error description
+        **kwargs: Additional log data
+    """
+    logger.error(
+        "Processing error",
+        stimuli_id=stimuli_id,
+        error=error,
+        **kwargs
+    )
+
+
+def log_system_health(
+    logger: structlog.BoundLogger,
+    component: str,
+    status: str,
+    **kwargs
+) -> None:
+    """
+    Log system health status.
+    
+    Args:
+        logger: Logger instance
+        component: Component name
+        status: Health status
+        **kwargs: Additional log data
+    """
+    logger.info(
+        "System health",
+        component=component,
+        status=status,
+        **kwargs
+    )
+
+
+def log_integration_event(
+    logger: structlog.BoundLogger,
+    integration: str,
+    event: str,
+    **kwargs
+) -> None:
+    """
+    Log integration event.
+    
+    Args:
+        logger: Logger instance
+        integration: Integration name
+        event: Event description
+        **kwargs: Additional log data
+    """
+    logger.info(
+        "Integration event",
+        integration=integration,
+        event=event,
+        **kwargs
+    )

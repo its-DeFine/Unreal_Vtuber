@@ -1,9 +1,9 @@
-version: '3.8'
-
 services:
   # GraphFlow Gateway - New System
   graphflow-gateway:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     ports:
       - "8080:8080"  # GraphFlow API port
     environment:
@@ -148,19 +148,4 @@ networks:
         - subnet: 172.20.0.0/16
 
 # Development override file usage:
-# docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
-
----
-# Additional configurations for different environments
-
-# For production deployment:
-# docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
-
-# For testing with mock services:
-# docker-compose -f docker-compose.yml -f docker-compose.test.yml up
-
-# To include test client:
-# docker-compose --profile testing up
-
-# To scale the gateway:
-# docker-compose up -d --scale graphflow-gateway=3 
+# docker-compose -f docker-compose.yml -f docker-compose.dev.yml up 

@@ -9,6 +9,8 @@ aiohttp>=3.9.0
 fastapi>=0.100.0
 uvicorn[standard]>=0.23.0
 websockets>=11.0
+httpx>=0.24.0
+tenacity>=8.2.0
 
 # Structured logging
 structlog>=23.0.0

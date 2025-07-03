@@ -33,12 +33,12 @@ services:
   # Test runner service
   test-runner:
     build:
-      context: ..
+      context: .
       dockerfile: docker/Dockerfile.test
     volumes:
-      - ../src:/app/src
-      - ../tests:/app/tests
-      - ../coverage:/app/coverage
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./coverage:/app/coverage
     environment:
       - GRAPHFLOW_ENDPOINT=http://graphflow-gateway:8080
       - MOCK_MODE=true

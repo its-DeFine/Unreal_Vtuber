@@ -13,7 +13,8 @@ from typing import Dict, List, Optional, Any, Callable
 from enum import Enum
 import re
 
-from .settings import StimuliCategory, ProcessingDecision, Priority
+from .settings import StimuliCategory, Priority
+from ..models.decisions import ProcessingDecision
 
 
 @dataclass

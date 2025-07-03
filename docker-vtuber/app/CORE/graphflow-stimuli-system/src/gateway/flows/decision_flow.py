@@ -10,8 +10,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 import uuid
 
-from autogen_core.application import SingleThreadedAgentRuntime
-from autogen_core.base import AgentId, MessageContext
+from autogen_core import SingleThreadedAgentRuntime, AgentId, MessageContext
 
 from ...config.settings import GraphFlowConfig
 from ...config.decision_matrix import DecisionMatrix, DecisionRule

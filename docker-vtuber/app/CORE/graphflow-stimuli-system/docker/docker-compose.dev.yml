@@ -1,20 +1,18 @@
-version: '3.8'
-
 # Development overrides for docker-compose.yml
 services:
   graphflow-gateway:
     build:
-      context: ..
+      context: .
       dockerfile: docker/Dockerfile.dev
     environment:
       - GRAPHFLOW_LOG_LEVEL=DEBUG
       - DETAILED_LOGGING=true
       - RELOAD_ON_CHANGE=true
     volumes:
-      - ../src:/app/src
-      - ../tests:/app/tests
-      - ../config:/app/config
-      - ../logs:/app/logs
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./config:/app/config
+      - ./logs:/app/logs
     command: ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload"]
 
   # Development tools

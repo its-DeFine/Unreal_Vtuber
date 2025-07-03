@@ -24,7 +24,7 @@ from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTEN
 
 from .gateway.gateway_agent import GraphFlowGatewayAgent, create_gateway
 from .models.stimuli import ExternalStimuli, Priority, ProcessingResult
-from .models.decisions import Decision
+from .models.decisions import ProcessingDecision
 from .config.settings import GraphFlowConfig, load_config
 from .utils.logging import configure_logging, get_structured_logger
 from .utils.metrics import MetricsCollector

@@ -8,7 +8,7 @@ categorized stimuli, analyzed stimuli, and routing decisions.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import uuid
 
 from .context import (

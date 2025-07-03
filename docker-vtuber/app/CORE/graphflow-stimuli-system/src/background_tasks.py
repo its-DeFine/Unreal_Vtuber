@@ -95,8 +95,13 @@ class BackgroundTaskManager:
         self.gateway = gateway
         self.config = config
         self.metrics_collector = MetricsCollector()
-        self.system1_interface = System1Interface(config.get("system1_url", "http://localhost:8081"))
-        self.system2_interface = System2Interface(config.get("system2_url", "http://localhost:8082"))
+        
+        # Extract system interface configs from nested structure
+        system1_config = config.get("system1", {})
+        system2_config = config.get("system2", {})
+        
+        self.system1_interface = System1Interface(system1_config)
+        self.system2_interface = System2Interface(system2_config)
         self.tasks: List[asyncio.Task] = []
         self.running = False
         

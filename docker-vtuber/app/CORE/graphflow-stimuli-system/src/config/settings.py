@@ -13,6 +13,8 @@ import json
 import logging
 from pathlib import Path
 
+from ..models.decisions import ProcessingDecision as ModelsProcessingDecision
+
 
 class ContextAnalysisDepth(str, Enum):
     """Depth levels for context analysis."""
@@ -40,12 +42,7 @@ class StimuliCategory(str, Enum):
     CONTEXTUAL_UPDATE = "contextual_update"
 
 
-class ProcessingDecision(str, Enum):
-    """Processing decision types."""
-    AVATAR_AND_ANALYSIS = "avatar_and_analysis"
-    ANALYSIS_ONLY = "analysis_only"
-    LOG_ONLY = "log_only"
-    EMERGENCY_OVERRIDE = "emergency_override"
+# Use ProcessingDecision from models.decisions
 
 
 @dataclass
@@ -178,7 +175,7 @@ class CategorizerConfig:
         default_factory=lambda: float(os.getenv("CATEGORIZER_CONFIDENCE_THRESHOLD", "0.8"))
     )
     fallback_category: str = field(
-        default_factory=lambda: os.getenv("CATEGORIZER_FALLBACK_CATEGORY", "CONTEXTUAL_UPDATE")
+        default_factory=lambda: os.getenv("CATEGORIZER_FALLBACK_CATEGORY", "contextual_update")
     )
     use_llm: bool = field(
         default_factory=lambda: os.getenv("CATEGORIZER_USE_LLM", "true").lower() == "true"
@@ -248,7 +245,7 @@ class RouterConfig:
         default_factory=lambda: os.getenv("ROUTER_ML_MODEL_PATH")
     )
     fallback_decision: str = field(
-        default_factory=lambda: os.getenv("ROUTER_FALLBACK_DECISION", "ANALYSIS_ONLY")
+        default_factory=lambda: os.getenv("ROUTER_FALLBACK_DECISION", "analysis_only")
     )
     decision_logging_enabled: bool = field(
         default_factory=lambda: os.getenv("ROUTER_DECISION_LOGGING", "true").lower() == "true"
@@ -458,7 +455,7 @@ class GraphFlowConfig:
             errors.append(f"Invalid fallback category: {self.categorizer.fallback_category}")
             
         # Validate router fallback decision
-        if self.router.fallback_decision not in [e.value for e in ProcessingDecision]:
+        if self.router.fallback_decision not in [e.value for e in ModelsProcessingDecision]:
             errors.append(f"Invalid fallback decision: {self.router.fallback_decision}")
             
         return errors
