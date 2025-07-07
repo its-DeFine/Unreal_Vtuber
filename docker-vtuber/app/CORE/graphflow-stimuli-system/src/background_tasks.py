@@ -164,6 +164,8 @@ class BackgroundTaskManager:
             try:
                 # Check gateway health
                 gateway_health = await self.gateway.health_check()
+                if gateway_health is None:
+                    gateway_health = {"status": "unknown", "healthy": False}
                 
                 # Check external systems
                 system1_health = await self._check_system_health(self.system1_interface, "System1")
@@ -180,7 +182,7 @@ class BackgroundTaskManager:
                 }
                 
                 # Log health status
-                if gateway_health["status"] != "healthy":
+                if gateway_health.get("status") != "healthy":
                     logger.warning(f"Gateway health check failed: {gateway_health}")
                 
                 # Save health status
@@ -199,6 +201,12 @@ class BackgroundTaskManager:
         try:
             if hasattr(interface, 'health_check'):
                 result = await interface.health_check()
+                if result is None:
+                    return {
+                        "healthy": False,
+                        "status": "unknown",
+                        "details": None
+                    }
                 return {
                     "healthy": result.get("status") == "healthy",
                     "status": result.get("status", "unknown"),
@@ -206,11 +214,12 @@ class BackgroundTaskManager:
                 }
         except Exception as e:
             logger.error(f"Failed to check {name} health: {e}")
-            return {
-                "healthy": False,
-                "status": "error",
-                "error": str(e)
-            }
+        
+        return {
+            "healthy": False,
+            "status": "error",
+            "error": str(e) if 'e' in locals() else "Interface not available"
+        }
     
     async def _metrics_aggregation_loop(self):
         """Aggregate and report metrics periodically."""
