@@ -13,8 +13,19 @@ from typing import Dict, List, Optional, Any, Callable
 from enum import Enum
 import re
 
-from .settings import StimuliCategory, Priority
-from ..models.decisions import ProcessingDecision
+# Handle relative imports more gracefully
+try:
+    from .settings import Priority
+    from ..models.stimuli import StimuliCategory
+    from ..models.decisions import ProcessingDecision
+except ImportError:
+    # Fallback for direct script execution
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from config.settings import Priority
+    from models.stimuli import StimuliCategory
+    from models.decisions import ProcessingDecision
 
 
 @dataclass

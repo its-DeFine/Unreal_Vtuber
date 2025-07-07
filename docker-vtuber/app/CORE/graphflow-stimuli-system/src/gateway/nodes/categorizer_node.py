@@ -109,16 +109,30 @@ class StimuliCategorizerNode:
                 category_result['category'], 
                 category_result['confidence']
             ):
-                # Use fallback
+                # Use fallback - convert string value to enum
+                fallback_category = None
+                for category in StimuliCategory:
+                    if category.value == self.config.fallback_category:
+                        fallback_category = category
+                        break
+                
+                if fallback_category is None:
+                    fallback_category = StimuliCategory.CONTEXTUAL_UPDATE  # Safe default
+                
                 category_result = {
-                    'category': StimuliCategory[self.config.fallback_category],
+                    'category': fallback_category,
                     'confidence': 0.5,
                     'method': 'fallback'
                 }
             
             # Create categorized stimuli
             categorized = CategorizedStimuli(
-                **stimuli.__dict__,
+                content=stimuli.content,
+                source=stimuli.source,
+                id=stimuli.id,
+                timestamp=stimuli.timestamp,
+                metadata=stimuli.metadata,
+                priority=stimuli.priority,
                 category=category_result['category'],
                 confidence=category_result['confidence'],
                 classification_metadata={
@@ -146,10 +160,24 @@ class StimuliCategorizerNode:
             self.logger.error(
                 f"Categorization failed for stimuli {stimuli.id}: {e}"
             )
-            # Return with fallback category
+            # Return with fallback category - convert string value to enum
+            fallback_category = None
+            for category in StimuliCategory:
+                if category.value == self.config.fallback_category:
+                    fallback_category = category
+                    break
+            
+            if fallback_category is None:
+                fallback_category = StimuliCategory.CONTEXTUAL_UPDATE  # Safe default
+            
             return CategorizedStimuli(
-                **stimuli.__dict__,
-                category=StimuliCategory[self.config.fallback_category],
+                content=stimuli.content,
+                source=stimuli.source,
+                id=stimuli.id,
+                timestamp=stimuli.timestamp,
+                metadata=stimuli.metadata,
+                priority=stimuli.priority,
+                category=fallback_category,
                 confidence=0.0,
                 classification_metadata={'error': str(e)}
             )
@@ -158,13 +186,14 @@ class StimuliCategorizerNode:
         """Initialize keyword patterns for classification."""
         # Default patterns if not provided in config
         if not self.config.keyword_patterns:
+            # Use enum names for consistent access
             self.config.keyword_patterns = {
-                "DIRECT_ADMIN": ["admin", "command", "set", "configure", "change"],
-                "USER_INTERACTION": ["hello", "hi", "how", "what", "why", "tell", "ask"],
-                "SYSTEM_NOTIFICATION": ["system", "status", "speaking", "idle", "busy", "error"],
-                "AUTONOMOUS_TRIGGER": ["auto", "trigger", "scheduled", "periodic"],
-                "EMERGENCY": ["emergency", "urgent", "critical", "alert", "warning"],
-                "CONTEXTUAL_UPDATE": ["update", "context", "info", "note", "fyi"]
+                StimuliCategory.DIRECT_ADMIN.name: ["admin", "command", "set", "configure", "change"],
+                StimuliCategory.USER_INTERACTION.name: ["hello", "hi", "how", "what", "why", "tell", "ask"],
+                StimuliCategory.SYSTEM_NOTIFICATION.name: ["system", "status", "speaking", "idle", "busy", "error"],
+                StimuliCategory.AUTONOMOUS_TRIGGER.name: ["auto", "trigger", "scheduled", "periodic"],
+                StimuliCategory.EMERGENCY.name: ["emergency", "urgent", "critical", "alert", "warning"],
+                StimuliCategory.CONTEXTUAL_UPDATE.name: ["update", "context", "info", "note", "fyi"]
             }
     
     def _extract_features(self, stimuli: ExternalStimuli) -> Dict[str, Any]:
@@ -239,15 +268,37 @@ class StimuliCategorizerNode:
             }
         
         if best_match:
+            # Convert pattern key to enum - best_match is like "CONTEXTUAL_UPDATE"
+            try:
+                category_enum = getattr(StimuliCategory, best_match)
+            except AttributeError:
+                # If direct access fails, try to find by value
+                category_enum = None
+                for category in StimuliCategory:
+                    if category.name == best_match or category.value == best_match:
+                        category_enum = category
+                        break
+                if category_enum is None:
+                    category_enum = StimuliCategory.CONTEXTUAL_UPDATE  # Safe fallback
+            
             return {
-                'category': StimuliCategory[best_match],
+                'category': category_enum,
                 'confidence': min(0.9, best_score + 0.3),  # Add base confidence
                 'method': 'keyword_matching'
             }
         
-        # Default fallback
+        # Default fallback - convert string value to enum
+        fallback_category = None
+        for category in StimuliCategory:
+            if category.value == self.config.fallback_category:
+                fallback_category = category
+                break
+        
+        if fallback_category is None:
+            fallback_category = StimuliCategory.CONTEXTUAL_UPDATE  # Safe default
+        
         return {
-            'category': StimuliCategory[self.config.fallback_category],
+            'category': fallback_category,
             'confidence': 0.3,
             'method': 'no_match_fallback'
         }

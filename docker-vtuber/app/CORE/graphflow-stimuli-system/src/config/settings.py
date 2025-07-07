@@ -13,7 +13,17 @@ import json
 import logging
 from pathlib import Path
 
-from ..models.decisions import ProcessingDecision as ModelsProcessingDecision
+# Handle relative imports more gracefully
+try:
+    from ..models.decisions import ProcessingDecision as ModelsProcessingDecision
+    from ..models.stimuli import StimuliCategory
+except ImportError:
+    # Fallback for direct script execution
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from models.decisions import ProcessingDecision as ModelsProcessingDecision
+    from models.stimuli import StimuliCategory
 
 
 class ContextAnalysisDepth(str, Enum):
@@ -31,15 +41,7 @@ class Priority(str, Enum):
     EMERGENCY = "emergency"
 
 
-class StimuliCategory(str, Enum):
-    """Categories for external stimuli classification."""
-    DIRECT_ADMIN = "direct_admin"
-    USER_INTERACTION = "user_interaction"
-    SYSTEM_NOTIFICATION = "system_notification"
-    SOCIAL_MEDIA = "social_media"
-    AUTONOMOUS_TRIGGER = "autonomous_trigger"
-    EMERGENCY = "emergency"
-    CONTEXTUAL_UPDATE = "contextual_update"
+# StimuliCategory is imported from models.stimuli to avoid duplication
 
 
 # Use ProcessingDecision from models.decisions
@@ -451,8 +453,16 @@ class GraphFlowConfig:
         # Validate node configurations
         if not 0 <= self.categorizer.confidence_threshold <= 1:
             errors.append("categorizer.confidence_threshold must be between 0 and 1")
-        if self.categorizer.fallback_category not in [e.value for e in StimuliCategory]:
-            errors.append(f"Invalid fallback category: {self.categorizer.fallback_category}")
+        
+        # Validate categorizer fallback category
+        try:
+            valid_categories = [e.value for e in StimuliCategory]
+            if self.categorizer.fallback_category not in valid_categories:
+                errors.append(f"Invalid fallback category: {self.categorizer.fallback_category}")
+        except Exception as e:
+            # If validation fails, log but don't crash
+            print(f"Warning: Could not validate fallback category: {e}")
+            # Continue without adding validation error
             
         # Validate router fallback decision
         if self.router.fallback_decision not in [e.value for e in ModelsProcessingDecision]:

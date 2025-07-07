@@ -22,7 +22,15 @@ from .settings import (
     save_config
 )
 
-from ..models.decisions import ProcessingDecision
+# Handle relative imports more gracefully
+try:
+    from ..models.decisions import ProcessingDecision
+except ImportError:
+    # Fallback for direct script execution
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from models.decisions import ProcessingDecision
 
 from .decision_matrix import (
     DecisionRule,
