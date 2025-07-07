@@ -5,6 +5,8 @@ import threading
 import asyncio
 import aiohttp
 import json
+import signal
+import sys
 from datetime import datetime
 from typing import Dict, List, Optional
 from fastapi import FastAPI
@@ -35,6 +37,7 @@ from .gpu_monitor import GPUMonitor
 from .teachable_agents import create_teachable_agents, get_learning_summary
 from .stimuli_orchestrator import StimuliResponsiveOrchestrator
 from .stimuli_api import setup_stimuli_api, stimuli_health_check
+from .async_utils import shutdown_async_utils
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -929,7 +932,20 @@ def run_async_loop_in_thread(async_func, *args):
         except Exception as e:
             logging.error(f"❌ [THREAD] Async function failed: {e}")
         finally:
-            loop.close()
+            # Give background tasks time to complete before closing loop
+            try:
+                pending_tasks = asyncio.all_tasks(loop)
+                if pending_tasks:
+                    logging.info(f"🔄 [THREAD] Waiting for {len(pending_tasks)} pending tasks to complete...")
+                    loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+            except Exception as cleanup_error:
+                logging.warning(f"⚠️ [THREAD] Task cleanup warning: {cleanup_error}")
+            finally:
+                # Ensure loop is properly closed
+                try:
+                    loop.close()
+                except Exception as close_error:
+                    logging.warning(f"⚠️ [THREAD] Loop close warning: {close_error}")
     
     thread = threading.Thread(target=run_in_thread, daemon=True)
     thread.start()
@@ -1279,15 +1295,31 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup resources on shutdown"""
+    logging.info("🛑 [SHUTDOWN] Starting application shutdown...")
+    
+    # Shutdown async utilities first
+    try:
+        shutdown_async_utils()
+        logging.info("✅ [SHUTDOWN] Async utilities shutdown completed")
+    except Exception as e:
+        logging.warning(f"⚠️ [SHUTDOWN] Async utils shutdown warning: {e}")
+    
     # Cleanup statistics services
-    if statistics_collector:
-        await statistics_collector.close()
-        logging.info("📊 [SHUTDOWN] Statistics collector closed")
+    try:
+        if statistics_collector:
+            await statistics_collector.close()
+            logging.info("📊 [SHUTDOWN] Statistics collector closed")
+    except Exception as e:
+        logging.warning(f"⚠️ [SHUTDOWN] Statistics collector close warning: {e}")
         
-    if conversation_storage:
-        await conversation_storage.close()
-        logging.info("💬 [SHUTDOWN] Conversation storage closed")
+    try:
+        if conversation_storage:
+            await conversation_storage.close()
+            logging.info("💬 [SHUTDOWN] Conversation storage closed")
+    except Exception as e:
+        logging.warning(f"⚠️ [SHUTDOWN] Conversation storage close warning: {e}")
         
+    # Cleanup MCP server
     if mcp_server:
         try:
             # Check if stop method exists before calling it
@@ -1307,6 +1339,17 @@ async def shutdown_event():
                 logging.info("🖥️ [SHUTDOWN] GPU monitor cleaned up")
         except Exception as e:
             logging.warning(f"⚠️ [SHUTDOWN] GPU monitor cleanup failed: {e}")
+    
+    # Cleanup global orchestrator
+    global global_orchestrator
+    if global_orchestrator:
+        try:
+            await global_orchestrator.stop()
+            logging.info("🎯 [SHUTDOWN] Stimuli orchestrator stopped")
+        except Exception as e:
+            logging.warning(f"⚠️ [SHUTDOWN] Orchestrator stop warning: {e}")
+    
+    logging.info("✅ [SHUTDOWN] Application shutdown completed")
 
 def main() -> None:
     """Main entry point - supports AutoGen LLM, cognitive, and legacy modes"""
@@ -1438,6 +1481,35 @@ def main() -> None:
         thread = threading.Thread(target=decision_loop, args=(registry, memory, scb, vtuber), daemon=True)
         thread.start()
         logging.info("🔧 [MAIN] Legacy decision loop started")
+    
+    # Add signal handler for graceful shutdown
+    def signal_handler(signum, frame):
+        logging.info(f"🛑 [MAIN] Received signal {signum}, initiating graceful shutdown...")
+        
+        # Shutdown async utilities first
+        try:
+            shutdown_async_utils()
+        except Exception as e:
+            logging.warning(f"⚠️ [MAIN] Async utils shutdown warning: {e}")
+        
+        # Cancel any pending async operations
+        try:
+            # Get current event loop if available
+            loop = asyncio.get_event_loop()
+            if loop and not loop.is_closed():
+                # Cancel all pending tasks
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                logging.info(f"🔄 [MAIN] Cancelled {len(pending)} pending tasks")
+        except Exception as e:
+            logging.warning(f"⚠️ [MAIN] Shutdown cleanup warning: {e}")
+        
+        logging.info("✅ [MAIN] Graceful shutdown completed")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
     
     # Start FastAPI server
     port = int(os.getenv("PORT", "8000"))
