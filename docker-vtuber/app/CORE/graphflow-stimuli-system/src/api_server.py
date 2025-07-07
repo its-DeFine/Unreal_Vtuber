@@ -397,20 +397,24 @@ async def websocket_stimuli(websocket: WebSocket, token: str = Query(...)):
     
     Requires API key as query parameter: /ws/stimuli?token=your-api-key
     """
-    # Verify API key
+    # Accept connection first (required by WebSocket protocol)
+    await websocket.accept()
+    
+    # Then verify API key
     if token not in API_KEYS:
         await websocket.close(code=1008, reason="Invalid API key")
         return
     
     api_key = API_KEYS[token]
     
-    await websocket.accept()
+    # Add to active connections
     websocket_connections.append(websocket)
     active_websocket_connections.inc()
     
     logger.info(f"WebSocket connection established for {api_key.name}")
     
     try:
+        # Send connection confirmation
         await websocket.send_json({
             "type": "connection_established",
             "message": f"Connected as {api_key.name}",
@@ -418,11 +422,28 @@ async def websocket_stimuli(websocket: WebSocket, token: str = Query(...)):
         })
         
         while True:
-            # Receive data
-            data = await websocket.receive_json()
+            # Receive data with timeout to handle graceful disconnects
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=30.0)
+            except asyncio.TimeoutError:
+                # Send keepalive ping
+                await websocket.send_json({
+                    "type": "keepalive",
+                    "timestamp": datetime.now().isoformat()
+                })
+                continue
             
             if data.get("type") == "submit_stimuli" and "write" in api_key.permissions:
                 try:
+                    # Check if gateway is available
+                    if not gateway:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Gateway not initialized - stimuli processing unavailable",
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        continue
+                    
                     # Create stimuli object
                     stimuli_data = data.get("data", {})
                     stimuli = ExternalStimuli(

@@ -483,10 +483,18 @@ class GraphFlowTestSuite:
         
         try:
             # Note: WebSocket connection requires authentication in production
-            ws_uri = f"{self.ws_url}/ws?token={self.api_key}"
+            ws_uri = f"{self.ws_url}/ws/stimuli?token={self.api_key}"
             
             async with websockets.connect(ws_uri) as websocket:
-                # Send ping
+                # First, receive the connection_established message
+                initial_response = await websocket.recv()
+                initial_data = json.loads(initial_response)
+                
+                # Verify connection was established
+                if initial_data.get("type") != "connection_established":
+                    raise Exception(f"Expected connection_established, got: {initial_data}")
+                
+                # Now send ping
                 await websocket.send(json.dumps({"type": "ping"}))
                 response = await websocket.recv()
                 response_data = json.loads(response)
@@ -701,9 +709,17 @@ class GraphFlowTestSuite(GraphFlowTestSuite):
         start_time = time.time()
         
         try:
-            ws_uri = f"{self.ws_url}/ws?token={self.api_key}"
+            ws_uri = f"{self.ws_url}/ws/stimuli?token={self.api_key}"
             
             async with websockets.connect(ws_uri) as websocket:
+                # First, receive the connection_established message
+                initial_response = await websocket.recv()
+                initial_data = json.loads(initial_response)
+                
+                # Verify connection was established
+                if initial_data.get("type") != "connection_established":
+                    raise Exception(f"Expected connection_established, got: {initial_data}")
+                
                 # Submit stimuli via WebSocket
                 stimuli_message = {
                     "type": "submit_stimuli",
