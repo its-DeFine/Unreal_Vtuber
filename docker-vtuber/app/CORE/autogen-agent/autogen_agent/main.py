@@ -33,6 +33,8 @@ from .services.conversation_storage_service import ConversationStorageService
 from .services.pattern_storage_service import PatternStorageService
 from .gpu_monitor import GPUMonitor
 from .teachable_agents import create_teachable_agents, get_learning_summary
+from .stimuli_orchestrator import StimuliResponsiveOrchestrator
+from .stimuli_api import setup_stimuli_api, stimuli_health_check
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -72,6 +74,9 @@ pattern_storage = None
 # Global GPU monitor instance
 gpu_monitor = None
 
+# Global stimuli orchestrator instance
+global_orchestrator = None
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -92,6 +97,10 @@ async def health_check():
             health_data["gpu"] = gpu_summary
         except Exception as e:
             health_data["gpu"] = {"healthy": False, "error": str(e)}
+    
+    # Add stimuli processing status
+    stimuli_status = await stimuli_health_check()
+    health_data["stimuli_processing"] = stimuli_status
     
     return health_data
 
@@ -1346,9 +1355,22 @@ def main() -> None:
             cognitive_thread = run_async_loop_in_thread(initialize_cognitive_system_for_autogen)
             logging.info("🧠 [MAIN] Cognitive components initialization started for AutoGen MCP")
             
-            # Start AutoGen autonomous loop in background thread
-            autogen_thread = run_async_loop_in_thread(enhanced_autonomous_loop, scb, vtuber)
-            logging.info("🤖 [MAIN] AutoGen LLM system thread started")
+            # 🎯 NEW: Initialize Stimuli-Responsive Orchestrator
+            global global_orchestrator
+            global_orchestrator = StimuliResponsiveOrchestrator(
+                tool_registry=global_tool_registry,
+                scb_client=scb,
+                vtuber_client=vtuber,
+                autonomous_loop_function=run_autogen_decision_cycle,
+                loop_interval=LOOP_INTERVAL
+            )
+            
+            # Setup stimuli API endpoints
+            setup_stimuli_api(app, global_orchestrator)
+            
+            # Start orchestrator in background thread
+            orchestrator_thread = run_async_loop_in_thread(global_orchestrator.start)
+            logging.info("🎯 [MAIN] Stimuli-Responsive Orchestrator started with pause/resume capability")
             
         else:
             logging.warning("⚠️ [MAIN] AutoGen initialization failed - falling back to cognitive mode")

@@ -28,6 +28,34 @@ class AgentToolBridge:
         ]
         logging.info("🌉 [AGENT_TOOL_BRIDGE] Initialized with tool registry")
     
+    async def execute_tool_with_context(self, tool_name: str, context: Dict[str, Any], 
+                                      stimuli_triggered: bool = False, 
+                                      vtuber_client=None, scb_client=None) -> Any:
+        """
+        Execute a specific tool with given context (used by stimuli orchestrator)
+        """
+        try:
+            if tool_name not in self.tool_registry.tools:
+                logging.warning(f"⚠️ [AGENT_TOOL_BRIDGE] Tool {tool_name} not found in registry")
+                return None
+            
+            # Add stimuli context if triggered by stimuli
+            if stimuli_triggered:
+                context['stimuli_triggered'] = True
+                context['execution_source'] = 'stimuli_orchestrator'
+            
+            # Execute the tool
+            result = await self.tool_registry.execute_tool_with_clients_async(
+                tool_name, context, vtuber_client, scb_client
+            )
+            
+            logging.info(f"✅ [AGENT_TOOL_BRIDGE] Tool {tool_name} executed successfully")
+            return result
+            
+        except Exception as e:
+            logging.error(f"❌ [AGENT_TOOL_BRIDGE] Failed to execute {tool_name}: {e}")
+            raise
+    
     def parse_agent_response(self, agent_name: str, response: str) -> Optional[Tuple[str, Dict[str, Any]]]:
         """
         Parse agent response to extract tool execution commands
