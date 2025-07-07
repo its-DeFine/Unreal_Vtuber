@@ -126,13 +126,13 @@ class StimuliAutoGenTeam:
             self.action_coordinator = teachable_agents["observer"]    # Action coordination
             
             # Update system messages for stimuli-specific roles
-            self._update_system_messages_for_stimuli()
+            # self._update_system_messages_for_stimuli()  # Disabled due to read-only system_message property
             
             # Store teachable wrappers
             self.teachable_wrappers = {
                 "analyzer": teachable_agents["cognitive_wrapper"],
                 "strategist": teachable_agents["programmer_wrapper"],
-                "coordinator": teachable_agents["observer_wrapper"]
+                "coordinator": teachable_agents.get("executor_wrapper")  # Use executor_wrapper since no observer_wrapper
             }
             
             logging.info("🎓 [STIMULI_TEAM] Teachable stimuli agents created successfully")

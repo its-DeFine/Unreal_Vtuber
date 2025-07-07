@@ -426,53 +426,21 @@ class StimuliResponsiveOrchestrator:
         """Select appropriate tools based on stimuli content, category, and priority"""
         selected_tools = []
         
-        content_lower = stimuli_request.content.lower()
-        category = stimuli_request.category
-        priority = stimuli_request.priority
-        source = stimuli_request.source
-        
-        # Priority-based tool selection
-        if priority == StimuliPriority.EMERGENCY:
-            # Emergency: Trigger immediate response tools
-            selected_tools.extend(["activate_vtuber", "send_emergency_alert"])
-            
-        elif priority == StimuliPriority.CRITICAL:
-            # Critical: Trigger avatar and alert tools
-            if "admin" in content_lower or source == "admin_console":
-                selected_tools.extend(["activate_vtuber", "execute_admin_command"])
-            else:
-                selected_tools.append("activate_vtuber")
-        
-        # Category-based tool selection
-        if category:
-            category_lower = category.lower()
-            
-            if "admin" in category_lower:
-                selected_tools.extend(["activate_vtuber", "execute_admin_command"])
-            elif "user_interaction" in category_lower:
-                selected_tools.extend(["activate_vtuber", "enhance_conversation"])
-            elif "system_notification" in category_lower:
-                selected_tools.extend(["system_diagnostics", "performance_monitor"])
-            elif "social_media" in category_lower:
-                selected_tools.append("social_media_response")
-            elif "emergency" in category_lower:
-                selected_tools.extend(["activate_vtuber", "send_emergency_alert"])
-        
-        # Content-based tool selection (fallback)
-        if not selected_tools:
-            if any(word in content_lower for word in ["help", "question", "?"]):
-                selected_tools.append("activate_vtuber")
-            elif any(word in content_lower for word in ["system", "performance", "cpu", "memory"]):
-                selected_tools.append("system_diagnostics")
-            elif any(word in content_lower for word in ["code", "programming", "debug"]):
-                selected_tools.extend(["activate_vtuber", "code_assistant"])
-            else:
-                # Default: Always at least activate VTuber for interaction
-                selected_tools.append("activate_vtuber")
-        
-        # Filter to only available tools
+        # Check if stimuli_action_executor is available (should always be used for stimuli)
         available_tools = list(self.tool_registry.tools.keys())
-        selected_tools = [tool for tool in selected_tools if tool in available_tools]
+        
+        if "stimuli_action_executor" in available_tools:
+            # Always use stimuli_action_executor for all stimuli processing
+            selected_tools.append("stimuli_action_executor")
+            logging.info(f"🎯 [STIMULI_ORCHESTRATOR] Selected unified tool: stimuli_action_executor")
+        else:
+            # Fallback: Log error and check for alternative tools
+            logging.error(f"❌ [STIMULI_ORCHESTRATOR] stimuli_action_executor not available! Available tools: {available_tools}")
+            
+            # Try to use goal_management_tools as a fallback for basic processing
+            if "goal_management_tools" in available_tools:
+                selected_tools.append("goal_management_tools")
+                logging.warning(f"⚠️ [STIMULI_ORCHESTRATOR] Using fallback tool: goal_management_tools")
         
         logging.info(f"🎯 [STIMULI_ORCHESTRATOR] Selected tools: {selected_tools}")
         return selected_tools
