@@ -1200,9 +1200,11 @@ async def initialize_cognitive_system() -> tuple:
     standalone_mode = os.getenv("STANDALONE_MODE", "true").lower() == "true"
     
     if standalone_mode:
-        logging.info("🔬 [MAIN] Running in STANDALONE mode - no external service dependencies")
+        logging.info("🔬 [MAIN] Running in STANDALONE mode - selective external service dependencies")
         redis_url = None
-        vtuber_endpoint = None
+        # Keep VTuber endpoint if explicitly provided (for S2 → S1 integration)
+        if not vtuber_endpoint:
+            vtuber_endpoint = os.getenv("VTUBER_ENDPOINT_URL")  # Try alternative env var
     
     logging.info("🚀 [MAIN] Initializing AutoGen Cognitive Enhancement System...")
     
@@ -1226,6 +1228,11 @@ async def initialize_cognitive_system() -> tuple:
     # Initialize clients with new activation logic
     scb = SCBClient(redis_url)
     vtuber = VTuberClient(vtuber_endpoint)
+    
+    # Activate VTuber client for stimuli notifications if endpoint is available
+    if vtuber_endpoint:
+        vtuber.activate_vtuber()
+        logging.info(f"🎭 [MAIN] VTuber client activated for endpoint: {vtuber_endpoint}")
     
     # Set global client references for API access
     global global_scb_client, global_vtuber_client, global_tool_registry, gpu_monitor
@@ -1371,14 +1378,21 @@ def main() -> None:
         standalone_mode = os.getenv("STANDALONE_MODE", "true").lower() == "true"
         
         if standalone_mode:
-            logging.info("🔬 [MAIN] AutoGen mode running in STANDALONE mode")
+            logging.info("🔬 [MAIN] AutoGen mode running in STANDALONE mode - selective external service dependencies")
             redis_url = None
-            vtuber_endpoint = None
+            # Keep VTuber endpoint if explicitly provided (for S2 → S1 integration)
+            if not vtuber_endpoint:
+                vtuber_endpoint = os.getenv("VTUBER_ENDPOINT_URL")  # Try alternative env var
         
         # Initialize AutoGen agents
         if initialize_autogen_agents():
             scb = SCBClient(redis_url)
             vtuber = VTuberClient(vtuber_endpoint)
+            
+            # Activate VTuber client for stimuli notifications if endpoint is available
+            if vtuber_endpoint:
+                vtuber.activate_vtuber()
+                logging.info(f"🎭 [MAIN] VTuber client activated for endpoint: {vtuber_endpoint}")
             
             # Set global client references
             global global_scb_client, global_vtuber_client, global_tool_registry, gpu_monitor

@@ -62,7 +62,7 @@ class VTuberClient:
                 response = requests.post(url, json={
                     "text": message,
                     "autonomous_context": True
-                }, timeout=5)
+                }, timeout=10)  # Increased timeout for better reliability
                 
                 if response.ok:
                     logging.info("🎭 [VTUBER] Message sent to VTuber service")
