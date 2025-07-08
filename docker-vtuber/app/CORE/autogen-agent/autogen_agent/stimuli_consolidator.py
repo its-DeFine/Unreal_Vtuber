@@ -616,7 +616,7 @@ class StimuliConsolidator:
                 "text": prompt,
                 "direct_speech": True,  # Enable direct speech to trigger TTS and blendshape generation
                 "autonomous_context": {
-                    "source": "stimuli_consolidator",
+                    "source": "reactive_orchestrator",  # Required for direct speech processing
                     "timestamp": datetime.now().isoformat()
                 }
             }
