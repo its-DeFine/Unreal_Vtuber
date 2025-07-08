@@ -14,12 +14,12 @@ services:
       
       # LLM settings (using existing Ollama)
       - GRAPHFLOW_LLM_PROVIDER=ollama
-      - GRAPHFLOW_LLM_MODEL=llama3.2:3b
+      - GRAPHFLOW_LLM_MODEL=llama3.1:8b
       - GRAPHFLOW_LLM_ENDPOINT=http://host.docker.internal:11434
       
       # Integration with existing systems
       - SYSTEM1_VTUBER_ENDPOINT=http://host.docker.internal:5001
-      - SYSTEM2_AUTOGEN_ENDPOINT=http://host.docker.internal:3100
+      - SYSTEM2_AUTOGEN_ENDPOINT=http://host.docker.internal:8200
       
       # Database connections
       - REDIS_URL=redis://redis:6379

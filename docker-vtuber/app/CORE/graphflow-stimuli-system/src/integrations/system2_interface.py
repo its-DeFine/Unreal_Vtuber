@@ -111,7 +111,7 @@ class System2Interface:
     
     async def submit_for_analysis(self, stimuli: AnalyzedStimuli) -> str:
         """
-        Submit stimuli to existing AutoGen agents.
+        Submit stimuli to the new Stimuli-Responsive Orchestrator.
         
         Args:
             stimuli: Analyzed stimuli for agent processing
@@ -125,65 +125,59 @@ class System2Interface:
         # Generate task ID
         task_id = str(uuid.uuid4())
         
-        # Select agent for task
-        agent_id = await self.agent_manager.select_agent(
-            task_type=stimuli.category.value,
-            required_capabilities=self._get_required_capabilities(stimuli)
-        )
-        
-        if not agent_id:
-            raise RuntimeError("No available agents for task assignment")
-        
-        # Prepare payload for AutoGen
-        task_data = {
-            "task_id": task_id,
+        # Prepare payload for the new stimuli endpoint
+        stimuli_data = {
             "stimuli_id": stimuli.id,
             "content": stimuli.content,
             "category": stimuli.category.value,
-            "metadata": {
-                "source": stimuli.source,
-                "confidence": stimuli.confidence,
-                "priority": stimuli.priority.value,
-                "context_score": stimuli.get_context_score(),
-                "timestamp": stimuli.timestamp.isoformat()
-            },
-            "context": self._prepare_context(stimuli),
-            "assigned_agent": agent_id
+            "source": stimuli.source or "graphflow",
+            "priority": stimuli.priority.value if hasattr(stimuli, 'priority') else "medium",
+            "confidence": stimuli.confidence,
+            "metadata": self._prepare_context(stimuli)
         }
         
-        # Submit task
-        success, response = await self.autogen_client.submit_task(
-            task_data,
-            priority=stimuli.priority.value
-        )
-        
-        if success:
-            # Track task assignment
-            await self.agent_manager.assign_task(task_id, agent_id)
-            
-            # Track active task
-            async with self._task_lock:
-                self._active_tasks[task_id] = {
-                    "stimuli_id": stimuli.id,
-                    "agent_id": agent_id,
-                    "submitted_at": datetime.utcnow(),
-                    "status": "submitted"
-                }
-            
-            self.logger.info(
-                "Analysis task submitted",
-                task_id=task_id,
-                stimuli_id=stimuli.id,
-                agent_id=agent_id
+        # Submit to the new stimuli orchestrator API
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.config.autogen_endpoint}/api/stimuli/receive",
+                    json=stimuli_data,
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    
+                    # Track active task
+                    async with self._task_lock:
+                        self._active_tasks[task_id] = {
+                            "stimuli_id": stimuli.id,
+                            "submitted_at": datetime.utcnow(),
+                            "status": "submitted",
+                            "orchestrator_response": result
+                        }
+                    
+                    self.logger.info(
+                        "Stimuli submitted to orchestrator",
+                        task_id=task_id,
+                        stimuli_id=stimuli.id,
+                        processing_time=result.get("processing_time"),
+                        tools_triggered=result.get("tools_triggered")
+                    )
+                    
+                    return task_id
+                else:
+                    error_detail = response.text
+                    raise RuntimeError(f"Failed to submit stimuli: HTTP {response.status_code} - {error_detail}")
+                    
+        except Exception as e:
+            self.logger.error(
+                "Failed to submit stimuli to orchestrator",
+                error=str(e),
+                stimuli_id=stimuli.id
             )
-            
-            # Trigger evolution analysis if appropriate
-            if self.config.evolution_engine_enabled:
-                await self.trigger_evolution_analysis(stimuli)
-            
-            return task_id
-        else:
-            raise RuntimeError(f"Failed to submit analysis: {response.get('error', 'Unknown error')}")
+            raise RuntimeError(f"Failed to submit analysis: {str(e)}")
     
     async def get_agent_status(self) -> Dict[str, AgentStatusInfo]:
         """Get status of all AutoGen agents."""
