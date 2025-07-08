@@ -102,12 +102,15 @@ def process_turn(
         pygame.mixer.stop()
 
     # Check if this is an autonomous directive to prevent double-logging
-    # Handle autonomous_context as either string or dict
+    # Handle autonomous_context as either string, bool, or dict
     if autonomous_context is None:
         autonomous_context = {}
     elif isinstance(autonomous_context, str):
         # Convert string to dict format
         autonomous_context = {"context": autonomous_context}
+    elif isinstance(autonomous_context, bool):
+        # Convert boolean to dict format
+        autonomous_context = {"autonomous": autonomous_context}
     
     is_autonomous_directive = (
         autonomous_context and 
