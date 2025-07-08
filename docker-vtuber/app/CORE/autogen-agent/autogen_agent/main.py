@@ -654,32 +654,31 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
         else:
             final_response = f"🤖 AutoGen Multi-Agent - Advanced Coordination Cycle #{iteration}"
         
-        # 🌉 STEP 7: Execute tools based on agent responses
+        # 🌉 STEP 7: Tool execution ENABLED (VTuber tools disabled in tool registry for pure stimuli architecture)
+        # Non-VTuber tools (evolution, goal management) can run autonomously
         tool_executions = {}
+        
         if agent_responses and global_tool_registry:
-            # Initialize agent-tool bridge if not exists
+            # Create enhanced agent tool bridge if not exists
             if not hasattr(run_autogen_decision_cycle, '_agent_tool_bridge'):
+                from .agent_tool_bridge import AgentToolBridge
                 run_autogen_decision_cycle._agent_tool_bridge = AgentToolBridge(global_tool_registry)
             
-            # Generate context for tool execution
+            # Create tool context for autonomous execution
             tool_context = {
-                "iteration": iteration,
-                "timestamp": time.time(),
                 "autonomous": True,
+                "iteration": iteration,
+                "agent_count": len(agent_responses),
                 "evolution_enhanced": evolution_enhanced,
-                "agent_responses": len(agent_responses),
-                "message": "Autonomous tool execution from agent decisions"
+                "execution_source": "autogen_autonomous_cycle"
             }
             
-            # Execute tools based on agent responses
+            # Execute tools from agent responses (VTuber tools are disabled in registry)
             tool_executions = await run_autogen_decision_cycle._agent_tool_bridge.execute_from_responses(
                 agent_responses, tool_context, vtuber, scb
             )
             
-            if tool_executions.get('total_executions', 0) > 0:
-                logging.info(f"🔧 [AUTOGEN] Executed {tool_executions['total_executions']} tools from agent decisions")
-                # Add tool execution summary to final response
-                final_response += f"\n🔧 Tools executed: {tool_executions['successful_executions']}/{tool_executions['total_executions']}"
+            logging.info(f"🔧 [AUTOGEN] Executed {tool_executions.get('total_executions', 0)} tools from agent decisions")
         
         # 📊 STEP 8: Update analytics and goal progress
         await update_analytics_and_goals(iteration, agent_responses, evolution_enhanced, tool_executions)
@@ -712,9 +711,11 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
                 "duration": decision_time
             })
         
-        # 🎭 STEP 9: Send to VTuber ONLY if activated (no force_send for autonomous cycles)
-        if final_response:
-            vtuber.post_message(final_response)  # Respects activation state
+        # 🎭 STEP 9: VTuber calls DISABLED for pure stimuli-driven architecture
+        # S1 Avatar will only respond to external stimuli from GraphFlow/S2, not autonomous cycles
+        # if final_response:
+        #     vtuber.post_message(final_response)  # DISABLED - was causing autonomous speech
+        logging.info(f"🚫 [AUTOGEN] VTuber call disabled for pure stimuli-driven architecture - final_response: {final_response[:50]}..." if final_response else "🚫 [AUTOGEN] VTuber call disabled - no final_response")
         
         # 🔗 STEP 10: Update SCB state ONLY if AgentNet enabled
         scb_state = {
