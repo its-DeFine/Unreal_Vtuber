@@ -136,6 +136,8 @@ services:
       # VTuber integration with NeuroSync
       - VTUBER_ENDPOINT_URL=http://neurosync:5001
       - VTUBER_ENDPOINT=http://neurosync:5001
+      # S1 Avatar endpoint for stimuli action executor
+      - S1_AVATAR_ENDPOINT=http://neurosync:5001
       # OpenAI fallback for Darwin-Gödel (from .env file)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4o-mini
