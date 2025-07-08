@@ -57,6 +57,21 @@ class ToolRegistry:
             "character": ["advanced_vtuber_control"],
             "voice": ["advanced_vtuber_control"],
             
+            # Weather-related contexts
+            "weather": ["weather_persona_tool"],
+            "temperature": ["weather_persona_tool"],
+            "forecast": ["weather_persona_tool"],
+            "rain": ["weather_persona_tool"],
+            "sunny": ["weather_persona_tool"],
+            "cloudy": ["weather_persona_tool"],
+            "storm": ["weather_persona_tool"],
+            "wind": ["weather_persona_tool"],
+            "snow": ["weather_persona_tool"],
+            "climate": ["weather_persona_tool"],
+            "humidity": ["weather_persona_tool"],
+            "alert": ["weather_persona_tool"],
+            "meteorology": ["weather_persona_tool"],
+            
             # Dynamic/Variable contexts
             "dynamic": ["variable_tool_calls"],
             "adaptive": ["variable_tool_calls"],

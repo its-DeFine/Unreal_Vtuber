@@ -48,6 +48,10 @@ llm_config_global = None
 chat_history_global = None
 full_history_global = None
 
+# Global character state for Flask app context
+current_character_id = None
+current_character_data = None
+
 # Game control system objects
 game_control_processor = None
 tcp_controller = None
@@ -320,7 +324,16 @@ def handle_process_text():
         if orchestrator_wrapper and orchestrator_wrapper.state_hooks:
             orchestrator_wrapper.state_hooks.hook_conversation_input(user_input, autonomous_context)
         
-        # Normal LLM processing
+        # Normal LLM processing with dynamic character-aware system message
+        from config import get_character_aware_system_message
+        current_system_message = get_character_aware_system_message()
+        
+        # Fallback: Use Flask app global character state if character manager fails
+        global current_character_data
+        if current_system_message == llm_config_global.get('system_message', '') and current_character_data:
+            app.logger.info(f"🔄 Using Flask app character state fallback: {current_character_data.name}")
+            current_system_message = current_character_data.to_prompt_context()
+        
         updated_chat_history = process_turn(
             user_input, 
             chat_history_global, 
@@ -329,7 +342,7 @@ def handle_process_text():
             chunk_queue, 
             audio_queue, 
             vector_db, 
-            base_system_message=llm_config_global.get('system_message', ''),
+            base_system_message=current_system_message,
             autonomous_context=autonomous_context
         )
         chat_history_global = updated_chat_history
@@ -549,6 +562,140 @@ def handle_game_control_features():
     except Exception as e:
         app.logger.error(f"❌ Error getting features: {e}")
         return jsonify({"error": "Failed to get features", "details": str(e)}), 500
+
+
+@app.route("/character/list", methods=['GET'])
+def handle_character_list():
+    """Get list of available characters"""
+    try:
+        from character_config import get_character_manager
+        character_manager = get_character_manager()
+        characters = character_manager.list_characters()
+        
+        response_data = {
+            "status": "success",
+            "characters": characters,
+            "current_character": character_manager.current_character_id,
+            "total_characters": len(characters)
+        }
+        
+        app.logger.info(f"📋 Character list retrieved: {len(characters)} characters")
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        app.logger.error(f"❌ Error getting character list: {e}")
+        return jsonify({"error": "Failed to get character list", "details": str(e)}), 500
+
+
+@app.route("/character/current", methods=['GET'])
+def handle_current_character():
+    """Get current character information"""
+    try:
+        from character_config import get_character_manager
+        character_manager = get_character_manager()
+        current_character = character_manager.get_current_character()
+        
+        if not current_character:
+            return jsonify({"error": "No character currently active"}), 404
+        
+        response_data = {
+            "status": "success",
+            "character": {
+                "id": current_character.id,
+                "name": current_character.name,
+                "role": current_character.role,
+                "personality_traits": current_character.personality_traits,
+                "communication_style": current_character.communication_style,
+                "domain_expertise": current_character.domain_expertise,
+                "formality_level": current_character.formality_level
+            }
+        }
+        
+        app.logger.info(f"🎭 Current character retrieved: {current_character.name}")
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        app.logger.error(f"❌ Error getting current character: {e}")
+        return jsonify({"error": "Failed to get current character", "details": str(e)}), 500
+
+
+@app.route("/character/switch", methods=['POST'])
+def handle_character_switch():
+    """Switch to a different character"""
+    global current_character_id, current_character_data
+    
+    try:
+        if not request.json or 'character_id' not in request.json:
+            app.logger.warning("/character/switch: Missing 'character_id' in JSON payload")
+            return jsonify({"error": "Missing 'character_id' in JSON payload"}), 400
+        
+        character_id = request.json['character_id']
+        
+        from character_config import get_character_manager
+        character_manager = get_character_manager()
+        
+        # Attempt to switch character
+        success = character_manager.switch_character(character_id)
+        
+        if success:
+            current_character = character_manager.get_current_character()
+            
+            # Update global Flask app state
+            current_character_id = character_id
+            current_character_data = current_character
+            
+            response_data = {
+                "status": "success",
+                "message": f"Successfully switched to character: {current_character.name}",
+                "previous_character": request.json.get('previous_character_id'),
+                "current_character": {
+                    "id": current_character.id,
+                    "name": current_character.name,
+                    "role": current_character.role
+                }
+            }
+            app.logger.info(f"🎭 Character switched to: {current_character.name}")
+            return jsonify(response_data), 200
+        else:
+            return jsonify({"error": f"Failed to switch to character: {character_id}"}), 400
+            
+    except Exception as e:
+        app.logger.error(f"❌ Error switching character: {e}")
+        return jsonify({"error": "Failed to switch character", "details": str(e)}), 500
+
+
+@app.route("/character/create", methods=['POST'])
+def handle_character_create():
+    """Create a new character from template or custom data"""
+    try:
+        if not request.json:
+            return jsonify({"error": "Missing character data"}), 400
+        
+        from character_config import get_character_manager
+        character_manager = get_character_manager()
+        
+        # Create character from provided data
+        character = character_manager.create_character(request.json)
+        
+        # Save the character
+        character_manager.save_character(character)
+        
+        response_data = {
+            "status": "success",
+            "message": f"Character created successfully: {character.name}",
+            "character": {
+                "id": character.id,
+                "name": character.name,
+                "role": character.role
+            }
+        }
+        
+        app.logger.info(f"🎭 Character created: {character.name}")
+        return jsonify(response_data), 201
+        
+    except Exception as e:
+        app.logger.error(f"❌ Error creating character: {e}")
+        return jsonify({"error": "Failed to create character", "details": str(e)}), 500
 
 
 def start_orchestrator_async():

@@ -195,6 +195,9 @@ def get_character_aware_system_message():
         character_manager = get_character_manager()
         current_character = character_manager.get_current_character()
         
+        # Debug info
+        print(f"🔍 Character manager state: current_id={character_manager.current_character_id}, characters={list(character_manager.characters.keys())}")
+        
         if current_character:
             # Use character-specific prompt context
             character_prompt = current_character.to_prompt_context()
