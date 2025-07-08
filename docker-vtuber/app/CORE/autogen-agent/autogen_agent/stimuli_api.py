@@ -125,6 +125,53 @@ def setup_stimuli_api(app: FastAPI, orchestrator: StimuliResponsiveOrchestrator)
                 timestamp=datetime.now().isoformat()
             )
     
+    @app.get("/api/admin/control-panel")
+    async def get_admin_control_panel():
+        """
+        Admin control panel endpoint - provides admin operation history and system status
+        This serves as a centralized control panel for admin operations
+        """
+        if not global_orchestrator:
+            raise HTTPException(
+                status_code=503,
+                detail="Orchestrator not initialized"
+            )
+        
+        try:
+            # Get consolidation system status including admin operations
+            consolidation_status = global_orchestrator.consolidator.get_status() if global_orchestrator.consolidator else {}
+            
+            # Get character system status from S1
+            import aiohttp
+            s1_characters = {}
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get("http://neurosync:5001/character/list") as response:
+                        if response.status == 200:
+                            s1_characters = await response.json()
+            except Exception as e:
+                logging.warning(f"Could not fetch S1 characters: {e}")
+                s1_characters = {"error": "Could not fetch characters"}
+            
+            control_panel_data = {
+                "timestamp": datetime.now().isoformat(),
+                "admin_operations": consolidation_status.get("admin_operations", {}),
+                "s1_characters": s1_characters,
+                "consolidation_stats": consolidation_status.get("statistics", {}),
+                "system_capacity": consolidation_status.get("capacity_status", {}),
+                "pending_operations": consolidation_status.get("pending_stimuli", 0),
+                "design_note": "Admin operations are processed silently by default. Use 'announce:' prefix for S1 speech output."
+            }
+            
+            return control_panel_data
+            
+        except Exception as e:
+            logging.error(f"Error generating admin control panel: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error generating control panel: {str(e)}"
+            )
+
     @app.get("/api/stimuli/status", response_model=OrchestratorStatusResponse)
     async def get_orchestrator_status() -> OrchestratorStatusResponse:
         """

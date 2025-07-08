@@ -227,12 +227,121 @@ class StimuliConsolidator:
         
         return False
     
+    async def _process_admin_commands(self):
+        """Process admin commands directly through the admin character tool"""
+        if not self.pending_stimuli:
+            return
+        
+        admin_stimuli = []
+        
+        # Identify admin commands
+        for stimuli in self.pending_stimuli[:]:
+            content_lower = stimuli.content.lower()
+            if any(indicator in content_lower for indicator in ["admin:", "create character", "switch character", "list characters"]):
+                admin_stimuli.append(stimuli)
+        
+        # Process each admin command
+        for admin_stimuli_item in admin_stimuli:
+            try:
+                logging.info("🔧 [CONSOLIDATOR] Processing admin command: %s", admin_stimuli_item.content)
+                
+                # Import admin character tool
+                from .tools.admin_character_tool import execute_admin_character_tool
+                
+                # Create context for admin tool
+                context = {
+                    "content": admin_stimuli_item.content,
+                    "source": admin_stimuli_item.source,
+                    "priority": admin_stimuli_item.priority,
+                    "stimuli_id": admin_stimuli_item.stimuli_id
+                }
+                
+                # Execute admin command
+                result = await execute_admin_character_tool(context)
+                
+                if result.get("success"):
+                    logging.info("✅ [CONSOLIDATOR] Admin command executed successfully: %s", result.get("response", ""))
+                    
+                    # DESIGN DECISION: Admin operations should be silent by default
+                    # Only send to S1 if explicitly requested via "announce" flag
+                    admin_response = result.get("response", "")
+                    should_announce = (
+                        result.get("announce_to_s1", False) or  # Explicit announcement flag
+                        "announce:" in admin_stimuli_item.content.lower()  # Explicit announce request
+                    )
+                    
+                    if should_announce and admin_response and not result.get("skip"):
+                        logging.info("📢 [CONSOLIDATOR] Announcing admin result to S1: %s", admin_response[:100])
+                        await self._send_to_s1(admin_response)
+                    else:
+                        logging.info("🔇 [CONSOLIDATOR] Admin operation completed silently (no S1 announcement)")
+                        
+                    # Store admin operation result for S2 logging/history
+                    await self._log_admin_operation(admin_stimuli_item, result)
+                        
+                else:
+                    if not result.get("skip"):
+                        logging.error("❌ [CONSOLIDATOR] Admin command failed: %s", result.get("error", "Unknown error"))
+                
+                # Remove processed admin stimuli
+                if admin_stimuli_item in self.pending_stimuli:
+                    self.pending_stimuli.remove(admin_stimuli_item)
+                    
+            except Exception as e:
+                logging.error("❌ [CONSOLIDATOR] Error processing admin command: %s", e)
+                # Remove the problematic stimuli to prevent infinite loops
+                if admin_stimuli_item in self.pending_stimuli:
+                    self.pending_stimuli.remove(admin_stimuli_item)
+    
+    async def _log_admin_operation(self, admin_stimuli_item: 'StimuliItem', result: Dict[str, Any]):
+        """Log admin operation result for S2 system history and control panel access"""
+        try:
+            admin_log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "stimuli_id": admin_stimuli_item.stimuli_id,
+                "command": admin_stimuli_item.content,
+                "source": admin_stimuli_item.source,
+                "priority": admin_stimuli_item.priority,
+                "result": {
+                    "success": result.get("success", False),
+                    "response": result.get("response", ""),
+                    "command_type": result.get("command_type", "unknown"),
+                    "character_data": result.get("character_data", {}),
+                    "error": result.get("error")
+                }
+            }
+            
+            # Store in consolidation stats for S2 access
+            if not hasattr(self, 'admin_operation_history'):
+                self.admin_operation_history = []
+            
+            self.admin_operation_history.append(admin_log_entry)
+            
+            # Keep only last 100 admin operations
+            if len(self.admin_operation_history) > 100:
+                self.admin_operation_history = self.admin_operation_history[-100:]
+                
+            # Update stats
+            self.stats["admin_operations_processed"] = self.stats.get("admin_operations_processed", 0) + 1
+            
+            logging.info("📝 [CONSOLIDATOR] Admin operation logged for S2 access: %s", admin_stimuli_item.stimuli_id)
+            
+        except Exception as e:
+            logging.error("❌ [CONSOLIDATOR] Error logging admin operation: %s", e)
+    
     async def _create_consolidated_batch(self) -> Optional[ConsolidatedBatch]:
         """Create a consolidated batch from pending stimuli"""
         if not self.pending_stimuli:
             return None
         
         try:
+            # FIRST: Check for admin commands and process them directly
+            await self._process_admin_commands()
+            
+            # If no regular stimuli remain, return None
+            if not self.pending_stimuli:
+                return None
+            
             # Determine consolidation strategy
             strategy = await self._select_consolidation_strategy()
             
@@ -669,7 +778,12 @@ class StimuliConsolidator:
                 "similarity_threshold": self.similarity_threshold,
                 "default_strategy": self.default_strategy.value
             },
-            "capacity_status": self.capacity_monitor.get_combined_capacity()
+            "capacity_status": self.capacity_monitor.get_combined_capacity(),
+            "admin_operations": {
+                "total_processed": self.stats.get("admin_operations_processed", 0),
+                "recent_history": getattr(self, 'admin_operation_history', [])[-5:],  # Last 5 operations
+                "history_count": len(getattr(self, 'admin_operation_history', []))
+            }
         }
     
     def get_detailed_status(self) -> Dict[str, Any]:

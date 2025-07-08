@@ -72,6 +72,16 @@ class ToolRegistry:
             "alert": ["weather_persona_tool"],
             "meteorology": ["weather_persona_tool"],
             
+            # Admin character management contexts
+            "admin": ["admin_character_tool"],
+            "create character": ["admin_character_tool"],
+            "switch character": ["admin_character_tool"],
+            "list characters": ["admin_character_tool"],
+            "character info": ["admin_character_tool"],
+            "make character": ["admin_character_tool"],
+            "add character": ["admin_character_tool"],
+            "new character": ["admin_character_tool"],
+            
             # Dynamic/Variable contexts
             "dynamic": ["variable_tool_calls"],
             "adaptive": ["variable_tool_calls"],
@@ -364,7 +374,9 @@ class ToolRegistry:
             "goal_management_tools": ["goal", "progress", "achievement", "target", "smart", "objective", "metric", "milestone"],
             "core_evolution_tool": ["performance", "optimization", "improvement", "evolution", "error", "speed", "bottleneck", "optimize"],
             "advanced_vtuber_control": ["vtuber", "avatar", "stream", "audience", "activate", "control", "character", "voice", "show", "display"],
-            "variable_tool_calls": ["dynamic", "adaptive", "context", "variable", "selection", "flexible"]
+            "variable_tool_calls": ["dynamic", "adaptive", "context", "variable", "selection", "flexible"],
+            "admin_character_tool": ["admin", "create character", "switch character", "list characters", "character info", "make character", "add character", "new character"],
+            "weather_persona_tool": ["weather", "temperature", "forecast", "rain", "sunny", "cloudy", "storm", "wind", "snow", "climate", "humidity", "alert", "meteorology"]
         }
         
         if tool_name in tool_indicators:
