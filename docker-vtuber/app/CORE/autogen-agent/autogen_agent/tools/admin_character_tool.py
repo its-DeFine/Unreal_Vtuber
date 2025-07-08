@@ -260,6 +260,37 @@ class AdminCharacterTool:
             logger.error(f"❌ [ADMIN_CHARACTER] Error getting character info: {e}")
             return {"success": False, "error": str(e)}
     
+    async def notify_s2_character_change(self, character_id: str) -> bool:
+        """Notify S2 systems about character change for persona-aware tool updates"""
+        try:
+            # Import here to avoid circular dependencies
+            from ..persona_aware_tool_registry import get_persona_tool_registry
+            from ..character_state_manager import get_character_state_manager
+            
+            # Notify character state manager
+            character_manager = get_character_state_manager()
+            if character_manager:
+                success = await character_manager.handle_character_change(character_id)
+                if success:
+                    logger.info(f"✅ [ADMIN_CHARACTER] S2 character state updated: {character_id}")
+                else:
+                    logger.warning(f"⚠️ [ADMIN_CHARACTER] S2 character state update failed: {character_id}")
+            
+            # Notify persona-aware tool registry
+            tool_registry = get_persona_tool_registry()
+            if tool_registry:
+                success = await tool_registry.handle_character_change_notification(character_id)
+                if success:
+                    logger.info(f"✅ [ADMIN_CHARACTER] S2 tool registry updated: {character_id}")
+                else:
+                    logger.warning(f"⚠️ [ADMIN_CHARACTER] S2 tool registry update failed: {character_id}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ [ADMIN_CHARACTER] Error notifying S2 of character change: {e}")
+            return False
+    
     async def execute_admin_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
         """Execute admin command based on parsed content"""
         try:
@@ -295,11 +326,16 @@ class AdminCharacterTool:
                 result = await self.switch_character_in_s1(character_id)
                 
                 if result["success"]:
+                    # Notify S2 systems of character change
+                    await self.notify_s2_character_change(character_id)
+                    
                     response = f"✅ Successfully switched to character '{character_name}'!"
+                    response += f"\n🔄 S2 systems updated for persona-aware tool access"
                     return {
                         "success": True,
                         "response": response,
-                        "character_switched": character_id
+                        "character_switched": character_id,
+                        "s2_notified": True
                     }
                 else:
                     return {

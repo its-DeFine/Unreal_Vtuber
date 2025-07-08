@@ -125,8 +125,8 @@ class StimuliAutoGenTeam:
             self.decision_strategist = teachable_agents["programmer"]  # Strategic thinking
             self.action_coordinator = teachable_agents["observer"]    # Action coordination
             
-            # Update system messages for stimuli-specific roles
-            # self._update_system_messages_for_stimuli()  # Disabled due to read-only system_message property
+            # Update system messages for stimuli-specific roles with character context
+            self._update_system_messages_for_stimuli_with_character_context(character_context)
             
             # Store teachable wrappers
             self.teachable_wrappers = {
@@ -142,12 +142,17 @@ class StimuliAutoGenTeam:
             raise
     
     def _create_standard_stimuli_agents(self, llm_config: Dict):
-        """Create standard stimuli agents"""
+        """Create standard stimuli agents with character context"""
         try:
+            # Get character context for all agents
+            character_context = self._get_character_context()
+            
             # Stimuli Analyzer Agent
-            self.stimuli_analyzer = AssistantAgent(
-                name="stimuli_analyzer_agent",
-                system_message="""You are a specialized stimuli analyzer agent focused on understanding and categorizing external stimuli.
+            analyzer_system_message = f"""You are a specialized stimuli analyzer agent focused on understanding and categorizing external stimuli.
+                
+                CURRENT CHARACTER CONTEXT:
+                {character_context}
+                
                 Your responsibilities include:
                 1. Analyzing incoming stimuli content, context, and metadata
                 2. Identifying stimuli category, urgency, and complexity level
@@ -160,16 +165,24 @@ class StimuliAutoGenTeam:
                 - Urgency and priority assessment
                 - Required response type (objective update, knowledge storage, or action)
                 - Potential system impact and considerations
+                - Character-specific expertise and mission alignment
                 
-                Keep analysis concise but comprehensive. Use structured format for clarity.""",
+                Keep analysis concise but comprehensive. Use structured format for clarity.
+                Consider how the current character's expertise and mission should influence analysis."""
+            
+            self.stimuli_analyzer = AssistantAgent(
+                name="stimuli_analyzer_agent",
+                system_message=analyzer_system_message,
                 llm_config=llm_config,
                 max_consecutive_auto_reply=2,
             )
             
             # Decision Strategist Agent
-            self.decision_strategist = AssistantAgent(
-                name="decision_strategist_agent",
-                system_message="""You are a decision strategist agent specializing in stimuli response planning.
+            strategist_system_message = f"""You are a decision strategist agent specializing in stimuli response planning.
+                
+                CURRENT CHARACTER CONTEXT:
+                {character_context}
+                
                 Your responsibilities include:
                 1. Evaluating stimuli analysis and determining optimal response strategy
                 2. Deciding between objective updates, knowledge storage, or placeholder actions
@@ -181,16 +194,25 @@ class StimuliAutoGenTeam:
                 - For system improvements: Recommend objective updates for main team
                 - For knowledge/insights: Recommend knowledge push to Cognee
                 - For actionable tasks: Recommend placeholder actions with specific parameters
+                - Consider character's operational mode and mission objectives
+                - Prioritize actions that align with character's domain expertise
                 
-                Always provide clear reasoning and specific action parameters.""",
+                Always provide clear reasoning and specific action parameters.
+                Take into account the current character's mission and available tools."""
+            
+            self.decision_strategist = AssistantAgent(
+                name="decision_strategist_agent",
+                system_message=strategist_system_message,
                 llm_config=llm_config,
                 max_consecutive_auto_reply=2,
             )
             
             # Action Coordinator Agent
-            self.action_coordinator = AssistantAgent(
-                name="action_coordinator_agent",
-                system_message="""You are an action coordinator agent responsible for finalizing stimuli responses.
+            coordinator_system_message = f"""You are an action coordinator agent responsible for finalizing stimuli responses.
+                
+                CURRENT CHARACTER CONTEXT:
+                {character_context}
+                
                 Your responsibilities include:
                 1. Coordinating final decisions from team analysis and strategy
                 2. Formatting parameters for the stimuli action executor tool
@@ -203,40 +225,108 @@ class StimuliAutoGenTeam:
                 - Specific parameters based on action type
                 - agent_reasoning: Complete team decision rationale
                 - priority: Execution priority level
+                - character_context: Current character's influence on decision
                 
-                Always end with: "EXECUTE_TOOL: stimuli_action_executor" when ready to execute.""",
+                Always end with: "EXECUTE_TOOL: stimuli_action_executor" when ready to execute.
+                Ensure actions align with the current character's mission and capabilities."""
+            
+            self.action_coordinator = AssistantAgent(
+                name="action_coordinator_agent",
+                system_message=coordinator_system_message,
                 llm_config=llm_config,
                 max_consecutive_auto_reply=1,
             )
             
-            logging.info("🤖 [STIMULI_TEAM] Standard stimuli agents created successfully")
+            logging.info("🤖 [STIMULI_TEAM] Standard stimuli agents created successfully with character context")
             
         except Exception as e:
             logging.error(f"❌ [STIMULI_TEAM] Error creating standard stimuli agents: {e}")
             raise
     
-    def _update_system_messages_for_stimuli(self):
-        """Update system messages for teachable agents to focus on stimuli processing"""
+    def _get_character_context(self) -> str:
+        """Get current character context for agent system messages"""
+        try:
+            # Try to get character state from character manager
+            from .character_state_manager import get_character_state_manager
+            character_manager = get_character_state_manager()
+            
+            if character_manager:
+                current_character = character_manager.get_current_character()
+                if current_character:
+                    context = f"""Current Character: {current_character.character_name}
+                    Role: {current_character.role}
+                    Domain Expertise: {', '.join(current_character.domain_expertise)}
+                    Personality Traits: {', '.join(current_character.personality_traits)}
+                    
+                    Mission: {current_character.mission.title if current_character.mission else 'No active mission'}
+                    Operational Mode: {character_manager.get_operational_mode()}
+                    
+                    Available Tools: {', '.join(list(current_character.available_tools)) if current_character.available_tools else 'None'}
+                    
+                    Character Mission Objectives:
+                    {chr(10).join(f"- {obj}" for obj in current_character.mission.objectives) if current_character.mission else '- No specific objectives'}
+                    
+                    Priority Contexts:
+                    {chr(10).join(f"- {ctx}" for ctx in current_character.mission.priority_contexts) if current_character.mission else '- No priority contexts'}"""
+                    
+                    return context
+            
+            # Fallback context if no character manager
+            return """No active character context available.
+                    Operating in default mode without persona-specific guidance.
+                    Consider general system objectives and available tools."""
+            
+        except Exception as e:
+            logging.warning(f"⚠️ [STIMULI_TEAM] Error getting character context: {e}")
+            return """Character context unavailable due to system error.
+                    Proceeding with standard analysis without persona guidance."""
+    
+    def _update_system_messages_for_stimuli_with_character_context(self, character_context: str):
+        """Update system messages for teachable agents to focus on stimuli processing with character awareness"""
         try:
             if hasattr(self.stimuli_analyzer, 'system_message'):
-                self.stimuli_analyzer.system_message = """You are a specialized stimuli analyzer agent with learning capabilities.
+                self.stimuli_analyzer.system_message = f"""You are a specialized stimuli analyzer agent with learning capabilities.
+                
+                CURRENT CHARACTER CONTEXT:
+                {character_context}
+                
                 Analyze incoming stimuli for content, context, urgency, and system impact.
-                Learn from previous stimuli patterns to improve analysis accuracy."""
+                Learn from previous stimuli patterns to improve analysis accuracy.
+                Consider the current character's expertise and mission when analyzing stimuli.
+                Adapt your analysis based on the character's domain knowledge and objectives."""
             
             if hasattr(self.decision_strategist, 'system_message'):
-                self.decision_strategist.system_message = """You are a decision strategist agent with strategic learning capabilities.
+                self.decision_strategist.system_message = f"""You are a decision strategist agent with strategic learning capabilities.
+                
+                CURRENT CHARACTER CONTEXT:
+                {character_context}
+                
                 Determine optimal response strategies for stimuli based on analysis.
-                Learn from previous decisions to improve strategic planning."""
+                Learn from previous decisions to improve strategic planning.
+                Consider the character's operational mode and mission objectives.
+                Prioritize strategies that align with the character's expertise and available tools."""
             
             if hasattr(self.action_coordinator, 'system_message'):
-                self.action_coordinator.system_message = """You are an action coordinator agent with execution learning capabilities.
-                Coordinate final stimuli responses and format execution parameters.
-                Learn from previous executions to improve coordination effectiveness."""
+                self.action_coordinator.system_message = f"""You are an action coordinator agent with execution learning capabilities.
                 
-            logging.info("🎯 [STIMULI_TEAM] System messages updated for stimuli focus")
+                CURRENT CHARACTER CONTEXT:
+                {character_context}
+                
+                Coordinate final stimuli responses and format execution parameters.
+                Learn from previous executions to improve coordination effectiveness.
+                Ensure actions align with the current character's mission and capabilities.
+                Consider character-specific tools and operational constraints."""
+                
+            logging.info("🎯 [STIMULI_TEAM] System messages updated for stimuli focus with character context")
             
         except Exception as e:
             logging.error(f"❌ [STIMULI_TEAM] Error updating system messages: {e}")
+    
+    def _update_system_messages_for_stimuli(self):
+        """Update system messages for teachable agents to focus on stimuli processing (deprecated)"""
+        # This method is deprecated - use _update_system_messages_for_stimuli_with_character_context instead
+        character_context = self._get_character_context()
+        self._update_system_messages_for_stimuli_with_character_context(character_context)
     
     def _initialize_group_chat(self):
         """Initialize group chat for stimuli team"""
@@ -251,17 +341,25 @@ class StimuliAutoGenTeam:
                 max_round=5  # Allow thorough stimuli analysis
             )
             
-            # Create group chat manager
-            self.stimuli_manager = GroupChatManager(
-                groupchat=self.stimuli_group_chat,
-                llm_config=self._get_llm_config(),
-                system_message="""You are managing a specialized stimuli analysis team with three agents:
+            # Create group chat manager with character context
+            character_context = self._get_character_context()
+            manager_system_message = f"""You are managing a specialized stimuli analysis team with three agents:
                 - stimuli_analyzer_agent: Analyzes stimuli content and context
                 - decision_strategist_agent: Determines optimal response strategy
                 - action_coordinator_agent: Coordinates final actions and parameters
                 
+                CURRENT CHARACTER CONTEXT:
+                {character_context}
+                
                 Guide the team through thorough stimuli analysis leading to actionable decisions.
-                Ensure all agents contribute their expertise before finalizing actions."""
+                Ensure all agents contribute their expertise before finalizing actions.
+                Consider the current character's mission, expertise, and operational mode when guiding decisions.
+                Prioritize actions that align with the character's capabilities and objectives."""
+            
+            self.stimuli_manager = GroupChatManager(
+                groupchat=self.stimuli_group_chat,
+                llm_config=self._get_llm_config(),
+                system_message=manager_system_message
             )
             
             logging.info("🎪 [STIMULI_TEAM] Group chat initialized for stimuli team")

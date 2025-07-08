@@ -23,6 +23,8 @@ except ImportError:
     logging.warning("⚠️ [MAIN] Microsoft AutoGen not available - using fallback mode")
 
 from .tool_registry import ToolRegistry
+from .persona_aware_tool_registry import PersonaAwareToolRegistry, initialize_persona_tool_registry
+from .character_state_manager import CharacterStateManager, initialize_character_state_manager
 from .memory_manager import MemoryManager
 from .cognitive_memory import CognitiveMemoryManager
 from .cognitive_decision_engine import CognitiveDecisionEngine
@@ -410,6 +412,31 @@ async def get_performance_analytics():
             "trend": "improving" if analytics_data["cycles_completed"] > 10 else "stable",
             "insights": analytics_data.get("insights", [])
         }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.get("/api/persona/status")
+async def get_persona_status():
+    """Get persona-aware system status"""
+    try:
+        from .persona_aware_tool_registry import get_persona_tool_registry
+        from .character_state_manager import get_character_state_manager
+        
+        tool_registry = get_persona_tool_registry()
+        character_manager = get_character_state_manager()
+        
+        status = {
+            "persona_system_active": tool_registry is not None and character_manager is not None,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        if tool_registry:
+            status["tool_registry"] = tool_registry.get_persona_tool_status()
+        
+        if character_manager:
+            status["character_manager"] = character_manager.get_status()
+        
+        return status
     except Exception as e:
         return {"error": str(e)}, 500
 
@@ -1399,8 +1426,16 @@ def main() -> None:
             global global_scb_client, global_vtuber_client, global_tool_registry, gpu_monitor
             global_scb_client = scb
             global_vtuber_client = vtuber
-            global_tool_registry = ToolRegistry()
+            
+            # Initialize character state manager for persona-aware tools
+            s1_endpoint = os.getenv("S1_AVATAR_ENDPOINT", "http://neurosync:5001")
+            character_manager = initialize_character_state_manager(s1_endpoint)
+            logging.info("🎭 [MAIN] Character state manager initialized")
+            
+            # Initialize persona-aware tool registry
+            global_tool_registry = initialize_persona_tool_registry()
             global_tool_registry.load_tools()
+            logging.info("🔧 [MAIN] Persona-aware tool registry initialized")
             
             # Initialize GPU monitor
             gpu_monitor = GPUMonitor()
