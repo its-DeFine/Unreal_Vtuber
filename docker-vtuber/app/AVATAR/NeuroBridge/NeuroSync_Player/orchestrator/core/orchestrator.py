@@ -87,14 +87,8 @@ class ReactiveOrchestrator:
                         ],
                         "content_style": "Friendly and helpful, with a focus on practical value"
                     },
-                    "autonomous_topics": [
-                        "productivity tips",
-                        "interesting facts",
-                        "helpful suggestions",
-                        "technology insights",
-                        "general knowledge"
-                    ],
-                    "autonomous_interval": 35.0
+                    # autonomous_topics removed - pure stimuli-driven architecture
+                    "autonomous_enabled": False
                 }
                 self.character_manager.create_character(default_char)
                 self.character_manager.switch_character("reactive_default")
@@ -420,10 +414,10 @@ Response:"""
         # Get recent autonomous content to avoid repetition
         recent_content = self.autonomous_content_history[-5:] if self.autonomous_content_history else []
         
-        # Determine topic
+        # Determine topic (DEPRECATED - autonomous mode disabled for pure stimuli-driven architecture)
         if not topic:
-            # Select from character's autonomous topics or use expertise
-            topics = character.autonomous_topics if character.autonomous_topics else character.domain_expertise
+            # Use character expertise for topic selection (autonomous_topics removed)
+            topics = character.domain_expertise
             if topics:
                 import random
                 topic = random.choice(topics)

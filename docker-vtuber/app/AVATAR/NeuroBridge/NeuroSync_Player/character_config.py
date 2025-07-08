@@ -60,12 +60,10 @@ class CharacterProfile:
     speech_rate: float = 1.0
     pitch_adjustment: float = 0.0
     
-    # Autonomous Mode Configuration
-    autonomous_enabled: bool = True
+    # Autonomous Mode Configuration (DEPRECATED - pure stimuli-driven architecture)
+    autonomous_enabled: bool = False  # Disabled for pure stimuli-driven architecture
     autonomous_behaviors: Dict[str, Any] = field(default_factory=dict)
-    autonomous_topics: List[str] = field(default_factory=list)
-    autonomous_interval: float = 30.0  # seconds between autonomous actions
-    autonomous_variety_threshold: float = 0.7  # similarity threshold for content variety
+    # autonomous_topics removed - no longer needed in stimuli-driven design
     
     # Metadata
     version: str = "1.0"
@@ -113,7 +111,7 @@ Role: {self.role} (AUTONOMOUS MODE)
 AUTONOMOUS BEHAVIOR:
 {autonomous_config.get('description', 'Generate engaging content continuously without waiting for user input')}
 
-Content Focus: {', '.join(self.autonomous_topics) if self.autonomous_topics else 'General topics related to expertise'}
+Content Focus: General topics related to expertise (autonomous_topics deprecated)
 Domain Expertise: {', '.join(self.domain_expertise)}
 
 AUTONOMOUS RULES:
@@ -215,15 +213,7 @@ class CharacterManager:
                 ],
                 "content_style": "Professional and actionable, with practical business focus"
             },
-            "autonomous_topics": [
-                "productivity strategies",
-                "meeting efficiency",
-                "email management",
-                "workplace organization",
-                "professional communication",
-                "time management"
-            ],
-            "autonomous_interval": 40.0
+            "autonomous_enabled": False  # Disabled for pure stimuli-driven architecture
         }
         
         # Teacher template
@@ -268,14 +258,7 @@ class CharacterManager:
                 ],
                 "content_style": "Educational and progressive, building knowledge step by step"
             },
-            "autonomous_topics": [
-                "mathematics fundamentals",
-                "science concepts",
-                "critical thinking",
-                "problem-solving strategies",
-                "learning techniques"
-            ],
-            "autonomous_interval": 45.0
+            "autonomous_enabled": False  # Disabled for pure stimuli-driven architecture
         }
         
         # Save templates if they don't exist
