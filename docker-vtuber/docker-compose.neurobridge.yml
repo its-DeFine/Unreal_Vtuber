@@ -26,24 +26,17 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - VTUBER_PAYMENT_ENABLED=false
       # ======================================
-      # Orchestrator Configuration
+      # Pure Stimuli-Driven Architecture Configuration  
       # ======================================
-      # Set orchestrator version (v2, v3, reactive)
+      # Disable all autonomous orchestration - S1 is pure execution layer
       - ORCHESTRATOR_VERSION=reactive
-      # Enable autonomous orchestration
-      - AUTONOMOUS_ORCHESTRATION_ENABLED=true
-      # Minimum idle time before generating autonomous content (seconds)
-      - AUTONOMOUS_MIN_IDLE_TIME=5.0
-      # Minimum gap between autonomous speeches (seconds)  
-      - AUTONOMOUS_SPEECH_GAP=2.0
-      # How often to check if should generate content (seconds)
-      - DECISION_LOOP_INTERVAL=0.5
-      # Thresholds for different types of content (seconds)
-      - IDLE_AMBIENT_THRESHOLD=5.0
-      - IDLE_CONTINUATION_THRESHOLD=5.0
-      - IDLE_ENGAGING_THRESHOLD=5.0
-      # Maximum characters for autonomous generated content
-      - AUTONOMOUS_MAX_CHARS=350
+      - AUTONOMOUS_ORCHESTRATION_ENABLED=false
+      - AUTONOMOUS_SPEECH_ENABLED=false
+      - AUTONOMOUS_CONTENT_ENABLED=false
+      - AUTONOMOUS_ENVIRONMENT_ENABLED=false
+      - AUTO_INTERRUPT_ENABLED=false
+      - SIMPLE_SPEECH_ENABLED=false
+      # S1 only responds to external stimuli from S2 AutoGen system
     deploy: # Add deploy configuration for GPU access
       resources:
         reservations:
