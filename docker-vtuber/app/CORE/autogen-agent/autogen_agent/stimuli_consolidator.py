@@ -230,6 +230,7 @@ class StimuliConsolidator:
     async def _process_admin_commands(self):
         """Process admin commands directly through the admin character tool"""
         if not self.pending_stimuli:
+            logging.info("🔍 [CONSOLIDATOR] No pending stimuli to process for admin commands")
             return
         
         admin_stimuli = []
@@ -237,8 +238,10 @@ class StimuliConsolidator:
         # Identify admin commands
         for stimuli in self.pending_stimuli[:]:
             content_lower = stimuli.content.lower()
+            logging.info("🔍 [CONSOLIDATOR] Checking stimuli: %s", content_lower)
             if any(indicator in content_lower for indicator in ["admin:", "create character", "switch character", "list characters"]):
                 admin_stimuli.append(stimuli)
+                logging.info("🔍 [CONSOLIDATOR] Found admin command: %s", stimuli.content)
         
         # Process each admin command
         for admin_stimuli_item in admin_stimuli:
@@ -269,6 +272,11 @@ class StimuliConsolidator:
                         result.get("announce_to_s1", False) or  # Explicit announcement flag
                         "announce:" in admin_stimuli_item.content.lower()  # Explicit announce request
                     )
+                    
+                    logging.info("🔍 [CONSOLIDATOR] Admin announcement check: announce_to_s1=%s, content_has_announce=%s, should_announce=%s", 
+                                result.get("announce_to_s1", False), 
+                                "announce:" in admin_stimuli_item.content.lower(),
+                                should_announce)
                     
                     if should_announce and admin_response and not result.get("skip"):
                         logging.info("📢 [CONSOLIDATOR] Announcing admin result to S1: %s", admin_response[:100])
