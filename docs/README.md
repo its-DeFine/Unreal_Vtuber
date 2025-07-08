@@ -45,7 +45,7 @@ Development guides and feature documentation:
 
 ### `/integrations`
 Integration documentation for system components:
-- GraphFlow Stimuli System integration guide
+- GraphFlow Stimuli System integration guide and specifications
 - External system integration points
 - Component interaction documentation
 

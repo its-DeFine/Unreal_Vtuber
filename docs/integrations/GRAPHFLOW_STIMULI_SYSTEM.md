@@ -11,6 +11,10 @@ The complete GraphFlow Stimuli System documentation and implementation is locate
 docker-vtuber/app/CORE/graphflow-stimuli-system/
 ```
 
+## Product Requirements
+- **[GRAPHFLOW_SYSTEM_PRD.md](./GRAPHFLOW_SYSTEM_PRD.md)** - Product requirements document
+- **[GRAPHFLOW_SYSTEM_FRD.md](./GRAPHFLOW_SYSTEM_FRD.md)** - Functional requirements document
+
 ## Documentation Structure
 
 ### Main Documentation
