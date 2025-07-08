@@ -5,7 +5,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     ports:
-      - "8080:8080"  # GraphFlow API port
+      - "8081:8080"  # GraphFlow API port (changed to avoid nginx RTMP conflict)
     environment:
       # Core settings
       - GRAPHFLOW_LOG_LEVEL=INFO
