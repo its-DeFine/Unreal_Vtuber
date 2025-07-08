@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import asyncio
+import aiohttp
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
@@ -60,7 +61,10 @@ async def run(context: Dict[str, Any]) -> Dict[str, Any]:
             "tool_used": "stimuli_action_executor"
         })
         
-        # Send result to VTuber if available
+        # Send result to S1 Avatar via /process_text endpoint if available
+        await _trigger_s1_avatar_response(context, result, action_type)
+        
+        # Also send to VTuber for legacy compatibility
         vtuber_client = context.get("vtuber_client")
         if vtuber_client and result.get("success"):
             vtuber_message = f"🎯 Stimuli Action: {action_type} completed successfully"
@@ -495,3 +499,103 @@ async def _execute_generic_action(action_description: str, parameters: Dict[str,
             "error": str(e),
             "message": "Generic action failed"
         }
+
+
+async def _trigger_s1_avatar_response(context: Dict[str, Any], result: Dict[str, Any], action_type: str) -> bool:
+    """
+    Trigger S1 Avatar speech/animation via /process_text endpoint
+    """
+    try:
+        # Only trigger avatar for successful actions
+        if not result.get("success", False):
+            logging.debug("🎭 [STIMULI_EXECUTOR] Skipping S1 avatar trigger - action was not successful")
+            return False
+        
+        # Get S1 endpoint from environment or use default
+        s1_endpoint = os.getenv("S1_AVATAR_ENDPOINT", "http://localhost:5001")
+        process_text_url = f"{s1_endpoint}/process_text"
+        
+        # Generate appropriate response text based on action type and result
+        response_text = _generate_avatar_response_text(action_type, result, context)
+        
+        if not response_text:
+            logging.debug("🎭 [STIMULI_EXECUTOR] No response text generated for avatar")
+            return False
+        
+        # Prepare payload for S1 avatar /process_text endpoint
+        payload = {
+            "text": response_text,
+            "direct_speech": True,  # Use direct speech to avoid LLM processing 
+            "autonomous_context": {
+                "source": "stimuli_action_executor",
+                "action_type": action_type,
+                "stimuli_id": context.get("stimuli_id"),
+                "timestamp": datetime.now().isoformat()
+            }
+        }
+        
+        # Make async HTTP request to S1 avatar
+        timeout = aiohttp.ClientTimeout(total=10.0)  # 10 second timeout
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(process_text_url, json=payload) as response:
+                if response.status == 200:
+                    response_data = await response.json()
+                    logging.info(f"✅ [STIMULI_EXECUTOR] S1 Avatar triggered successfully: {response_data.get('status', 'unknown')}")
+                    return True
+                else:
+                    response_text = await response.text()
+                    logging.warning(f"⚠️ [STIMULI_EXECUTOR] S1 Avatar request failed: HTTP {response.status} - {response_text}")
+                    return False
+                    
+    except aiohttp.ClientError as e:
+        logging.warning(f"⚠️ [STIMULI_EXECUTOR] S1 Avatar connection error: {e}")
+        return False
+    except asyncio.TimeoutError:
+        logging.warning("⚠️ [STIMULI_EXECUTOR] S1 Avatar request timeout")
+        return False
+    except Exception as e:
+        logging.error(f"❌ [STIMULI_EXECUTOR] Error triggering S1 Avatar: {e}")
+        return False
+
+
+def _generate_avatar_response_text(action_type: str, result: Dict[str, Any], context: Dict[str, Any]) -> Optional[str]:
+    """
+    Generate appropriate response text for the avatar based on action type and result
+    """
+    try:
+        stimuli_content = context.get("stimuli_request", {}).get("content", "")
+        agent_reasoning = context.get("agent_reasoning", "")
+        
+        # Generate response based on action type
+        if action_type == "objective_update":
+            objectives_added = result.get("objectives_added", 0)
+            if objectives_added > 0:
+                return f"I've updated the main team objectives with {objectives_added} new goals based on the recent stimuli."
+            else:
+                return "I've reviewed the objectives based on the recent input."
+                
+        elif action_type == "knowledge_push":
+            cognee_pushed = result.get("cognee_pushed", False)
+            if cognee_pushed:
+                return "I've successfully stored new insights in the memory system for future reference."
+            else:
+                return "I've logged the new information for later analysis."
+                
+        elif action_type == "placeholder_action":
+            action_details = result.get("action_details", {})
+            description = action_details.get("description", "")
+            if description:
+                return f"I've executed the requested action: {description[:100]}"
+            else:
+                return "I've completed the requested action successfully."
+                
+        else:
+            # Generic response
+            if stimuli_content:
+                return f"I've processed your input: {stimuli_content[:50]}{'...' if len(stimuli_content) > 50 else ''}"
+            else:
+                return "I've successfully processed the recent stimuli."
+                
+    except Exception as e:
+        logging.error(f"❌ [STIMULI_EXECUTOR] Error generating avatar response text: {e}")
+        return None

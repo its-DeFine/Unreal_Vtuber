@@ -124,6 +124,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
       - USE_COGNITIVE_ENHANCEMENT=true
+      - USE_AUTOGEN_LLM=true
       - STANDALONE_MODE=true
       - LOOP_INTERVAL=30
       - LOG_LEVEL=INFO
@@ -133,7 +134,8 @@ services:
       - USE_OLLAMA=true
       - OLLAMA_MODEL=llama3.1:8b  # For AutoGen direct Ollama usage (with :8b)
       # VTuber integration with NeuroSync
-      - VTUBER_ENDPOINT_URL=http://neurosync:5001/process_text
+      - VTUBER_ENDPOINT_URL=http://neurosync:5001
+      - VTUBER_ENDPOINT=http://neurosync:5001
       # OpenAI fallback for Darwin-Gödel (from .env file)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=gpt-4o-mini
