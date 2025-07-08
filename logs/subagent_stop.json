@@ -1,0 +1,8 @@
+[
+  {
+    "session_id": "e7ce4dc6-4da9-46b0-8fa4-c5122d78a589",
+    "transcript_path": "/home/geo/.claude/projects/-home-geo-directories-autonomy/e7ce4dc6-4da9-46b0-8fa4-c5122d78a589.jsonl",
+    "hook_event_name": "SubagentStop",
+    "stop_hook_active": false
+  }
+]

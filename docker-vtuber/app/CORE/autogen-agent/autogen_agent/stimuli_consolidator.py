@@ -614,6 +614,7 @@ class StimuliConsolidator:
             
             payload = {
                 "text": prompt,
+                "direct_speech": True,  # Enable direct speech to trigger TTS and blendshape generation
                 "autonomous_context": {
                     "source": "stimuli_consolidator",
                     "timestamp": datetime.now().isoformat()

@@ -41,6 +41,13 @@ Development guides and feature documentation:
 - Development patterns and best practices
 - Product requirements documents
 - QA testing commands and scenarios
+- Useful prompts and development aids
+
+### `/integrations`
+Integration documentation for system components:
+- GraphFlow Stimuli System integration guide
+- External system integration points
+- Component interaction documentation
 
 ## Main Documentation Files
 
@@ -53,7 +60,8 @@ Development guides and feature documentation:
 1. **New Users**: Start with [V3 Quick Start Guide](./setup-guides/V3_QUICK_START.md)
 2. **Developers**: Review [Development Patterns](./development/DEVELOPMENT_PATTERNS.md)
 3. **API Integration**: See [API Control Reference](./api-reference/API_CONTROL_REFERENCE.md)
-4. **Troubleshooting**: Check [Troubleshooting](./troubleshooting/) directory
+4. **System Integration**: Check [GraphFlow Integration](./integrations/GRAPHFLOW_STIMULI_SYSTEM.md)
+5. **Troubleshooting**: Check [Troubleshooting](./troubleshooting/) directory
 
 ## Contributing
 
