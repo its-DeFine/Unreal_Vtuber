@@ -16,6 +16,8 @@ Key Features:
 import asyncio
 import logging
 import json
+import os
+import aiohttp
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
@@ -479,16 +481,21 @@ class StimuliConsolidator:
     def _generate_s1_prompt(self, batch: ConsolidatedBatch) -> str:
         """Generate unified prompt for S1 Avatar (speech synthesis)"""
         if len(batch.stimuli_items) == 1:
-            return f"I've received new input: {batch.stimuli_items[0].content}"
+            return batch.stimuli_items[0].content
         
-        # Multiple stimuli - create consolidated response
+        # Multiple stimuli - create consolidated response with actual content
         priority_levels = [s.priority for s in batch.stimuli_items]
         has_urgent = any(p in ["critical", "emergency", "high"] for p in priority_levels)
         
+        # Include actual stimuli content for meaningful speech
+        content_parts = []
+        for i, stimuli in enumerate(batch.stimuli_items, 1):
+            content_parts.append(f"{stimuli.content}")
+        
         if has_urgent:
-            return f"I've received {len(batch.stimuli_items)} important updates that require my attention."
+            return f"I have {len(batch.stimuli_items)} important updates: " + ". ".join(content_parts)
         else:
-            return f"I've processed {len(batch.stimuli_items)} new inputs and am ready to respond."
+            return f"I have {len(batch.stimuli_items)} messages: " + ". ".join(content_parts)
     
     def _generate_s2_prompt(self, batch: ConsolidatedBatch) -> str:
         """Generate unified prompt for S2 AutoGen team (detailed analysis)"""
@@ -572,21 +579,23 @@ class StimuliConsolidator:
         return True
     
     async def _execute_batch(self, batch: ConsolidatedBatch):
-        """Execute a consolidated batch (placeholder - will be integrated with orchestrator)"""
+        """Execute a consolidated batch by sending requests to actual systems"""
         start_time = datetime.now()
         
         try:
             logging.info("🚀 [CONSOLIDATOR] Executing batch: %s with %d stimuli", 
                         batch.batch_id, len(batch.stimuli_items))
             
-            # For now, just log the execution details
-            # This will be integrated with the orchestrator to actually process
             logging.info("   S1 Prompt: %s", batch.unified_s1_prompt[:100] if batch.unified_s1_prompt else "None")
             logging.info("   S2 Prompt: %s", batch.unified_s2_prompt[:100] if batch.unified_s2_prompt else "None")
             logging.info("   Target Systems: %s", batch.target_systems)
             
-            # Simulate processing time
-            await asyncio.sleep(0.1)
+            # Execute on target systems
+            if "s1" in batch.target_systems and batch.unified_s1_prompt:
+                await self._send_to_s1(batch.unified_s1_prompt)
+            
+            if "s2" in batch.target_systems and batch.unified_s2_prompt:
+                await self._send_to_s2(batch.unified_s2_prompt)
             
             processing_time = (datetime.now() - start_time).total_seconds()
             self.stats["total_stimuli_processed"] += len(batch.stimuli_items)
@@ -596,6 +605,41 @@ class StimuliConsolidator:
             
         except Exception as e:
             logging.error("❌ [CONSOLIDATOR] Error executing batch: %s", e)
+    
+    async def _send_to_s1(self, prompt: str):
+        """Send consolidated prompt to S1 Avatar for speech synthesis"""
+        try:
+            import aiohttp
+            s1_endpoint = os.getenv("S1_AVATAR_ENDPOINT", "http://neurosync:5001")
+            
+            payload = {
+                "text": prompt,
+                "autonomous_context": {
+                    "source": "stimuli_consolidator",
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(f"{s1_endpoint}/process_text", 
+                                      json=payload, 
+                                      timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        logging.info("✅ [CONSOLIDATOR] S1 request successful: %s", result.get("status", "unknown"))
+                    else:
+                        logging.error("❌ [CONSOLIDATOR] S1 request failed with status: %d", response.status)
+                        
+        except Exception as e:
+            logging.error("❌ [CONSOLIDATOR] Error sending to S1: %s", e)
+    
+    async def _send_to_s2(self, prompt: str):
+        """Send consolidated prompt to S2 AutoGen (placeholder for now)"""
+        try:
+            # For now, just log - S2 processing could be implemented later
+            logging.info("📝 [CONSOLIDATOR] S2 prompt would be processed: %s", prompt[:100])
+        except Exception as e:
+            logging.error("❌ [CONSOLIDATOR] Error sending to S2: %s", e)
     
     def _update_stats(self, batch: ConsolidatedBatch):
         """Update consolidation statistics"""
