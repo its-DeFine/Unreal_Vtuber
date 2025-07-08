@@ -288,4 +288,242 @@ curl -X POST http://localhost:5001/orchestrator/control -H "Content-Type: applic
 curl -X POST http://localhost:5001/process_text -H "Content-Type: application/json" -d '{"text": "What is artificial intelligence and how does it work?"}'
 ```
 
-This system provides complete control over the VTuber's speech, behavior, and environment while maintaining intelligent autonomous operation when not directly controlled. 
+This system provides complete control over the VTuber's speech, behavior, and environment while maintaining intelligent autonomous operation when not directly controlled.
+
+## 🎛️ **Admin Command Processing System**
+
+### 6. **Stimuli-Based Admin Commands**
+
+The system includes a sophisticated admin command processing architecture that differentiates between admin operations and speech content.
+
+**Endpoint:** `POST http://localhost:8200/api/stimuli/receive`
+
+#### **Silent Admin Commands (Default)**
+```bash
+# List characters silently (S2 logging only)
+curl -X POST http://localhost:8200/api/stimuli/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stimuli_id": "admin_list_001",
+    "content": "admin: list characters",
+    "source": "admin_console",
+    "priority": "high"
+  }'
+
+# Create character silently
+curl -X POST http://localhost:8200/api/stimuli/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stimuli_id": "admin_create_001",
+    "content": "admin: create character Dr. Smith teacher",
+    "source": "admin_console",
+    "priority": "high"
+  }'
+
+# Switch character silently  
+curl -X POST http://localhost:8200/api/stimuli/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stimuli_id": "admin_switch_001",
+    "content": "admin: switch character dr._smith_teacher_template",
+    "source": "admin_console",
+    "priority": "medium"
+  }'
+```
+
+#### **Announced Admin Commands (S1 + S2)**
+```bash
+# List characters with speech announcement
+curl -X POST http://localhost:8200/api/stimuli/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stimuli_id": "admin_announce_001",
+    "content": "announce: admin: list characters",
+    "source": "admin_console",
+    "priority": "high"
+  }'
+
+# Create character with speech announcement
+curl -X POST http://localhost:8200/api/stimuli/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stimuli_id": "admin_announce_002",
+    "content": "announce: admin: create character Dr. House doctor",
+    "source": "admin_console",
+    "priority": "high"
+  }'
+```
+
+#### **Available Admin Commands**
+
+**Character Management:**
+- `admin: list characters` - List all available characters
+- `admin: create character <name> <type>` - Create new character
+- `admin: switch character <name>` - Switch active character
+- `admin: info character <name>` - Get character information
+
+**Character Types:**
+- `teacher` - Educational instructor (patient, encouraging)
+- `doctor` - Medical professional (caring, precise)
+- `chef` - Culinary expert (creative, passionate)
+- `coach` - Fitness and wellness (motivating, energetic)
+- `librarian` - Information specialist (organized, helpful)
+
+### 7. **Admin Control Panel**
+
+Monitor and manage admin operations through the centralized control panel.
+
+**Endpoint:** `GET http://localhost:8200/api/admin/control-panel`
+
+#### **Check Admin Operations History**
+```bash
+# Get full control panel data
+curl -s http://localhost:8200/api/admin/control-panel | jq .
+
+# Get recent admin operations only
+curl -s http://localhost:8200/api/admin/control-panel | jq '.admin_operations.recent_history'
+
+# Get current character status
+curl -s http://localhost:8200/api/admin/control-panel | jq '.s1_characters'
+```
+
+#### **System Status Monitoring**
+```bash
+# Check stimuli processing status
+curl -s http://localhost:8200/api/stimuli/status | jq .
+
+# Monitor consolidation statistics
+curl -s http://localhost:8200/api/admin/control-panel | jq '.consolidation_stats'
+
+# Check available tools
+curl -s http://localhost:8200/api/stimuli/tools | jq .
+```
+
+### 8. **Processing Mode Control**
+
+The admin system supports different processing modes:
+
+#### **Silent Processing (Default)**
+- **Behavior**: Processed in S2 (AutoGen) only
+- **S1 Speech**: None
+- **S2 Logging**: Full operation history
+- **Format**: `admin: <command>`
+
+#### **Announced Processing**
+- **Behavior**: Processed in both S1 and S2
+- **S1 Speech**: Full TTS synthesis with blendshape generation
+- **S2 Logging**: Full operation history
+- **Format**: `announce: admin: <command>`
+
+#### **S1 + S2 Dual Processing**
+- **Behavior**: Character operations executed in S1, announced via speech, logged in S2
+- **Use Case**: Administrative changes that need user notification
+- **Format**: `announce: admin: create character <name> <type>`
+
+### 9. **Admin System Monitoring**
+
+#### **Container Log Analysis**
+```bash
+# Check S1 container for speech synthesis activity
+docker logs neurosync_s1 --tail 20 | grep -E "(🗣️|🎯|🎵)"
+
+# Check S2 container for admin processing
+docker logs autogen_agent --tail 20 | grep -E "(🔧|✅|🔇).*CONSOLIDATOR"
+
+# Monitor both containers simultaneously
+docker logs neurosync_s1 -f | grep -E "(🗣️|🎯)" &
+docker logs autogen_agent -f | grep -E "CONSOLIDATOR.*admin"
+```
+
+#### **System Health Checks**
+```bash
+# Test admin endpoint availability
+curl -f http://localhost:8200/health
+
+# Check stimuli processing capability
+curl -s http://localhost:8200/api/stimuli/status | jq '.ready_for_stimuli'
+
+# Verify S1 character management
+curl -s http://neurosync:5001/character/list | jq '.characters | length'
+```
+
+## 🎯 **Admin Command Examples**
+
+### **Example 1: Silent Character Management**
+```bash
+# Create a doctor character silently
+curl -X POST http://localhost:8200/api/stimuli/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stimuli_id": "silent_doctor_001",
+    "content": "admin: create character Dr. Wilson doctor",
+    "source": "admin_panel",
+    "priority": "high"
+  }'
+
+# Switch to the new character silently
+curl -X POST http://localhost:8200/api/stimuli/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stimuli_id": "silent_switch_001", 
+    "content": "admin: switch character dr._wilson_doctor_template",
+    "source": "admin_panel",
+    "priority": "medium"
+  }'
+```
+
+### **Example 2: Announced Character Operations**
+```bash
+# Create and announce a chef character
+curl -X POST http://localhost:8200/api/stimuli/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stimuli_id": "announce_chef_001",
+    "content": "announce: admin: create character Chef Mario chef",
+    "source": "admin_panel",
+    "priority": "high"
+  }'
+
+# List characters with speech announcement
+curl -X POST http://localhost:8200/api/stimuli/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stimuli_id": "announce_list_001",
+    "content": "announce: admin: list characters", 
+    "source": "admin_panel",
+    "priority": "high"
+  }'
+```
+
+### **Example 3: Control Panel Monitoring**
+```bash
+# Monitor admin operations in real-time
+watch -n 5 'curl -s http://localhost:8200/api/admin/control-panel | jq ".admin_operations.recent_history[-3:]"'
+
+# Check system performance
+curl -s http://localhost:8200/api/admin/control-panel | jq '{
+  total_operations: .admin_operations.total_processed,
+  recent_count: .admin_operations.history_count,
+  system_capacity: .system_capacity.overall_status,
+  pending_operations: .pending_operations
+}'
+```
+
+## 🔧 **Admin System Troubleshooting**
+
+### **Admin Commands Not Processing**
+1. Check stimuli endpoint: `curl -f http://localhost:8200/api/stimuli/status`
+2. Verify command format: Ensure `admin:` prefix is present
+3. Check autogen container logs: `docker logs autogen_agent --tail 20`
+
+### **Character Operations Failing**
+1. Verify character ID format: Use underscores and `_template` suffix
+2. Check S1 endpoint: `curl -f http://neurosync:5001/character/list`
+3. Review admin control panel for error details
+
+### **Speech Announcement Not Working**
+1. Confirm `announce:` prefix is used
+2. Check S1 container logs for TTS activity
+3. Verify S1 endpoint configuration: `S1_AVATAR_ENDPOINT=http://neurosync:5001`
+
+This comprehensive API reference provides complete control over both the VTuber system and the admin command processing architecture, enabling flexible management of characters, speech, and system operations. 
