@@ -288,33 +288,13 @@ def handle_process_text():
         if pygame.mixer.get_init():
             pygame.mixer.stop()
         
-        # Process direct speech through proper TTS pipeline
-        from utils.llm.sentence_builder import SentenceBuilder
-        from queue import Queue
-        from threading import Thread
-        
-        # Create a token queue and sentence builder for proper TTS processing
-        token_queue = Queue()
-        max_chunk_length = llm_config_global.get("max_chunk_length", 500)
-        flush_token_count = llm_config_global.get("flush_token_count", 10)
-        
-        sentence_builder = SentenceBuilder(chunk_queue, max_chunk_length, flush_token_count)
-        sb_thread = Thread(target=sentence_builder.run, args=(token_queue,))
-        sb_thread.start()
-        
-        # Send the cleaned text as tokens to trigger proper TTS processing
+        # Process direct speech through existing TTS pipeline
+        # Simply put the cleaned text directly into the chunk queue for the TTS worker
         app.logger.info(f"🎯 Processing direct speech through TTS pipeline")
         
-        # Split text into words for more natural processing
-        words = cleaned_text.split()
-        for word in words:
-            token_queue.put(word + " ")
-        
-        # Signal end of input
-        token_queue.put(None)
-        
-        # Wait for sentence builder to complete
-        sb_thread.join()
+        # Put the complete cleaned text as a single chunk for TTS processing
+        chunk_queue.put(cleaned_text)
+        app.logger.info(f"✅ Direct speech chunk queued for TTS processing: {cleaned_text[:50]}...")
         
         # Log to SCB
         from utils.scb import scb_store
