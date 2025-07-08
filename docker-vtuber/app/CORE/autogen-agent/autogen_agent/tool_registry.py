@@ -15,10 +15,10 @@ class ToolRegistry:
         self.disabled_tools: List[str] = []
         
         # 🚫 DISABLED TOOLS - Focus on core evolution system
-        # VTuber tools management updated
+        # VTuber tools disabled for pure stimuli-driven architecture
         self.disabled_tools = [
             "cognitive_vtuber_tool",      # Legacy VTuber tool - will be deprecated
-            # "advanced_vtuber_control",  # ENABLED NOW - VTuber control implemented
+            "advanced_vtuber_control",    # DISABLED - VTuber calls only via stimuli system
         ]
         
         # Get additional disabled tools from environment
