@@ -57,6 +57,15 @@ class SimpleAutonomousSpeech:
         """Start the autonomous speech generator"""
         if self.running or not self.config.enabled:
             return
+        
+        # Check environment variable for autonomous speech
+        autonomous_speech_enabled = os.getenv('AUTONOMOUS_SPEECH_ENABLED', 'true').lower() == 'true'
+        simple_speech_enabled = os.getenv('SIMPLE_SPEECH_ENABLED', 'true').lower() == 'true'
+        
+        if not autonomous_speech_enabled or not simple_speech_enabled:
+            self.logger.info("🚫 Simple Autonomous Speech: DISABLED via environment configuration")
+            self.logger.info("✅ Pure stimuli-driven architecture - S1 will only respond to external triggers")
+            return
             
         self.running = True
         self.last_speech_time = time.time()

@@ -219,11 +219,20 @@ class ReactiveStateHooks:
 def initialize_reactive_orchestrator(app, system_objects: Dict[str, Any]) -> Optional[ReactiveOrchestratorWrapper]:
     """Initialize the reactive orchestrator wrapper"""
     try:
+        # Check if autonomous orchestration is enabled
+        autonomous_enabled = os.getenv('AUTONOMOUS_ORCHESTRATION_ENABLED', 'true').lower() == 'true'
+        
+        if not autonomous_enabled:
+            logger.info("🚫 Reactive Orchestrator: DISABLED (AUTONOMOUS_ORCHESTRATION_ENABLED=false)")
+            logger.info("✅ Pure stimuli-driven architecture active - S1 will only respond to external stimuli")
+            return None
+        
         wrapper = ReactiveOrchestratorWrapper(app, system_objects)
         
         # Store in app config for access by routes
         app.config['REACTIVE_ORCHESTRATOR'] = wrapper.orchestrator
         
+        logger.info("✅ Reactive Orchestrator: ENABLED")
         return wrapper
         
     except Exception as e:

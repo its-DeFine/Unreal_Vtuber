@@ -172,8 +172,10 @@ def setup_orchestration():
             print("❌ Failed to initialize orchestrator")
             orchestrator_wrapper = None
     else:
-        print("⚠️ Autonomous Orchestration: DISABLED")
-        print("💡 Set AUTONOMOUS_ORCHESTRATION_ENABLED=true to enable")
+        print("🚫 Autonomous Orchestration: DISABLED")
+        print("✅ Pure Stimuli-Driven Architecture Active")
+        print("💡 S1 Avatar will only respond to external stimuli from S2 AutoGen system")
+        print("🎯 All intelligence and decision-making handled by S2, S1 is pure execution layer")
         orchestrator_wrapper = None
     
     print("=" * 70)
