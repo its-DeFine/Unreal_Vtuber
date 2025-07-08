@@ -17,6 +17,7 @@ Key Features:
 6. True concurrent team execution
 """
 
+import os
 import asyncio
 import logging
 import time
@@ -42,6 +43,17 @@ except ImportError as e:
     StimuliAutoGenTeam = None
 
 from .objective_bridge import get_objective_bridge, initialize_objective_bridge
+
+# Import new consolidation components
+try:
+    from .capacity_monitor import CapacityMonitor, initialize_capacity_monitor, get_capacity_monitor
+    from .stimuli_consolidator import StimuliConsolidator, initialize_consolidator, get_consolidator
+    CONSOLIDATION_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"⚠️ [STIMULI_ORCHESTRATOR] Consolidation components not available: {e}")
+    CONSOLIDATION_AVAILABLE = False
+    CapacityMonitor = None
+    StimuliConsolidator = None
 
 
 class StimuliPriority(Enum):
@@ -97,12 +109,14 @@ class StimuliResponsiveOrchestrator:
                  scb_client: SCBClient, 
                  vtuber_client: VTuberClient,
                  autonomous_loop_function,
-                 loop_interval: int = 20):
+                 loop_interval: int = 20,
+                 enable_consolidation: bool = True):
         self.tool_registry = tool_registry
         self.scb_client = scb_client
         self.vtuber_client = vtuber_client
         self.autonomous_loop_function = autonomous_loop_function
         self.loop_interval = loop_interval
+        self.enable_consolidation = enable_consolidation
         
         # State management for main autonomous team
         self.autonomous_state = AutonomousState.STOPPED
@@ -123,6 +137,11 @@ class StimuliResponsiveOrchestrator:
         
         # Agent tool bridge for legacy compatibility
         self.agent_tool_bridge = AgentToolBridge(tool_registry)
+        
+        # Initialize consolidation components
+        self.capacity_monitor: Optional[CapacityMonitor] = None
+        self.consolidator: Optional[StimuliConsolidator] = None
+        self.consolidation_enabled = False
         
         # Enhanced statistics
         self.stats = {
@@ -156,6 +175,10 @@ class StimuliResponsiveOrchestrator:
             self.stimuli_team_initialized = False
             logging.warning("⚠️ [STIMULI_ORCHESTRATOR] Stimuli team not available - using legacy mode")
         
+        # Initialize consolidation components
+        if self.enable_consolidation and CONSOLIDATION_AVAILABLE:
+            await self._initialize_consolidation()
+        
         # Start autonomous loop
         await self._start_autonomous_mode()
         
@@ -168,6 +191,10 @@ class StimuliResponsiveOrchestrator:
         """Stop the orchestrator completely"""
         logging.info("🛑 [STIMULI_ORCHESTRATOR] Stopping orchestrator...")
         
+        # Stop consolidation components
+        if self.consolidation_enabled:
+            await self._shutdown_consolidation()
+        
         await self._stop_autonomous_mode()
         self.autonomous_state = AutonomousState.STOPPED
         
@@ -176,7 +203,7 @@ class StimuliResponsiveOrchestrator:
     async def receive_stimuli(self, stimuli_data: Dict[str, Any]) -> StimuliResponse:
         """
         Main entry point for receiving stimuli from GraphFlow.
-        This method pauses autonomous operations, processes the stimuli, and resumes.
+        Routes through consolidation system if enabled, otherwise processes directly.
         """
         start_time = time.time()
         
@@ -196,25 +223,13 @@ class StimuliResponsiveOrchestrator:
                     f"(priority: {stimuli_request.priority.value})")
         
         try:
-            # Pause autonomous operations for critical/emergency stimuli
-            if stimuli_request.priority in [StimuliPriority.CRITICAL, StimuliPriority.EMERGENCY]:
-                await self._pause_autonomous_mode()
-                logging.info(f"⏸️ [STIMULI_ORCHESTRATOR] Paused autonomous mode for {stimuli_request.priority.value} stimuli")
-            
-            # Process the stimuli
-            response = await self._process_stimuli(stimuli_request)
-            
-            # Resume autonomous operations if they were paused
-            if stimuli_request.priority in [StimuliPriority.CRITICAL, StimuliPriority.EMERGENCY]:
-                await self._resume_autonomous_mode()
-                logging.info("▶️ [STIMULI_ORCHESTRATOR] Resumed autonomous mode")
-            
-            # Update statistics
-            processing_time = time.time() - start_time
-            self._update_stats(response, processing_time)
-            
-            return response
-            
+            # Route through consolidation if enabled and available
+            if self.consolidation_enabled and self.consolidator:
+                return await self._process_stimuli_with_consolidation(stimuli_request, stimuli_data)
+            else:
+                # Use legacy direct processing
+                return await self._process_stimuli_direct(stimuli_request)
+                
         except Exception as e:
             logging.error(f"❌ [STIMULI_ORCHESTRATOR] Error processing stimuli {stimuli_request.stimuli_id}: {e}")
             
@@ -230,14 +245,19 @@ class StimuliResponsiveOrchestrator:
                 error_message=str(e)
             )
     
-    async def _process_stimuli(self, stimuli_request: StimuliRequest) -> StimuliResponse:
-        """Process individual stimuli using the dedicated AutoGen team and unified action executor"""
+    async def _process_stimuli_direct(self, stimuli_request: StimuliRequest) -> StimuliResponse:
+        """Process individual stimuli directly (legacy mode without consolidation)"""
         start_time = time.time()
         self.current_stimuli = stimuli_request
         
-        logging.info(f"🔄 [STIMULI_ORCHESTRATOR] Processing stimuli with AutoGen team: {stimuli_request.content[:100]}...")
+        logging.info(f"🔄 [STIMULI_ORCHESTRATOR] Processing stimuli directly: {stimuli_request.content[:100]}...")
         
         try:
+            # Pause autonomous operations for critical/emergency stimuli
+            if stimuli_request.priority in [StimuliPriority.CRITICAL, StimuliPriority.EMERGENCY]:
+                await self._pause_autonomous_mode()
+                logging.info(f"⏸️ [STIMULI_ORCHESTRATOR] Paused autonomous mode for {stimuli_request.priority.value} stimuli")
+            
             # Use stimuli-specific AutoGen team if available
             if self.stimuli_team_initialized:
                 team_decision = await self._process_stimuli_with_autogen_team(stimuli_request)
@@ -245,7 +265,7 @@ class StimuliResponsiveOrchestrator:
                 # Execute unified action based on team decision
                 action_result = await self._execute_unified_action(team_decision, stimuli_request)
                 
-                return StimuliResponse(
+                result = StimuliResponse(
                     stimuli_id=stimuli_request.stimuli_id,
                     success=action_result.get("success", False),
                     processing_time=time.time() - start_time,
@@ -255,10 +275,22 @@ class StimuliResponsiveOrchestrator:
                 )
             else:
                 # Fallback to legacy tool selection
-                return await self._process_stimuli_legacy(stimuli_request)
+                result = await self._process_stimuli_legacy(stimuli_request)
+            
+            # Resume autonomous operations if they were paused
+            if stimuli_request.priority in [StimuliPriority.CRITICAL, StimuliPriority.EMERGENCY]:
+                await self._resume_autonomous_mode()
+                logging.info("▶️ [STIMULI_ORCHESTRATOR] Resumed autonomous mode")
+            
+            return result
                 
         except Exception as e:
             logging.error(f"❌ [STIMULI_ORCHESTRATOR] Error processing stimuli: {e}")
+            
+            # Ensure autonomous mode is resumed even on error
+            if self.autonomous_state == AutonomousState.PAUSED:
+                await self._resume_autonomous_mode()
+            
             return StimuliResponse(
                 stimuli_id=stimuli_request.stimuli_id,
                 success=False,
@@ -266,6 +298,44 @@ class StimuliResponsiveOrchestrator:
                 tools_triggered=[],
                 error_message=str(e)
             )
+    
+    async def _process_stimuli_with_consolidation(self, stimuli_request: StimuliRequest, stimuli_data: Dict[str, Any]) -> StimuliResponse:
+        """Process stimuli through the consolidation system"""
+        start_time = time.time()
+        
+        try:
+            logging.info(f"🔗 [STIMULI_ORCHESTRATOR] Processing stimuli with consolidation: {stimuli_request.stimuli_id}")
+            
+            # Register S2 discussion with capacity monitor if this goes to S2
+            if self.capacity_monitor:
+                discussion_id = f"stimuli_{stimuli_request.stimuli_id}"
+                self.capacity_monitor.register_s2_discussion_start(discussion_id)
+            
+            # Add stimuli to consolidator
+            stimuli_id = await self.consolidator.add_stimuli(stimuli_data)
+            
+            # For now, return a success response - the consolidator will handle actual processing
+            # In the future, this could wait for batch completion or return immediately
+            return StimuliResponse(
+                stimuli_id=stimuli_request.stimuli_id,
+                success=True,
+                processing_time=time.time() - start_time,
+                tools_triggered=["consolidation_system"],
+                agent_decision="Stimuli added to consolidation queue for intelligent batching",
+                response_content=f"Stimuli {stimuli_id} queued for consolidation processing"
+            )
+            
+        except Exception as e:
+            logging.error(f"❌ [STIMULI_ORCHESTRATOR] Error in consolidation processing: {e}")
+            # Fallback to direct processing
+            logging.info("⚡ [STIMULI_ORCHESTRATOR] Falling back to direct processing")
+            return await self._process_stimuli_direct(stimuli_request)
+        
+        finally:
+            # Clean up S2 discussion tracking
+            if self.capacity_monitor:
+                discussion_id = f"stimuli_{stimuli_request.stimuli_id}"
+                self.capacity_monitor.register_s2_discussion_end(discussion_id)
     
     async def _process_stimuli_with_autogen_team(self, stimuli_request: StimuliRequest) -> Dict[str, Any]:
         """Process stimuli using the dedicated AutoGen team"""
@@ -598,8 +668,56 @@ class StimuliResponsiveOrchestrator:
             (current_avg * (total_processed - 1) + processing_time) / total_processed
         )
     
+    async def _initialize_consolidation(self):
+        """Initialize consolidation components"""
+        try:
+            # Initialize capacity monitor
+            s1_endpoint = os.getenv("S1_AVATAR_ENDPOINT", "http://neurosync:5001")
+            self.capacity_monitor = initialize_capacity_monitor(
+                s1_endpoint=s1_endpoint,
+                s1_temp_dir="/tmp",
+                s2_max_concurrent=1,
+                monitoring_interval=2.0
+            )
+            
+            # Start capacity monitoring
+            await self.capacity_monitor.start_monitoring()
+            
+            # Initialize consolidator
+            self.consolidator = initialize_consolidator(
+                capacity_monitor=self.capacity_monitor,
+                max_batch_size=3,
+                batch_timeout=3.0,
+                similarity_threshold=0.7
+            )
+            
+            # Start consolidation processing
+            await self.consolidator.start_processing()
+            
+            self.consolidation_enabled = True
+            logging.info("✅ [STIMULI_ORCHESTRATOR] Consolidation system initialized")
+            
+        except Exception as e:
+            logging.error("❌ [STIMULI_ORCHESTRATOR] Failed to initialize consolidation: %s", e)
+            self.consolidation_enabled = False
+    
+    async def _shutdown_consolidation(self):
+        """Shutdown consolidation components"""
+        try:
+            if self.consolidator:
+                await self.consolidator.stop_processing()
+            
+            if self.capacity_monitor:
+                await self.capacity_monitor.stop_monitoring()
+            
+            self.consolidation_enabled = False
+            logging.info("✅ [STIMULI_ORCHESTRATOR] Consolidation system shutdown")
+            
+        except Exception as e:
+            logging.error("❌ [STIMULI_ORCHESTRATOR] Error shutting down consolidation: %s", e)
+    
     def get_status(self) -> Dict[str, Any]:
-        """Get comprehensive orchestrator status including dual-team architecture"""
+        """Get comprehensive orchestrator status including consolidation architecture"""
         status = {
             "autonomous_state": self.autonomous_state.value,
             "current_stimuli": self.current_stimuli.stimuli_id if self.current_stimuli else None,
@@ -613,10 +731,17 @@ class StimuliResponsiveOrchestrator:
                 "initialized": bool(self.objective_bridge),
                 "summary": self.objective_bridge.get_objectives_summary() if self.objective_bridge else None
             },
-            "dual_team_architecture": {
+            "consolidation": {
+                "enabled": self.consolidation_enabled,
+                "capacity_monitor": self.capacity_monitor.get_combined_capacity() if self.capacity_monitor else None,
+                "consolidator_status": self.consolidator.get_status() if self.consolidator else None
+            },
+            "architecture": {
                 "main_team": "autonomous_operations",
-                "stimuli_team": "dedicated_stimuli_analysis",
+                "stimuli_team": "dedicated_stimuli_analysis", 
                 "action_executor": "unified_stimuli_action_executor",
+                "consolidation_system": "intelligent_batching" if self.consolidation_enabled else "disabled",
+                "capacity_monitoring": "active" if self.consolidation_enabled else "disabled",
                 "concurrent_execution": True
             }
         }
