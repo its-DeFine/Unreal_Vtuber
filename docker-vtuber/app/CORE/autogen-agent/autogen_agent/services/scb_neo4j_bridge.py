@@ -14,6 +14,7 @@ from .neo4j_semantic_storage import (
     SemanticNode,
     get_neo4j_storage
 )
+from .stimuli_graph_connector import get_stimuli_connector
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +25,58 @@ class SCBNeo4jBridge:
     def __init__(self):
         """Initialize the bridge"""
         self.storage = get_neo4j_storage()
+        self.stimuli_connector = get_stimuli_connector()
         self.buffer = {context: [] for context in SemanticContext}
         self.processing_active = True
+        self.current_stimuli_id = None  # Track current stimuli context
         logger.info("🌉 [SCB_NEO4J_BRIDGE] Initialized bridge service")
+    
+    def _extract_agent_info(self, scb_state: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract agent information from SCB state"""
+        agent_info = {
+            "initiating_agent": scb_state.get("agent", "unknown"),
+            "agent_category": "system",  # default
+            "agent_team": None,
+            "action_chain": []
+        }
+        
+        # Determine agent category
+        agent_name = agent_info["initiating_agent"].lower()
+        
+        if "s1" in agent_name or agent_name == "avatar":
+            agent_info["agent_category"] = "s1_agent"
+            # S1 agents should not write to graph - will be filtered
+            return agent_info
+            
+        elif any(s2 in agent_name for s2 in ["s2", "analyst", "trader", "programmer"]):
+            agent_info["agent_category"] = "s2_team"
+            agent_info["agent_team"] = "main_autonomous"
+            
+        elif any(char in agent_name for char in ["weatherman", "chef", "fitness", "medical", "librarian"]):
+            agent_info["agent_category"] = "character_agent"
+            agent_info["agent_team"] = f"character_{agent_name}"
+            
+        # Track action chain
+        if "action_chain" in scb_state:
+            agent_info["action_chain"] = scb_state["action_chain"]
+        elif "previous_agent" in scb_state:
+            agent_info["action_chain"] = [scb_state["previous_agent"], agent_info["initiating_agent"]]
+        
+        return agent_info
     
     async def transform_scb_state(self, scb_state: Dict[str, Any]) -> List[SemanticNode]:
         """Transform SCB state into semantic nodes"""
         nodes = []
         
         try:
+            # Extract agent information
+            agent_info = self._extract_agent_info(scb_state)
+            
+            # BLOCK S1 agents from writing to graph
+            if agent_info["agent_category"] == "s1_agent":
+                logger.info("🚫 [SCB_NEO4J_BRIDGE] S1 agent detected - skipping graph write")
+                return []
+            
             # Extract timestamp
             timestamp = scb_state.get("timestamp", datetime.now().timestamp())
             
@@ -58,7 +102,8 @@ class SCBNeo4jBridge:
                         "success": success,
                         "result": tool_result,
                         "timestamp": timestamp
-                    }
+                    },
+                    **agent_info  # Unpack agent tracking info
                 )
                 if node:
                     nodes.append(node)
@@ -79,7 +124,8 @@ class SCBNeo4jBridge:
                             "to": "s1",
                             "priority": response.get("priority", "normal"),
                             "timestamp": timestamp
-                        }
+                        },
+                        **agent_info
                     )
                     if node:
                         nodes.append(node)
@@ -87,17 +133,8 @@ class SCBNeo4jBridge:
                 # S1 to S2 feedback
                 elif "s1_to_s2" in agent or agent == "s1_to_s2":
                     message = response.get("message", "")
-                    node = await self.storage.add_semantic_node(
-                        content=message,
-                        context=SemanticContext.S1_TO_S2,
-                        node_type="feedback",
-                        metadata={
-                            "from": "s1",
-                            "to": "s2",
-                            "status": response.get("status", "unknown"),
-                            "timestamp": timestamp
-                        }
-                    )
+                    # Skip S1 feedback nodes - S1 can't write to graph
+                    logger.debug("🚫 [SCB_NEO4J_BRIDGE] Skipping S1 feedback - S1 can't write to graph")
                     if node:
                         nodes.append(node)
                 
@@ -112,7 +149,8 @@ class SCBNeo4jBridge:
                             "agent": agent,
                             "reasoning": response.get("reasoning", ""),
                             "timestamp": timestamp
-                        }
+                        },
+                        **agent_info
                     )
                     if node:
                         nodes.append(node)
@@ -133,10 +171,22 @@ class SCBNeo4jBridge:
                         "routing": scb_state.get("routing", {}),
                         "priority": scb_state.get("priority", "normal"),
                         "timestamp": timestamp
-                    }
+                    },
+                    **agent_info
                 )
                 if node:
                     nodes.append(node)
+                    # Register this stimuli as a root node
+                    await self.stimuli_connector.register_stimuli(
+                        stimuli_id=stimuli_id,
+                        stimuli_node_id=node.id,
+                        metadata={
+                            "content": content,
+                            "decision": decision,
+                            "routing": scb_state.get("routing", {})
+                        }
+                    )
+                    self.current_stimuli_id = stimuli_id
             
             # 4. Trading and finance
             if "trade" in scb_state or "portfolio" in scb_state:
@@ -152,7 +202,8 @@ class SCBNeo4jBridge:
                             "trade": trade_info,
                             "portfolio": portfolio,
                             "timestamp": timestamp
-                        }
+                        },
+                        **agent_info
                     )
                     if node:
                         nodes.append(node)
@@ -168,7 +219,8 @@ class SCBNeo4jBridge:
                         "error": error,
                         "success": False,
                         "timestamp": timestamp
-                    }
+                    },
+                    **agent_info
                 )
                 if node:
                     nodes.append(node)
@@ -197,6 +249,30 @@ class SCBNeo4jBridge:
                             rel_type="PRODUCED",
                             properties={"confidence": 0.8}
                         )
+            
+            # Connect all nodes to current stimuli if one is active
+            if self.current_stimuli_id and nodes:
+                # Check if this is part of current stimuli flow
+                if "stimuli_id" in scb_state and scb_state["stimuli_id"] == self.current_stimuli_id:
+                    # This is the stimuli itself, skip
+                    pass
+                else:
+                    # Connect all nodes to the active stimuli
+                    for node in nodes:
+                        if node.node_type != "stimuli":  # Don't connect stimuli to itself
+                            await self.stimuli_connector.connect_to_stimuli(
+                                stimuli_id=self.current_stimuli_id,
+                                node_id=node.id,
+                                relationship_type="TRIGGERED_BY"
+                            )
+            
+            # Check if stimuli is being completed
+            if "stimuli_complete" in scb_state and self.current_stimuli_id:
+                await self.stimuli_connector.complete_stimuli(
+                    self.current_stimuli_id,
+                    final_status=scb_state.get("stimuli_status", "completed")
+                )
+                self.current_stimuli_id = None
             
             logger.info(f"✅ [SCB_NEO4J_BRIDGE] Transformed SCB state into {len(nodes)} nodes")
             

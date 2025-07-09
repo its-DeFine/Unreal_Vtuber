@@ -41,11 +41,19 @@ class SemanticNode:
     timestamp: float
     metadata: Dict[str, Any]
     embedding: Optional[List[float]] = None
+    # Agent tracking fields
+    initiating_agent: Optional[str] = None
+    agent_category: Optional[str] = None  # s1_agent, s2_team, character_agent, system
+    agent_team: Optional[str] = None  # main_autonomous, character_weatherman, etc.
+    action_chain: Optional[List[str]] = None  # Track agent chain of actions
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for Neo4j"""
         data = asdict(self)
         data['context'] = self.context.value
+        # Convert action_chain list to JSON string for Neo4j storage
+        if data.get('action_chain'):
+            data['action_chain'] = json.dumps(data['action_chain'])
         return data
 
 
@@ -102,7 +110,7 @@ class Neo4jSemanticStorage:
             logger.error(f"❌ [NEO4J] Connection failed: {e}")
             return False
     
-    def close(self):
+    async def close(self):
         """Close Neo4j connections"""
         if self.driver:
             self.driver.close()
@@ -124,7 +132,11 @@ class Neo4jSemanticStorage:
         content: str, 
         context: SemanticContext,
         node_type: str,
-        metadata: Dict[str, Any] = None
+        metadata: Dict[str, Any] = None,
+        initiating_agent: str = None,
+        agent_category: str = None,
+        agent_team: str = None,
+        action_chain: List[str] = None
     ) -> Optional[SemanticNode]:
         """Add a semantic node to the graph"""
         try:
@@ -134,7 +146,7 @@ class Neo4jSemanticStorage:
                 logger.debug(f"🔄 [NEO4J] Skipping duplicate node: {node_id}")
                 return None
             
-            # Create node
+            # Create node with agent tracking
             node = SemanticNode(
                 id=node_id,
                 content=content,
@@ -142,7 +154,11 @@ class Neo4jSemanticStorage:
                 node_type=node_type,
                 timestamp=datetime.now().timestamp(),
                 metadata=metadata or {},
-                embedding=self._compute_embedding(content)
+                embedding=self._compute_embedding(content),
+                initiating_agent=initiating_agent,
+                agent_category=agent_category,
+                agent_team=agent_team,
+                action_chain=action_chain or []
             )
             
             # Store in Neo4j
@@ -155,7 +171,11 @@ class Neo4jSemanticStorage:
                         node_type: $node_type,
                         timestamp: $timestamp,
                         metadata: $metadata,
-                        embedding: $embedding
+                        embedding: $embedding,
+                        initiating_agent: $initiating_agent,
+                        agent_category: $agent_category,
+                        agent_team: $agent_team,
+                        action_chain: $action_chain
                     })
                     RETURN n
                 """
@@ -168,7 +188,11 @@ class Neo4jSemanticStorage:
                     node_type=node.node_type,
                     timestamp=node.timestamp,
                     metadata=json.dumps(node.metadata),
-                    embedding=node.embedding
+                    embedding=node.embedding,
+                    initiating_agent=node.initiating_agent,
+                    agent_category=node.agent_category,
+                    agent_team=node.agent_team,
+                    action_chain=json.dumps(node.action_chain) if node.action_chain else "[]"
                 )
                 
                 self.processed_hashes.add(node_id)

@@ -454,6 +454,132 @@ async def add_semantic_entry(request: dict):
         logging.error(f"❌ [API] Add semantic entry error: {e}")
         return {"error": str(e)}, 500
 
+@app.post("/api/semantic-map/query")
+async def query_semantic_graph_api(request: dict):
+    """Query the semantic graph using the agent tool"""
+    try:
+        from .tools.semantic_graph_query_tool import query_semantic_graph
+        
+        # Add requesting agent from API context if not provided
+        if "requesting_agent" not in request:
+            # Default to system for API calls
+            request["requesting_agent"] = request.get("agent", "system_api")
+        
+        # Execute the query with access control
+        result = await query_semantic_graph(**request)
+        
+        return result
+    except Exception as e:
+        logging.error(f"❌ [API] Semantic query error: {e}")
+        return {"error": str(e)}, 500
+
+@app.get("/api/semantic-map/query/examples")
+async def get_query_examples():
+    """Get example queries for the semantic graph"""
+    return {
+        "examples": [
+            {
+                "name": "Full-text search",
+                "description": "Search for content containing specific text",
+                "request": {
+                    "query_type": "search",
+                    "query": "Bitcoin",
+                    "context": "trading_finance",
+                    "limit": 5
+                }
+            },
+            {
+                "name": "Pattern matching",
+                "description": "Find relationships matching a pattern",
+                "request": {
+                    "query_type": "pattern",
+                    "query": "tool:* -> communication",
+                    "limit": 5
+                }
+            },
+            {
+                "name": "Temporal query",
+                "description": "Find nodes within a time range",
+                "request": {
+                    "query_type": "temporal",
+                    "query": "trade",
+                    "time_range": {"hours": 24},
+                    "context": "trading_finance",
+                    "limit": 10
+                }
+            },
+            {
+                "name": "Context analysis",
+                "description": "Analyze a specific semantic context",
+                "request": {
+                    "query_type": "context",
+                    "context": "s2_to_s1_messages",
+                    "limit": 10
+                }
+            },
+            {
+                "name": "Relationship exploration",
+                "description": "Explore relationships for a node",
+                "request": {
+                    "query_type": "relationships",
+                    "query": "node_id_here",
+                    "limit": 10
+                }
+            }
+        ],
+        "pattern_syntax": {
+            "tool:*": "Any tool execution",
+            "s2:*": "Any S2 agent node",
+            "s1:*": "Any S1 agent node",
+            "error": "Error nodes",
+            "*": "Any node",
+            "->": "Relationship direction"
+        }
+    }
+
+@app.get("/api/semantic-map/consolidation/status")
+async def get_consolidation_status():
+    """Get graph consolidation service status"""
+    try:
+        from .services.graph_consolidation_service import get_consolidation_service
+        
+        service = get_consolidation_service()
+        status = await service.get_consolidation_status()
+        
+        return status
+    except Exception as e:
+        logging.error(f"❌ [API] Consolidation status error: {e}")
+        return {"error": str(e)}, 500
+
+@app.post("/api/semantic-map/consolidation/trigger")
+async def trigger_consolidation(request: dict = {}):
+    """Manually trigger graph consolidation"""
+    try:
+        from .services.graph_consolidation_service import consolidate_now
+        
+        # Only allow system/admin agents to trigger consolidation
+        requesting_agent = request.get("requesting_agent", "").lower()
+        if requesting_agent and "admin" not in requesting_agent and requesting_agent != "system":
+            return {"error": "Only admin agents can trigger consolidation"}, 403
+        
+        # Get date to consolidate (default: yesterday)
+        date_str = request.get("date")
+        if date_str:
+            date = datetime.fromisoformat(date_str)
+        else:
+            date = None
+        
+        # Run consolidation asynchronously
+        asyncio.create_task(consolidate_now(date))
+        
+        return {
+            "success": True,
+            "message": f"Consolidation triggered for {date.date() if date else 'yesterday'}"
+        }
+    except Exception as e:
+        logging.error(f"❌ [API] Consolidation trigger error: {e}")
+        return {"error": str(e)}, 500
+
 @app.get("/semantic-viewer")
 async def semantic_viewer():
     """Serve the semantic graph viewer HTML"""
@@ -1566,6 +1692,18 @@ async def startup_event():
         from .services.graph_export_neo4j import get_graph_export_service
         global_graph_export_service = get_graph_export_service()
         logging.info("✅ [STARTUP] Neo4j graph export service initialized")
+        
+        # Start consolidation service
+        from .services.graph_consolidation_service import get_consolidation_service
+        consolidation_service = get_consolidation_service(consolidation_hour=2)  # 2 AM daily
+        asyncio.create_task(consolidation_service.start())
+        logging.info("✅ [STARTUP] Graph consolidation service started (2 AM daily)")
+        
+        # Start stimuli connector service
+        from .services.stimuli_graph_connector import get_stimuli_connector
+        stimuli_connector = get_stimuli_connector()
+        asyncio.create_task(stimuli_connector.start())
+        logging.info("✅ [STARTUP] Stimuli graph connector started")
             
     except Exception as e:
         logging.error(f"❌ [STARTUP] Semantic map services error: {e}")
