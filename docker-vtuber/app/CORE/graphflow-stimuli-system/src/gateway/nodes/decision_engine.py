@@ -35,6 +35,16 @@ class DecisionRule:
     def _compile_condition(self) -> Optional[Callable]:
         """Compile string condition to callable function."""
         try:
+            # If condition is already a callable function, return it
+            if callable(self.condition):
+                return self.condition
+            
+            # If condition is not a string, convert it to string
+            if not isinstance(self.condition, str):
+                logger = get_structured_logger("decision_engine")
+                logger.warning(f"Condition for rule {self.id} is not a string or callable: {type(self.condition)}")
+                return None
+                
             # Replace condition syntax with Python syntax
             condition = self.condition
             condition = condition.replace(" == ", " == ")
@@ -86,8 +96,24 @@ class DecisionRule:
         """Evaluate the rule against given context."""
         if self.compiled_condition:
             try:
-                return self.compiled_condition(context)
-            except Exception:
+                # If the compiled condition is a function from DecisionFlowManager,
+                # it expects a stimuli object, not a context dict
+                if hasattr(context, 'source'):
+                    # This is a stimuli object
+                    return self.compiled_condition(context)
+                else:
+                    # This is a context dict - convert to have attributes
+                    class StimuliContext:
+                        def __init__(self, context_dict):
+                            for key, value in context_dict.items():
+                                setattr(self, key, value)
+                    
+                    stimuli_context = StimuliContext(context)
+                    return self.compiled_condition(stimuli_context)
+                    
+            except Exception as e:
+                logger = get_structured_logger("decision_engine")
+                logger.debug(f"Rule {self.id} evaluation failed: {e}")
                 return False
         return False
 

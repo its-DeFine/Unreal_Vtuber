@@ -281,6 +281,12 @@ class DecisionFlowManager:
                     f"Loaded {len(custom_rules)} custom decision rules"
                 )
                 
+                # Debug: Log custom rules details
+                for rule in custom_rules:
+                    self.logger.info(
+                        f"Custom rule loaded: {rule.name} - {rule.condition} -> {rule.decision.value} (priority: {rule.priority})"
+                    )
+                
             except Exception as e:
                 self.logger.warning(
                     "Failed to load custom rules",

@@ -79,6 +79,14 @@ class DecisionRouterNode:
             
             self.decision_engine.load_rules(rules_config)
             
+            # Debug: Log loaded rules
+            total_rules = sum(len(category_rules) for category_rules in rules_config.values())
+            self.logger.info(f"Router node loaded {total_rules} rules from {len(rules_config)} categories")
+            for category, category_rules in rules_config.items():
+                self.logger.info(f"Category {category}: {len(category_rules)} rules")
+                for rule in category_rules:
+                    self.logger.info(f"  Rule: {rule.get('condition', 'N/A')} -> {rule.get('decision', 'N/A')}")
+            
             # Load ML model if configured
             if self.config.use_ml_routing and self.config.ml_model_path:
                 # In production, would load ML model here

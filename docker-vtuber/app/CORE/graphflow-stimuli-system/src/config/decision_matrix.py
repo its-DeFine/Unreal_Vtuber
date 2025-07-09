@@ -398,11 +398,15 @@ class DecisionRulesConfig:
         # Evaluate rules in order of category priority
         category_order = [
             "emergency_rules",
+            "custom_business_rules",  # High priority custom rules
             "system_state_rules",
+            "custom_content_rules",   # Content-specific custom rules
             "category_rules",
             "resource_rules",
             "user_context_rules",
             "environmental_rules",
+            "custom_time_based_rules",  # Time-based custom rules
+            "custom_rules",           # Generic custom rules
             "default_rules"
         ]
         
