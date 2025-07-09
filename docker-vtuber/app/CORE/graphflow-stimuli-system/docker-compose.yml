@@ -18,8 +18,8 @@ services:
       - GRAPHFLOW_LLM_ENDPOINT=http://host.docker.internal:11434
       
       # Integration with existing systems
-      - SYSTEM1_VTUBER_ENDPOINT=http://host.docker.internal:5001
-      - SYSTEM2_AUTOGEN_ENDPOINT=http://host.docker.internal:8200
+      - SYSTEM1_VTUBER_ENDPOINT=http://neurosync_s1:5001
+      - SYSTEM2_AUTOGEN_ENDPOINT=http://autogen_agent:8000
       
       # Database connections
       - REDIS_URL=redis://redis:6379
@@ -49,6 +49,7 @@ services:
     networks:
       - graphflow-network
       - default
+      - scb_bridge_net
 
   # Redis for state management and caching
   redis:
@@ -146,6 +147,9 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/16
+  scb_bridge_net:
+    external: true
+    name: docker-vtuber_scb_bridge_net
 
 # Development override file usage:
 # docker-compose -f docker-compose.yml -f docker-compose.dev.yml up 

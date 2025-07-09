@@ -5,6 +5,18 @@
       "name": "test_client",
       "permissions": ["read", "write"],
       "rate_limit": 100
+    },
+    {
+      "key": "test_api_key_123",
+      "name": "docker_test_client",
+      "permissions": ["read", "write", "admin"],
+      "rate_limit": 1000
+    },
+    {
+      "key": "admin_api_key_789",
+      "name": "admin_client",
+      "permissions": ["read", "write", "admin", "delete"],
+      "rate_limit": 5000
     }
   ]
 }
