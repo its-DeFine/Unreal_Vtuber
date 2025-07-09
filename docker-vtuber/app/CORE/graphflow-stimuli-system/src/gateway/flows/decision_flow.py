@@ -218,31 +218,61 @@ class DecisionFlowManager:
         """Load custom decision rules if configured."""
         if self.config.router.custom_rules_path:
             try:
-                # In a real implementation, this would load from file
-                # For now, we add some example custom rules
-                custom_rules = [
-                    DecisionRule(
-                        name="high_priority_admin",
-                        condition=lambda s: (
-                            s.category == "DIRECT_ADMIN" and 
-                            s.priority.value in ["high", "critical"]
+                # Load custom rules from JSON file
+                import json
+                import os
+                
+                if os.path.exists(self.config.router.custom_rules_path):
+                    with open(self.config.router.custom_rules_path, 'r') as f:
+                        custom_rules_data = json.load(f)
+                    
+                    custom_rules = []
+                    
+                    # Process each category of rules
+                    for category_name, rules_list in custom_rules_data.items():
+                        for rule_data in rules_list:
+                            if rule_data.get('enabled', True):
+                                # Convert condition string to executable function
+                                condition_str = rule_data['condition']
+                                condition_func = self._compile_condition(condition_str)
+                                
+                                # Convert decision string to enum
+                                decision_str = rule_data['decision']
+                                decision_enum = getattr(ProcessingDecision, decision_str, ProcessingDecision.ANALYSIS_ONLY)
+                                
+                                rule = DecisionRule(
+                                    name=rule_data['id'],
+                                    condition=condition_func,
+                                    decision=decision_enum,
+                                    priority=rule_data.get('priority', 50),
+                                    reasoning=rule_data.get('description', f"Custom rule: {rule_data['id']}")
+                                )
+                                custom_rules.append(rule)
+                else:
+                    # Fallback to example rules
+                    custom_rules = [
+                        DecisionRule(
+                            name="high_priority_admin",
+                            condition=lambda s: (
+                                s.category == "DIRECT_ADMIN" and 
+                                s.priority.value in ["high", "critical"]
+                            ),
+                            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+                            priority=95,
+                            reasoning="High priority admin command requires immediate avatar response"
                         ),
-                        decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
-                        priority=95,
-                        reasoning="High priority admin command requires immediate avatar response"
-                    ),
-                    DecisionRule(
-                        name="system_notification_idle",
-                        condition=lambda s: (
-                            s.category == "SYSTEM_NOTIFICATION" and
-                            s.system_state_analysis and
-                            s.system_state_analysis.is_idle
-                        ),
-                        decision=ProcessingDecision.ANALYSIS_ONLY,
-                        priority=85,
-                        reasoning="System notifications during idle state only need analysis"
-                    )
-                ]
+                        DecisionRule(
+                            name="system_notification_idle",
+                            condition=lambda s: (
+                                s.category == "SYSTEM_NOTIFICATION" and
+                                s.system_state_analysis and
+                                s.system_state_analysis.is_idle
+                            ),
+                            decision=ProcessingDecision.ANALYSIS_ONLY,
+                            priority=85,
+                            reasoning="System notifications during idle state only need analysis"
+                        )
+                    ]
                 
                 for rule in custom_rules:
                     self.decision_matrix.add_custom_rule(rule)
@@ -256,6 +286,54 @@ class DecisionFlowManager:
                     "Failed to load custom rules",
                     error=str(e)
                 )
+    
+    def _compile_condition(self, condition_str: str):
+        """Compile a condition string into a callable function."""
+        def condition_func(s):
+            try:
+                # Create a safe evaluation environment
+                eval_env = {
+                    'source': s.source,
+                    'category': s.category,
+                    'priority': s.priority,
+                    'metadata': s.metadata if hasattr(s, 'metadata') else {},
+                    'system_state_analysis': getattr(s, 'system_state_analysis', None),
+                    'user_context_analysis': getattr(s, 'user_context_analysis', None),
+                    'environmental_analysis': getattr(s, 'environmental_analysis', None),
+                    'resource_analysis': getattr(s, 'resource_analysis', None),
+                    'processing_context': getattr(s, 'processing_context', None),
+                    'contains': lambda text, substring: substring in text,
+                    'get': lambda d, k, default=None: d.get(k, default) if hasattr(d, 'get') else default
+                }
+                
+                # Debug logging for E2E test rule
+                if 'e2e_test' in condition_str:
+                    self.logger.info(
+                        f"Evaluating E2E test condition: {condition_str}",
+                        source=s.source,
+                        metadata=s.metadata,
+                        eval_env_source=eval_env.get('source'),
+                        eval_env_metadata=eval_env.get('metadata')
+                    )
+                
+                # Evaluate the condition
+                result = eval(condition_str, {"__builtins__": {}}, eval_env)
+                
+                # Debug logging for E2E test rule results
+                if 'e2e_test' in condition_str:
+                    self.logger.info(
+                        f"E2E test condition result: {result}",
+                        condition=condition_str,
+                        stimuli_source=s.source,
+                        stimuli_metadata=s.metadata
+                    )
+                
+                return bool(result)
+            except Exception as e:
+                self.logger.warning(f"Failed to evaluate condition '{condition_str}': {e}")
+                return False
+        
+        return condition_func
     
     async def _check_decision_cache(
         self, 

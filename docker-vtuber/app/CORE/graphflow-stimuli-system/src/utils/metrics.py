@@ -435,6 +435,39 @@ class MetricsCollector:
             
             request_key = f"{method}_{endpoint}_{status_code}"
             self._http_requests[request_key] += 1
+    
+    def get_all_metrics(self) -> Dict[str, Any]:
+        """
+        Get all metrics as a dictionary.
+        
+        Returns:
+            Dictionary containing all metric values
+        """
+        with self._metrics_lock:
+            # Calculate average processing time
+            if self._processing_times:
+                avg_processing_time = sum(
+                    pt['duration'] for pt in self._processing_times
+                ) / len(self._processing_times)
+            else:
+                avg_processing_time = 0.0
+            
+            return {
+                "processing_metrics": {
+                    "avg_processing_time": avg_processing_time,
+                    "total_processed": len(self._processing_times),
+                    "decision_counts": dict(self._decision_counts),
+                    "error_counts": dict(self._error_counts),
+                    "category_counts": dict(self._category_counts)
+                },
+                "rule_metrics": {
+                    "rule_hits": dict(getattr(self, '_rule_hits', {})),
+                    "rule_category_hits": dict(getattr(self, '_rule_category_hits', {}))
+                },
+                "http_metrics": {
+                    "http_requests": dict(getattr(self, '_http_requests', {}))
+                }
+            }
 
 
 # Context manager for timing operations
