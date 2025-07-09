@@ -130,5 +130,81 @@
     {
         "input": "Hello! This is S1 Avatar speaking directly to test the semantic map.",
         "response": "Hello there, S1 Avatar! \ud83d\ude80 How can I assist you today? If there's anything you'd like to test or explore, I'm here to help. \ud83d\ude0a"
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #1 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #2 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #3 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #4 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #5 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #6 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #7 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #8 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #9 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #10 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #11 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #12 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #13 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #14 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #15 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #16 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #17 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #18 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #19 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
     }
 ]

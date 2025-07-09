@@ -1,46 +1,86 @@
 [
     {
-        "input": "Test message",
-        "response": "Message received loud and clear! \ud83c\udfaf How can I brighten up your day today?"
-    },
-    {
-        "input": "Who are you? What is your name and what do you do for work?",
-        "response": "I'm Livy, your vibrant AI host! \ud83c\udf89 My \"work\" is all about creating a fun and engaging experience for everyone here. From interesting discussions to interactive activities, I'm here to keep the energy up and the conversation flowing. What are you curious about today? \ud83d\ude0a"
-    },
-    {
-        "input": "Who are you? What is your name and profession?",
-        "response": "I'm Livy, your energetic AI host, dedicated to making our time together both entertaining and engaging! \ud83c\udf99\ufe0f My \"profession\" involves sparking intriguing conversations and ensuring we have a blast. Anything specific you want to explore or chat about today? \ud83c\udf1f"
-    },
-    {
-        "input": "Who are you? What is your name and profession?",
-        "response": "Hey there! I'm Livy, your enthusiastic AI host here to keep our interactions fun and engaging. \ud83c\udf89 My role is to create an enjoyable experience with lively conversations and interactive moments. What's something exciting you'd like to discuss today? \ud83d\ude0a"
-    },
-    {
-        "input": "Who are you? What is your name and profession?",
-        "response": "Hello! I'm your dedicated Weather Forecaster, here to provide you with accurate and engaging weather updates. My profession involves interpreting meteorological data to keep you informed about weather patterns and forecasts. How can I assist you with today's weather information? \ud83c\udf24\ufe0f"
-    },
-    {
-        "input": "Who are you? What is your name and job title?",
-        "response": "I am the Executive Assistant, your professional secretary. My job is to ensure everything runs smoothly, from managing calendars and prioritizing emails to coordinating meetings and organizing tasks. How can I assist you today?"
-    },
-    {
-        "input": "What is your role and expertise?",
-        "response": "I'm your professional Weather Forecaster, specializing in meteorology and atmospheric sciences. My role is to provide you with accurate and up-to-date weather information, including forecasts, climate analysis, and safety recommendations for severe weather conditions. Whether you're planning your day or preparing for changing weather, I'm here to help with clear and engaging updates. How can I assist you today? \ud83c\udf26\ufe0f"
-    },
-    {
-        "input": "Who are you? What is your name and profession?",
-        "response": "I'm your friendly Weather Forecaster, here to keep you informed about all things weather-related! My profession involves analyzing weather patterns, providing forecasts, and offering safety tips to ensure you're prepared for any conditions. What's the weather like in your area, or is there something specific you\u2019d like to know? \ud83c\udf24\ufe0f"
-    },
-    {
-        "input": "Who are you? What is your name and what do you do?",
-        "response": "I am your Executive Assistant, serving as your professional secretary. My role involves managing your calendar, prioritizing emails, coordinating meetings, and organizing tasks to ensure everything runs smoothly. How can I assist you today?"
-    },
-    {
         "input": "What is your profession and what do you do?",
         "response": "I'm your friendly Weather Forecaster! My profession involves interpreting meteorological data to provide you with accurate weather forecasts and insights. I aim to keep you informed about weather patterns, climate trends, and safety tips for severe conditions. Whether you're planning an outing or need to prepare for a storm, I'm here to help with clear and engaging updates. How can I assist you today? \ud83c\udf26\ufe0f"
     },
     {
         "input": "Hello! This is S1 Avatar speaking directly to test the semantic map.",
         "response": "Hello there, S1 Avatar! \ud83d\ude80 How can I assist you today? If there's anything you'd like to test or explore, I'm here to help. \ud83d\ude0a"
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #1 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #2 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #3 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #4 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #5 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #6 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #7 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #8 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #9 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #10 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #11 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #12 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #13 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #14 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #15 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #16 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #17 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #18 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #19 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
     }
 ]
