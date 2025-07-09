@@ -22,8 +22,6 @@ RUN apt install -y nginx-light libnginx-mod-rtmp && \
 RUN mkdir -p /opt/data/hls && chmod -R 777 /opt/data
 
 COPY nginx.conf /etc/nginx/nginx.conf
-COPY run_transcode.sh /usr/local/bin/run_transcode.sh
-RUN chmod +x /usr/local/bin/run_transcode.sh
 
 # Ensure Nginx logs go to stdout/stderr for Docker
 RUN ln -sf /dev/stdout /var/log/nginx/access.log && \

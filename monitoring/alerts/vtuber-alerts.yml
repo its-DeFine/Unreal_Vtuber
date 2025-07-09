@@ -1,0 +1,117 @@
+groups:
+  - name: vtuber_system_alerts
+    interval: 30s
+    rules:
+      # Service availability alerts
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been down for more than 2 minutes."
+
+      # NeuroSync specific alerts
+      - alert: NeuroSyncHighErrorRate
+        expr: rate(neurosync_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate in NeuroSync"
+          description: "NeuroSync is experiencing {{ $value }} errors per second."
+
+      - alert: NeuroSyncSlowResponse
+        expr: histogram_quantile(0.95, rate(neurosync_processing_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NeuroSync response time degraded"
+          description: "95th percentile response time is {{ $value }}s (threshold: 2s)."
+
+      # GraphFlow alerts
+      - alert: GraphFlowProcessingBacklog
+        expr: graphflow_processing_queue_size > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GraphFlow processing queue is backing up"
+          description: "Queue size is {{ $value }} stimuli."
+
+      - alert: GraphFlowHighFailureRate
+        expr: rate(graphflow_stimuli_processed_total{success="False"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High failure rate in GraphFlow processing"
+          description: "{{ $value }} failures per second in stimuli processing."
+
+      # Resource alerts
+      - alert: HighCPUUsage
+        expr: (100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}%"
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}%"
+
+      - alert: ContainerHighMemory
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.container }} high memory usage"
+          description: "Container is using {{ $value | humanizePercentage }} of its memory limit."
+
+      # Database alerts
+      - alert: PostgreSQLDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL {{ $labels.instance }} is down"
+          description: "PostgreSQL database is not responding."
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis cache is not responding."
+
+      # Ollama alerts
+      - alert: OllamaDown
+        expr: ollama_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ollama LLM service is down"
+          description: "Ollama is not responding, LLM functionality impaired."
+
+      - alert: OllamaHighMemory
+        expr: ollama_model_memory_bytes > 8000000000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ollama model using high memory"
+          description: "Model {{ $labels.model }} is using {{ $value | humanize }}B of memory."

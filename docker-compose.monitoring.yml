@@ -1,0 +1,139 @@
+version: '3.8'
+
+services:
+  # Prometheus - Central metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: unified_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - monitoring
+      - docker-vtuber_scb_bridge_net
+      - graphflow-stimuli-system_graphflow-network
+    restart: unless-stopped
+
+  # Grafana - Visualization with auto-provisioning
+  grafana:
+    image: grafana/grafana:latest
+    container_name: unified_grafana
+    ports:
+      - "3002:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=redis-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    networks:
+      - monitoring
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # Node Exporter - System metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: unified_node_exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # cAdvisor - Container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: unified_cadvisor
+    ports:
+      - "8090:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # Redis Exporter - For Redis metrics
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: unified_redis_exporter
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://graphflow-stimuli-system-redis-1:6379
+    networks:
+      - monitoring
+      - graphflow-stimuli-system_graphflow-network
+    restart: unless-stopped
+
+  # Postgres Exporter - For PostgreSQL metrics
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: unified_postgres_exporter
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://postgres:graphflow123@graphflow-stimuli-system-postgres-1:5432/graphflow?sslmode=disable
+    networks:
+      - monitoring
+      - graphflow-stimuli-system_graphflow-network
+    restart: unless-stopped
+
+  # Ollama Exporter - Custom exporter for Ollama metrics
+  ollama-exporter:
+    image: python:3.11-slim
+    container_name: unified_ollama_exporter
+    ports:
+      - "9122:9122"
+    volumes:
+      - ./monitoring/exporters/ollama_exporter.py:/app/exporter.py
+    command: python /app/exporter.py
+    environment:
+      - OLLAMA_HOST=http://vtuber-ollama:11434
+    networks:
+      - monitoring
+      - docker-vtuber_scb_bridge_net
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  monitoring:
+    driver: bridge
+  docker-vtuber_scb_bridge_net:
+    external: true
+  graphflow-stimuli-system_graphflow-network:
+    external: true

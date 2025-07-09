@@ -1,0 +1,482 @@
+version: '3.8'
+
+services:
+  # ===========================================
+  # CORE SERVICES
+  # ===========================================
+  
+  # NeuroSync S1 - VTuber Avatar System
+  neurosync:
+    mem_limit: 12g
+    build:
+      context: docker-vtuber
+      dockerfile: ./app/AVATAR/NeuroBridge/dockerfile
+    container_name: neurosync_s1
+    command: [/app/entrypoint_bridge.sh]
+    ports:
+      - "5000:5000"
+      - "5001:5001"
+    environment:
+      - FLASK_HOST=0.0.0.0
+      - PYTHONUNBUFFERED=1
+      - ALLOWED_ORIGINS=*
+      - PLAYER_PORT=5001
+      - USE_REDIS_SCB=true
+      - REDIS_URL=redis://redis:6379/0
+      - LLM_PROVIDER=openai
+      - OPENAI_MODEL=gpt-4o
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - VTUBER_PAYMENT_ENABLED=false
+      - ORCHESTRATOR_VERSION=reactive
+      - AUTONOMOUS_ORCHESTRATION_ENABLED=false
+      - AUTONOMOUS_SPEECH_ENABLED=false
+      - AUTONOMOUS_CONTENT_ENABLED=false
+      - AUTONOMOUS_ENVIRONMENT_ENABLED=false
+      - AUTO_INTERRUPT_ENABLED=false
+      - SIMPLE_SPEECH_ENABLED=false
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - unified_network
+    volumes:
+      - ./docker-vtuber/app/AVATAR/NeuroBridge:/app/NeuroBridge
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - vtuber-ollama
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=5001"
+      - "prometheus.io/path=/metrics"
+
+  # AutoGen Multi-Agent System
+  autogen_agent:
+    build:
+      context: ./docker-vtuber/app/CORE/autogen-agent
+      dockerfile: Dockerfile
+    container_name: autogen_agent
+    volumes:
+      - ./docker-vtuber/app/CORE/autogen-agent/autogen_agent:/app/autogen_agent
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/autonomous_agent
+      - USE_COGNITIVE_ENHANCEMENT=true
+      - USE_AUTOGEN_LLM=true
+      - STANDALONE_MODE=true
+      - LOOP_INTERVAL=30
+      - LOG_LEVEL=INFO
+      - PORT=8000
+      - OLLAMA_HOST=http://vtuber-ollama:11434
+      - USE_OLLAMA=true
+      - OLLAMA_MODEL=llama3.1:8b
+      - VTUBER_ENDPOINT_URL=http://neurosync:5001
+      - VTUBER_ENDPOINT=http://neurosync:5001
+      - S1_AVATAR_ENDPOINT=http://neurosync:5001
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=gpt-4o-mini
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password123
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=llama3.1
+      - LLM_API_KEY=ollama
+      - LLM_ENDPOINT=http://vtuber-ollama:11434/v1
+      - LLM_TEMPERATURE=0.1
+      - LLM_MAX_TOKENS=2048
+      - INSTRUCTOR_MODE=json_mode
+      - INSTRUCTOR_MAX_RETRIES=1
+      - DARWIN_GODEL_REAL_MODIFICATIONS=true
+      - DARWIN_GODEL_REQUIRE_APPROVAL=false
+      - DARWIN_GODEL_PERFORMANCE_THRESHOLD=10
+      - DARWIN_GODEL_BACKUP_RETENTION_DAYS=30
+      - DARWIN_GODEL_MAX_MODIFICATIONS_PER_CYCLE=3
+      - MAX_CONSECUTIVE_AUTO_REPLY=10
+      - MAX_ROUNDS=20
+      - ENABLE_CONTINUOUS_EVOLUTION=true
+      - STATISTICS_PERSISTENCE_ENABLED=true
+      - STATISTICS_RETENTION_DAYS=90
+      - STATISTICS_BATCH_SIZE=100
+      - CONVERSATION_STORAGE_ENABLED=true
+      - COGNEE_LONG_TERM_STORAGE=true
+      - COGNEE_CONVERSATION_STORAGE=true
+      - COGNEE_PATTERN_LEARNING=true
+    env_file:
+      - .env
+    ports:
+      - "8200:8000"
+    networks:
+      - unified_network
+    depends_on:
+      - postgres
+      - neo4j
+      - vtuber-ollama
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=8000"
+      - "prometheus.io/path=/metrics"
+
+  # GraphFlow External Stimuli Gateway
+  graphflow-gateway:
+    build:
+      context: ./docker-vtuber/app/CORE/graphflow-stimuli-system
+      dockerfile: docker/Dockerfile
+    container_name: graphflow_gateway
+    ports:
+      - "8081:8080"
+    environment:
+      - GRAPHFLOW_LOG_LEVEL=INFO
+      - GRAPHFLOW_MAX_CONCURRENT_STIMULI=50
+      - GRAPHFLOW_PROCESSING_TIMEOUT=30.0
+      - GRAPHFLOW_LLM_PROVIDER=ollama
+      - GRAPHFLOW_LLM_MODEL=llama3.1:8b
+      - GRAPHFLOW_LLM_ENDPOINT=http://vtuber-ollama:11434
+      - SYSTEM1_VTUBER_ENDPOINT=http://neurosync:5001
+      - SYSTEM2_AUTOGEN_ENDPOINT=http://autogen_agent:8000
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://postgres:graphflow123@postgres_graphflow:5432/graphflow
+      - METRICS_ENABLED=true
+      - PROMETHEUS_PORT=9090
+      - DETAILED_LOGGING=true
+      - API_KEYS_FILE=/app/config/api_keys.json
+      - RATE_LIMIT_REQUESTS_PER_MINUTE=60
+    volumes:
+      - ./docker-vtuber/app/CORE/graphflow-stimuli-system/config:/app/config
+      - ./docker-vtuber/app/CORE/graphflow-stimuli-system/logs:/app/logs
+    depends_on:
+      - redis
+      - postgres_graphflow
+    networks:
+      - unified_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=9090"
+      - "prometheus.io/path=/metrics"
+
+  # ===========================================
+  # DATA STORES
+  # ===========================================
+
+  # Redis - Shared Context Blackboard
+  redis:
+    image: redis:7-alpine
+    container_name: redis_scb
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - unified_network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # PostgreSQL for AutoGen
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: autogen_postgres
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=autonomous_agent
+    volumes:
+      - autonomous_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    restart: unless-stopped
+    networks:
+      - unified_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL for GraphFlow
+  postgres_graphflow:
+    image: postgres:15-alpine
+    container_name: postgres_graphflow
+    environment:
+      POSTGRES_DB: graphflow
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: graphflow123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    volumes:
+      - graphflow_postgres_data:/var/lib/postgresql/data
+      - ./docker-vtuber/app/CORE/graphflow-stimuli-system/docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5433:5432"
+    restart: unless-stopped
+    networks:
+      - unified_network
+
+  # Neo4j for semantic graph
+  neo4j:
+    image: neo4j:5-community
+    container_name: autogen_neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/password123
+      - NEO4J_dbms_memory_pagecache_size=512M
+      - NEO4J_dbms_memory_heap_initial__size=512M
+      - NEO4J_dbms_memory_heap_max__size=1G
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    restart: unless-stopped
+    networks:
+      - unified_network
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # INFRASTRUCTURE
+  # ===========================================
+
+  # Ollama for local LLM
+  vtuber-ollama:
+    image: ollama/ollama:latest
+    container_name: vtuber-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - unified_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # NGINX RTMP for streaming
+  nginx-rtmp:
+    build:
+      context: ./docker-vtuber/docker/files_docker_rtmp/docker/rtmp
+    container_name: nginx_rtmp
+    ports:
+      - "1935:1935"
+      - "8080:8080"
+    volumes:
+      - ./docker-vtuber/docker/files_docker_rtmp/docker/rtmp/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - unified_network
+    restart: unless-stopped
+
+  # ===========================================
+  # MONITORING STACK
+  # ===========================================
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: unified_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus-unified.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - unified_network
+    restart: unless-stopped
+
+  # Grafana - Visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: unified_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=redis-datasource,neo4j-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    networks:
+      - unified_network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # Node Exporter - System Metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: unified_node_exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - unified_network
+    restart: unless-stopped
+
+  # cAdvisor - Container Metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: unified_cadvisor
+    ports:
+      - "8090:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    networks:
+      - unified_network
+    restart: unless-stopped
+
+  # Redis Exporter
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: unified_redis_exporter
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    networks:
+      - unified_network
+    restart: unless-stopped
+
+  # Postgres Exporter for AutoGen
+  postgres-exporter-autogen:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres_exporter_autogen
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://postgres:postgres@postgres:5432/autonomous_agent?sslmode=disable
+    networks:
+      - unified_network
+    restart: unless-stopped
+
+  # Postgres Exporter for GraphFlow
+  postgres-exporter-graphflow:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres_exporter_graphflow
+    ports:
+      - "9188:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://postgres:graphflow123@postgres_graphflow:5432/graphflow?sslmode=disable
+    networks:
+      - unified_network
+    restart: unless-stopped
+
+  # Ollama Exporter
+  ollama-exporter:
+    image: python:3.11-slim
+    container_name: unified_ollama_exporter
+    ports:
+      - "9122:9122"
+    volumes:
+      - ./monitoring/exporters/ollama_exporter.py:/app/exporter.py
+    command: sh -c "pip install prometheus-client requests && python /app/exporter.py"
+    environment:
+      - OLLAMA_HOST=http://vtuber-ollama:11434
+    networks:
+      - unified_network
+    restart: unless-stopped
+
+  # NGINX Exporter
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: unified_nginx_exporter
+    ports:
+      - "9113:9113"
+    command:
+      - -nginx.scrape-uri=http://nginx-rtmp:8080/status
+    networks:
+      - unified_network
+    restart: unless-stopped
+
+  # Loki for log aggregation
+  loki:
+    image: grafana/loki:latest
+    container_name: unified_loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - unified_network
+    restart: unless-stopped
+
+  # Promtail for log collection
+  promtail:
+    image: grafana/promtail:latest
+    container_name: unified_promtail
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - unified_network
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  autonomous_postgres_data:
+  graphflow_postgres_data:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_import:
+  neo4j_plugins:
+  ollama_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+
+networks:
+  unified_network:
+    driver: bridge
+    name: vtuber_unified_network
