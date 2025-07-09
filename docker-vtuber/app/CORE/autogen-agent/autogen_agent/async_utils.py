@@ -210,3 +210,17 @@ def shutdown_async_utils():
         _global_async_thread.shutdown()
         _global_async_thread = None
         logging.info("✅ [ASYNC_UTILS] Async utilities shutdown completed")
+
+
+# Import extended utilities
+try:
+    from .async_utils_extended import run_async_with_timeout, batch_process_async, async_retry
+    __all__ = ['AsyncContextManager', 'async_safe_wrapper', 'run_with_timeout', 
+               'SafeAsyncThread', 'get_global_async_thread', 'run_async_safely', 
+               'shutdown_async_utils', 'run_async_with_timeout', 'batch_process_async', 
+               'async_retry']
+except ImportError:
+    # Fallback if extended utilities not available
+    __all__ = ['AsyncContextManager', 'async_safe_wrapper', 'run_with_timeout', 
+               'SafeAsyncThread', 'get_global_async_thread', 'run_async_safely', 
+               'shutdown_async_utils']

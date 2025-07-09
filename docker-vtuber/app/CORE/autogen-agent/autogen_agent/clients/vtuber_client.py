@@ -81,3 +81,7 @@ class VTuberClient:
             "activated": self.vtuber_activated,
             "endpoint": self.endpoint
         }
+
+    def is_available(self) -> bool:
+        """Check if VTuber service is available"""
+        return self.endpoint is not None and self.enabled

@@ -184,3 +184,27 @@ class GPUMonitor:
         """Cleanup resources"""
         # No cleanup needed for Ollama monitoring
         logger.info("GPU monitor cleanup completed")
+
+    def get_gpu_info(self) -> Dict[str, Any]:
+        """Get GPU information"""
+        gpu_status = self.get_gpu_status()
+        gpu_available = gpu_status.get("gpu_available", False)
+        
+        if gpu_available and "gpu_data" in gpu_status:
+            gpu_data = gpu_status["gpu_data"]
+            if gpu_data.get("count", 0) > 0 and "devices" in gpu_data:
+                # Get first GPU device
+                first_device = list(gpu_data["devices"].values())[0]
+                return {
+                    "available": True,
+                    "name": first_device.get("name", "Unknown GPU"),
+                    "memory_total": first_device.get("memory", {}).get("total_mb", 0),
+                    "memory_used": first_device.get("memory", {}).get("used_mb", 0)
+                }
+        
+        return {
+            "available": False,
+            "name": "No GPU",
+            "memory_total": 0,
+            "memory_used": 0
+        }

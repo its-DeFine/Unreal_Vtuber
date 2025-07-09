@@ -436,3 +436,29 @@ def initialize_capacity_monitor(**kwargs) -> CapacityMonitor:
     global_capacity_monitor = CapacityMonitor(**kwargs)
     logging.info("✅ [CAPACITY_MONITOR] Global monitor initialized")
     return global_capacity_monitor
+
+
+def get_current_capacity(self) -> float:
+    """Get current system capacity as percentage"""
+    # Get combined capacity
+    combined = self.get_combined_capacity()
+    
+    # Calculate overall capacity percentage
+    if combined["overall_status"] == "fully_available":
+        return 100.0
+    elif combined["overall_status"] == "partially_available":
+        # Calculate based on load
+        s1_cap = combined["s1_capacity"]
+        s2_cap = combined["s2_capacity"]
+        
+        s1_percent = (1 - s1_cap["current_load"] / s1_cap["max_capacity"]) * 100 if s1_cap["max_capacity"] > 0 else 0
+        s2_percent = (1 - s2_cap["current_load"] / s2_cap["max_capacity"]) * 100 if s2_cap["max_capacity"] > 0 else 0
+        
+        # Average of both systems
+        return (s1_percent + s2_percent) / 2
+    else:
+        return 0.0
+
+
+# Add method to CapacityMonitor class
+CapacityMonitor.get_current_capacity = get_current_capacity

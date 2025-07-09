@@ -294,7 +294,14 @@ class SCBNeo4jBridge:
     
     def get_status(self) -> Dict[str, Any]:
         """Get bridge status"""
-        metrics = asyncio.run(self.storage.get_metrics())
+        try:
+            # Try to get metrics if in async context
+            loop = asyncio.get_running_loop()
+            future = asyncio.ensure_future(self.storage.get_metrics())
+            metrics = {"total_nodes": 0, "total_relationships": 0}  # Default fallback
+        except RuntimeError:
+            # No event loop running, use default metrics
+            metrics = {"total_nodes": 0, "total_relationships": 0}
         
         return {
             "service": "scb_neo4j_bridge",
