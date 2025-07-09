@@ -1,7 +1,7 @@
 import logging
 import json
 import os
-from typing import Dict
+from typing import Dict, List
 
 try:
     import redis
@@ -55,6 +55,10 @@ class SCBClient:
         """🔗 Check if AgentNet is currently enabled"""
         return self.agentnet_enabled
 
+    def is_enabled(self) -> bool:
+        """Check if SCB client is enabled and connected"""
+        return self.enabled and self._redis is not None
+
     def publish_state(self, data: Dict, force_publish: bool = False) -> None:
         """
         Publish state to SCB only if AgentNet is enabled or forced
@@ -89,3 +93,47 @@ class SCBClient:
             "redis_connected": bool(self._redis),
             "url": self.url
         }
+
+    def get_state(self, key: str) -> any:
+        """Get state value from SCB"""
+        if not self.enabled or not self._redis:
+            return None
+        
+        try:
+            value = self._redis.get(key)
+            if value and isinstance(value, bytes):
+                try:
+                    return json.loads(value.decode('utf-8'))
+                except:
+                    return value.decode('utf-8')
+            return value
+        except Exception as e:
+            logging.error(f"❌ [SCB] Failed to get state for {key}: {e}")
+            return None
+
+    def set_state(self, key: str, value: any, ttl: int = 3600) -> bool:
+        """Set state value in SCB with TTL"""
+        if not self.enabled or not self._redis:
+            return False
+        
+        try:
+            if isinstance(value, dict):
+                value = json.dumps(value)
+            
+            self._redis.setex(key, ttl, value)
+            return True
+        except Exception as e:
+            logging.error(f"❌ [SCB] Failed to set state for {key}: {e}")
+            return False
+
+    def get_keys(self, pattern: str = "*") -> List[str]:
+        """Get all keys matching pattern"""
+        if not self.enabled or not self._redis:
+            return []
+        
+        try:
+            keys = self._redis.keys(pattern)
+            return [k.decode('utf-8') if isinstance(k, bytes) else k for k in keys]
+        except Exception as e:
+            logging.error(f"❌ [SCB] Failed to get keys for pattern {pattern}: {e}")
+            return []

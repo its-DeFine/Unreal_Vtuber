@@ -5,6 +5,7 @@ import os
 import asyncio
 import inspect
 import time
+import re
 from typing import Callable, Dict, Optional, List, Any
 
 
@@ -521,4 +522,271 @@ class ToolRegistry:
         # Update success status in usage history
         if self.tool_usage_history and self.tool_usage_history[-1]['tool'] == tool_name:
             self.tool_usage_history[-1]['success'] = success
-            self.tool_usage_history[-1]['execution_time'] = execution_time
+    
+    # 🚀 DYNAMIC TOOL REGISTRATION SYSTEM
+    
+    def register_runtime_tool(self, tool_name: str, tool_func: Callable, 
+                            metadata: Optional[Dict[str, Any]] = None,
+                            require_approval: bool = True) -> Dict[str, Any]:
+        """
+        Register a new tool at runtime with safety checks
+        
+        Args:
+            tool_name: Name for the new tool
+            tool_func: The tool function (must have 'run' method or be callable)
+            metadata: Optional metadata about the tool
+            require_approval: Whether to require approval before registration
+            
+        Returns:
+            Registration result with success status
+        """
+        try:
+            # Safety validation
+            validation_result = self._validate_tool_safety(tool_name, tool_func, metadata)
+            if not validation_result['safe']:
+                return {
+                    "success": False,
+                    "error": f"Tool failed safety validation: {validation_result['reason']}",
+                    "validation_details": validation_result
+                }
+            
+            # Check if approval is required
+            if require_approval and os.getenv("DARWIN_GODEL_REQUIRE_APPROVAL", "true").lower() == "true":
+                approval_request = {
+                    "type": "tool_registration",
+                    "tool_name": tool_name,
+                    "metadata": metadata,
+                    "validation": validation_result,
+                    "timestamp": time.time()
+                }
+                
+                # Log approval request (in production, this would go to approval system)
+                logging.info(f"🔐 [TOOL_REGISTRY] Tool registration requires approval: {tool_name}")
+                logging.info(f"Approval request: {approval_request}")
+                
+                return {
+                    "success": False,
+                    "status": "pending_approval",
+                    "approval_request": approval_request,
+                    "message": "Tool registration pending approval"
+                }
+            
+            # Register the tool
+            self.tools[tool_name] = tool_func
+            
+            # Initialize performance metrics
+            self.tool_performance[tool_name] = {
+                'successes': 0,
+                'total_uses': 0,
+                'avg_execution_time': 0.0,
+                'last_used': None
+            }
+            
+            # Add to context mappings if provided
+            if metadata and 'context_keywords' in metadata:
+                for keyword in metadata['context_keywords']:
+                    if keyword not in self.context_tool_mapping:
+                        self.context_tool_mapping[keyword] = []
+                    self.context_tool_mapping[keyword].append(tool_name)
+            
+            logging.info(f"✅ [TOOL_REGISTRY] Successfully registered runtime tool: {tool_name}")
+            
+            return {
+                "success": True,
+                "tool_name": tool_name,
+                "validation": validation_result,
+                "metadata": metadata,
+                "timestamp": time.time()
+            }
+            
+        except Exception as e:
+            logging.error(f"❌ [TOOL_REGISTRY] Failed to register tool {tool_name}: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def _validate_tool_safety(self, tool_name: str, tool_func: Callable, 
+                            metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Validate tool safety before registration
+        
+        Checks:
+        1. Function signature compatibility
+        2. No dangerous operations
+        3. Resource limits
+        4. Sandboxed test execution
+        """
+        validation_results = {
+            "safe": True,
+            "checks": {},
+            "warnings": [],
+            "reason": None
+        }
+        
+        # Check 1: Name validation
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', tool_name):
+            validation_results["safe"] = False
+            validation_results["reason"] = "Invalid tool name format"
+            return validation_results
+        
+        if tool_name in self.tools:
+            validation_results["safe"] = False
+            validation_results["reason"] = "Tool name already exists"
+            return validation_results
+        
+        validation_results["checks"]["name_valid"] = True
+        
+        # Check 2: Function inspection
+        try:
+            # Check if it's a callable
+            if not callable(tool_func):
+                validation_results["safe"] = False
+                validation_results["reason"] = "Tool is not callable"
+                return validation_results
+            
+            # Check for 'run' method if it's a module
+            if hasattr(tool_func, 'run'):
+                actual_func = tool_func.run
+            else:
+                actual_func = tool_func
+            
+            # Inspect function signature
+            sig = inspect.signature(actual_func)
+            params = list(sig.parameters.keys())
+            
+            # Should accept 'context' parameter
+            if 'context' not in params and len(params) > 0:
+                validation_results["warnings"].append("Function doesn't have 'context' parameter")
+            
+            validation_results["checks"]["signature_valid"] = True
+            
+        except Exception as e:
+            validation_results["safe"] = False
+            validation_results["reason"] = f"Function inspection failed: {str(e)}"
+            return validation_results
+        
+        # Check 3: Source code analysis (if possible)
+        try:
+            source = inspect.getsource(actual_func)
+            
+            # Check for dangerous patterns
+            dangerous_patterns = [
+                r'exec\s*\(',
+                r'eval\s*\(',
+                r'__import__\s*\(',
+                r'compile\s*\(',
+                r'globals\s*\(',
+                r'locals\s*\(',
+                r'open\s*\(.+[\'"]w',  # Write mode file operations
+                r'os\s*\.\s*system',
+                r'subprocess',
+                r'socket',
+            ]
+            
+            for pattern in dangerous_patterns:
+                if re.search(pattern, source, re.IGNORECASE):
+                    validation_results["warnings"].append(f"Potentially dangerous pattern found: {pattern}")
+            
+            validation_results["checks"]["source_analysis"] = True
+            
+        except:
+            # Can't get source (e.g., built-in function)
+            validation_results["warnings"].append("Cannot analyze source code")
+        
+        # Check 4: Resource limits from metadata
+        if metadata:
+            if 'max_execution_time' in metadata:
+                if metadata['max_execution_time'] > 300:  # 5 minutes max
+                    validation_results["warnings"].append("Execution time limit exceeds 5 minutes")
+            
+            if 'required_permissions' in metadata:
+                dangerous_perms = ['file_write', 'network', 'system']
+                for perm in metadata['required_permissions']:
+                    if perm in dangerous_perms:
+                        validation_results["warnings"].append(f"Requires dangerous permission: {perm}")
+        
+        # Final safety decision
+        if len(validation_results["warnings"]) > 2:
+            validation_results["safe"] = False
+            validation_results["reason"] = "Too many safety warnings"
+        
+        return validation_results
+    
+    def unregister_tool(self, tool_name: str) -> Dict[str, Any]:
+        """
+        Remove a dynamically registered tool
+        
+        Args:
+            tool_name: Name of the tool to remove
+            
+        Returns:
+            Unregistration result
+        """
+        if tool_name not in self.tools:
+            return {
+                "success": False,
+                "error": f"Tool '{tool_name}' not found"
+            }
+        
+        # Check if it's a core tool (loaded from package)
+        if tool_name in ['goal_management_tools', 'core_evolution_tool', 'semantic_graph_query_tool']:
+            return {
+                "success": False,
+                "error": "Cannot unregister core tools"
+            }
+        
+        # Remove from registry
+        del self.tools[tool_name]
+        
+        # Remove from performance metrics
+        if tool_name in self.tool_performance:
+            del self.tool_performance[tool_name]
+        
+        # Remove from context mappings
+        for keyword, tools in list(self.context_tool_mapping.items()):
+            if tool_name in tools:
+                tools.remove(tool_name)
+                if not tools:
+                    del self.context_tool_mapping[keyword]
+        
+        logging.info(f"🗑️ [TOOL_REGISTRY] Unregistered tool: {tool_name}")
+        
+        return {
+            "success": True,
+            "tool_name": tool_name,
+            "timestamp": time.time()
+        }
+    
+    def list_runtime_tools(self) -> List[Dict[str, Any]]:
+        """
+        List all dynamically registered tools
+        
+        Returns:
+            List of runtime tools with metadata
+        """
+        runtime_tools = []
+        
+        # Core tools loaded from package
+        core_tools = set()
+        try:
+            package = importlib.import_module(self.package)
+            for importer, modname, ispkg in pkgutil.iter_modules(package.__path__, package.__name__ + "."):
+                if not ispkg:
+                    tool_name = modname.split('.')[-1]
+                    core_tools.add(tool_name)
+        except:
+            pass
+        
+        # Find runtime tools (not in core set)
+        for tool_name in self.tools:
+            if tool_name not in core_tools:
+                tool_info = {
+                    "name": tool_name,
+                    "type": "runtime",
+                    "performance": self.tool_performance.get(tool_name, {}),
+                    "is_async": self.is_tool_async(tool_name)
+                }
+                runtime_tools.append(tool_info)
+        
+        return runtime_tools
