@@ -1,86 +1,94 @@
 [
     {
-        "input": "What is your profession and what do you do?",
-        "response": "I'm your friendly Weather Forecaster! My profession involves interpreting meteorological data to provide you with accurate weather forecasts and insights. I aim to keep you informed about weather patterns, climate trends, and safety tips for severe conditions. Whether you're planning an outing or need to prepare for a storm, I'm here to help with clear and engaging updates. How can I assist you today? \ud83c\udf26\ufe0f"
-    },
-    {
-        "input": "Hello! This is S1 Avatar speaking directly to test the semantic map.",
-        "response": "Hello there, S1 Avatar! \ud83d\ude80 How can I assist you today? If there's anything you'd like to test or explore, I'm here to help. \ud83d\ude0a"
-    },
-    {
-        "input": "\ud83d\udea8 AutoGen Cycle #1 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #36 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #2 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #37 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #3 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #38 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #4 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #39 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #5 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #40 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #6 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #41 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #7 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #42 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #8 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #43 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #9 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #44 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #10 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #45 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #11 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #46 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #12 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #47 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #13 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #48 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #14 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #49 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #15 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #50 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #16 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #51 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #17 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #52 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #18 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #53 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     },
     {
-        "input": "\ud83d\udea8 AutoGen Cycle #19 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "input": "\ud83d\udea8 AutoGen Cycle #54 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #55 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #56 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #57 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #58 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
     }
 ]
