@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  autonomy-ui:
+    build: .
+    container_name: autonomy-ui
+    ports:
+      - "3000:3000"
+    environment:
+      - UI_HOST=0.0.0.0
+      - UI_PORT=3000
+      - AUTOGEN_URL=http://autogen-agent:8000
+      - GRAPHFLOW_URL=http://graphflow-gateway:8080
+      - NEUROSYNC_URL=http://neurosync:5001
+      - NEUROSYNC_LOCAL_URL=http://neurosync-local:5000
+      - API_TIMEOUT=15
+      - DEBUG=false
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    networks:
+      - autonomy-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  autonomy-network:
+    external: true
