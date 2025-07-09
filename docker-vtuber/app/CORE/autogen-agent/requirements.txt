@@ -29,11 +29,11 @@ asyncio-mqtt>=0.16.1
 pytest>=8.3.2
 pytest-asyncio>=0.24.0
 
-# Cognee integration with Ollama support (official package)
-cognee[ollama]>=0.2.0.dev0
-transformers>=4.21.0
+# Neo4j for semantic graph storage (replacing Cognee)
+neo4j>=5.0.0
 
-# Fastembed for local embeddings (no API key required)
+# Embeddings for semantic similarity
+sentence-transformers>=2.2.0
 fastembed>=0.4.0
 
 # Additional Python packages
@@ -46,3 +46,7 @@ psutil>=5.9.0
 
 # GPU monitoring
 nvidia-ml-py>=12.535.0
+
+# Graph visualization and export
+networkx>=3.1
+pyvis>=0.3.2

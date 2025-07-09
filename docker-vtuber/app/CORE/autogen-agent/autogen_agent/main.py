@@ -9,7 +9,9 @@ import signal
 import sys
 from datetime import datetime
 from typing import Dict, List, Optional
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import uvicorn
 
 # Import AutoGen for real multi-agent conversations
@@ -46,6 +48,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 LOOP_INTERVAL = int(os.getenv("LOOP_INTERVAL", "20"))
 app = FastAPI()
 
+# Mount static files directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Global AutoGen agents and group chat
 autogen_assistant = None
 autogen_programmer = None
@@ -81,6 +86,10 @@ gpu_monitor = None
 
 # Global stimuli orchestrator instance
 global_orchestrator = None
+
+# Global semantic map services
+global_scb_cognee_bridge = None
+global_graph_export_service = None
 
 @app.get("/health")
 async def health_check():
@@ -254,6 +263,201 @@ async def apply_improvement_api(request: dict):
         }
     except Exception as e:
         return {"error": str(e)}, 500
+
+# Semantic Map API Endpoints
+@app.get("/api/semantic-map/export")
+async def export_semantic_map(format: str = "d3js", context: str = None):
+    """Export the semantic knowledge graph"""
+    try:
+        from .services.graph_export_neo4j import get_graph_export_service
+        from .services.neo4j_semantic_storage import SemanticContext
+        
+        service = get_graph_export_service()
+        
+        # Parse context filter
+        context_filter = None
+        if context:
+            try:
+                context_filter = SemanticContext(context)
+            except ValueError:
+                return {"error": f"Invalid context: {context}"}, 400
+        
+        # Export based on format
+        if format == "d3js":
+            result = await service.export_d3js(context_filter)
+        elif format == "graphml":
+            result = await service.export_graphml(context_filter)
+        elif format == "json_ld":
+            result = await service.export_json_ld(context_filter)
+        elif format == "cytoscape":
+            result = await service.export_cytoscape(context_filter)
+        else:
+            return {"error": f"Invalid format: {format}. Supported: d3js, graphml, json_ld, cytoscape"}, 400
+        
+        return result
+            
+    except Exception as e:
+        logging.error(f"❌ [API] Semantic map export error: {e}")
+        return {"error": str(e)}, 500
+
+@app.get("/api/semantic-map/visualize")
+async def visualize_semantic_map(context: str = None):
+    """Generate interactive HTML visualization"""
+    try:
+        from .services.graph_export_neo4j import get_graph_export_service
+        from .services.neo4j_semantic_storage import SemanticContext
+        
+        service = get_graph_export_service()
+        
+        # Parse context filter
+        context_filter = None
+        if context:
+            try:
+                context_filter = SemanticContext(context)
+            except ValueError:
+                return {"error": f"Invalid context: {context}"}, 400
+        
+        # Generate visualization
+        html_content = await service.generate_pyvis_visualization(context_filter)
+        
+        # Return HTML response
+        return Response(content=html_content, media_type="text/html")
+            
+    except Exception as e:
+        logging.error(f"❌ [API] Semantic map visualization error: {e}")
+        return {"error": str(e)}, 500
+
+@app.get("/api/semantic-map/metrics")
+async def get_semantic_map_metrics(context: str = None):
+    """Get graph metrics and analysis"""
+    try:
+        from .services.graph_export_neo4j import get_graph_export_service
+        from .services.neo4j_semantic_storage import SemanticContext
+        
+        service = get_graph_export_service()
+        
+        # Parse context filter
+        context_filter = None
+        if context:
+            try:
+                context_filter = SemanticContext(context)
+            except ValueError:
+                return {"error": f"Invalid context: {context}"}, 400
+        
+        # Get metrics
+        metrics = await service.get_graph_metrics(context_filter)
+        return metrics
+            
+    except Exception as e:
+        logging.error(f"❌ [API] Semantic map metrics error: {e}")
+        return {"error": str(e)}, 500
+
+@app.post("/api/semantic-map/search")
+async def search_semantic_map(request: dict):
+    """Search the semantic knowledge graph"""
+    try:
+        from .services.neo4j_semantic_storage import get_neo4j_storage, SemanticContext
+        
+        storage = get_neo4j_storage()
+        
+        query = request.get("query", "")
+        context = request.get("context")
+        limit = request.get("limit", 10)
+        
+        # Parse context filter
+        context_filter = None
+        if context:
+            try:
+                context_filter = SemanticContext(context)
+            except ValueError:
+                return {"error": f"Invalid context: {context}"}, 400
+        
+        # Search
+        results = await storage.search_semantic(query, context_filter, limit)
+        
+        return {
+            "query": query,
+            "context": context,
+            "results": results,
+            "count": len(results)
+        }
+        
+    except Exception as e:
+        logging.error(f"❌ [API] Semantic map search error: {e}")
+        return {"error": str(e)}, 500
+
+@app.get("/api/semantic-map/status")
+async def get_semantic_map_status():
+    """Get status of semantic map services"""
+    try:
+        status = {
+            "bridge": None,
+            "export": None
+        }
+        
+        # Get bridge status
+        from .services.scb_neo4j_bridge import get_scb_neo4j_bridge
+        bridge = get_scb_neo4j_bridge()
+        status["bridge"] = bridge.get_status()
+        
+        # Get export service status
+        from .services.graph_export_neo4j import get_graph_export_service
+        export_service = get_graph_export_service()
+        status["export"] = export_service.get_status()
+        
+        return status
+        
+    except Exception as e:
+        logging.error(f"❌ [API] Semantic map status error: {e}")
+        return {"error": str(e)}, 500
+
+@app.post("/api/semantic-map/add")
+async def add_semantic_entry(request: dict):
+    """Add a semantic entry to the graph"""
+    try:
+        from .services.neo4j_semantic_storage import get_neo4j_storage, SemanticContext
+        
+        storage = get_neo4j_storage()
+        
+        content = request.get("content", "")
+        node_type = request.get("type", "general")
+        context = request.get("context", "general_context")
+        metadata = request.get("metadata", {})
+        
+        if not content:
+            return {"error": "Content is required"}, 400
+        
+        # Parse context
+        try:
+            semantic_context = SemanticContext(context)
+        except ValueError:
+            semantic_context = SemanticContext.GENERAL
+        
+        # Add node
+        node = await storage.add_semantic_node(
+            content=content,
+            context=semantic_context,
+            node_type=node_type,
+            metadata=metadata
+        )
+        
+        if node:
+            return {
+                "success": True,
+                "node_id": node.id,
+                "context": node.context.value
+            }
+        else:
+            return {"error": "Failed to add semantic entry"}, 500
+        
+    except Exception as e:
+        logging.error(f"❌ [API] Add semantic entry error: {e}")
+        return {"error": str(e)}, 500
+
+@app.get("/semantic-viewer")
+async def semantic_viewer():
+    """Serve the semantic graph viewer HTML"""
+    return FileResponse("static/semantic_viewer.html")
 
 @app.get("/api/statistics")
 async def get_statistics():
@@ -760,6 +964,11 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
         }
         scb.publish_state(scb_state)  # Respects AgentNet activation
         
+        # Also send to Neo4j semantic map
+        if global_scb_cognee_bridge:
+            from .services.scb_neo4j_bridge import transform_and_store_scb_state
+            await transform_and_store_scb_state(scb_state)
+        
         analytics_data["cycles_completed"] += 1
         logging.info(f"✅ [AUTOGEN] Multi-agent cycle #{iteration} completed successfully")
         
@@ -791,6 +1000,11 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
             "timestamp": time.time()
         }
         scb.publish_state(error_state)  # Respects AgentNet activation
+        
+        # Also send error to Cognee semantic map
+        if global_scb_cognee_bridge:
+            from .services.scb_cognee_bridge import transform_and_store_scb_state
+            await transform_and_store_scb_state(error_state)
 
 async def update_analytics_and_goals(iteration: int, agent_responses: dict, evolution_enhanced: bool, tool_executions: dict = None):
     """Update analytics and goal tracking"""
@@ -860,6 +1074,11 @@ async def run_cognitive_cycle(decision_engine: CognitiveDecisionEngine,
         }
         scb.publish_state(scb_state)  # Respects AgentNet activation
         
+        # Also send to Neo4j semantic map
+        if global_scb_cognee_bridge:
+            from .services.scb_neo4j_bridge import transform_and_store_scb_state
+            await transform_and_store_scb_state(scb_state)
+        
         # Periodic knowledge consolidation (every 10 iterations)
         if context['iteration'] % 10 == 0:
             logging.info("🧩 [COGNITIVE_CYCLE] Running knowledge consolidation...")
@@ -887,6 +1106,11 @@ def run_once(registry: ToolRegistry, memory: MemoryManager, scb: SCBClient, vtub
         
         # Update SCB only if AgentNet enabled
         scb.publish_state(result)  # Respects AgentNet activation
+        
+        # Also send to Cognee semantic map
+        if global_scb_cognee_bridge:
+            from .services.scb_cognee_bridge import transform_and_store_scb_state
+            asyncio.create_task(transform_and_store_scb_state(result))
 
 async def enhanced_autonomous_loop(scb: SCBClient, vtuber: VTuberClient):
     """Enhanced autonomous loop using AutoGen framework"""
@@ -1326,6 +1550,25 @@ async def startup_event():
             
     except Exception as e:
         logging.error(f"❌ [STARTUP] MCP server startup error: {e}")
+    
+    # Initialize semantic map services
+    try:
+        global global_scb_cognee_bridge, global_graph_export_service
+        
+        logging.info("🌉 [STARTUP] Initializing Neo4j semantic map services...")
+        
+        # Initialize SCB-Neo4j bridge
+        from .services.scb_neo4j_bridge import get_scb_neo4j_bridge
+        global_scb_cognee_bridge = get_scb_neo4j_bridge()
+        logging.info("✅ [STARTUP] SCB-Neo4j bridge initialized")
+        
+        # Initialize graph export service
+        from .services.graph_export_neo4j import get_graph_export_service
+        global_graph_export_service = get_graph_export_service()
+        logging.info("✅ [STARTUP] Neo4j graph export service initialized")
+            
+    except Exception as e:
+        logging.error(f"❌ [STARTUP] Semantic map services error: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -1338,6 +1581,22 @@ async def shutdown_event():
         logging.info("✅ [SHUTDOWN] Async utilities shutdown completed")
     except Exception as e:
         logging.warning(f"⚠️ [SHUTDOWN] Async utils shutdown warning: {e}")
+    
+    # Cleanup semantic map services
+    try:
+        global global_scb_cognee_bridge, global_graph_export_service
+        
+        if global_scb_cognee_bridge:
+            # Neo4j bridge doesn't have async shutdown, but we should close the connection
+            if hasattr(global_scb_cognee_bridge, 'storage') and global_scb_cognee_bridge.storage:
+                global_scb_cognee_bridge.storage.close()
+            logging.info("🌉 [SHUTDOWN] SCB-Neo4j bridge closed")
+            
+        # Graph export service doesn't need explicit shutdown
+        global_graph_export_service = None
+        
+    except Exception as e:
+        logging.warning(f"⚠️ [SHUTDOWN] Semantic map services close warning: {e}")
     
     # Cleanup statistics services
     try:
@@ -1484,7 +1743,7 @@ def main() -> None:
             # Create a mock cognitive system object for MCP server
             cognitive_system_mock = type('CognitiveSystem', (), {
                 'openai_api_key': os.getenv('OPENAI_API_KEY'),
-                'cognee_available': bool(os.getenv('COGNEE_URL')),
+                'cognee_available': False,  # Replaced with Neo4j
                 'autonomous_mode': True,
                 'iteration_count': 0
             })()

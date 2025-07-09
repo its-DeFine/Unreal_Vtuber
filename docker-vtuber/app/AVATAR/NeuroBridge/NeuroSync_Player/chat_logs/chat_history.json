@@ -1,9 +1,5 @@
 [
     {
-        "input": "Who are you? What is your name and profession?",
-        "response": "Hey! I'm Livy, your friendly AI host. \ud83c\udfa4 My \"profession\" is all about keeping our stream lively and entertaining, whether through fun facts, interactive games, or simply having a chat. What's something exciting on your mind today? \ud83d\ude0a"
-    },
-    {
         "input": "Test message",
         "response": "Message received loud and clear! \ud83c\udfaf How can I brighten up your day today?"
     },
@@ -42,5 +38,9 @@
     {
         "input": "What is your profession and what do you do?",
         "response": "I'm your friendly Weather Forecaster! My profession involves interpreting meteorological data to provide you with accurate weather forecasts and insights. I aim to keep you informed about weather patterns, climate trends, and safety tips for severe conditions. Whether you're planning an outing or need to prepare for a storm, I'm here to help with clear and engaging updates. How can I assist you today? \ud83c\udf26\ufe0f"
+    },
+    {
+        "input": "Hello! This is S1 Avatar speaking directly to test the semantic map.",
+        "response": "Hello there, S1 Avatar! \ud83d\ude80 How can I assist you today? If there's anything you'd like to test or explore, I'm here to help. \ud83d\ude0a"
     }
 ]
