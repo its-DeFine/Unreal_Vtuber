@@ -98,23 +98,43 @@ def serve_static(filepath):
 
 @app.route('/')
 def index():
-    """Serve the main UI"""
+    """Serve the advanced UI"""
+    return static_file('advanced-index.html', root='.')
+
+@app.route('/basic')
+def basic_index():
+    """Serve the basic UI"""
     return static_file('index.html', root='.')
 
 @app.route('/styles.css')
 def styles():
-    """Serve CSS"""
+    """Serve basic CSS"""
     return static_file('styles.css', root='.')
+
+@app.route('/advanced-styles.css')
+def advanced_styles():
+    """Serve advanced CSS"""
+    return static_file('advanced-styles.css', root='.')
 
 @app.route('/app.js')
 def app_js():
-    """Serve JavaScript"""
+    """Serve basic JavaScript"""
     return static_file('app.js', root='.')
+
+@app.route('/advanced-app.js')
+def advanced_app_js():
+    """Serve advanced JavaScript"""
+    return static_file('advanced-app.js', root='.')
 
 @app.route('/api-client.js')
 def api_client_js():
-    """Serve API client JavaScript"""
+    """Serve basic API client JavaScript"""
     return static_file('api-client.js', root='.')
+
+@app.route('/advanced-api-client.js')
+def advanced_api_client_js():
+    """Serve advanced API client JavaScript"""
+    return static_file('advanced-api-client.js', root='.')
 
 # API Proxy Endpoints
 @app.route('/api/proxy/health/<service>')
