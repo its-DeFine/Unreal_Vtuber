@@ -396,6 +396,45 @@ class MetricsCollector:
             self.set_resource_utilization("cpu", 1.0 - cpu)  # Convert availability to utilization
             self.set_resource_utilization("memory", 1.0 - memory)
             self.set_resource_utilization("processing_capacity", capacity / 100.0)  # Normalize to ratio
+    
+    def record_http_request(self, endpoint: str, method: str, status_code: int, duration: float) -> None:
+        """Record HTTP request metrics."""
+        if self.enabled and PROMETHEUS_AVAILABLE:
+            # Create HTTP request specific metrics if not already present
+            if not hasattr(self, 'http_requests'):
+                self.http_requests = Counter(
+                    'graphflow_http_requests_total',
+                    'Total HTTP requests made',
+                    ['endpoint', 'method', 'status_code']
+                )
+            
+            if not hasattr(self, 'http_request_duration'):
+                self.http_request_duration = Histogram(
+                    'graphflow_http_request_duration_seconds',
+                    'HTTP request duration',
+                    ['endpoint', 'method'],
+                    buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]
+                )
+            
+            # Record the metrics
+            self.http_requests.labels(
+                endpoint=endpoint,
+                method=method,
+                status_code=str(status_code)
+            ).inc()
+            
+            self.http_request_duration.labels(
+                endpoint=endpoint,
+                method=method
+            ).observe(duration)
+        
+        # Store internally for analysis when Prometheus is not available
+        with self._metrics_lock:
+            if not hasattr(self, '_http_requests'):
+                self._http_requests = defaultdict(int)
+            
+            request_key = f"{method}_{endpoint}_{status_code}"
+            self._http_requests[request_key] += 1
 
 
 # Context manager for timing operations

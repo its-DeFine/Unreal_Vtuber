@@ -118,7 +118,7 @@ class VTuberClient:
         Returns:
             Status information including availability
         """
-        return await self._make_request("GET", "/status")
+        return await self._make_request("GET", "/health")
         
     async def get_detailed_status(self) -> Dict[str, Any]:
         """
@@ -127,7 +127,7 @@ class VTuberClient:
         Returns:
             Detailed status including current state, character, queue info
         """
-        return await self._make_request("GET", "/status/detailed")
+        return await self._make_request("GET", "/health")
         
     async def load_character(
         self,

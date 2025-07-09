@@ -362,5 +362,61 @@
     {
         "input": "\ud83d\udea8 AutoGen Cycle #58 Error: model \"llama3.1:8b\" not found, try pulling it first (status code: 404)",
         "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "Hello, test message",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "Hello, this is a test message to see if the TTS pipeline works",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "Hello, testing with Ollama now. Can you respond?",
+        "response": "Error: OpenAI API call failed."
+    },
+    {
+        "input": "Hello",
+        "response": "Finally, a normal message! Hello back to you! What brings you here today?"
+    },
+    {
+        "input": "Hello",
+        "response": "Hello again! What's something fun or interesting you've been up to lately?"
+    },
+    {
+        "input": "Please tell me about the weather today",
+        "response": "Ah, the weather! It's the ever-changing, mood-setting backdrop to our daily lives. Unfortunately, I'm not equipped to provide live updates. But I'd love to know if you're enjoying some sunshine or braving the rain! What's it like in your part of the world?"
+    },
+    {
+        "input": "Test RTMP streaming now",
+        "response": "Ah, testing out some streaming magic, I see! How's it going so far? Are there any interesting projects you're working on with your stream?"
+    },
+    {
+        "input": "Test RTMP streaming with fixed hostname",
+        "response": "Sounds like you're diving into the nitty-gritty of streaming tech! Have you encountered any interesting challenges along the way, or is everything running smoothly now?"
+    },
+    {
+        "input": "Testing fixed RTMP streaming to nginx_rtmp container",
+        "response": "Wow, you\u2019re definitely in the streaming zone! How's it performing with the nginx_rtmp setup? Any surprises or smooth sailing?"
+    },
+    {
+        "input": "Hi, I'm testing the direct S1 processing endpoint.",
+        "response": "It sounds like you're delving into some advanced technical setups! How's the testing going with the S1 processing endpoint? Are there any specific results or outcomes you're aiming to achieve?"
+    },
+    {
+        "input": "Hi, I'm testing the direct S1 processing endpoint.",
+        "response": "It sounds like you're working on a specialized task. How's the testing process going with the S1 processing endpoint? Have you encountered any particular challenges or successes?"
+    },
+    {
+        "input": "Hi, I'm testing the direct S1 processing endpoint.",
+        "response": "Testing the direct S1 processing endpoint sounds intriguing! How is the process going so far? Have you been able to gather the results you were hoping for, or are there any hurdles you\u2019re facing?"
+    },
+    {
+        "input": "\ud83d\udea8 AutoGen Cycle #1 Error: attempted relative import beyond top-level package",
+        "response": "It seems you're encountering an error related to Python package imports. This \"attempted relative import beyond top-level package\" error usually occurs when you're trying to use a relative import in a script that isn't part of a package. Here are a few suggestions to help you resolve it:\n\n1. **Check the Script Location**: Ensure that your script is inside a package, meaning it should be in a directory with an `__init__.py` file (even if it's empty).\n\n2. **Use Absolute Imports**: Instead of using relative imports (e.g., `from .module import something`), try using absolute imports by specifying the full package path.\n\n3. **Adjust Your Project Structure**: If necessary, restructure your project to ensure that scripts intended to use relative imports are indeed part of a package.\n\n4. **Running the Script**: Make sure you are running the script in a way that Python recognizes it as part of a package. This might involve running it from the root directory of the package using a command like `python -m package_name.script_name`.\n\nIf you need more specific guidance, feel free to share more details about your project structure!"
+    },
+    {
+        "input": "Hi, I'm testing the direct S1 processing endpoint.",
+        "response": "I see you're focused on testing the direct S1 processing endpoint. How is everything progressing? Are there specific goals or results you're looking to achieve with this test? Let me know if there's anything you'd like to discuss or troubleshoot!"
     }
 ]

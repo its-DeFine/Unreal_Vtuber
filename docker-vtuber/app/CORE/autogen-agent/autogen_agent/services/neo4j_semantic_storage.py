@@ -13,7 +13,8 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 
 from neo4j import GraphDatabase, AsyncGraphDatabase
-from sentence_transformers import SentenceTransformer
+import requests
+import json
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -66,8 +67,9 @@ class Neo4jSemanticStorage:
         self.user = user or os.getenv("NEO4J_USER", "neo4j")
         self.password = password or os.getenv("NEO4J_PASSWORD", "password")
         
-        # Initialize embedding model
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        # Initialize embedding via Ollama
+        self.ollama_endpoint = os.getenv("OLLAMA_ENDPOINT", "http://vtuber-ollama:11434")
+        self.embedding_model = "nomic-embed-text"
         
         # Connection pools
         self.driver = None
@@ -123,9 +125,25 @@ class Neo4jSemanticStorage:
         return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
     
     def _compute_embedding(self, text: str) -> List[float]:
-        """Compute text embedding using sentence transformers"""
-        embedding = self.embedding_model.encode(text)
-        return embedding.tolist()
+        """Compute text embedding using Ollama"""
+        try:
+            response = requests.post(
+                f"{self.ollama_endpoint}/api/embeddings",
+                json={
+                    "model": self.embedding_model,
+                    "prompt": text
+                },
+                timeout=30
+            )
+            if response.status_code == 200:
+                embedding = response.json().get("embedding", [])
+                return embedding
+            else:
+                logger.warning(f"Ollama embedding failed: {response.status_code}")
+                return [0.0] * 384  # Fallback embedding dimension
+        except Exception as e:
+            logger.error(f"Failed to compute embedding via Ollama: {e}")
+            return [0.0] * 384  # Fallback embedding dimension
     
     async def add_semantic_node(
         self, 

@@ -31,8 +31,8 @@ def get_rtmp_url():
         else:
             return f"rtmp://live.twitch.tv/app/{twitch_stream_key}?bandwidthtest=true"
     else:
-        # For Docker container-to-container communication, use nginx-rtmp service name
-        rtmp_host = os.getenv("RTMP_HOST", "nginx-rtmp")
+        # For Docker container-to-container communication, use nginx_rtmp service name
+        rtmp_host = os.getenv("RTMP_HOST", "nginx_rtmp")
         rtmp_port = os.getenv("RTMP_PORT", "1935")
         stream_name = os.getenv("RTMP_STREAM_NAME", "mystream")
         return f"rtmp://{rtmp_host}:{rtmp_port}/live/{stream_name}"

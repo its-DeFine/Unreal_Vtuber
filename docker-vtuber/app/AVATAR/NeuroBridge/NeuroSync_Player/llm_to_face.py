@@ -188,6 +188,46 @@ def setup_orchestration():
 
 # Routes are now handled by the version manager and registered automatically
 
+@app.route("/health", methods=['GET'])
+def health():
+    """Health check endpoint for GraphFlow integration"""
+    global system_objects, llm_config_global
+    
+    try:
+        # Check if system is initialized
+        is_initialized = system_objects is not None and llm_config_global is not None
+        
+        # Check orchestrator status
+        orchestrator_status = "unknown"
+        try:
+            orchestrator_wrapper = get_current_wrapper()
+            if orchestrator_wrapper:
+                orchestrator_status = "active"
+        except:
+            orchestrator_status = "inactive"
+        
+        # Check if payment window is active (if payment is enabled)
+        payment_status = "disabled"
+        if VTUBER_PAYMENT_ENABLED:
+            payment_status = "active" if os.path.exists(WINDOW_ACTIVE_FLAG_PATH) else "inactive"
+        
+        status = {
+            "status": "healthy" if is_initialized else "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "system_initialized": is_initialized,
+            "orchestrator_status": orchestrator_status,
+            "payment_status": payment_status,
+            "llm_provider": llm_config_global.get('provider', 'unknown') if llm_config_global else 'unknown'
+        }
+        
+        return jsonify(status)
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }), 500
 
 @app.route("/process_text", methods=['POST'])
 def handle_process_text():

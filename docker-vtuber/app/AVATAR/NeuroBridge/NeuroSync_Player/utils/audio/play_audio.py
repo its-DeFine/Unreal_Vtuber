@@ -73,7 +73,7 @@ def _rtmp_url() -> str:
     Prioritizes Twitch if TWITCH_STREAM_KEY is set, otherwise defaults to local RTMP server.
     """
     twitch_stream_key = os.getenv("TWITCH_STREAM_KEY")
-    obs_host_ip = os.getenv("OBS_HOST_IP", "nginx-rtmp") # Docker container hostname for internal networking
+    obs_host_ip = os.getenv("OBS_HOST_IP", "nginx_rtmp") # Docker container hostname for internal networking
 
     if twitch_stream_key:
         twitch_broadcast_mode = os.getenv("TWITCH_BROADCAST_MODE", "test").lower()

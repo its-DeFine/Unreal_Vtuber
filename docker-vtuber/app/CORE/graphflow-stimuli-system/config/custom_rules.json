@@ -1,6 +1,18 @@
 {
   "custom_business_rules": [
     {
+      "id": "e2e_test_full_processing",
+      "condition": "metadata.get('test_type') is not None or source == 'e2e_test'",
+      "decision": "AVATAR_AND_ANALYSIS",
+      "priority": 99,
+      "description": "All E2E test stimuli get full processing",
+      "enabled": true,
+      "metadata": {
+        "rule_type": "testing",
+        "created": "2025-07-09"
+      }
+    },
+    {
       "id": "custom_vip_user",
       "condition": "metadata.get('user_type') == 'vip' and category == 'USER_INTERACTION'",
       "decision": "AVATAR_AND_ANALYSIS",

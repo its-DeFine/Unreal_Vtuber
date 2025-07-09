@@ -32,8 +32,7 @@ pytest-asyncio>=0.24.0
 # Neo4j for semantic graph storage (replacing Cognee)
 neo4j>=5.0.0
 
-# Embeddings for semantic similarity
-sentence-transformers>=2.2.0
+# Lightweight embeddings via Ollama
 fastembed>=0.4.0
 
 # Additional Python packages
@@ -44,8 +43,8 @@ loguru>=0.7.2
 psycopg2-binary>=2.9.9
 psutil>=5.9.0
 
-# GPU monitoring
-nvidia-ml-py>=12.535.0
+# GPU monitoring (optional, only if CUDA available)
+# nvidia-ml-py>=12.535.0
 
 # Graph visualization and export
 networkx>=3.1
