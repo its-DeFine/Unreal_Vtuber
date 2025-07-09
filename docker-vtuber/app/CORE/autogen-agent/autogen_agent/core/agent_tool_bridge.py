@@ -6,7 +6,7 @@ This module parses agent responses and executes the appropriate tools
 import re
 import logging
 from typing import Dict, Optional, Tuple, Any
-from autogen_agent.tool_registry import ToolRegistry
+from autogen_agent.core.tool_registry import ToolRegistry
 
 
 class AgentToolBridge:

@@ -24,8 +24,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from enum import Enum
 
-from ..services.cognee_direct_service import CogneeDirectService
-from ..services.evolution_service import EvolutionService
+# from ..services.cognee_direct_service import CogneeDirectService  # Replaced by Neo4j
+# from ..services.evolution_service import EvolutionService  # Temporarily disabled
 
 class GoalStatus(Enum):
     """Goal lifecycle status states"""
@@ -103,9 +103,10 @@ class GoalManagementService:
     Comprehensive goal management with AI-driven insights
     """
     
-    def __init__(self, cognee_service: CogneeDirectService, evolution_service: EvolutionService):
-        self.cognee_service = cognee_service
-        self.evolution_service = evolution_service
+    def __init__(self, cognee_service=None, evolution_service=None):
+        # TODO: Replace with Neo4j implementation
+        self.cognee_service = cognee_service  # Temporarily optional
+        self.evolution_service = evolution_service  # Temporarily optional
         
         # Goal storage (in-memory with Cognee persistence)
         self.active_goals: Dict[str, Goal] = {}

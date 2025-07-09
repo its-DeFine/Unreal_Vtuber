@@ -13,7 +13,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 
-from .stimuli_orchestrator import StimuliResponsiveOrchestrator, StimuliResponse
+from autogen_agent.core.stimuli_orchestrator import StimuliResponsiveOrchestrator, StimuliResponse
 
 
 class StimuliSubmissionRequest(BaseModel):

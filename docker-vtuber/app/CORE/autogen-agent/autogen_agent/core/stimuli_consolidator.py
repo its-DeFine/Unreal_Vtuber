@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict
 
-from .capacity_monitor import CapacityMonitor, CapacityStatus
+from ..utils.capacity_monitor import CapacityMonitor, CapacityStatus
 
 
 class ConsolidationStrategy(Enum):

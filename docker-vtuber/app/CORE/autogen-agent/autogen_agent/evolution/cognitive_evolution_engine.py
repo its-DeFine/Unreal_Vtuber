@@ -19,7 +19,7 @@ import hashlib
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
-from ..services.cognee_direct_service import CogneeDirectService
+from ..services.neo4j_semantic_storage import Neo4jSemanticStorage
 
 @dataclass
 class PerformanceContext:
@@ -63,9 +63,9 @@ class CognitiveEvolutionEngine:
     """
     
     def __init__(self, autogen_agent_dir: str = "/app/autogen_agent"):
-        self.cognee_service = CogneeDirectService(
-            dataset_name="autogen_code_evolution"
-        )
+        # TODO: Replace with Neo4j implementation
+        # self.neo4j_storage = Neo4jSemanticStorage()
+        self.cognee_service = None  # Temporarily disabled - replaced by Neo4j
         self.agent_dir = autogen_agent_dir
         
         # Evolution tracking
@@ -74,7 +74,7 @@ class CognitiveEvolutionEngine:
         self.failed_attempts = 0
         self.knowledge_entries = 0
         
-        logging.info("🧬🧠 [COGNITIVE_EVOLUTION] Engine initialized with official Cognee service")
+        logging.info("🧬🧠 [COGNITIVE_EVOLUTION] Engine initialized (Neo4j integration pending)")
         
     async def initialize(self) -> bool:
         """Initialize the cognitive evolution system"""

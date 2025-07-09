@@ -20,8 +20,8 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
-from ..services.cognee_direct_service import CogneeDirectService
-from ..services.evolution_service import EvolutionService
+# from ..services.cognee_direct_service import CogneeDirectService  # Replaced by Neo4j
+# from ..services.evolution_service import EvolutionService  # Temporarily disabled
 from ..services.goal_management_service import GoalManagementService, get_goal_management_service
 
 @dataclass
@@ -52,9 +52,10 @@ class MetricsIntegrationService:
     Comprehensive metrics integration and correlation system
     """
     
-    def __init__(self, cognee_service: CogneeDirectService, evolution_service: EvolutionService):
-        self.cognee_service = cognee_service
-        self.evolution_service = evolution_service
+    def __init__(self, cognee_service=None, evolution_service=None):
+        # TODO: Replace with Neo4j implementation
+        self.cognee_service = cognee_service  # Temporarily optional
+        self.evolution_service = evolution_service  # Temporarily optional
         self.goal_service = None  # Will be initialized lazily
         
         # Metrics storage

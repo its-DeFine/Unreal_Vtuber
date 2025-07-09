@@ -35,9 +35,10 @@ except ImportError:
     PYVIS_AVAILABLE = False
     logging.warning("⚠️ [GRAPH_EXPORT] PyVis not available - interactive visualization disabled")
 
-from .scb_cognee_bridge import SemanticContext, get_scb_cognee_bridge
-from .cognee_direct_service import get_cognee_direct_service
-from .cognee_service import CogneeService
+# from .scb_cognee_bridge import SemanticContext, get_scb_cognee_bridge  # Replaced by Neo4j
+from .neo4j_semantic_storage import SemanticContext
+# from .cognee_direct_service import get_cognee_direct_service  # Replaced by Neo4j
+# from .cognee_service import CogneeService  # Replaced by Neo4j
 
 
 class ExportFormat(Enum):

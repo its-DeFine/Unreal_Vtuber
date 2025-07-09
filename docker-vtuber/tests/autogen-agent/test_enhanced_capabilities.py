@@ -14,18 +14,26 @@ import json
 import os
 from datetime import datetime
 from typing import Dict, Any
+import pytest
 
-# Test configuration
-os.environ["AUTONOMY_LEVEL"] = "MODIFIER"  # Allow file modifications for testing
-os.environ["DARWIN_GODEL_REQUIRE_APPROVAL"] = "false"  # Disable approval for testing
+# Setup test environment
+from test_setup import setup_test_environment
+setup_test_environment()
 
 
+@pytest.mark.asyncio
 async def test_scb_operations():
     """Test SCB operations tool"""
     print("\n🔄 Testing SCB Operations Tool")
     print("="*60)
     
-    from autogen_agent.tools.scb_operations_tool import run as scb_tool
+    # Import SCB tool directly to avoid loading all tools
+    import sys, os
+    scb_tool_path = os.path.join(os.path.dirname(__file__), '../../app/CORE/autogen-agent/autogen_agent/tools/system')
+    sys.path.insert(0, scb_tool_path)
+    from scb_operations_tool import run as scb_tool
+    sys.path.pop(0)
+    
     from autogen_agent.clients.scb_client import SCBClient
     
     # Create mock SCB client
@@ -62,12 +70,13 @@ async def test_scb_operations():
     return True
 
 
+@pytest.mark.asyncio
 async def test_dynamic_tool_registration():
     """Test dynamic tool registration"""
     print("\n🔧 Testing Dynamic Tool Registration")
     print("="*60)
     
-    from autogen_agent.tool_registry import ToolRegistry
+    from autogen_agent.core.tool_registry import ToolRegistry
     
     registry = ToolRegistry()
     
@@ -115,12 +124,13 @@ async def test_dynamic_tool_registration():
     return True
 
 
+@pytest.mark.asyncio
 async def test_autonomy_configuration():
     """Test graduated autonomy configuration"""
     print("\n🎯 Testing Autonomy Configuration")
     print("="*60)
     
-    from autogen_agent.autonomy_config import get_autonomy_manager, AutonomyLevel
+    from autogen_agent.config import get_autonomy_manager, AutonomyLevel
     
     manager = get_autonomy_manager()
     
@@ -155,13 +165,20 @@ async def test_autonomy_configuration():
     return True
 
 
+@pytest.mark.asyncio
 async def test_tool_management():
     """Test tool management capabilities"""
     print("\n🔨 Testing Tool Management")
     print("="*60)
     
-    from autogen_agent.tools.tool_management import run as tool_mgmt
-    from autogen_agent.tool_registry import ToolRegistry
+    # Import tool_management directly to avoid loading all tools
+    import sys, os
+    tool_mgmt_path = os.path.join(os.path.dirname(__file__), '../../app/CORE/autogen-agent/autogen_agent/tools/system')
+    sys.path.insert(0, tool_mgmt_path)
+    from tool_management import run as tool_mgmt
+    sys.path.pop(0)
+    
+    from autogen_agent.core.tool_registry import ToolRegistry
     
     registry = ToolRegistry()
     
@@ -219,13 +236,14 @@ async def test_tool_management():
     return True
 
 
+@pytest.mark.asyncio
 async def test_integrated_scenario():
     """Test integrated scenario with all components"""
     print("\n🌟 Testing Integrated Scenario")
     print("="*60)
     
-    from autogen_agent.tool_registry import ToolRegistry
-    from autogen_agent.autonomy_config import get_autonomy_manager
+    from autogen_agent.core.tool_registry import ToolRegistry
+    from autogen_agent.config import get_autonomy_manager
     
     registry = ToolRegistry()
     autonomy = get_autonomy_manager()
@@ -263,7 +281,12 @@ async def run(context):
 '''
     
     # Step 3: Register the tool (would require approval in production)
-    from autogen_agent.tools.tool_management import _create_tool
+    # Import tool function directly
+    import sys, os
+    tool_mgmt_path = os.path.join(os.path.dirname(__file__), '../../app/CORE/autogen-agent/autogen_agent/tools/system')
+    sys.path.insert(0, tool_mgmt_path)
+    from tool_management import _create_tool
+    sys.path.pop(0)
     
     # Mock context with tool creation
     result = {

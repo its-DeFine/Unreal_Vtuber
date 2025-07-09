@@ -3,7 +3,7 @@ import asyncio
 import json
 from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime
-from .cognitive_memory import CognitiveMemoryManager, MemoryEntry
+from ..services.cognitive_memory import CognitiveMemoryManager, MemoryEntry
 
 class CognitiveDecisionEngine:
     """Enhanced decision engine with memory-aware, goal-directed decision making"""

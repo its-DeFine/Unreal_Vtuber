@@ -29,8 +29,8 @@ from enum import Enum
 
 # Import existing components
 from .tool_registry import ToolRegistry
-from .clients.scb_client import SCBClient
-from .clients.vtuber_client import VTuberClient
+from ..clients.scb_client import SCBClient
+from ..clients.vtuber_client import VTuberClient
 from .agent_tool_bridge import AgentToolBridge
 
 # Import new stimuli-specific components
@@ -46,7 +46,7 @@ from .objective_bridge import get_objective_bridge, initialize_objective_bridge
 
 # Import new consolidation components
 try:
-    from .capacity_monitor import CapacityMonitor, initialize_capacity_monitor, get_capacity_monitor
+    from ..utils.capacity_monitor import CapacityMonitor, initialize_capacity_monitor, get_capacity_monitor
     from .stimuli_consolidator import StimuliConsolidator, initialize_consolidator, get_consolidator
     CONSOLIDATION_AVAILABLE = True
 except ImportError as e:

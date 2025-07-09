@@ -38,7 +38,7 @@ async def run(context: Dict[str, Any]) -> Dict[str, Any]:
         
         if not tool_registry:
             # Try to get from global context
-            from autogen_agent.tool_registry import ToolRegistry
+            from autogen_agent.core import ToolRegistry
             tool_registry = ToolRegistry()
             
         # Route to appropriate operation
@@ -83,7 +83,7 @@ async def run(context: Dict[str, Any]) -> Dict[str, Any]:
 
 async def _create_tool(tool_registry, context: Dict[str, Any]) -> Dict[str, Any]:
     """Create a new tool dynamically"""
-    from autogen_agent.autonomy_config import check_autonomy
+    from autogen_agent.config import check_autonomy
     
     # Check autonomy
     autonomy_check = check_autonomy("tool_create")
@@ -338,7 +338,7 @@ async def _get_performance(tool_registry, context: Dict[str, Any]) -> Dict[str, 
 
 async def _unregister_tool(tool_registry, context: Dict[str, Any]) -> Dict[str, Any]:
     """Unregister a tool"""
-    from autogen_agent.autonomy_config import check_autonomy
+    from autogen_agent.config import check_autonomy
     
     # Check autonomy
     autonomy_check = check_autonomy("tool_create")  # Same permission as create
@@ -375,7 +375,7 @@ async def _unregister_tool(tool_registry, context: Dict[str, Any]) -> Dict[str, 
 async def _check_autonomy_status(context: Dict[str, Any]) -> Dict[str, Any]:
     """Check current autonomy status and capabilities"""
     try:
-        from autogen_agent.autonomy_config import get_autonomy_manager
+        from autogen_agent.config import get_autonomy_manager
         
         manager = get_autonomy_manager()
         status = manager.get_status()
@@ -419,7 +419,7 @@ async def _check_autonomy_status(context: Dict[str, Any]) -> Dict[str, Any]:
 async def _request_autonomy_upgrade(context: Dict[str, Any]) -> Dict[str, Any]:
     """Request autonomy level upgrade"""
     try:
-        from autogen_agent.autonomy_config import get_autonomy_manager
+        from autogen_agent.config import get_autonomy_manager
         
         manager = get_autonomy_manager()
         
