@@ -1618,10 +1618,11 @@ async def initialize_cognitive_system() -> tuple:
     scb = SCBClient(redis_url)
     vtuber = VTuberClient(vtuber_endpoint)
     
-    # Activate VTuber client for stimuli notifications if endpoint is available
+    # DO NOT activate VTuber client automatically - only admin commands should enable continuous voice
     if vtuber_endpoint:
-        vtuber.activate_vtuber()
-        logging.info(f"🎭 [MAIN] VTuber client activated for endpoint: {vtuber_endpoint}")
+        # vtuber.activate_vtuber()  # DISABLED - prevents inappropriate S1 triggering
+        logging.info(f"🎭 [MAIN] VTuber client available but NOT activated (stimuli-driven architecture): {vtuber_endpoint}")
+        logging.info("🚫 [MAIN] VTuber will only respond to explicit admin commands, not autonomous cycles")
     
     # Set global client references for API access
     global global_scb_client, global_vtuber_client, global_tool_registry, gpu_monitor
@@ -1823,10 +1824,11 @@ def main() -> None:
             scb = SCBClient(redis_url)
             vtuber = VTuberClient(vtuber_endpoint)
             
-            # Activate VTuber client for stimuli notifications if endpoint is available
+            # DO NOT activate VTuber client automatically - only admin commands should enable continuous voice
             if vtuber_endpoint:
-                vtuber.activate_vtuber()
-                logging.info(f"🎭 [MAIN] VTuber client activated for endpoint: {vtuber_endpoint}")
+                # vtuber.activate_vtuber()  # DISABLED - prevents inappropriate S1 triggering
+                logging.info(f"🎭 [MAIN] VTuber client available but NOT activated (stimuli-driven architecture): {vtuber_endpoint}")
+                logging.info("🚫 [MAIN] VTuber will only respond to explicit admin commands, not autonomous cycles")
             
             # Set global client references
             global global_scb_client, global_vtuber_client, global_tool_registry, gpu_monitor

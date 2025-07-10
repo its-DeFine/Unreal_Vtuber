@@ -61,8 +61,9 @@ async def run(context: Dict[str, Any]) -> Dict[str, Any]:
             "tool_used": "stimuli_action_executor"
         })
         
-        # Send result to S1 Avatar via /process_text endpoint if available
-        await _trigger_s1_avatar_response(context, result, action_type)
+        # DO NOT automatically trigger S1 Avatar - only admin commands should enable voice
+        # await _trigger_s1_avatar_response(context, result, action_type)  # DISABLED
+        logging.info(f"🚫 [STIMULI_EXECUTOR] S1 Avatar trigger disabled for {action_type} - stimuli-driven architecture")
         
         # Also send to VTuber for legacy compatibility
         vtuber_client = context.get("vtuber_client")
