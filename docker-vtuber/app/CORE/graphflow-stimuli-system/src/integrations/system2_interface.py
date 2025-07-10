@@ -136,12 +136,12 @@ class System2Interface:
             "metadata": self._prepare_context(stimuli)
         }
         
-        # Submit to the new stimuli orchestrator API
+        # Submit to the AutoGen stimuli API endpoint
         import httpx
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    f"{self.config.autogen_endpoint}/api/stimuli/receive",
+                    f"{self.config.autogen_endpoint}/stimuli",
                     json=stimuli_data,
                     timeout=30.0
                 )
