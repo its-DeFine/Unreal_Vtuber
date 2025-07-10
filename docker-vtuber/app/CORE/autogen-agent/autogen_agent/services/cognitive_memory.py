@@ -16,7 +16,7 @@ class MemoryEntry:
     relevance_score: float = 0.0
 
 class CognitiveMemoryManager:
-    """Enhanced memory manager with Cognee knowledge graph integration"""
+    """Enhanced memory manager with Neo4j semantic storage (formerly Cognee)"""
     
     def __init__(self, db_url: str, cognee_url: str = None, cognee_api_key: str = None):
         self.db_url = db_url
@@ -28,9 +28,9 @@ class CognitiveMemoryManager:
         
         logging.info(f"🧠 [COGNITIVE_MEMORY] Initializing...")
         if self.cognee_url:
-            logging.info(f"🧠 [COGNITIVE_MEMORY] Cognee URL configured: {self.cognee_url}")
+            logging.info(f"🧠 [COGNITIVE_MEMORY] Legacy Cognee URL configured: {self.cognee_url} (deprecated)")
         else:
-            logging.info("🧠 [COGNITIVE_MEMORY] Cognee not configured - using PostgreSQL only")
+            logging.info("🧠 [COGNITIVE_MEMORY] Using PostgreSQL + Neo4j semantic storage")
     
     async def initialize(self):
         """Initialize database connection and check Cognee availability"""
@@ -43,9 +43,9 @@ class CognitiveMemoryManager:
             if self.cognee_url and self.cognee_api_key:
                 self.cognee_available = await self._check_cognee_health()
                 if self.cognee_available:
-                    logging.info("✅ [COGNITIVE_MEMORY] Cognee service available")
+                    logging.info("✅ [COGNITIVE_MEMORY] Legacy Cognee service available (deprecated)")
                 else:
-                    logging.warning("⚠️ [COGNITIVE_MEMORY] Cognee service unavailable - using PostgreSQL fallback")
+                    logging.warning("⚠️ [COGNITIVE_MEMORY] Legacy Cognee service unavailable - using PostgreSQL + Neo4j semantic storage")
             
         except Exception as e:
             logging.error(f"❌ [COGNITIVE_MEMORY] Initialization failed: {e}")

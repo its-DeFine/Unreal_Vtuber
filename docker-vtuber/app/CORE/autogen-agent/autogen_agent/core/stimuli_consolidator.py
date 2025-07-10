@@ -542,8 +542,8 @@ class StimuliConsolidator:
         capacity = self.capacity_monitor.get_combined_capacity()
         
         # Check system availability
-        s1_available = capacity["s1_capacity"]["status"] in ["available", "busy"]
-        s2_available = capacity["s2_capacity"]["status"] in ["available", "busy"]
+        s1_available = capacity.get("s1_capacity", {}).get("status") in ["available", "busy"]
+        s2_available = capacity.get("s2_capacity", {}).get("status") in ["available", "busy"]
         
         # Check content type preferences
         has_simple_content = any(len(s.content.split()) <= 10 for s in stimuli_items)
@@ -569,8 +569,8 @@ class StimuliConsolidator:
             return ProcessingMode.S2_ONLY
         else:
             # Both systems busy, choose based on estimated wait time
-            s1_wait = capacity["s1_capacity"].get("estimated_free_time", float("inf"))
-            s2_wait = capacity["s2_capacity"].get("estimated_free_time", float("inf"))
+            s1_wait = capacity.get("s1_capacity", {}).get("estimated_free_time", float("inf"))
+            s2_wait = capacity.get("s2_capacity", {}).get("estimated_free_time", float("inf"))
             return ProcessingMode.S1_ONLY if s1_wait <= s2_wait else ProcessingMode.S2_ONLY
     
     async def _generate_unified_prompts(self, batch: ConsolidatedBatch):
@@ -686,11 +686,11 @@ class StimuliConsolidator:
         required_systems = set(batch.target_systems)
         
         if "s1" in required_systems:
-            if capacity["s1_capacity"]["status"] not in ["available", "busy"]:
+            if capacity.get("s1_capacity", {}).get("status") not in ["available", "busy"]:
                 return False
         
         if "s2" in required_systems:
-            if capacity["s2_capacity"]["status"] not in ["available", "busy"]:
+            if capacity.get("s2_capacity", {}).get("status") not in ["available", "busy"]:
                 return False
         
         return True

@@ -18,13 +18,13 @@ async def run(context: Dict[str, Any]) -> Dict[str, Any]:
     This tool handles all stimuli team decisions through a single interface.
     It can perform three types of actions based on parameters:
     1. objective_update: Update main team objectives
-    2. knowledge_push: Push insights to Cognee memory system
+    2. knowledge_push: Push insights to Neo4j semantic storage
     3. placeholder_action: Execute dynamic actions (calendar, APIs, etc.)
     
     Parameters:
     - action_type: ["objective_update", "knowledge_push", "placeholder_action"]
     - objective_updates: Updates for main team (when action_type="objective_update")
-    - knowledge_data: Data to push to Cognee (when action_type="knowledge_push")
+    - knowledge_data: Data to push to Neo4j (when action_type="knowledge_push")
     - placeholder_action: Dynamic action config (when action_type="placeholder_action")
     - agent_reasoning: Full team decision rationale
     - priority: Execution priority level
@@ -158,7 +158,7 @@ async def _execute_objective_update(context: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _execute_knowledge_push(context: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute knowledge push to Cognee memory system"""
+    """Execute knowledge push to Neo4j semantic storage"""
     try:
         knowledge_data = context.get("knowledge_data", {})
         
@@ -169,22 +169,22 @@ async def _execute_knowledge_push(context: Dict[str, Any]) -> Dict[str, Any]:
                 "message": "Knowledge push failed - no data specified"
             }
         
-        # Try to push to Cognee if available
-        cognee_pushed = False
+        # Try to push to Neo4j semantic storage if available
+        neo4j_pushed = False
         
         # Check if we have access to cognitive memory
         if hasattr(context, 'cognitive_memory') and context.cognitive_memory:
             try:
-                # Store knowledge in Cognee
+                # Store knowledge in Neo4j semantic storage
                 await context.cognitive_memory.store_knowledge(
                     knowledge_data,
                     source="stimuli_team_analysis",
                     category="stimuli_insight"
                 )
-                cognee_pushed = True
-                logging.info("🧠 [STIMULI_EXECUTOR] Knowledge pushed to Cognee successfully")
+                neo4j_pushed = True
+                logging.info("🧠 [STIMULI_EXECUTOR] Knowledge pushed to Neo4j semantic storage successfully")
             except Exception as e:
-                logging.warning(f"⚠️ [STIMULI_EXECUTOR] Error pushing to Cognee: {e}")
+                logging.warning(f"⚠️ [STIMULI_EXECUTOR] Error pushing to Neo4j semantic storage: {e}")
         
         # Fallback: Save to local knowledge store
         knowledge_file = "/tmp/stimuli_knowledge_store.json"
@@ -205,7 +205,7 @@ async def _execute_knowledge_push(context: Dict[str, Any]) -> Dict[str, Any]:
             "source": "stimuli_team_analysis",
             "timestamp": datetime.now().isoformat(),
             "reasoning": context.get("agent_reasoning", ""),
-            "cognee_pushed": cognee_pushed
+            "neo4j_pushed": neo4j_pushed
         }
         
         existing_knowledge.append(new_knowledge)
@@ -220,8 +220,8 @@ async def _execute_knowledge_push(context: Dict[str, Any]) -> Dict[str, Any]:
         
         return {
             "success": True,
-            "message": f"Knowledge pushed successfully - Cognee: {cognee_pushed}, Local: True",
-            "cognee_pushed": cognee_pushed,
+            "message": f"Knowledge pushed successfully - Neo4j: {neo4j_pushed}, Local: True",
+            "neo4j_pushed": neo4j_pushed,
             "local_stored": True,
             "total_knowledge_entries": len(existing_knowledge),
             "knowledge_file": knowledge_file

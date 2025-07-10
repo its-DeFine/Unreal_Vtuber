@@ -761,7 +761,7 @@ async def get_persona_status():
     """Get persona-aware system status"""
     try:
         from .persona_aware_tool_registry import get_persona_tool_registry
-        from .character_state_manager import get_character_state_manager
+        from .services.character_state_manager import get_character_state_manager
         
         tool_registry = get_persona_tool_registry()
         character_manager = get_character_state_manager()
