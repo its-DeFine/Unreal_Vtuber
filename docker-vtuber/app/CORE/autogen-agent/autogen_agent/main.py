@@ -98,8 +98,8 @@ gpu_monitor = None
 # Global stimuli orchestrator instance
 global_orchestrator = None
 
-# Global semantic map services
-global_scb_cognee_bridge = None
+# Global semantic map services (Neo4j-based)
+global_scb_neo4j_bridge = None
 global_graph_export_service = None
 
 @app.get("/health")
@@ -1079,11 +1079,9 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
                 "duration": decision_time
             })
         
-        # 🎭 STEP 9: VTuber calls DISABLED for pure stimuli-driven architecture
-        # S1 Avatar will only respond to external stimuli from GraphFlow/S2, not autonomous cycles
-        # if final_response:
-        #     vtuber.post_message(final_response)  # DISABLED - was causing autonomous speech
-        logging.info(f"🚫 [AUTOGEN] VTuber call disabled for pure stimuli-driven architecture - final_response: {final_response[:50]}..." if final_response else "🚫 [AUTOGEN] VTuber call disabled - no final_response")
+        # 🎭 STEP 9: VTuber calls COMPLETELY REMOVED - S2 only updates SCB, never triggers S1 directly
+        # S1 Avatar will only respond to external stimuli from GraphFlow, not S2 autonomous cycles
+        logging.info(f"✅ [AUTOGEN] S2 autonomous cycle completed, SCB updated - no direct S1 triggering")
         
         # 🔗 STEP 10: Update SCB state ONLY if AgentNet enabled
         scb_state = {
@@ -1102,7 +1100,7 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
         scb.publish_state(scb_state)  # Respects AgentNet activation
         
         # Also send to Neo4j semantic map
-        if global_scb_cognee_bridge:
+        if global_scb_neo4j_bridge:
             from .services.scb_neo4j_bridge import transform_and_store_scb_state
             await transform_and_store_scb_state(scb_state)
         
@@ -1124,9 +1122,9 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
                 "decision_time": time.time() - cycle_start_time
             })
         
-        # Send error to VTuber only if activated
+        # Log error but do NOT send to VTuber - S2 errors should not trigger S1 speech
         error_message = f"🚨 AutoGen Cycle #{iteration} Error: {str(e)[:100]}"
-        vtuber.post_message(error_message)  # Respects activation state
+        logging.error(f"❌ [AUTOGEN] {error_message}")
         
         # Update SCB with error only if AgentNet enabled
         error_state = {
@@ -1138,9 +1136,9 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
         }
         scb.publish_state(error_state)  # Respects AgentNet activation
         
-        # Also send error to Cognee semantic map
-        if global_scb_cognee_bridge:
-            from .services.scb_cognee_bridge import transform_and_store_scb_state
+        # Also send error to Neo4j semantic map
+        if global_scb_neo4j_bridge:
+            from .services.scb_neo4j_bridge import transform_and_store_scb_state
             await transform_and_store_scb_state(error_state)
 
 async def update_analytics_and_goals(iteration: int, agent_responses: dict, evolution_enhanced: bool, tool_executions: dict = None):
@@ -1197,9 +1195,9 @@ async def run_cognitive_cycle(decision_engine: CognitiveDecisionEngine,
         # Make intelligent decision using cognitive engine
         result = await decision_engine.make_intelligent_decision(context)
         
-        # Send result to VTuber ONLY if activated
+        # Log result but do NOT send to VTuber - S2 should not trigger S1 directly
         if result.get("message"):
-            vtuber.post_message(result["message"])  # Respects activation state
+            logging.info(f"🧠 [COGNITIVE_CYCLE] Result: {result['message'][:100]}...")
         
         # Update SCB state ONLY if AgentNet enabled
         scb_state = {
@@ -1212,7 +1210,7 @@ async def run_cognitive_cycle(decision_engine: CognitiveDecisionEngine,
         scb.publish_state(scb_state)  # Respects AgentNet activation
         
         # Also send to Neo4j semantic map
-        if global_scb_cognee_bridge:
+        if global_scb_neo4j_bridge:
             from .services.scb_neo4j_bridge import transform_and_store_scb_state
             await transform_and_store_scb_state(scb_state)
         
@@ -1238,15 +1236,15 @@ def run_once(registry: ToolRegistry, memory: MemoryManager, scb: SCBClient, vtub
         result = tool(enhanced_context)
         memory.store_memory(result)
         
-        # Send to VTuber only if activated
-        vtuber.post_message(result.get("message", ""))  # Respects activation state
+        # Log result but do NOT send to VTuber - S2 should not trigger S1 directly
+        logging.info(f"🔧 [LEGACY_CYCLE] Result: {result.get('message', '')[:100]}...")
         
         # Update SCB only if AgentNet enabled
         scb.publish_state(result)  # Respects AgentNet activation
         
-        # Also send to Cognee semantic map
-        if global_scb_cognee_bridge:
-            from .services.scb_cognee_bridge import transform_and_store_scb_state
+        # Also send to Neo4j semantic map
+        if global_scb_neo4j_bridge:
+            from .services.scb_neo4j_bridge import transform_and_store_scb_state
             asyncio.create_task(transform_and_store_scb_state(result))
 
 async def enhanced_autonomous_loop(scb: SCBClient, vtuber: VTuberClient):
@@ -1618,11 +1616,10 @@ async def initialize_cognitive_system() -> tuple:
     scb = SCBClient(redis_url)
     vtuber = VTuberClient(vtuber_endpoint)
     
-    # DO NOT activate VTuber client automatically - only admin commands should enable continuous voice
+    # VTuber client is DISABLED for S2 - S2 should NEVER trigger S1 speech directly
     if vtuber_endpoint:
-        # vtuber.activate_vtuber()  # DISABLED - prevents inappropriate S1 triggering
-        logging.info(f"🎭 [MAIN] VTuber client available but NOT activated (stimuli-driven architecture): {vtuber_endpoint}")
-        logging.info("🚫 [MAIN] VTuber will only respond to explicit admin commands, not autonomous cycles")
+        logging.info(f"🚫 [MAIN] VTuber endpoint detected but S2 will NOT use it for speech triggering: {vtuber_endpoint}")
+        logging.info("✅ [MAIN] S2 operates independently - only updates SCB for GraphFlow to process")
     
     # Set global client references for API access
     global global_scb_client, global_vtuber_client, global_tool_registry, gpu_monitor
@@ -1690,13 +1687,13 @@ async def startup_tasks():
     
     # Initialize semantic map services
     try:
-        global global_scb_cognee_bridge, global_graph_export_service
+        global global_scb_neo4j_bridge, global_graph_export_service
         
         logging.info("🌉 [STARTUP] Initializing Neo4j semantic map services...")
         
         # Initialize SCB-Neo4j bridge
         from .services.scb_neo4j_bridge import get_scb_neo4j_bridge
-        global_scb_cognee_bridge = get_scb_neo4j_bridge()
+        global_scb_neo4j_bridge = get_scb_neo4j_bridge()
         logging.info("✅ [STARTUP] SCB-Neo4j bridge initialized")
         
         # Initialize graph export service
@@ -1732,12 +1729,12 @@ async def shutdown_tasks():
     
     # Cleanup semantic map services
     try:
-        global global_scb_cognee_bridge, global_graph_export_service
+        global global_scb_neo4j_bridge, global_graph_export_service
         
-        if global_scb_cognee_bridge:
+        if global_scb_neo4j_bridge:
             # Neo4j bridge doesn't have async shutdown, but we should close the connection
-            if hasattr(global_scb_cognee_bridge, 'storage') and global_scb_cognee_bridge.storage:
-                global_scb_cognee_bridge.storage.close()
+            if hasattr(global_scb_neo4j_bridge, 'storage') and global_scb_neo4j_bridge.storage:
+                global_scb_neo4j_bridge.storage.close()
             logging.info("🌉 [SHUTDOWN] SCB-Neo4j bridge closed")
             
         # Graph export service doesn't need explicit shutdown
@@ -1824,20 +1821,19 @@ def main() -> None:
             scb = SCBClient(redis_url)
             vtuber = VTuberClient(vtuber_endpoint)
             
-            # DO NOT activate VTuber client automatically - only admin commands should enable continuous voice
+            # VTuber client is DISABLED for S2 AutoGen - S2 should NEVER trigger S1 speech directly
             if vtuber_endpoint:
-                # vtuber.activate_vtuber()  # DISABLED - prevents inappropriate S1 triggering
-                logging.info(f"🎭 [MAIN] VTuber client available but NOT activated (stimuli-driven architecture): {vtuber_endpoint}")
-                logging.info("🚫 [MAIN] VTuber will only respond to explicit admin commands, not autonomous cycles")
+                logging.info(f"🚫 [MAIN] VTuber endpoint detected but S2 AutoGen will NOT use it for speech triggering: {vtuber_endpoint}")
+                logging.info("✅ [MAIN] S2 AutoGen operates independently - only updates SCB for GraphFlow to process")
             
             # Set global client references
             global global_scb_client, global_vtuber_client, global_tool_registry, gpu_monitor
             global_scb_client = scb
             global_vtuber_client = vtuber
             
-            # Initialize character state manager for persona-aware tools
-            s1_endpoint = os.getenv("S1_AVATAR_ENDPOINT", "http://neurosync:5001")
-            character_manager = initialize_character_state_manager(s1_endpoint)
+            # Initialize character state manager for persona-aware tools (character sync only, no speech triggering)
+            s1_sync_endpoint = os.getenv("S1_CHARACTER_SYNC_ENDPOINT", "http://neurosync_s1:5001")
+            character_manager = initialize_character_state_manager(s1_sync_endpoint)
             logging.info("🎭 [MAIN] Character state manager initialized")
             
             # Initialize persona-aware tool registry

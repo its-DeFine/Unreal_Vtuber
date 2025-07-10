@@ -81,10 +81,16 @@ class Neo4jSemanticStorage:
         logger.info(f"🔗 [NEO4J] Initialized semantic storage with URI: {self.uri}")
     
     def connect(self):
-        """Establish connection to Neo4j"""
+        """Establish connection to Neo4j with graceful fallback"""
         try:
+            # First try to connect to Neo4j
+            logger.info(f"🔗 [NEO4J] Attempting to connect to {self.uri}")
             self.driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
             self.async_driver = AsyncGraphDatabase.driver(self.uri, auth=(self.user, self.password))
+            
+            # Test connection with a simple query
+            with self.driver.session() as session:
+                session.run("RETURN 1 as test")
             
             # Create constraints and indexes
             with self.driver.session() as session:
@@ -109,7 +115,11 @@ class Neo4jSemanticStorage:
             return True
             
         except Exception as e:
-            logger.error(f"❌ [NEO4J] Connection failed: {e}")
+            logger.warning(f"⚠️ [NEO4J] Connection failed, operating in fallback mode: {e}")
+            logger.info("📝 [NEO4J] S2 will continue to operate with SCB updates only")
+            # Clear drivers to prevent further connection attempts
+            self.driver = None
+            self.async_driver = None
             return False
     
     async def close(self):
@@ -156,7 +166,12 @@ class Neo4jSemanticStorage:
         agent_team: str = None,
         action_chain: List[str] = None
     ) -> Optional[SemanticNode]:
-        """Add a semantic node to the graph"""
+        """Add a semantic node to the graph with graceful fallback"""
+        # If Neo4j is not available, log and continue
+        if not self.driver:
+            logger.debug(f"🔄 [NEO4J] Neo4j unavailable, skipping semantic node storage: {content[:50]}...")
+            return None
+        
         try:
             # Check for duplicate
             node_id = self._generate_node_id(content, context.value)

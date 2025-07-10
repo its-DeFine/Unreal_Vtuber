@@ -1,0 +1,382 @@
+services:
+  # ======================================
+  # GraphFlow Stimuli System
+  # ======================================
+  graphflow-gateway:
+    build:
+      context: ./app/CORE/graphflow-stimuli-system
+      dockerfile: docker/Dockerfile
+    container_name: graphflow_gateway
+    ports:
+      - "8000:8080"  # GraphFlow API port
+    environment:
+      # Core settings
+      - GRAPHFLOW_LOG_LEVEL=INFO
+      - GRAPHFLOW_MAX_CONCURRENT_STIMULI=50
+      - GRAPHFLOW_PROCESSING_TIMEOUT=30.0
+      
+      # LLM settings (using shared Ollama)
+      - GRAPHFLOW_LLM_PROVIDER=ollama
+      - GRAPHFLOW_LLM_MODEL=llama3.1:8b
+      - GRAPHFLOW_LLM_ENDPOINT=http://vtuber-ollama:11434
+      
+      # Integration with NeuroSync S1 and AutoGen S2
+      - SYSTEM1_VTUBER_ENDPOINT=http://neurosync_s1:5001
+      - SYSTEM2_AUTOGEN_ENDPOINT=http://autogen_agent:8000
+      
+      # Database connections (use shared services)
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://postgres:graphflow123@autogen_postgres:5432/graphflow
+      
+      # Monitoring
+      - METRICS_ENABLED=true
+      - PROMETHEUS_PORT=9090
+      - DETAILED_LOGGING=true
+      
+      # Security
+      - API_KEYS_FILE=/app/config/api_keys.json
+      - RATE_LIMIT_REQUESTS_PER_MINUTE=60
+      
+    volumes:
+      - ./app/CORE/graphflow-stimuli-system/config:/app/config
+      - ./app/CORE/graphflow-stimuli-system/logs:/app/logs
+    depends_on:
+      - redis
+      - autogen_postgres
+      - vtuber-ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - scb_bridge_net
+
+  # ======================================
+  # NeuroSync S1 (VTuber Avatar System)
+  # ======================================
+  neurosync:
+    mem_limit: 12g
+    build:
+      context: .
+      dockerfile: ./app/AVATAR/NeuroBridge/dockerfile
+    container_name: neurosync_s1
+    command: [/app/entrypoint_bridge.sh]
+    ports:
+      - "5000:5000" # Expose Flask API port
+      - "5001:5001" # Expose Player HTTP Server port
+    environment:
+      - FLASK_HOST=0.0.0.0
+      - PYTHONUNBUFFERED=1
+      - ALLOWED_ORIGINS=*
+      - PLAYER_PORT=5001
+      # SCB storage
+      - USE_REDIS_SCB=true
+      - REDIS_URL=redis://redis:6379/0
+      # LLM Provider (OpenAI)
+      - LLM_PROVIDER=openai
+      - OPENAI_MODEL=gpt-4o
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - VTUBER_PAYMENT_ENABLED=false
+      # Pure Stimuli-Driven Architecture Configuration  
+      - ORCHESTRATOR_VERSION=reactive
+      - AUTONOMOUS_ORCHESTRATION_ENABLED=false
+      - AUTONOMOUS_SPEECH_ENABLED=false
+      - AUTONOMOUS_CONTENT_ENABLED=false
+      - AUTONOMOUS_ENVIRONMENT_ENABLED=false
+      - AUTO_INTERRUPT_ENABLED=false
+      - SIMPLE_SPEECH_ENABLED=false
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - scb_bridge_net
+    volumes:
+      - ./app/AVATAR/NeuroBridge:/app/NeuroBridge
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - vtuber-ollama
+
+  # ======================================
+  # AutoGen S2 (Multi-Agent Intelligence System)
+  # ======================================
+  autogen_agent:
+    build:
+      context: ./app/CORE/autogen-agent
+      dockerfile: Dockerfile
+    container_name: autogen_agent
+    volumes:
+      - ./app/CORE/autogen-agent/autogen_agent:/app/autogen_agent
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@autogen_postgres:5432/autonomous_agent
+      - USE_COGNITIVE_ENHANCEMENT=true
+      - USE_AUTOGEN_LLM=true
+      - STANDALONE_MODE=true
+      - LOOP_INTERVAL=30
+      - LOG_LEVEL=INFO
+      - PORT=8000
+      # Ollama configuration for local LLM
+      - OLLAMA_HOST=http://vtuber-ollama:11434
+      - USE_OLLAMA=true
+      - OLLAMA_MODEL=llama3.1:8b
+      # SCB Integration (S2 should NOT trigger S1 directly - use SCB only)
+      - SCB_ENDPOINT=redis://redis:6379/0
+      # S1 endpoint only for character state sync, NOT for triggering speech
+      - S1_CHARACTER_SYNC_ENDPOINT=http://neurosync_s1:5001
+      # OpenAI fallback
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=gpt-4o-mini
+      # Neo4j configuration
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password123
+      # LLM Configuration for AutoGen
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=llama3.1
+      - LLM_API_KEY=ollama
+      - LLM_ENDPOINT=http://vtuber-ollama:11434/v1
+      - LLM_TEMPERATURE=0.1
+      - LLM_MAX_TOKENS=2048
+      - INSTRUCTOR_MODE=json_mode
+      - INSTRUCTOR_MAX_RETRIES=1
+      # Evolution Configuration
+      - DARWIN_GODEL_REAL_MODIFICATIONS=true
+      - DARWIN_GODEL_REQUIRE_APPROVAL=false
+      - DARWIN_GODEL_PERFORMANCE_THRESHOLD=10
+      - DARWIN_GODEL_BACKUP_RETENTION_DAYS=30
+      - DARWIN_GODEL_MAX_MODIFICATIONS_PER_CYCLE=3
+      # AutoGen Continuous Loop Configuration
+      - MAX_CONSECUTIVE_AUTO_REPLY=10
+      - MAX_ROUNDS=20
+      - ENABLE_CONTINUOUS_EVOLUTION=true
+      # Statistics Persistence Configuration
+      - STATISTICS_PERSISTENCE_ENABLED=true
+      - STATISTICS_RETENTION_DAYS=90
+      - STATISTICS_BATCH_SIZE=100
+      - CONVERSATION_STORAGE_ENABLED=true
+      # Neo4j Semantic Storage (replaced Cognee)
+      - NEO4J_SEMANTIC_STORAGE=true
+      - NEO4J_CONVERSATION_STORAGE=true
+      - NEO4J_PATTERN_LEARNING=true
+    env_file:
+      - .env
+    ports:
+      - "8200:8000"
+    depends_on:
+      autogen_postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      vtuber-ollama:
+        condition: service_healthy
+      ollama-loader:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks:
+      - scb_bridge_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ======================================
+  # Shared Infrastructure Services
+  # ======================================
+  redis:
+    image: redis:7-alpine
+    container_name: redis_scb
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - scb_bridge_net
+    restart: unless-stopped
+
+  nginx-rtmp:
+    build:
+      context: ./docker/files_docker_rtmp/docker/rtmp
+    container_name: nginx_rtmp
+    ports:
+      - "1935:1935"   # RTMP ingest
+      - "8080:8080"   # HLS + status page & HLS manifest
+    volumes:
+      - ./docker/files_docker_rtmp/docker/rtmp/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - scb_bridge_net
+    restart: unless-stopped
+
+  # PostgreSQL with pgvector for AutoGen and GraphFlow
+  autogen_postgres:
+    image: ankane/pgvector:latest
+    container_name: autogen_postgres
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=autonomous_agent
+    volumes:
+      - autonomous_postgres_data:/var/lib/postgresql/data
+      - ./app/CORE/graphflow-stimuli-system/docker/init-db.sql:/docker-entrypoint-initdb.d/init-graphflow-db.sql
+    ports:
+      - "5434:5432"
+    restart: unless-stopped
+    networks:
+      - scb_bridge_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Neo4j for semantic graph storage
+  neo4j:
+    image: neo4j:5-community
+    container_name: autogen_neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/password123
+      - NEO4J_dbms_memory_pagecache_size=512M
+      - NEO4J_dbms_memory_heap_initial__size=512M
+      - NEO4J_dbms_memory_heap_max__size=1G
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    restart: unless-stopped
+    networks:
+      - scb_bridge_net
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Ollama model loader
+  ollama-loader:
+    image: curlimages/curl:latest
+    container_name: ollama_loader
+    depends_on:
+      - vtuber-ollama
+    networks:
+      - scb_bridge_net
+    entrypoint: >
+      sh -c "
+        echo 'Waiting for Ollama to be ready...' &&
+        sleep 10 &&
+        echo 'Pulling llama3.1:8b model for AutoGen...' &&
+        curl -X POST http://vtuber-ollama:11434/api/pull -d '{\"name\": \"llama3.1:8b\"}' &&
+        echo 'Pulling nomic-embed-text model for Cognee embeddings...' &&
+        curl -X POST http://vtuber-ollama:11434/api/pull -d '{\"name\": \"nomic-embed-text:latest\"}' &&
+        echo 'Models pull initiated' &&
+        sleep 120 &&
+        echo 'Loading llama3.1:8b model into memory...' &&
+        curl -X POST http://vtuber-ollama:11434/api/generate -d '{\"model\": \"llama3.1:8b\", \"prompt\": \"Hello\", \"stream\": false}' &&
+        echo 'Model loaded successfully'
+      "
+    restart: "no"
+
+  # Ollama LLM Provider with GPU support
+  vtuber-ollama:
+    image: ollama/ollama:latest
+    container_name: vtuber-ollama
+    runtime: nvidia
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - scb_bridge_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ======================================
+  # Monitoring Services (Optional)
+  # ======================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus_graphflow
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./app/CORE/graphflow-stimuli-system/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - scb_bridge_net
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana_graphflow
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./app/CORE/graphflow-stimuli-system/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./app/CORE/graphflow-stimuli-system/monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    restart: unless-stopped
+    networks:
+      - scb_bridge_net
+    profiles:
+      - monitoring
+
+networks:
+  scb_bridge_net:
+    driver: bridge
+
+volumes:
+  redis_data:
+    driver: local
+  ollama_data:
+    driver: local
+  autonomous_postgres_data:
+    driver: local
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
+  neo4j_import:
+    driver: local
+  neo4j_plugins:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
