@@ -7,6 +7,7 @@ import aiohttp
 import json
 import signal
 import sys
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Response
@@ -46,7 +47,17 @@ from .utils.async_utils import shutdown_async_utils
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 LOOP_INTERVAL = int(os.getenv("LOOP_INTERVAL", "20"))
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI startup and shutdown events"""
+    # Startup
+    await startup_tasks()
+    yield
+    # Shutdown
+    await shutdown_tasks()
+
+app = FastAPI(lifespan=lifespan)
 
 # Mount static files directory
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -1649,9 +1660,8 @@ async def initialize_mcp_server(cognitive_system):
         logging.error(f"❌ [MCP] MCP server initialization error: {e}")
         return None
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize MCP server on FastAPI startup"""
+async def startup_tasks():
+    """Initialize services on FastAPI startup"""
     global mcp_server
     
     try:
@@ -1708,8 +1718,7 @@ async def startup_event():
     except Exception as e:
         logging.error(f"❌ [STARTUP] Semantic map services error: {e}")
 
-@app.on_event("shutdown")
-async def shutdown_event():
+async def shutdown_tasks():
     """Cleanup resources on shutdown"""
     logging.info("🛑 [SHUTDOWN] Starting application shutdown...")
     

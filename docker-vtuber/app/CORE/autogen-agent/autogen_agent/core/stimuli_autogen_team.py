@@ -125,6 +125,9 @@ class StimuliAutoGenTeam:
             self.decision_strategist = teachable_agents["programmer"]  # Strategic thinking
             self.action_coordinator = teachable_agents["observer"]    # Action coordination
             
+            # Get character context for system messages
+            character_context = self._get_character_context()
+            
             # Update system messages for stimuli-specific roles with character context
             self._update_system_messages_for_stimuli_with_character_context(character_context)
             
