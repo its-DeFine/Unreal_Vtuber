@@ -95,52 +95,62 @@ class ToolRegistry:
         logging.info(f"🧠 [TOOL_REGISTRY] Intelligent tool selection ENABLED with {len(self.context_tool_mapping)} context mappings")
 
     def load_tools(self) -> None:
-        """Load all tools from the tools package"""
+        """Load all tools from the tools package recursively"""
         try:
             # Import the package
             package = importlib.import_module(self.package)
             
-            # Iterate through all modules in the package
-            for _, name, ispkg in pkgutil.iter_modules(package.__path__, self.package + "."):
-                if ispkg:
-                    continue
-                    
-                # Extract tool name from module name
-                tool_name = name.split(".")[-1]
-                
-                # Skip disabled tools
-                if tool_name in self.disabled_tools:
-                    logging.info(f"🚫 [TOOL_REGISTRY] Skipping disabled tool: {tool_name}")
-                    continue
-                    
-                try:
-                    # Import the module
-                    module = importlib.import_module(name)
-                    
-                    # Look for a 'run' function
-                    if hasattr(module, 'run'):
-                        self.tools[tool_name] = module.run
-                        
-                        # Initialize performance tracking
-                        self.tool_performance[tool_name] = {
-                            'total_uses': 0,
-                            'successes': 0,
-                            'avg_execution_time': 0.0,
-                            'context_relevance_scores': [],
-                            'last_used': 0
-                        }
-                        
-                        # Check if tool is async
-                        is_async = inspect.iscoroutinefunction(module.run)
-                        logging.info(f"✅ [TOOL_REGISTRY] Loaded tool: {tool_name} ({'async' if is_async else 'sync'})")
-                    else:
-                        logging.warning(f"⚠️ [TOOL_REGISTRY] Module {tool_name} has no 'run' function")
-                        
-                except ImportError as e:
-                    logging.error(f"❌ [TOOL_REGISTRY] Failed to import {tool_name}: {e}")
+            # Recursively scan all subdirectories for tools
+            self._load_tools_recursive(package.__path__, self.package)
                     
         except ImportError as e:
             logging.error(f"❌ [TOOL_REGISTRY] Failed to import package {self.package}: {e}")
+    
+    def _load_tools_recursive(self, package_paths: list, package_name: str) -> None:
+        """Recursively load tools from all subdirectories"""
+        for _, name, ispkg in pkgutil.iter_modules(package_paths, package_name + "."):
+            if ispkg:
+                # Recursively scan subdirectory
+                try:
+                    subpackage = importlib.import_module(name)
+                    self._load_tools_recursive(subpackage.__path__, name)
+                except ImportError as e:
+                    logging.warning(f"⚠️ [TOOL_REGISTRY] Failed to import subpackage {name}: {e}")
+                continue
+                
+            # Extract tool name from module name
+            tool_name = name.split(".")[-1]
+            
+            # Skip disabled tools
+            if tool_name in self.disabled_tools:
+                logging.info(f"🚫 [TOOL_REGISTRY] Skipping disabled tool: {tool_name}")
+                continue
+                
+            try:
+                # Import the module
+                module = importlib.import_module(name)
+                
+                # Look for a 'run' function
+                if hasattr(module, 'run'):
+                    self.tools[tool_name] = module.run
+                    
+                    # Initialize performance tracking
+                    self.tool_performance[tool_name] = {
+                        'total_uses': 0,
+                        'successes': 0,
+                        'avg_execution_time': 0.0,
+                        'context_relevance_scores': [],
+                        'last_used': 0
+                    }
+                    
+                    # Check if tool is async
+                    is_async = inspect.iscoroutinefunction(module.run)
+                    logging.info(f"✅ [TOOL_REGISTRY] Loaded tool: {tool_name} ({'async' if is_async else 'sync'}) from {name}")
+                else:
+                    logging.debug(f"🔍 [TOOL_REGISTRY] Module {tool_name} has no 'run' function")
+                    
+            except ImportError as e:
+                logging.error(f"❌ [TOOL_REGISTRY] Failed to import {tool_name}: {e}")
 
     def _get_last_selection_score(self, tool_name: str) -> float:
         """Get the last selection score for a tool"""

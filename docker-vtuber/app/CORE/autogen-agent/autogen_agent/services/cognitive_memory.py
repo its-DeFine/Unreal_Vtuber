@@ -28,7 +28,7 @@ class CognitiveMemoryManager:
         
         logging.info(f"🧠 [COGNITIVE_MEMORY] Initializing...")
         if self.cognee_url:
-            logging.info(f"🧠 [COGNITIVE_MEMORY] Legacy Cognee URL configured: {self.cognee_url} (deprecated)")
+            logging.info(f"🧠 [COGNITIVE_MEMORY] Cognee URL configured: {self.cognee_url}")
         else:
             logging.info("🧠 [COGNITIVE_MEMORY] Using PostgreSQL + Neo4j semantic storage")
     
@@ -43,16 +43,16 @@ class CognitiveMemoryManager:
             if self.cognee_url and self.cognee_api_key:
                 self.cognee_available = await self._check_cognee_health()
                 if self.cognee_available:
-                    logging.info("✅ [COGNITIVE_MEMORY] Legacy Cognee service available (deprecated)")
+                    logging.info("✅ [COGNITIVE_MEMORY] Cognee service available")
                 else:
-                    logging.warning("⚠️ [COGNITIVE_MEMORY] Legacy Cognee service unavailable - using PostgreSQL + Neo4j semantic storage")
+                    logging.info("ℹ️ [COGNITIVE_MEMORY] Cognee service unavailable - using PostgreSQL + Neo4j semantic storage")
             
         except Exception as e:
             logging.error(f"❌ [COGNITIVE_MEMORY] Initialization failed: {e}")
             raise
     
     async def store_interaction(self, context: Dict, action: str, result: Dict) -> str:
-        """Store interaction in both PostgreSQL and Cognee knowledge graph"""
+        """Store interaction in PostgreSQL and optionally in Cognee knowledge graph"""
         
         memory_id = f"mem_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
         
@@ -82,7 +82,7 @@ class CognitiveMemoryManager:
             raise
     
     async def retrieve_relevant_context(self, query: str, max_results: int = 10) -> List[MemoryEntry]:
-        """Retrieve semantically relevant context using Cognee knowledge graph or PostgreSQL fallback"""
+        """Retrieve semantically relevant context using Cognee knowledge graph or PostgreSQL"""
         
         try:
             if self.cognee_available:
@@ -105,7 +105,7 @@ class CognitiveMemoryManager:
     async def consolidate_knowledge(self):
         """Process and create relationships in Cognee knowledge graph"""
         if not self.cognee_available:
-            logging.info("🧩 [COGNITIVE_MEMORY] Cognee not available - skipping consolidation")
+            logging.debug("🧩 [COGNITIVE_MEMORY] Cognee not available - skipping consolidation")
             return
         
         try:

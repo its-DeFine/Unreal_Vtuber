@@ -38,11 +38,9 @@ class ConsolidationStrategy(Enum):
 
 class ProcessingMode(Enum):
     """Processing modes for consolidated stimuli"""
-    S1_ONLY = "s1_only"              # Process only through S1 Avatar
     S2_ONLY = "s2_only"              # Process only through S2 AutoGen
-    PARALLEL = "parallel"            # Process through both systems
-    SEQUENTIAL = "sequential"        # Process S2 first, then S1
-    ADAPTIVE = "adaptive"            # Choose based on capacity and content
+    SEMANTIC_BRIDGE = "semantic_bridge"  # Update SCB semantic bridge only
+    LOCAL_STORAGE = "local_storage"   # Store locally for S2 access
 
 
 @dataclass
@@ -249,7 +247,7 @@ class StimuliConsolidator:
                 logging.info("🔧 [CONSOLIDATOR] Processing admin command: %s", admin_stimuli_item.content)
                 
                 # Import admin character tool
-                from .tools.admin_character_tool import execute_admin_character_tool
+                from autogen_agent.tools.character.admin_character_tool import execute_admin_character_tool
                 
                 # Create context for admin tool
                 context = {
@@ -265,24 +263,15 @@ class StimuliConsolidator:
                 if result.get("success"):
                     logging.info("✅ [CONSOLIDATOR] Admin command executed successfully: %s", result.get("response", ""))
                     
-                    # DESIGN DECISION: Admin operations should be silent by default
-                    # Only send to S1 if explicitly requested via "announce" flag
+                    # DESIGN DECISION: S2 is completely isolated from S1 direct communication
+                    # Admin operations are logged locally and can update SCB semantic bridge only
                     admin_response = result.get("response", "")
-                    should_announce = (
-                        result.get("announce_to_s1", False) or  # Explicit announcement flag
-                        "announce:" in admin_stimuli_item.content.lower()  # Explicit announce request
-                    )
                     
-                    logging.info("🔍 [CONSOLIDATOR] Admin announcement check: announce_to_s1=%s, content_has_announce=%s, should_announce=%s", 
-                                result.get("announce_to_s1", False), 
-                                "announce:" in admin_stimuli_item.content.lower(),
-                                should_announce)
+                    logging.info("🔇 [CONSOLIDATOR] Admin operation completed - S2 isolation maintained (no S1 communication)")
                     
-                    if should_announce and admin_response and not result.get("skip"):
-                        logging.info("📢 [CONSOLIDATOR] Announcing admin result to S1: %s", admin_response[:100])
-                        await self._send_to_s1(admin_response)
-                    else:
-                        logging.info("🔇 [CONSOLIDATOR] Admin operation completed silently (no S1 announcement)")
+                    # Store admin response for potential SCB semantic bridge update
+                    if admin_response and not result.get("skip"):
+                        await self._update_semantic_bridge(admin_response, "admin_operation")
                         
                     # Store admin operation result for S2 logging/history
                     await self._log_admin_operation(admin_stimuli_item, result)
@@ -541,78 +530,41 @@ class StimuliConsolidator:
         """Select the best processing mode for the batch"""
         capacity = self.capacity_monitor.get_combined_capacity()
         
-        # Check system availability
-        s1_available = capacity.get("s1_capacity", {}).get("status") in ["available", "busy"]
+        # S2 ISOLATION: Only consider S2 processing modes
         s2_available = capacity.get("s2_capacity", {}).get("status") in ["available", "busy"]
         
-        # Check content type preferences
-        has_simple_content = any(len(s.content.split()) <= 10 for s in stimuli_items)
+        # Check content type preferences for S2 processing
         has_complex_content = any(len(s.content.split()) > 20 for s in stimuli_items)
         
-        # Priority-based decisions
+        # Priority-based decisions for S2 only
         has_high_priority = any(s.priority in ["high", "critical", "emergency"] for s in stimuli_items)
         
-        if has_high_priority and s1_available:
-            return ProcessingMode.S1_ONLY if has_simple_content else ProcessingMode.PARALLEL
-        
-        if s1_available and s2_available:
-            if has_simple_content and not has_complex_content:
-                return ProcessingMode.S1_ONLY
-            elif has_complex_content:
-                return ProcessingMode.PARALLEL
+        if s2_available:
+            if has_high_priority or has_complex_content:
+                return ProcessingMode.S2_ONLY
             else:
-                return ProcessingMode.ADAPTIVE
-        
-        elif s1_available:
-            return ProcessingMode.S1_ONLY
-        elif s2_available:
-            return ProcessingMode.S2_ONLY
+                return ProcessingMode.SEMANTIC_BRIDGE
         else:
-            # Both systems busy, choose based on estimated wait time
-            s1_wait = capacity.get("s1_capacity", {}).get("estimated_free_time", float("inf"))
-            s2_wait = capacity.get("s2_capacity", {}).get("estimated_free_time", float("inf"))
-            return ProcessingMode.S1_ONLY if s1_wait <= s2_wait else ProcessingMode.S2_ONLY
+            # S2 busy, use local storage for later processing
+            return ProcessingMode.LOCAL_STORAGE
     
     async def _generate_unified_prompts(self, batch: ConsolidatedBatch):
-        """Generate unified prompts for both S1 and S2 systems"""
+        """Generate unified prompts for S2 system only"""
         try:
-            # Generate S1 prompt (simple, direct speech)
-            if batch.processing_mode in [ProcessingMode.S1_ONLY, ProcessingMode.PARALLEL, ProcessingMode.SEQUENTIAL]:
-                batch.unified_s1_prompt = self._generate_s1_prompt(batch)
-            
             # Generate S2 prompt (detailed analysis request)
-            if batch.processing_mode in [ProcessingMode.S2_ONLY, ProcessingMode.PARALLEL, ProcessingMode.SEQUENTIAL]:
+            if batch.processing_mode in [ProcessingMode.S2_ONLY, ProcessingMode.SEMANTIC_BRIDGE, ProcessingMode.LOCAL_STORAGE]:
                 batch.unified_s2_prompt = self._generate_s2_prompt(batch)
             
-            # Set target systems
-            if batch.processing_mode == ProcessingMode.S1_ONLY:
-                batch.target_systems = ["s1"]
-            elif batch.processing_mode == ProcessingMode.S2_ONLY:
+            # Set target systems (S2 only)
+            if batch.processing_mode == ProcessingMode.S2_ONLY:
                 batch.target_systems = ["s2"]
-            else:
-                batch.target_systems = ["s1", "s2"]
+            elif batch.processing_mode == ProcessingMode.SEMANTIC_BRIDGE:
+                batch.target_systems = ["scb"]
+            elif batch.processing_mode == ProcessingMode.LOCAL_STORAGE:
+                batch.target_systems = ["local"]
             
         except Exception as e:
             logging.error("❌ [CONSOLIDATOR] Error generating prompts: %s", e)
-    
-    def _generate_s1_prompt(self, batch: ConsolidatedBatch) -> str:
-        """Generate unified prompt for S1 Avatar (speech synthesis)"""
-        if len(batch.stimuli_items) == 1:
-            return batch.stimuli_items[0].content
-        
-        # Multiple stimuli - create consolidated response with actual content
-        priority_levels = [s.priority for s in batch.stimuli_items]
-        has_urgent = any(p in ["critical", "emergency", "high"] for p in priority_levels)
-        
-        # Include actual stimuli content for meaningful speech
-        content_parts = []
-        for i, stimuli in enumerate(batch.stimuli_items, 1):
-            content_parts.append(f"{stimuli.content}")
-        
-        if has_urgent:
-            return f"I have {len(batch.stimuli_items)} important updates: " + ". ".join(content_parts)
-        else:
-            return f"I have {len(batch.stimuli_items)} messages: " + ". ".join(content_parts)
     
     def _generate_s2_prompt(self, batch: ConsolidatedBatch) -> str:
         """Generate unified prompt for S2 AutoGen team (detailed analysis)"""
@@ -685,79 +637,153 @@ class StimuliConsolidator:
         """Check if a batch can be processed given current capacity"""
         required_systems = set(batch.target_systems)
         
-        if "s1" in required_systems:
-            if capacity.get("s1_capacity", {}).get("status") not in ["available", "busy"]:
-                return False
-        
         if "s2" in required_systems:
             if capacity.get("s2_capacity", {}).get("status") not in ["available", "busy"]:
                 return False
         
+        # SCB and local storage are always available
+        if "scb" in required_systems or "local" in required_systems:
+            return True
+        
         return True
     
     async def _execute_batch(self, batch: ConsolidatedBatch):
-        """Execute a consolidated batch by sending requests to actual systems"""
+        """Execute a consolidated batch by sending requests to S2 systems only"""
         start_time = datetime.now()
         
         try:
             logging.info("🚀 [CONSOLIDATOR] Executing batch: %s with %d stimuli", 
                         batch.batch_id, len(batch.stimuli_items))
             
-            logging.info("   S1 Prompt: %s", batch.unified_s1_prompt[:100] if batch.unified_s1_prompt else "None")
             logging.info("   S2 Prompt: %s", batch.unified_s2_prompt[:100] if batch.unified_s2_prompt else "None")
             logging.info("   Target Systems: %s", batch.target_systems)
             
-            # Execute on target systems
-            if "s1" in batch.target_systems and batch.unified_s1_prompt:
-                await self._send_to_s1(batch.unified_s1_prompt)
-            
+            # Execute on S2-only target systems
             if "s2" in batch.target_systems and batch.unified_s2_prompt:
                 await self._send_to_s2(batch.unified_s2_prompt)
+            
+            if "scb" in batch.target_systems and batch.unified_s2_prompt:
+                await self._update_semantic_bridge(batch.unified_s2_prompt, "stimuli_batch")
+            
+            if "local" in batch.target_systems:
+                await self._store_locally(batch)
             
             processing_time = (datetime.now() - start_time).total_seconds()
             self.stats["total_stimuli_processed"] += len(batch.stimuli_items)
             self.stats["processing_times"].append(processing_time)
             
-            logging.info("✅ [CONSOLIDATOR] Batch executed in %.3fs", processing_time)
+            logging.info("✅ [CONSOLIDATOR] Batch executed in %.3fs (S2 isolated)", processing_time)
             
         except Exception as e:
             logging.error("❌ [CONSOLIDATOR] Error executing batch: %s", e)
     
-    async def _send_to_s1(self, prompt: str):
-        """Send consolidated prompt to S1 Avatar for speech synthesis"""
+    async def _update_semantic_bridge(self, content: str, content_type: str):
+        """Update SCB semantic bridge with consolidated content"""
         try:
-            import aiohttp
-            s1_endpoint = os.getenv("S1_AVATAR_ENDPOINT", "http://neurosync:5001")
-            
-            payload = {
-                "text": prompt,
-                "direct_speech": True,  # Enable direct speech to trigger TTS and blendshape generation
-                "autonomous_context": {
-                    "source": "reactive_orchestrator",  # Required for direct speech processing
-                    "timestamp": datetime.now().isoformat()
-                }
+            # This would interface with the SCB semantic bridge
+            # For now, log the semantic update
+            semantic_data = {
+                "content": content,
+                "content_type": content_type,
+                "timestamp": datetime.now().isoformat(),
+                "source": "s2_consolidator"
             }
             
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{s1_endpoint}/process_text", 
-                                      json=payload, 
-                                      timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        logging.info("✅ [CONSOLIDATOR] S1 request successful: %s", result.get("status", "unknown"))
-                    else:
-                        logging.error("❌ [CONSOLIDATOR] S1 request failed with status: %d", response.status)
+            logging.info("🌉 [CONSOLIDATOR] SCB semantic bridge update: %s", content[:100])
+            
+            # Store semantic data for SCB bridge access
+            semantic_file = "/tmp/scb_semantic_updates.json"
+            existing_updates = []
+            
+            if os.path.exists(semantic_file):
+                try:
+                    with open(semantic_file, 'r') as f:
+                        existing_updates = json.load(f)
+                except Exception:
+                    pass
+            
+            existing_updates.append(semantic_data)
+            
+            # Keep only last 100 updates
+            if len(existing_updates) > 100:
+                existing_updates = existing_updates[-100:]
+            
+            with open(semantic_file, 'w') as f:
+                json.dump(existing_updates, f, indent=2)
                         
         except Exception as e:
-            logging.error("❌ [CONSOLIDATOR] Error sending to S1: %s", e)
+            logging.error("❌ [CONSOLIDATOR] Error updating semantic bridge: %s", e)
     
     async def _send_to_s2(self, prompt: str):
-        """Send consolidated prompt to S2 AutoGen (placeholder for now)"""
+        """Send consolidated prompt to S2 AutoGen for processing"""
         try:
-            # For now, just log - S2 processing could be implemented later
-            logging.info("📝 [CONSOLIDATOR] S2 prompt would be processed: %s", prompt[:100])
+            logging.info("📝 [CONSOLIDATOR] S2 prompt processing: %s", prompt[:100])
+            
+            # Store S2 processing request for the AutoGen team
+            s2_request = {
+                "prompt": prompt,
+                "timestamp": datetime.now().isoformat(),
+                "source": "consolidator",
+                "processing_mode": "s2_only"
+            }
+            
+            s2_file = "/tmp/s2_processing_queue.json"
+            existing_requests = []
+            
+            if os.path.exists(s2_file):
+                try:
+                    with open(s2_file, 'r') as f:
+                        existing_requests = json.load(f)
+                except Exception:
+                    pass
+            
+            existing_requests.append(s2_request)
+            
+            # Keep only last 50 requests
+            if len(existing_requests) > 50:
+                existing_requests = existing_requests[-50:]
+            
+            with open(s2_file, 'w') as f:
+                json.dump(existing_requests, f, indent=2)
+                
         except Exception as e:
             logging.error("❌ [CONSOLIDATOR] Error sending to S2: %s", e)
+    
+    async def _store_locally(self, batch: ConsolidatedBatch):
+        """Store batch locally for later S2 processing when capacity is available"""
+        try:
+            local_data = {
+                "batch_id": batch.batch_id,
+                "stimuli_count": len(batch.stimuli_items),
+                "prompt": batch.unified_s2_prompt,
+                "priority_score": batch.priority_score,
+                "timestamp": datetime.now().isoformat(),
+                "processing_mode": batch.processing_mode.value
+            }
+            
+            local_file = "/tmp/s2_local_storage.json"
+            existing_data = []
+            
+            if os.path.exists(local_file):
+                try:
+                    with open(local_file, 'r') as f:
+                        existing_data = json.load(f)
+                except Exception:
+                    pass
+            
+            existing_data.append(local_data)
+            
+            # Keep only last 100 entries
+            if len(existing_data) > 100:
+                existing_data = existing_data[-100:]
+            
+            with open(local_file, 'w') as f:
+                json.dump(existing_data, f, indent=2)
+            
+            logging.info("💾 [CONSOLIDATOR] Batch stored locally: %s", batch.batch_id)
+                
+        except Exception as e:
+            logging.error("❌ [CONSOLIDATOR] Error storing batch locally: %s", e)
     
     def _update_stats(self, batch: ConsolidatedBatch):
         """Update consolidation statistics"""

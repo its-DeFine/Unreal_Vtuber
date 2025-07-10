@@ -12,7 +12,7 @@ try:
 except ImportError:
     # TeachableAgent is not available in newer versions
     TeachableAgentAvailable = False
-    logging.warning("TeachableAgent not found in autogen, will use ConversableAgent instead")
+    logging.info("ℹ️ TeachableAgent not available in this AutoGen version - using ConversableAgent with standard capabilities")
 
 try:
     from autogen import ConversableAgent, UserProxyAgent
