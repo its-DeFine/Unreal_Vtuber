@@ -748,7 +748,7 @@ def _calculate_tool_score(self, tool_name, context):
         }
         
         # Persist to database if collector available
-        from ..main import statistics_collector
+        from autogen_agent.main import statistics_collector
         if statistics_collector:
             await statistics_collector.collect_evolution_action(modification_record)
         

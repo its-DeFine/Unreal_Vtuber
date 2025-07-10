@@ -17,12 +17,12 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
-from ..evolution.cognitive_evolution_engine import (
+from autogen_agent.evolution.cognitive_evolution_engine import (
     CognitiveEvolutionEngine, 
     PerformanceContext, 
     EvolutionResult
 )
-from ..evolution.darwin_godel_engine import DarwinGodelEngine
+from autogen_agent.evolution.darwin_godel_engine import DarwinGodelEngine
 
 @dataclass
 class PerformanceMetrics:

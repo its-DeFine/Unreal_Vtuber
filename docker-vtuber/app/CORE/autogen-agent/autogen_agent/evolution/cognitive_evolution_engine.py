@@ -19,7 +19,7 @@ import hashlib
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
-from ..services.neo4j_semantic_storage import Neo4jSemanticStorage
+from autogen_agent.services.neo4j_semantic_storage import Neo4jSemanticStorage
 
 @dataclass
 class PerformanceContext:

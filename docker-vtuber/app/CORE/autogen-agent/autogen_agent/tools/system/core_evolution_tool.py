@@ -31,7 +31,7 @@ async def run(context: Dict) -> Dict[str, Any]:
     
     try:
         # 🚀 REAL DARWIN-GÖDEL MACHINE INTEGRATION
-        from ..services.evolution_service import EvolutionService
+        from autogen_agent.services.evolution_service import EvolutionService
         
         # Initialize evolution service if not available in context
         evolution_service = context.get("evolution_service")

@@ -214,7 +214,7 @@ def shutdown_async_utils():
 
 # Import extended utilities
 try:
-    from ..utils.async_utils_extended import run_async_with_timeout, batch_process_async, async_retry
+    from autogen_agent.utils.async_utils_extended import run_async_with_timeout, batch_process_async, async_retry
     __all__ = ['AsyncContextManager', 'async_safe_wrapper', 'run_with_timeout', 
                'SafeAsyncThread', 'get_global_async_thread', 'run_async_safely', 
                'shutdown_async_utils', 'run_async_with_timeout', 'batch_process_async', 

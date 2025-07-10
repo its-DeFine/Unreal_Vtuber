@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 # from ..services.cognee_direct_service import CogneeDirectService  # Replaced by Neo4j
 # from ..services.evolution_service import EvolutionService  # Temporarily disabled
-from ..services.goal_management_service import GoalManagementService, get_goal_management_service
+from autogen_agent.services.goal_management_service import GoalManagementService, get_goal_management_service
 
 @dataclass
 class MetricsSnapshot:

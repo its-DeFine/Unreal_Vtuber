@@ -264,8 +264,8 @@ class AdminCharacterTool:
         """Notify S2 systems about character change for persona-aware tool updates"""
         try:
             # Import here to avoid circular dependencies
-            from ...core.persona_aware_tool_registry import get_persona_tool_registry
-            from ...services.character_state_manager import get_character_state_manager
+            from autogen_agent.core.persona_aware_tool_registry import get_persona_tool_registry
+            from autogen_agent.services.character_state_manager import get_character_state_manager
             
             # Notify character state manager
             character_manager = get_character_state_manager()

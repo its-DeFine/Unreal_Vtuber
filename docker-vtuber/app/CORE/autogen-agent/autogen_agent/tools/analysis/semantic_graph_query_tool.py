@@ -8,7 +8,7 @@ import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 
-from ...services.neo4j_semantic_storage import get_neo4j_storage, SemanticContext
+from autogen_agent.services.neo4j_semantic_storage import get_neo4j_storage, SemanticContext
 
 logger = logging.getLogger(__name__)
 

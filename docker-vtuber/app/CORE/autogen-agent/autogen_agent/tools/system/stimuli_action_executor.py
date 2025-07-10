@@ -7,8 +7,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 # Import clients for external actions
-from ..clients.scb_client import SCBClient
-from ..clients.vtuber_client import VTuberClient
+from autogen_agent.clients.scb_client import SCBClient
+from autogen_agent.clients.vtuber_client import VTuberClient
 
 
 async def run(context: Dict[str, Any]) -> Dict[str, Any]:

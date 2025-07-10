@@ -9,8 +9,8 @@ missions.
 import logging
 import time
 from typing import Callable, Dict, Optional, List, Any, Set
-from ..core.tool_registry import ToolRegistry
-from ..services.character_state_manager import get_character_state_manager, CharacterStateManager
+from autogen_agent.core.tool_registry import ToolRegistry
+from autogen_agent.services.character_state_manager import get_character_state_manager, CharacterStateManager
 
 logger = logging.getLogger(__name__)
 

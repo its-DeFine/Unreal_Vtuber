@@ -16,7 +16,7 @@ import json
 from typing import Dict, Any, List
 from datetime import datetime, timedelta
 
-from ..services.goal_management_service import get_goal_management_service, GoalStatus, GoalCategory
+from autogen_agent.services.goal_management_service import get_goal_management_service, GoalStatus, GoalCategory
 
 
 async def define_autonomous_goal(natural_language_goal: str, priority: int = 5) -> Dict[str, Any]:

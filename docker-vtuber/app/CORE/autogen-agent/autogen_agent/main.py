@@ -1029,7 +1029,7 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
         if agent_responses and global_tool_registry:
             # Create enhanced agent tool bridge if not exists
             if not hasattr(run_autogen_decision_cycle, '_agent_tool_bridge'):
-                from ..core.agent_tool_bridge import AgentToolBridge
+                from autogen_agent.core.agent_tool_bridge import AgentToolBridge
                 run_autogen_decision_cycle._agent_tool_bridge = AgentToolBridge(global_tool_registry)
             
             # Create tool context for autonomous execution

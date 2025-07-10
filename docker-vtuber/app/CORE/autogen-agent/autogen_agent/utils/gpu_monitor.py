@@ -10,7 +10,7 @@ import time
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime
-from ..utils.ollama_monitor import OllamaMonitor
+from autogen_agent.utils.ollama_monitor import OllamaMonitor
 
 logger = logging.getLogger(__name__)
 
