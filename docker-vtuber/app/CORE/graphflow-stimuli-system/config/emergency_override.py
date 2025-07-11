@@ -145,9 +145,7 @@ async def handle_security_threat(
     try:
         # 1. Log security event
         logger.critical(
-            "SECURITY THREAT DETECTED",
-            stimuli_id=execution_plan.stimuli_id,
-            threat_details=execution_plan.execution_params
+            f"SECURITY THREAT DETECTED - stimuli_id: {execution_plan.stimuli_id}, threat_details: {execution_plan.execution_params}"
         )
         
         # 2. Notify through avatar with warning
@@ -189,8 +187,7 @@ async def handle_performance_degradation(
     try:
         # 1. Switch to degraded mode
         logger.warning(
-            "Performance degradation detected, switching to degraded mode",
-            stimuli_id=execution_plan.stimuli_id
+            f"Performance degradation detected, switching to degraded mode - stimuli_id: {execution_plan.stimuli_id}"
         )
         
         # 2. Notify users of degraded performance
@@ -228,9 +225,7 @@ async def handle_default_emergency(
     """Default emergency handling for unknown emergency types."""
     try:
         logger.warning(
-            "Handling unknown emergency type",
-            stimuli_id=execution_plan.stimuli_id,
-            execution_params=execution_plan.execution_params
+            f"Handling unknown emergency type - stimuli_id: {execution_plan.stimuli_id}, execution_params: {execution_plan.execution_params}"
         )
         
         # Execute both systems with high priority

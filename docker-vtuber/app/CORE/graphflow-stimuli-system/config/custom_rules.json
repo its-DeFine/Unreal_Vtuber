@@ -1,6 +1,18 @@
 {
   "custom_business_rules": [
     {
+      "id": "force_all_avatar_responses",
+      "condition": "source == 'USER_INTERACTION' or priority == 'high' or 'speak' in content.lower() or 'hello' in content.lower()",
+      "decision": "AVATAR_AND_ANALYSIS",
+      "priority": 100,
+      "description": "Force user interaction and test stimuli to trigger avatar responses",
+      "enabled": true,
+      "metadata": {
+        "rule_type": "testing",
+        "created": "2025-07-10"
+      }
+    },
+    {
       "id": "e2e_test_full_processing",
       "condition": "metadata.get('test_type') is not None or source == 'e2e_test'",
       "decision": "AVATAR_AND_ANALYSIS",

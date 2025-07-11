@@ -13,7 +13,7 @@
     },
     "USER_INTERACTION": {
       "default_decision": "AVATAR_AND_ANALYSIS",
-      "confidence_threshold": 0.7,
+      "confidence_threshold": 0.3,
       "conditions": [
         {
           "if": "sentiment_negative_high",
@@ -26,7 +26,11 @@
         },
         {
           "if": "simple_greeting",
-          "then": "LOG_ONLY"
+          "then": "AVATAR_AND_ANALYSIS"
+        },
+        {
+          "if": "test_request",
+          "then": "AVATAR_AND_ANALYSIS"
         }
       ]
     },
@@ -84,12 +88,28 @@
       "bypass_rate_limit": true
     },
     "CONTEXTUAL_UPDATE": {
-      "default_decision": "LOG_ONLY",
-      "confidence_threshold": 0.5,
+      "default_decision": "AVATAR_AND_ANALYSIS",
+      "confidence_threshold": 0.1,
       "conditions": [
         {
           "if": "relevant_to_current_topic",
-          "then": "ANALYSIS_ONLY"
+          "then": "AVATAR_AND_ANALYSIS"
+        },
+        {
+          "if": "test_message",
+          "then": "AVATAR_AND_ANALYSIS"
+        },
+        {
+          "if": "contains_hello",
+          "then": "AVATAR_AND_ANALYSIS"
+        },
+        {
+          "if": "contains_speak",
+          "then": "AVATAR_AND_ANALYSIS"
+        },
+        {
+          "if": "contains_respond",
+          "then": "AVATAR_AND_ANALYSIS"
         }
       ]
     }
@@ -155,6 +175,17 @@
         "update_metrics"
       ],
       "timeout_seconds": 2,
+      "parallel_execution": false
+    },
+    "AVATAR_ONLY": {
+      "description": "Trigger avatar response only without multi-agent analysis",
+      "steps": [
+        "validate_stimuli",
+        "prepare_avatar_context",
+        "trigger_system1_avatar",
+        "await_avatar_response"
+      ],
+      "timeout_seconds": 15,
       "parallel_execution": false
     }
   }
