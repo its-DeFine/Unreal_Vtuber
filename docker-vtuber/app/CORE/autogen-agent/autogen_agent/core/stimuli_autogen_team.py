@@ -39,6 +39,11 @@ class StimuliAutoGenTeam:
         }
         
         logging.info("🎯 [STIMULI_TEAM] Stimuli AutoGen team initialized")
+        
+        # Character-specific configuration
+        self.character_type = None
+        self.team_name = None
+        self.configured_tools = []
     
     def initialize_team(self) -> bool:
         """Initialize the stimuli-specific AutoGen team"""
@@ -381,7 +386,11 @@ class StimuliAutoGenTeam:
                     agent.reset()
             
             # Initiate stimuli team group chat
-            logging.info("🎯 [STIMULI_TEAM] Starting stimuli analysis team collaboration")
+            # Log team configuration
+            if hasattr(self, 'character_type') and self.character_type:
+                logging.info(f"🎯 [STIMULI_TEAM] Starting {self.team_name} ({self.character_type.value}) analysis")
+            else:
+                logging.info("🎯 [STIMULI_TEAM] Starting stimuli analysis team collaboration")
             
             group_chat_result = user_proxy.initiate_chat(
                 self.stimuli_manager,

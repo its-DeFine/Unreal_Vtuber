@@ -24,8 +24,8 @@ from dataclasses import dataclass, field
 from .stimuli_autogen_team import StimuliAutoGenTeam
 from .stimuli_orchestrator import StimuliResponse
 from ..services.character_state_manager import get_character_state_manager
-from .specialized_teams import create_specialized_team
-from .character_team_registry import CharacterType
+from .character_team_registry import CharacterType, get_character_team_registry
+from .character_team_tools import get_tools_for_character_type
 
 
 @dataclass
@@ -86,20 +86,32 @@ class QueueConsumerService:
         
         logging.info("🤖 [QUEUE_CONSUMER] Initializing character-specific teams...")
         
-        # Create specialized teams for each character type
+        # Create teams for each character type
+        registry = get_character_team_registry()
+        
         for char_type in CharacterType:
             try:
-                team = create_specialized_team(char_type)
-                
-                if team:
-                    # Set tool registry
-                    team.tool_registry = tool_registry
+                # Get team configuration
+                team_config = registry.get_team_config(char_type)
+                if not team_config:
+                    continue
                     
-                    if team.initialize_team():
-                        self.character_teams[char_type.value] = team
-                        logging.info(f"✅ [QUEUE_CONSUMER] Initialized {team.team_name}")
+                # Create standard team
+                team = StimuliAutoGenTeam()
+                
+                # Store team metadata
+                team.character_type = char_type
+                team.team_name = team_config.team_name
+                team.tool_registry = tool_registry
+                
+                # Get tools for this character type
+                team.configured_tools = get_tools_for_character_type(char_type)
+                
+                if team.initialize_team():
+                    self.character_teams[char_type.value] = team
+                    logging.info(f"✅ [QUEUE_CONSUMER] Initialized {team_config.team_name} with {len(team.configured_tools)} tools")
                 else:
-                    logging.error(f"❌ [QUEUE_CONSUMER] Failed to initialize {char_type.value} team")
+                    logging.error(f"❌ [QUEUE_CONSUMER] Failed to initialize {team_config.team_name}")
                     
             except Exception as e:
                 logging.error(f"❌ [QUEUE_CONSUMER] Error creating {char_type.value} team: {e}")
