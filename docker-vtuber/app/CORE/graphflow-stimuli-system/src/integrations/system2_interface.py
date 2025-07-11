@@ -141,7 +141,7 @@ class System2Interface:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    f"{self.config.autogen_endpoint}/stimuli",
+                    f"{self.config.autogen_endpoint}/api/stimuli/receive",
                     json=stimuli_data,
                     timeout=30.0
                 )
