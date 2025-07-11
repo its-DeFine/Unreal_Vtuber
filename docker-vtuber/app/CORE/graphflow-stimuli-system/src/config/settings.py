@@ -247,7 +247,7 @@ class RouterConfig:
         default_factory=lambda: os.getenv("ROUTER_ML_MODEL_PATH")
     )
     fallback_decision: str = field(
-        default_factory=lambda: os.getenv("ROUTER_FALLBACK_DECISION", "analysis_only")
+        default_factory=lambda: os.getenv("GRAPHFLOW_DEFAULT_DECISION", os.getenv("ROUTER_FALLBACK_DECISION", "avatar_and_analysis"))
     )
     decision_logging_enabled: bool = field(
         default_factory=lambda: os.getenv("ROUTER_DECISION_LOGGING", "true").lower() == "true"

@@ -117,10 +117,18 @@ class AdminCharacterTool:
         for command_type, pattern in self.admin_patterns.items():
             match = re.search(pattern, content_lower)
             if match:
+                # Safe extraction of match group
+                match_text = None
+                try:
+                    if len(match.groups()) > 0 and match.group(1):
+                        match_text = match.group(1).strip()
+                except (IndexError, AttributeError):
+                    match_text = None
+                    
                 return {
                     "type": command_type,
                     "content": content,
-                    "match": match.group(1).strip() if len(match.groups()) > 0 else None
+                    "match": match_text
                 }
         
         return {"type": "unknown_admin_command", "content": content}
@@ -167,18 +175,24 @@ class AdminCharacterTool:
                 "formality_level": "professional"
             })
         
-        # Override with specific details if provided
+        # Override with specific details if provided - with safe regex access
         if role_match:
-            role_text = role_match.group(1).strip() if role_match.group(1) else ""
-            if role_text:  # Only override if we have actual content
-                character_data["role"] = role_text
+            try:
+                role_text = role_match.group(1).strip() if role_match.group(1) else ""
+                if role_text:  # Only override if we have actual content
+                    character_data["role"] = role_text
+            except (IndexError, AttributeError):
+                pass  # Skip if regex group access fails
         
         if personality_match:
-            personality_text = personality_match.group(1).strip() if personality_match.group(1) else ""
-            if personality_text:  # Only process if we have actual content
-                traits = [trait.strip() for trait in personality_text.split(",") if trait.strip()]
-                if traits:  # Only override if we have actual traits
-                    character_data["personality_traits"] = traits
+            try:
+                personality_text = personality_match.group(1).strip() if personality_match.group(1) else ""
+                if personality_text:  # Only process if we have actual content
+                    traits = [trait.strip() for trait in personality_text.split(",") if trait.strip()]
+                    if traits:  # Only override if we have actual traits
+                        character_data["personality_traits"] = traits
+            except (IndexError, AttributeError):
+                pass  # Skip if regex group access fails
         
         return character_data
     
@@ -303,7 +317,12 @@ class AdminCharacterTool:
             command_type = command["type"]
             
             if command_type == "create_character":
-                character_name = command["match"]
+                character_name = command.get("match")
+                if not character_name:
+                    return {
+                        "success": False,
+                        "response": "❌ Could not extract character name from command"
+                    }
                 character_data = self.extract_character_details(command["content"], character_name)
                 
                 # Create character in S1
@@ -326,7 +345,12 @@ class AdminCharacterTool:
                     }
             
             elif command_type == "switch_character":
-                character_name = command["match"]
+                character_name = command.get("match")
+                if not character_name:
+                    return {
+                        "success": False,
+                        "response": "❌ Could not extract character name from command"
+                    }
                 character_id = character_name.lower().replace(" ", "_") + "_template"
                 
                 result = await self.switch_character_in_s1(character_id)
@@ -353,12 +377,24 @@ class AdminCharacterTool:
                 result = await self.list_characters_in_s1()
                 
                 if result["success"]:
-                    characters = result["characters"]["characters"]
-                    if characters:
+                    # Safe extraction of characters list with fallback
+                    characters_data = result.get("characters", {})
+                    if isinstance(characters_data, dict):
+                        characters = characters_data.get("characters", [])
+                    elif isinstance(characters_data, list):
+                        characters = characters_data
+                    else:
+                        characters = []
+                    
+                    if characters and len(characters) > 0:
                         response = "📋 Available Characters:\n"
                         for char in characters:
-                            status = "✅ Current" if char["is_current"] else "⚪ Available"
-                            response += f"\n{status} {char['name']} ({char['role']})"
+                            # Safe access to character fields with fallbacks
+                            char_name = char.get("name", "Unknown")
+                            char_role = char.get("role", "Unknown Role")
+                            is_current = char.get("is_current", False)
+                            status = "✅ Current" if is_current else "⚪ Available"
+                            response += f"\n{status} {char_name} ({char_role})"
                         response += f"\n\nTotal: {len(characters)} characters"
                     else:
                         response = "📋 No characters available. Use 'create character' to add one."
@@ -371,21 +407,35 @@ class AdminCharacterTool:
                 else:
                     return {
                         "success": False,
-                        "response": f"❌ Failed to list characters: {result['error']}"
+                        "response": f"❌ Failed to list characters: {result.get('error', 'Unknown error')}"
                     }
             
             elif command_type == "character_info":
                 result = await self.get_character_info_in_s1(command["match"])
                 
                 if result["success"]:
-                    char = result["character"]["character"]
+                    # Safe extraction of character data with fallback
+                    character_data = result.get("character", {})
+                    if isinstance(character_data, dict):
+                        char = character_data.get("character", character_data)
+                    else:
+                        char = {}
+                    
+                    # Safe access to character fields with fallbacks
+                    name = char.get("name", "Unknown")
+                    role = char.get("role", "Unknown Role") 
+                    personality_traits = char.get("personality_traits", [])
+                    communication_style = char.get("communication_style", "Unknown")
+                    domain_expertise = char.get("domain_expertise", [])
+                    formality_level = char.get("formality_level", "Unknown")
+                    
                     response = f"📋 Character Information:\n"
-                    response += f"Name: {char['name']}\n"
-                    response += f"Role: {char['role']}\n"
-                    response += f"Personality: {', '.join(char['personality_traits'])}\n"
-                    response += f"Communication Style: {char['communication_style']}\n"
-                    response += f"Domain Expertise: {', '.join(char['domain_expertise'])}\n"
-                    response += f"Formality Level: {char['formality_level']}"
+                    response += f"Name: {name}\n"
+                    response += f"Role: {role}\n"
+                    response += f"Personality: {', '.join(personality_traits) if personality_traits else 'Not specified'}\n"
+                    response += f"Communication Style: {communication_style}\n"
+                    response += f"Domain Expertise: {', '.join(domain_expertise) if domain_expertise else 'Not specified'}\n"
+                    response += f"Formality Level: {formality_level}"
                     
                     return {
                         "success": True,
@@ -395,7 +445,7 @@ class AdminCharacterTool:
                 else:
                     return {
                         "success": False,
-                        "response": f"❌ Failed to get character info: {result['error']}"
+                        "response": f"❌ Failed to get character info: {result.get('error', 'Unknown error')}"
                     }
             
             elif command_type == "not_admin_command":

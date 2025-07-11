@@ -84,6 +84,8 @@ class DecisionRule:
                         'category': getattr(context, 'category', None),
                         'confidence': getattr(context, 'confidence', 0.0),
                         'priority': getattr(context, 'priority', None),
+                        'content': getattr(context, 'content', ''),
+                        'source': getattr(context, 'source', ''),
                         'system_state': getattr(context, 'system_state_analysis', {}),
                         'resource_analysis': getattr(context, 'resource_analysis', {}),
                         'user_context': getattr(context, 'user_context_analysis', {}),
@@ -95,6 +97,8 @@ class DecisionRule:
                         'category': context.get('category'),
                         'confidence': context.get('confidence', 0.0),
                         'priority': context.get('priority'),
+                        'content': context.get('content', ''),
+                        'source': context.get('source', ''),
                         'system_state': context.get('system_state', {}),
                         'resource_analysis': context.get('resource_analysis', {}),
                         'user_context': context.get('user_context', {}),
@@ -102,15 +106,34 @@ class DecisionRule:
                         'metadata': context.get('metadata', {}),
                     }
                 
-                # Add helper functions
+                # Enhanced helper functions for better rule evaluation
                 eval_context.update({
-                    'has_metadata': lambda key: key in context.get('metadata', {}),
+                    'has_metadata': lambda key: key in eval_context.get('metadata', {}),
                     'contains': lambda text, pattern: pattern.lower() in text.lower() if isinstance(text, str) else False,
                     'matches': lambda text, pattern: bool(re.match(pattern, text)) if isinstance(text, str) else False,
+                    'any': any,  # Built-in any function for list comprehensions
+                    'all': all,  # Built-in all function for list comprehensions
                 })
                 
-                # Evaluate condition
-                result = eval(self.condition, {"__builtins__": {}}, eval_context)
+                # Make safe fallbacks for missing fields
+                if eval_context['metadata'] is None:
+                    eval_context['metadata'] = {}
+                if eval_context['system_state'] is None:
+                    eval_context['system_state'] = {}
+                if eval_context['resource_analysis'] is None:
+                    eval_context['resource_analysis'] = {}
+                if eval_context['user_context'] is None:
+                    eval_context['user_context'] = {}
+                if eval_context['environmental_analysis'] is None:
+                    eval_context['environmental_analysis'] = {}
+                
+                # Evaluate condition with safe execution
+                # Add eval_context variables to the global namespace for eval
+                eval_globals = {
+                    "__builtins__": {"any": any, "all": all},
+                    **eval_context  # Make all context variables available globally
+                }
+                result = eval(self.condition, eval_globals, eval_context)
                 return bool(result)
             
             # Default to False if condition type is not recognized
@@ -118,6 +141,8 @@ class DecisionRule:
             
         except Exception as e:
             logging.error(f"Error evaluating rule {self.id}: {e}")
+            logging.error(f"Rule condition: {self.condition}")
+            logging.error(f"Context keys: {list(context.keys()) if isinstance(context, dict) else 'object'}")
             return False
 
 
@@ -258,14 +283,48 @@ class DecisionRulesConfig:
         ))
         self.categories["system_state_rules"] = system_state_category
         
-        # Category-specific rules
+        # Category-specific rules - enhanced for speech routing
         category_rules = RuleCategory("category_rules")
+        
+        # High priority speech and interaction rules
+        category_rules.add_rule(DecisionRule(
+            id="speech_explicit_1",
+            condition='any(keyword in metadata.get("content", "").lower() for keyword in ["speak", "speech", "say", "voice", "audio", "sound"])',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=85,
+            description="Explicit speech requests always trigger S1 avatar"
+        ))
+        category_rules.add_rule(DecisionRule(
+            id="speech_explicit_2", 
+            condition='any(keyword in metadata.get("intent", "").lower() for keyword in ["speech", "voice", "audio", "speak"])',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=84,
+            description="Intent for speech triggers S1 avatar"
+        ))
+        category_rules.add_rule(DecisionRule(
+            id="speech_content_patterns",
+            condition='any(pattern in metadata.get("content", "").lower() for pattern in ["tell me", "can you say", "please speak", "read this", "announce"])',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=83,
+            description="Speech content patterns trigger S1 avatar"
+        ))
+        
+        # Admin and direct control rules
         category_rules.add_rule(DecisionRule(
             id="category_1",
             condition='category == "DIRECT_ADMIN"',
             decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
             priority=70,
             description="Process admin requests with full capabilities"
+        ))
+        
+        # User interaction rules enhanced
+        category_rules.add_rule(DecisionRule(
+            id="user_interaction_enhanced",
+            condition='category == "USER_INTERACTION"',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=82,
+            description="All user interactions trigger avatar by default for better UX"
         ))
         category_rules.add_rule(DecisionRule(
             id="category_2",
@@ -274,6 +333,8 @@ class DecisionRulesConfig:
             priority=65,
             description="High-confidence user interactions get avatar response"
         ))
+        
+        # System notification rule
         category_rules.add_rule(DecisionRule(
             id="category_3",
             condition='category == "SYSTEM_NOTIFICATION"',
@@ -281,12 +342,23 @@ class DecisionRulesConfig:
             priority=50,
             description="System notifications for analysis only"
         ))
+        
+        # Social media rule
         category_rules.add_rule(DecisionRule(
             id="category_4",
             condition='category == "SOCIAL_MEDIA" and environmental_analysis.get("streaming_status") == "live"',
             decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
             priority=60,
             description="Social media during live streaming gets avatar response"
+        ))
+        
+        # Enhanced contextual update rules for speech triggers
+        category_rules.add_rule(DecisionRule(
+            id="contextual_speech_triggers",
+            condition='category == "CONTEXTUAL_UPDATE" and any(keyword in metadata.get("content", "").lower() for keyword in ["hello", "respond", "speech", "speak", "avatar", "test_message", "voice", "say"])',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=81,
+            description="Contextual updates with speech/interaction keywords trigger avatar response"
         ))
         category_rules.add_rule(DecisionRule(
             id="category_4a",
@@ -302,6 +374,8 @@ class DecisionRulesConfig:
             priority=75,
             description="Contextual updates with avatar keywords trigger avatar response"
         ))
+        
+        # Test and priority rules
         category_rules.add_rule(DecisionRule(
             id="category_4c",
             condition='category == "USER_INTERACTION" or "test_" in source or priority == "high"',
@@ -309,13 +383,17 @@ class DecisionRulesConfig:
             priority=80,
             description="User interactions, test requests, and high priority always trigger avatar"
         ))
+        
+        # Default contextual update rule (reduced scope)
         category_rules.add_rule(DecisionRule(
             id="category_5",
-            condition='category == "CONTEXTUAL_UPDATE" and not any(keyword in content.lower() for keyword in ["hello", "speak", "respond", "test", "avatar", "speech"])',
-            decision=ProcessingDecision.LOG_ONLY,
+            condition='category == "CONTEXTUAL_UPDATE" and not any(keyword in metadata.get("content", "").lower() for keyword in ["hello", "speak", "respond", "test", "avatar", "speech", "voice", "say"])',
+            decision=ProcessingDecision.ANALYSIS_ONLY,
             priority=30,
-            description="Context updates are logged only unless they contain speech trigger keywords"
+            description="Context updates without speech triggers go to analysis only"
         ))
+        
+        # Autonomous trigger rule
         category_rules.add_rule(DecisionRule(
             id="category_6",
             condition='category == "AUTONOMOUS_TRIGGER" and system_state.get("is_idle", False)',
@@ -400,8 +478,33 @@ class DecisionRulesConfig:
         ))
         self.categories["environmental_rules"] = environmental_rules
         
-        # Default rules (lowest priority)
+        # Default rules (lowest priority) - enhanced for better speech routing
         default_rules = RuleCategory("default_rules")
+        
+        # Environmental variable fallback support
+        default_rules.add_rule(DecisionRule(
+            id="env_fallback_speech",
+            condition='metadata.get("request_type") == "speech" or "speech" in metadata.get("tags", [])',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=35,  # Higher priority to override category_5 rule
+            description="Environment-based speech request fallback to avatar"
+        ))
+        default_rules.add_rule(DecisionRule(
+            id="env_fallback_analysis",
+            condition='metadata.get("request_type") == "analysis" or "analysis" in metadata.get("tags", [])',
+            decision=ProcessingDecision.ANALYSIS_ONLY,
+            priority=14,
+            description="Environment-based analysis request fallback"
+        ))
+        
+        # Priority-based defaults
+        default_rules.add_rule(DecisionRule(
+            id="default_high_priority",
+            condition='priority in ["high", "critical", "HIGH", "CRITICAL"]',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=12,
+            description="High priority requests default to full processing"
+        ))
         default_rules.add_rule(DecisionRule(
             id="default_1",
             condition='priority in ["low", "medium"] and category not in ["USER_INTERACTION", "DIRECT_ADMIN"]',
@@ -409,12 +512,21 @@ class DecisionRulesConfig:
             priority=10,
             description="Default fallback to analysis only for low priority non-interactive content"
         ))
+        
+        # Improved final fallback with better speech handling  
+        default_rules.add_rule(DecisionRule(
+            id="default_interactive_fallback",
+            condition='category in ["USER_INTERACTION", "CONTEXTUAL_UPDATE"] or any(keyword in content.lower() for keyword in ["hello", "hi", "speak", "test"])',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=8,
+            description="Interactive content and greetings default to avatar for better user experience"
+        ))
         default_rules.add_rule(DecisionRule(
             id="default_2",
             condition='True',  # Catch-all fallback
             decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
             priority=5,
-            description="Final fallback enables avatar for all unmatched cases"
+            description="Final fallback enables avatar for all unmatched cases to ensure speech capability"
         ))
         self.categories["default_rules"] = default_rules
         

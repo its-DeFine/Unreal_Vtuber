@@ -352,7 +352,7 @@ class GraphFlowGatewayAgent:
     
     async def health_check(self) -> Dict[str, Any]:
         """
-        Perform health check for monitoring.
+        Perform health check for monitoring with retry logic and timeout handling.
         
         Returns:
             Dictionary with health status information
@@ -365,40 +365,60 @@ class GraphFlowGatewayAgent:
             "components": {}
         }
         
-        # Check System1 health
-        try:
-            system1_status = await self.system1_interface.get_current_status()
-            health_status["components"]["system1"] = {
-                "status": "healthy",
-                "details": system1_status
-            }
-        except Exception as e:
-            health_status["components"]["system1"] = {
-                "status": "unhealthy",
-                "error": str(e)
-            }
+        # Helper function for retryable health checks
+        async def check_with_retry(check_func, component_name: str, max_retries: int = 2, timeout: float = 5.0):
+            for attempt in range(max_retries + 1):
+                try:
+                    result = await asyncio.wait_for(check_func(), timeout=timeout)
+                    return {"status": "healthy", "healthy": True, "details": result}
+                except asyncio.TimeoutError:
+                    if attempt == max_retries:
+                        return {"status": "timeout", "healthy": False, "error": f"Health check timed out after {timeout}s"}
+                    await asyncio.sleep(0.5)  # Brief delay before retry
+                except Exception as e:
+                    if attempt == max_retries:
+                        return {"status": "unhealthy", "healthy": False, "error": str(e)}
+                    await asyncio.sleep(0.5)  # Brief delay before retry
+                    
+        # Check System1 health with retry
+        system1_result = await check_with_retry(
+            self.system1_interface.get_current_status, 
+            "system1"
+        )
+        health_status["components"]["system1"] = system1_result
+        if not system1_result.get("healthy", False):
             health_status["status"] = "degraded"
         
-        # Check System2 health
-        try:
-            system2_status = await self.system2_interface.get_agent_status()
-            health_status["components"]["system2"] = {
-                "status": "healthy",
-                "active_agents": len(system2_status)
-            }
-        except Exception as e:
-            health_status["components"]["system2"] = {
-                "status": "unhealthy",
-                "error": str(e)
-            }
+        # Check System2 health with retry
+        async def check_system2():
+            status = await self.system2_interface.get_agent_status()
+            return {"active_agents": len(status)} if isinstance(status, (list, dict)) else status
+            
+        system2_result = await check_with_retry(check_system2, "system2")
+        health_status["components"]["system2"] = system2_result
+        if not system2_result.get("healthy", False):
             health_status["status"] = "degraded"
         
-        # Check flow managers
+        # Check flow managers (quick local checks)
         health_status["components"]["stimuli_flow"] = {
-            "status": "healthy" if self.stimuli_flow_manager.is_initialized else "not_initialized"
+            "status": "healthy" if self.stimuli_flow_manager.is_initialized else "not_initialized",
+            "healthy": self.stimuli_flow_manager.is_initialized
         }
         health_status["components"]["decision_flow"] = {
-            "status": "healthy" if self.decision_flow_manager.is_initialized else "not_initialized"
+            "status": "healthy" if self.decision_flow_manager.is_initialized else "not_initialized", 
+            "healthy": self.decision_flow_manager.is_initialized
+        }
+        
+        # Additional runtime checks
+        health_status["components"]["runtime"] = {
+            "status": "healthy" if self.runtime is not None else "not_initialized",
+            "healthy": self.runtime is not None
+        }
+        
+        health_status["components"]["processing_lock"] = {
+            "status": "healthy" if not self._processing_lock.locked() else "busy",
+            "healthy": True,  # Lock being busy is not unhealthy
+            "locked": self._processing_lock.locked()
         }
         
         return health_status

@@ -363,9 +363,10 @@ async def get_stimuli_status(
     )
 
 
+@app.get("/health", response_model=HealthResponse, tags=["system"])
 @app.get("/api/v1/health", response_model=HealthResponse, tags=["system"])
 async def health_check():
-    """Health check endpoint (no authentication required)."""
+    """Health check endpoint (no authentication required). Available at both /health and /api/v1/health for Docker compatibility."""
     checks = {
         "gateway": gateway is not None,
         "api": True
@@ -373,20 +374,47 @@ async def health_check():
     
     if gateway:
         try:
-            health = await gateway.health_check()
-            checks.update({
-                comp: data.get("healthy", False)
-                for comp, data in health.get("components", {}).items()
-            })
-        except:
-            pass
+            # Add timeout to health check to avoid hanging
+            health_task = asyncio.create_task(gateway.health_check())
+            health = await asyncio.wait_for(health_task, timeout=10.0)
+            
+            # Process component health status
+            for comp, data in health.get("components", {}).items():
+                if isinstance(data, dict):
+                    # Check for "healthy" key first, then status
+                    if "healthy" in data:
+                        checks[comp] = data.get("healthy", False)
+                    elif "status" in data:
+                        checks[comp] = data.get("status") == "healthy"
+                    else:
+                        checks[comp] = True  # Assume healthy if no explicit status
+                else:
+                    checks[comp] = bool(data)  # Convert to boolean
+                    
+        except asyncio.TimeoutError:
+            logger.warning("Health check timed out")
+            checks["gateway_timeout"] = False
+        except Exception as e:
+            logger.error(f"Health check failed: {e}")
+            checks["gateway_error"] = False
     
     all_healthy = all(checks.values())
     
+    # Provide more detailed status
+    if all_healthy:
+        status = "healthy"
+        message = "All systems operational"
+    elif checks.get("gateway", False):
+        status = "degraded"
+        message = "Some components reporting issues but core system operational"
+    else:
+        status = "unhealthy"
+        message = "Core system issues detected"
+    
     return HealthResponse(
-        status="healthy" if all_healthy else "unhealthy",
+        status=status,
         checks=checks,
-        message="All systems operational" if all_healthy else "Some components unhealthy",
+        message=message,
         timestamp=datetime.now().isoformat()
     )
 
