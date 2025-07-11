@@ -39,6 +39,7 @@ class QueueBatch:
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    retry_count: int = 0
 
 
 class QueueConsumerService:
@@ -354,11 +355,13 @@ class QueueConsumerService:
                             await self._save_processed(batch)
                             
                             # If failed and retries available, keep in queue
-                            if not success and hasattr(batch, 'retry_count'):
-                                if batch.retry_count < self.max_retries:
-                                    batch.retry_count += 1
-                                    batch.status = "pending"
-                                    remaining_batches.append(batch)
+                            if not success and batch.retry_count < self.max_retries:
+                                batch.retry_count += 1
+                                batch.status = "pending"
+                                remaining_batches.append(batch)
+                                logging.info(f"🔄 [QUEUE_CONSUMER] Retrying batch (attempt {batch.retry_count}/{self.max_retries})")
+                            elif success:
+                                logging.info(f"✅ [QUEUE_CONSUMER] Batch processed successfully, removing from queue")
                         else:
                             remaining_batches.append(batch)
                     

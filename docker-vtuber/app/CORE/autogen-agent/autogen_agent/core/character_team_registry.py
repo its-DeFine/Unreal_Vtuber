@@ -269,38 +269,31 @@ class CharacterTeamRegistry:
     def get_team_config_by_character_id(self, character_id: str) -> Optional[CharacterTeamConfig]:
         """Get team configuration based on character ID"""
         
-        # Map character IDs to character types
-        # Updated to match our actual character files
+        # Simplified character mapping for 3 teams + default
+        # Maps both full template names and simplified names
         character_mapping = {
-            # Trader characters (mapped to doctor personas for analytical/diagnostic roles)
+            # TRADER TEAM - Financial analysis and trading
             "dr._house_doctor_template": CharacterType.TRADER,
             "dr._martinez_doctor_template": CharacterType.TRADER,
-            "doctor": CharacterType.TRADER,
-            "dr_house": CharacterType.TRADER,
-            "dr_martinez": CharacterType.TRADER,
+            "trader_character": CharacterType.TRADER,
+            "trader": CharacterType.TRADER,
             
-            # Streamer characters (mapped to coach/weatherman for engagement/communication roles)
+            # STREAMER TEAM - Content creation and engagement
             "weatherman_template": CharacterType.STREAMER,
             "testbot_coach_template": CharacterType.STREAMER,
-            "coach": CharacterType.STREAMER,
-            "weatherman": CharacterType.STREAMER,
-            "testbot": CharacterType.STREAMER,
+            "streamer_character": CharacterType.STREAMER,
+            "streamer": CharacterType.STREAMER,
             
-            # Teacher characters
+            # TEACHER TEAM - Educational content and learning
             "emma_teacher_template": CharacterType.TEACHER,
             "professor_smith_teacher_template": CharacterType.TEACHER,
+            "teacher_character": CharacterType.TEACHER,
             "teacher": CharacterType.TEACHER,
-            "professor": CharacterType.TEACHER,
-            "emma": CharacterType.TEACHER,
-            "professor_smith": CharacterType.TEACHER,
             
-            # Default/Self-improvement (secretary template)
+            # DEFAULT TEAM - System optimization and general tasks
             "secretary_template": CharacterType.DEFAULT,
-            "secretary": CharacterType.DEFAULT,
-            "assistant": CharacterType.DEFAULT,
-            "default_template": CharacterType.DEFAULT,
-            "self_improvement_template": CharacterType.DEFAULT,
-            "autonomous_template": CharacterType.DEFAULT
+            "default_character": CharacterType.DEFAULT,
+            "default": CharacterType.DEFAULT
         }
         
         # Get character type from mapping
