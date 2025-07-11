@@ -335,12 +335,16 @@ class ContextAnalyzerNode:
                 min(cpu_availability, memory_availability) * 50
             )
             
+            # Check actual system availability using health checks
+            system1_availability = await self._check_system1_health()
+            system2_availability = await self._check_system2_health()
+            
             return ResourceAnalysis(
                 cpu_availability=cpu_availability,
                 memory_availability=memory_availability,
                 agent_availability=agent_availability,
-                system1_availability=random.random() > 0.1,  # 90% available
-                system2_availability=random.random() > 0.05,  # 95% available
+                system1_availability=system1_availability,
+                system2_availability=system2_availability,
                 estimated_processing_capacity=estimated_capacity,
                 network_bandwidth_available=100.0,  # Simulated 100 Mbps
                 resource_pressure_level=self._determine_pressure_level(
@@ -395,12 +399,16 @@ class ContextAnalyzerNode:
     
     async def _quick_resource_check(self) -> ResourceAnalysis:
         """Quick resource availability check."""
+        # For quick checks, still do basic health checks but with shorter timeout
+        system1_availability = await self._check_system1_health()
+        system2_availability = await self._check_system2_health()
+        
         return ResourceAnalysis(
             cpu_availability=0.7,
             memory_availability=0.7,
             agent_availability={},
-            system1_availability=True,
-            system2_availability=True,
+            system1_availability=system1_availability,
+            system2_availability=system2_availability,
             estimated_processing_capacity=20
         )
     
@@ -605,3 +613,33 @@ class ContextAnalyzerNode:
             return "summer"
         else:
             return "autumn"
+    
+    async def _check_system1_health(self) -> bool:
+        """Check System1 (VTuber/Avatar) health via direct HTTP call."""
+        try:
+            import aiohttp
+            timeout = aiohttp.ClientTimeout(total=5.0)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get("http://localhost:5001/health") as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("status") == "healthy"
+                    return False
+        except Exception as e:
+            self.logger.warning(f"System1 health check failed: {e}")
+            return False
+    
+    async def _check_system2_health(self) -> bool:
+        """Check System2 (AutoGen) health via direct HTTP call."""
+        try:
+            import aiohttp
+            timeout = aiohttp.ClientTimeout(total=5.0)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get("http://localhost:8200/health") as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get("status") == "healthy"
+                    return False
+        except Exception as e:
+            self.logger.warning(f"System2 health check failed: {e}")
+            return False

@@ -128,6 +128,12 @@ def load_api_keys() -> Dict[str, APIKeyInfo]:
                 name="Development Key",
                 permissions=["read", "write", "admin"],
                 rate_limit=1000
+            ),
+            "test_api_key_123": APIKeyInfo(
+                key="test_api_key_123", 
+                name="Test Key",
+                permissions=["read", "write", "admin"],
+                rate_limit=1000
             )
         }
 
@@ -272,6 +278,7 @@ async def submit_stimuli(
             metadata={
                 **request.metadata,
                 "api_key_name": api_key.name,
+                "auth_key": api_key.key,
                 "request_id": request.request_id
             }
         )

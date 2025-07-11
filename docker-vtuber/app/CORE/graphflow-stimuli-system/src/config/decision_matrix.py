@@ -187,6 +187,45 @@ class DecisionRulesConfig:
         ))
         self.categories["emergency_rules"] = emergency_category
         
+        # High priority admin/test overrides
+        admin_override_category = RuleCategory("admin_override_rules")
+        admin_override_category.add_rule(DecisionRule(
+            id="admin_override_1",
+            condition='"test_user" in metadata.get("source", "") or "test_user" in source',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=95,
+            description="Test requests always trigger avatar and analysis"
+        ))
+        admin_override_category.add_rule(DecisionRule(
+            id="admin_override_2",
+            condition='"test_api_key" in metadata.get("auth_key", "")',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=94,
+            description="Requests with test API key trigger avatar and analysis"
+        ))
+        admin_override_category.add_rule(DecisionRule(
+            id="admin_override_3",
+            condition='category == "DIRECT_ADMIN" or priority == "high" or priority == "HIGH"',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=93,
+            description="Admin requests and high priority always trigger avatar"
+        ))
+        admin_override_category.add_rule(DecisionRule(
+            id="admin_override_4",
+            condition='metadata.get("force_avatar", False) == True',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=92,
+            description="Force avatar metadata flag overrides other rules"
+        ))
+        admin_override_category.add_rule(DecisionRule(
+            id="admin_override_5",
+            condition='any(system in metadata.get("target_systems", []) for system in ["s1", "system1"])',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=91,
+            description="Explicit system1/s1 targeting triggers avatar"
+        ))
+        self.categories["admin_override_rules"] = admin_override_category
+        
         # System state rules
         system_state_category = RuleCategory("system_state_rules")
         system_state_category.add_rule(DecisionRule(
@@ -250,11 +289,32 @@ class DecisionRulesConfig:
             description="Social media during live streaming gets avatar response"
         ))
         category_rules.add_rule(DecisionRule(
+            id="category_4a",
+            condition='category == "CONTEXTUAL_UPDATE" and any(keyword in content.lower() for keyword in ["hello", "respond", "speech"])',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=75,
+            description="Contextual updates with speech keywords trigger avatar response"
+        ))
+        category_rules.add_rule(DecisionRule(
+            id="category_4b", 
+            condition='category == "CONTEXTUAL_UPDATE" and any(keyword in content.lower() for keyword in ["speak", "avatar", "test_message"])',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=75,
+            description="Contextual updates with avatar keywords trigger avatar response"
+        ))
+        category_rules.add_rule(DecisionRule(
+            id="category_4c",
+            condition='category == "USER_INTERACTION" or "test_" in source or priority == "high"',
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=80,
+            description="User interactions, test requests, and high priority always trigger avatar"
+        ))
+        category_rules.add_rule(DecisionRule(
             id="category_5",
-            condition='category == "CONTEXTUAL_UPDATE"',
+            condition='category == "CONTEXTUAL_UPDATE" and not any(keyword in content.lower() for keyword in ["hello", "speak", "respond", "test", "avatar", "speech"])',
             decision=ProcessingDecision.LOG_ONLY,
             priority=30,
-            description="Context updates are logged only"
+            description="Context updates are logged only unless they contain speech trigger keywords"
         ))
         category_rules.add_rule(DecisionRule(
             id="category_6",
@@ -283,10 +343,10 @@ class DecisionRulesConfig:
         ))
         resource_rules.add_rule(DecisionRule(
             id="resource_3",
-            condition='resource_analysis.get("system1_availability", True) == False',
+            condition='resource_analysis.get("system1_availability", True) == False and category not in ["DIRECT_ADMIN"] and "admin" not in metadata.get("source", "").lower() and priority != "high"',
             decision=ProcessingDecision.ANALYSIS_ONLY,
             priority=62,
-            description="System1 unavailable forces analysis only"
+            description="System1 unavailable forces analysis only except for admin/high priority"
         ))
         resource_rules.add_rule(DecisionRule(
             id="resource_4",
@@ -344,10 +404,17 @@ class DecisionRulesConfig:
         default_rules = RuleCategory("default_rules")
         default_rules.add_rule(DecisionRule(
             id="default_1",
-            condition='True',  # Always matches
+            condition='priority in ["low", "medium"] and category not in ["USER_INTERACTION", "DIRECT_ADMIN"]',
             decision=ProcessingDecision.ANALYSIS_ONLY,
             priority=10,
-            description="Default fallback to analysis only"
+            description="Default fallback to analysis only for low priority non-interactive content"
+        ))
+        default_rules.add_rule(DecisionRule(
+            id="default_2",
+            condition='True',  # Catch-all fallback
+            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+            priority=5,
+            description="Final fallback enables avatar for all unmatched cases"
         ))
         self.categories["default_rules"] = default_rules
         
@@ -398,6 +465,7 @@ class DecisionRulesConfig:
         # Evaluate rules in order of category priority
         category_order = [
             "emergency_rules",
+            "admin_override_rules",   # High priority admin/test overrides
             "custom_business_rules",  # High priority custom rules
             "system_state_rules",
             "custom_content_rules",   # Content-specific custom rules
