@@ -107,9 +107,13 @@ class AutonomousTeamManager:
                 # Create specialized team instance
                 team = create_specialized_team(char_type)
                 
-                # Initialize team
-                if team and team.initialize_team():
-                    self.character_teams[char_type.value] = team
+                if team:
+                    # Set tool registry
+                    team.tool_registry = self.tool_registry
+                    
+                    # Initialize team
+                    if team.initialize_team():
+                        self.character_teams[char_type.value] = team
                     
                     # Create execution context
                     self.execution_contexts[char_type.value] = TeamExecutionContext(

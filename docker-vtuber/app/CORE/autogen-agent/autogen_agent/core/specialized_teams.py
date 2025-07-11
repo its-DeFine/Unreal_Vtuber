@@ -20,6 +20,7 @@ class TraderTeam(StimuliAutoGenTeam):
         super().__init__()
         self.team_type = CharacterType.TRADER
         self.team_name = "Quantum Trading Intelligence Team"
+        self.tool_registry = None  # Will be set during initialization
         
     def _create_specialized_agents(self):
         """Create trader-specific agents"""
@@ -76,9 +77,11 @@ class TraderTeam(StimuliAutoGenTeam):
             max_consecutive_auto_reply=10
         )
         
-        # Register tools with proxy
-        from ..tools.tool_registry import get_tool_registry
-        tool_registry = get_tool_registry()
+        # Get tool registry from parent class
+        tool_registry = self.tool_registry
+        if not tool_registry:
+            logging.error("❌ [SPECIALIZED_TEAM] Tool registry not set")
+            return
         
         # Register trader-specific tools
         trader_tools = [
@@ -156,6 +159,7 @@ class StreamerTeam(StimuliAutoGenTeam):
         super().__init__()
         self.team_type = CharacterType.STREAMER
         self.team_name = "Digital Star Management Team"
+        self.tool_registry = None  # Will be set during initialization
         
     def _create_specialized_agents(self):
         """Create streamer-specific agents"""
@@ -213,7 +217,7 @@ class StreamerTeam(StimuliAutoGenTeam):
         )
         
         # Register tools
-        from ..tools.tool_registry import get_tool_registry
+        from .tool_registry import get_tool_registry
         tool_registry = get_tool_registry()
         
         streamer_tools = [
@@ -289,6 +293,7 @@ class TeacherTeam(StimuliAutoGenTeam):
         super().__init__()
         self.team_type = CharacterType.TEACHER
         self.team_name = "Adaptive Education Excellence Team"
+        self.tool_registry = None  # Will be set during initialization
         
     def _create_specialized_agents(self):
         """Create teacher-specific agents"""
@@ -346,7 +351,7 @@ class TeacherTeam(StimuliAutoGenTeam):
         )
         
         # Register tools
-        from ..tools.tool_registry import get_tool_registry
+        from .tool_registry import get_tool_registry
         tool_registry = get_tool_registry()
         
         teacher_tools = [
@@ -422,6 +427,7 @@ class DefaultTeam(StimuliAutoGenTeam):
         super().__init__()
         self.team_type = CharacterType.DEFAULT
         self.team_name = "Autonomous Self-Improvement Collective"
+        self.tool_registry = None  # Will be set during initialization
         
     def _create_specialized_agents(self):
         """Create default team agents"""
@@ -479,7 +485,7 @@ class DefaultTeam(StimuliAutoGenTeam):
         )
         
         # Register tools
-        from ..tools.tool_registry import get_tool_registry
+        from .tool_registry import get_tool_registry
         tool_registry = get_tool_registry()
         
         default_tools = [

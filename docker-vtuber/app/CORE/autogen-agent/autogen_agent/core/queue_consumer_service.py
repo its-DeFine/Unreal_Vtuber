@@ -91,9 +91,13 @@ class QueueConsumerService:
             try:
                 team = create_specialized_team(char_type)
                 
-                if team and team.initialize_team():
-                    self.character_teams[char_type.value] = team
-                    logging.info(f"✅ [QUEUE_CONSUMER] Initialized {team.team_name}")
+                if team:
+                    # Set tool registry
+                    team.tool_registry = tool_registry
+                    
+                    if team.initialize_team():
+                        self.character_teams[char_type.value] = team
+                        logging.info(f"✅ [QUEUE_CONSUMER] Initialized {team.team_name}")
                 else:
                     logging.error(f"❌ [QUEUE_CONSUMER] Failed to initialize {char_type.value} team")
                     
