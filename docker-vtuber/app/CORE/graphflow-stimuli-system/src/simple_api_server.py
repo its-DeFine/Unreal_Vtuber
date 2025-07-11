@@ -109,17 +109,26 @@ async def submit_stimuli(request: StimuliRequest):
         
         logger.info(f"🚨 Nuclear decision: {decision_str}")
         
-        # Route to S1 if AVATAR_AND_ANALYSIS
+        # Route based on decision
         if "AVATAR_AND_ANALYSIS" in decision_str:
-            success = await route_to_s1(stimuli_data)
-            if success:
+            # Route to both S1 and S2
+            s1_success = await route_to_s1(stimuli_data)
+            s2_success = await route_to_s2(stimuli_data)
+            
+            if s1_success and s2_success:
+                logger.info("✅ Successfully routed to both S1 and S2!")
+                message = "Routed to both S1 (speech) and S2 (analysis)"
+            elif s1_success:
                 logger.info("✅ Successfully routed to S1!")
                 message = "Routed to S1 (NeuroSync) for speech generation"
+            elif s2_success:
+                logger.info("✅ Successfully routed to S2!")
+                message = "Routed to S2 (AutoGen) for analysis"
             else:
-                logger.error("❌ Failed to route to S1")
-                message = "Failed to route to S1"
+                logger.error("❌ Failed to route to both S1 and S2")
+                message = "Failed to route to systems"
         else:
-            logger.info(f"🔄 Decision was {decision_str}, not routing to S1")
+            logger.info(f"🔄 Decision was {decision_str}, not routing")
             message = f"Decision: {decision_str}"
         
         return StimuliResponse(
@@ -158,6 +167,36 @@ async def route_to_s1(stimuli_data: Dict[str, Any]) -> bool:
                 
     except Exception as e:
         logger.error(f"❌ Error routing to S1: {e}")
+        return False
+
+async def route_to_s2(stimuli_data: Dict[str, Any]) -> bool:
+    """Route stimuli to S2 (AutoGen) for multi-agent analysis."""
+    try:
+        s2_endpoint = "http://autogen_agent:8000/api/stimuli/receive"
+        
+        # Prepare S2 request for analysis
+        s2_request = {
+            "content": stimuli_data["content"],
+            "source": stimuli_data.get("source", "graphflow"),
+            "priority": stimuli_data.get("priority", "medium"),
+            "metadata": stimuli_data.get("metadata", {})
+        }
+        
+        logger.info(f"🧠 Sending to S2: {s2_endpoint}")
+        logger.info(f"📝 S2 request: {s2_request}")
+        
+        # Send to S2
+        async with session.post(s2_endpoint, json=s2_request) as response:
+            if response.status == 200:
+                result = await response.json()
+                logger.info(f"✅ S2 response: {result}")
+                return True
+            else:
+                logger.error(f"❌ S2 returned status {response.status}")
+                return False
+                
+    except Exception as e:
+        logger.error(f"❌ Error routing to S2: {e}")
         return False
 
 @app.get("/api/v1/stimuli/{stimuli_id}/status")
