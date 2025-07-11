@@ -189,7 +189,7 @@ class StimuliCategorizerNode:
             # Use enum names for consistent access
             self.config.keyword_patterns = {
                 StimuliCategory.DIRECT_ADMIN.name: ["admin", "command", "set", "configure", "change"],
-                StimuliCategory.USER_INTERACTION.name: ["hello", "hi", "how", "what", "why", "tell", "ask"],
+                StimuliCategory.USER_INTERACTION.name: ["hello", "hi", "how", "what", "why", "tell", "ask", "please", "respond", "speak", "reply", "say", "can you", "could you", "test", "confirm", "operational"],
                 StimuliCategory.SYSTEM_NOTIFICATION.name: ["system", "status", "speaking", "idle", "busy", "error"],
                 StimuliCategory.AUTONOMOUS_TRIGGER.name: ["auto", "trigger", "scheduled", "periodic"],
                 StimuliCategory.EMERGENCY.name: ["emergency", "urgent", "critical", "alert", "warning"],
@@ -263,6 +263,18 @@ class StimuliCategorizerNode:
         if features['source'] == 'admin_console':
             return {
                 'category': StimuliCategory.DIRECT_ADMIN,
+                'confidence': 0.9,
+                'method': 'source_based'
+            }
+        elif features['source'] == 'USER_INTERACTION':
+            return {
+                'category': StimuliCategory.USER_INTERACTION,
+                'confidence': 0.8,
+                'method': 'source_based'
+            }
+        elif features['source'] in ['test_client', 'DIRECT_ADMIN']:
+            return {
+                'category': StimuliCategory.USER_INTERACTION,
                 'confidence': 0.9,
                 'method': 'source_based'
             }

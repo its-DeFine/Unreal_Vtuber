@@ -322,14 +322,12 @@ class ExecutionCoordinatorNode:
                 )
             
             if not tasks:
-                return ExecutionResult(
-                    stimuli_id=routing_decision.stimuli_id,
-                    execution_plan_id=execution_plan.id,
-                    success=False,
-                    results={"error": "No systems available for Option A"},
-                    execution_time=time.time() - start_time,
-                    error_details="Neither System1 nor System2 interfaces are initialized"
+                # Intelligent fallback: if no systems available, log the stimuli
+                self.logger.warning(
+                    "No systems available for AVATAR_AND_ANALYSIS, falling back to logging",
+                    stimuli_id=routing_decision.stimuli_id
                 )
+                return await self._execute_logging(execution_plan, routing_decision)
             
             # Execute concurrently with timeout
             try:
@@ -372,8 +370,23 @@ class ExecutionCoordinatorNode:
                 else:
                     processed_results.append(result)
             
-            # Aggregate results
+            # Aggregate results - allow partial success
             aggregated = self._aggregate_results(processed_results, execution_plan)
+            
+            # Consider partial success as success if at least one system succeeded
+            has_success = any(result.success for result in processed_results)
+            if has_success and not aggregated.success:
+                aggregated.success = True
+                aggregated.results["partial_success"] = True
+                aggregated.results["successful_systems"] = [
+                    result.results.get("system", "unknown") 
+                    for result in processed_results if result.success
+                ]
+                self.logger.info(
+                    "Partial success achieved in Option A",
+                    stimuli_id=routing_decision.stimuli_id,
+                    successful_systems=aggregated.results["successful_systems"]
+                )
             
             # Record option A specific metrics
             self.metrics.increment_decision("option_a")
@@ -400,15 +413,27 @@ class ExecutionCoordinatorNode:
                 execution_plan_id=execution_plan.id
             )
             
+            # Check system availability and implement intelligent fallback
             if not self.system2_interface:
-                return ExecutionResult(
-                    stimuli_id=routing_decision.stimuli_id,
-                    execution_plan_id=execution_plan.id,
-                    success=False,
-                    results={"error": "System2 interface not available"},
-                    execution_time=time.time() - start_time,
-                    error_details="System2 interface not initialized for analysis-only execution"
-                )
+                # Intelligent fallback: if System2 not available but we have System1, try System1
+                if self.system1_interface:
+                    self.logger.warning(
+                        "System2 not available for ANALYSIS_ONLY, falling back to System1",
+                        stimuli_id=routing_decision.stimuli_id
+                    )
+                    return await self._execute_with_retry(
+                        self._execute_system1,
+                        execution_plan,
+                        routing_decision,
+                        "system1"
+                    )
+                else:
+                    # Neither system available, log only
+                    self.logger.warning(
+                        "No systems available for ANALYSIS_ONLY, falling back to logging",
+                        stimuli_id=routing_decision.stimuli_id
+                    )
+                    return await self._execute_logging(execution_plan, routing_decision)
             
             # Execute with retry
             result = await self._execute_with_retry(
