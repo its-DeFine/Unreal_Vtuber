@@ -1850,6 +1850,14 @@ async def initialize_s2_teams():
             global_scb_client = None
             global_vtuber_client = None
         
+        # Initialize character state manager
+        s1_sync_endpoint = os.getenv("S1_CHARACTER_SYNC_ENDPOINT", "http://neurosync_s1:5001")
+        character_manager = initialize_character_state_manager(s1_sync_endpoint)
+        if character_manager:
+            logging.info("🎭 [S2] Character state manager initialized")
+        else:
+            logging.warning("⚠️ [S2] Character state manager not available - teams will use default")
+        
         # Initialize tool registry
         if not global_tool_registry:
             try:

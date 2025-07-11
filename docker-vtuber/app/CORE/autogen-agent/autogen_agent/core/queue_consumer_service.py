@@ -38,6 +38,7 @@ class QueueBatch:
     processing_completed: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class QueueConsumerService:
@@ -146,17 +147,17 @@ class QueueConsumerService:
         if not character_id:
             return self.default_team
         
-        # Map character IDs to team types
-        character_team_mapping = {
-            "trader_template": "trader",
-            "streamer_template": "streamer", 
-            "emma_teacher_template": "teacher",
-            "professor_smith_teacher_template": "teacher",
-            "default_template": "default"
-        }
+        # Use the character team registry for mapping
+        from .character_team_registry import get_character_team_registry
+        registry = get_character_team_registry()
         
-        # Find team type for character
-        team_type = character_team_mapping.get(character_id, "default")
+        # Get team config for character
+        team_config = registry.get_team_config_by_character_id(character_id)
+        if not team_config:
+            return self.default_team
+        
+        # Get team type
+        team_type = team_config.character_type.value
         
         return self.character_teams.get(team_type, self.default_team)
     
@@ -190,7 +191,8 @@ class QueueConsumerService:
                     prompt=raw.get("prompt", ""),
                     timestamp=raw.get("timestamp", ""),
                     source=raw.get("source", ""),
-                    processing_mode=raw.get("processing_mode", "s2_only")
+                    processing_mode=raw.get("processing_mode", "s2_only"),
+                    metadata=raw.get("metadata", {})
                 )
                 batches.append(batch)
             
@@ -211,7 +213,8 @@ class QueueConsumerService:
                         "prompt": batch.prompt,
                         "timestamp": batch.timestamp,
                         "source": batch.source,
-                        "processing_mode": batch.processing_mode
+                        "processing_mode": batch.processing_mode,
+                        "metadata": batch.metadata
                     })
             
             with open(self.queue_file, 'w') as f:
@@ -261,10 +264,22 @@ class QueueConsumerService:
         start_time = datetime.now()
         
         try:
+            # Check if character_id is in metadata
+            character_id = None
+            if batch.metadata:
+                character_id = batch.metadata.get("character_id")
+            
             # Get appropriate team
-            team = self._get_team_for_character()
+            team = self._get_team_for_character(character_id)
             if not team:
                 raise Exception("No team available for processing")
+            
+            # Log which team is being used
+            from .character_team_registry import get_character_team_registry
+            registry = get_character_team_registry()
+            team_config = registry.get_team_config_by_character_id(character_id or self.current_character_id)
+            if team_config:
+                logging.info(f"🤖 [QUEUE_CONSUMER] Using team: {team_config.team_name} (type: {team_config.character_type.value})")
             
             logging.info(f"🔄 [QUEUE_CONSUMER] Processing batch from {batch.timestamp}")
             
@@ -276,9 +291,15 @@ class QueueConsumerService:
                 "priority": "high",
                 "metadata": {
                     "batch_timestamp": batch.timestamp,
-                    "processing_mode": batch.processing_mode
+                    "processing_mode": batch.processing_mode,
+                    "character_id": character_id or self.current_character_id,
+                    "team_type": team_config.character_type.value if team_config else "default"
                 }
             }
+            
+            # Merge any additional metadata from batch
+            if batch.metadata:
+                stimuli_data["metadata"].update(batch.metadata)
             
             # Process through team
             result = await team.process_stimuli_with_team(stimuli_data)

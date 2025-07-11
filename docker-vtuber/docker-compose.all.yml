@@ -119,7 +119,6 @@ services:
     container_name: autogen_agent
     volumes:
       - ./app/CORE/autogen-agent/autogen_agent:/app/autogen_agent
-      - /tmp/s2_processing_queue.json:/tmp/s2_processing_queue.json
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@autogen_postgres:5432/autonomous_agent
       - USE_COGNITIVE_ENHANCEMENT=true
