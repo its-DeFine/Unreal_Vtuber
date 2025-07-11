@@ -107,9 +107,10 @@ class AdminCharacterTool:
         if not any(indicator in content_lower for indicator in ["admin:", "create character", "switch character", "list characters"]):
             return {"type": "not_admin_command"}
         
-        # Remove admin prefix if present
+        # Remove admin prefix if present (handle case insensitivity)
         if "admin:" in content_lower:
-            content = content.split("admin:", 1)[1].strip()
+            admin_pos = content_lower.find("admin:")
+            content = content[admin_pos + len("admin:"):].strip()
             content_lower = content.lower()
         
         # Parse different command types
@@ -119,7 +120,7 @@ class AdminCharacterTool:
                 return {
                     "type": command_type,
                     "content": content,
-                    "match": match.group(1).strip() if match.groups() else None
+                    "match": match.group(1).strip() if len(match.groups()) > 0 else None
                 }
         
         return {"type": "unknown_admin_command", "content": content}
@@ -153,7 +154,7 @@ class AdminCharacterTool:
         else:
             # Generic character
             character_data.update({
-                "role": role_match.group(1).strip() if role_match else f"{character_name} Assistant",
+                "role": role_match.group(1).strip() if role_match and role_match.group(1).strip() else f"{character_name} Assistant",
                 "personality_traits": ["helpful", "friendly", "professional", "knowledgeable"],
                 "communication_style": "professional and approachable",
                 "domain_expertise": ["general assistance", "conversation", "support"],
@@ -168,11 +169,16 @@ class AdminCharacterTool:
         
         # Override with specific details if provided
         if role_match:
-            character_data["role"] = role_match.group(1).strip()
+            role_text = role_match.group(1).strip() if role_match.group(1) else ""
+            if role_text:  # Only override if we have actual content
+                character_data["role"] = role_text
         
         if personality_match:
-            traits = [trait.strip() for trait in personality_match.group(1).split(",")]
-            character_data["personality_traits"] = traits
+            personality_text = personality_match.group(1).strip() if personality_match.group(1) else ""
+            if personality_text:  # Only process if we have actual content
+                traits = [trait.strip() for trait in personality_text.split(",") if trait.strip()]
+                if traits:  # Only override if we have actual traits
+                    character_data["personality_traits"] = traits
         
         return character_data
     
