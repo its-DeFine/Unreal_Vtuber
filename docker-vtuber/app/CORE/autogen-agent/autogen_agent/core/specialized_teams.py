@@ -101,7 +101,10 @@ class TraderTeam(StimuliAutoGenTeam):
         """Override to skip generic agents for trader team"""
         # Skip generic agent creation - we'll use specialized agents instead
         logging.info("🏦 [TRADER_TEAM] Skipping generic agents, will use specialized trader agents")
-        pass
+        # Set placeholder attributes to satisfy base class
+        self.stimuli_analyzer = None
+        self.decision_strategist = None
+        self.action_coordinator = None
     
     def _create_team_group_chat(self):
         """Create trader team group chat"""
@@ -126,6 +129,10 @@ class TraderTeam(StimuliAutoGenTeam):
         )
         
         logging.info("✅ [TRADER_TEAM] Trader team group chat created")
+    
+    def _initialize_group_chat(self):
+        """Override to create trader-specific group chat"""
+        self._create_team_group_chat()
     
     async def process_stimuli_with_team(self, stimuli_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process stimuli with trader-specific logic"""
@@ -229,7 +236,10 @@ class StreamerTeam(StimuliAutoGenTeam):
         """Override to skip generic agents for streamer team"""
         # Skip generic agent creation - we'll use specialized agents instead
         logging.info("📹 [STREAMER_TEAM] Skipping generic agents, will use specialized streamer agents")
-        pass
+        # Set placeholder attributes to satisfy base class
+        self.stimuli_analyzer = None
+        self.decision_strategist = None
+        self.action_coordinator = None
     
     def _create_team_group_chat(self):
         """Create streamer team group chat"""
@@ -253,6 +263,10 @@ class StreamerTeam(StimuliAutoGenTeam):
         )
         
         logging.info("✅ [STREAMER_TEAM] Streamer team group chat created")
+    
+    def _initialize_group_chat(self):
+        """Override to create streamer-specific group chat"""
+        self._create_team_group_chat()
     
     async def process_stimuli_with_team(self, stimuli_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process stimuli with streamer-specific logic"""
@@ -355,7 +369,10 @@ class TeacherTeam(StimuliAutoGenTeam):
         """Override to skip generic agents for teacher team"""
         # Skip generic agent creation - we'll use specialized agents instead
         logging.info("🎓 [TEACHER_TEAM] Skipping generic agents, will use specialized teacher agents")
-        pass
+        # Set placeholder attributes to satisfy base class
+        self.stimuli_analyzer = None
+        self.decision_strategist = None
+        self.action_coordinator = None
     
     def _create_team_group_chat(self):
         """Create teacher team group chat"""
@@ -379,6 +396,10 @@ class TeacherTeam(StimuliAutoGenTeam):
         )
         
         logging.info("✅ [TEACHER_TEAM] Teacher team group chat created")
+    
+    def _initialize_group_chat(self):
+        """Override to create teacher-specific group chat"""
+        self._create_team_group_chat()
     
     async def process_stimuli_with_team(self, stimuli_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process stimuli with teacher-specific logic"""
@@ -482,7 +503,10 @@ class DefaultTeam(StimuliAutoGenTeam):
         """Override to skip generic agents for default team"""
         # Skip generic agent creation - we'll use specialized agents instead
         logging.info("🔧 [DEFAULT_TEAM] Skipping generic agents, will use specialized default agents")
-        pass
+        # Set placeholder attributes to satisfy base class
+        self.stimuli_analyzer = None
+        self.decision_strategist = None
+        self.action_coordinator = None
     
     def _create_team_group_chat(self):
         """Create default team group chat"""
@@ -506,6 +530,10 @@ class DefaultTeam(StimuliAutoGenTeam):
         )
         
         logging.info("✅ [DEFAULT_TEAM] Default team group chat created")
+    
+    def _initialize_group_chat(self):
+        """Override to create default team group chat"""
+        self._create_team_group_chat()
     
     async def process_stimuli_with_team(self, stimuli_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process stimuli with default team logic"""
