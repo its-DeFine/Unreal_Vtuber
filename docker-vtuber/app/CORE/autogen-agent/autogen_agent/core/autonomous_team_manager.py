@@ -16,6 +16,7 @@ from enum import Enum
 
 from .character_team_registry import CharacterType, get_character_team_registry
 from .stimuli_autogen_team import StimuliAutoGenTeam
+from .specialized_teams import create_specialized_team
 from ..services.character_state_manager import get_character_state_manager
 from ..utils.scb_utils import SCBWriter, SCBCoordinator, publish_team_insight, MessagePriority
 from ..services.neo4j_semantic_storage import get_neo4j_storage, SemanticContext
@@ -103,11 +104,11 @@ class AutonomousTeamManager:
                 
                 logging.info(f"🔧 [TEAM_MANAGER] Initializing {team_config.team_name}")
                 
-                # Create team instance
-                team = StimuliAutoGenTeam()
+                # Create specialized team instance
+                team = create_specialized_team(char_type)
                 
                 # Initialize team
-                if team.initialize_team():
+                if team and team.initialize_team():
                     self.character_teams[char_type.value] = team
                     
                     # Create execution context

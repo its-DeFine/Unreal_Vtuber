@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from .stimuli_autogen_team import StimuliAutoGenTeam
 from .stimuli_orchestrator import StimuliResponse
 from ..services.character_state_manager import get_character_state_manager
+from .specialized_teams import create_specialized_team
+from .character_team_registry import CharacterType
 
 
 @dataclass
@@ -84,43 +86,19 @@ class QueueConsumerService:
         
         logging.info("🤖 [QUEUE_CONSUMER] Initializing character-specific teams...")
         
-        # Define team configurations for each character type
-        team_configs = {
-            "trader": {
-                "name": "Trader Team",
-                "agents": ["market_analyst", "risk_manager", "trade_executor"],
-                "tools": ["market_data_tool", "portfolio_tool", "trading_tool"]
-            },
-            "streamer": {
-                "name": "Streamer Management Team", 
-                "agents": ["content_strategist", "community_manager", "analytics_expert"],
-                "tools": ["social_media_tool", "streaming_tool", "analytics_tool"]
-            },
-            "teacher": {
-                "name": "Education Team",
-                "agents": ["curriculum_designer", "learning_analyst", "student_mentor"],
-                "tools": ["educational_content_tool", "assessment_tool", "learning_tool"]
-            },
-            "default": {
-                "name": "Self-Improvement Team",
-                "agents": ["system_architect", "performance_optimizer", "knowledge_curator"],
-                "tools": ["core_evolution_tool", "goal_management_tools", "scb_operations_tool"]
-            }
-        }
-        
-        # Create teams for each configuration
-        for character_type, config in team_configs.items():
+        # Create specialized teams for each character type
+        for char_type in CharacterType:
             try:
-                team = StimuliAutoGenTeam()
+                team = create_specialized_team(char_type)
                 
-                if team.initialize_team():
-                    self.character_teams[character_type] = team
-                    logging.info(f"✅ [QUEUE_CONSUMER] Initialized {config['name']}")
+                if team and team.initialize_team():
+                    self.character_teams[char_type.value] = team
+                    logging.info(f"✅ [QUEUE_CONSUMER] Initialized {team.team_name}")
                 else:
-                    logging.error(f"❌ [QUEUE_CONSUMER] Failed to initialize {config['name']}")
+                    logging.error(f"❌ [QUEUE_CONSUMER] Failed to initialize {char_type.value} team")
                     
             except Exception as e:
-                logging.error(f"❌ [QUEUE_CONSUMER] Error creating {character_type} team: {e}")
+                logging.error(f"❌ [QUEUE_CONSUMER] Error creating {char_type.value} team: {e}")
         
         # Set default team
         self.default_team = self.character_teams.get("default")
