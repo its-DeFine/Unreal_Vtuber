@@ -205,7 +205,7 @@ async def _analyze_audience(context: Dict[str, Any]) -> Dict[str, Any]:
                 {"country": "United Kingdom", "percentage": 12},
                 {"country": "Canada", "percentage": 10},
                 {"country": "Germany", "percentage": 8},
-                {"country": "Japan": 6}
+                {"country": "Japan", "percentage": 6}
             ]
         }
         
