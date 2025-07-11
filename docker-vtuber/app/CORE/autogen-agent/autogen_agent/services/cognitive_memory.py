@@ -16,19 +16,19 @@ class MemoryEntry:
     relevance_score: float = 0.0
 
 class CognitiveMemoryManager:
-    """Enhanced memory manager with Neo4j semantic storage (formerly Cognee)"""
+    """Enhanced memory manager with Neo4j semantic storage"""
     
-    def __init__(self, db_url: str, cognee_url: str = None, cognee_api_key: str = None):
+    def __init__(self, db_url: str, semantic_bridge_url: str = None, semantic_api_key: str = None):
         self.db_url = db_url
-        self.cognee_url = cognee_url.rstrip('/') if cognee_url else None
-        self.cognee_api_key = cognee_api_key
+        self.semantic_bridge_url = semantic_bridge_url.rstrip('/') if semantic_bridge_url else None
+        self.semantic_api_key = semantic_api_key
         self.dataset_name = "autogen_agent"
         self.db_pool = None
-        self.cognee_available = False
+        self.semantic_bridge_available = False
         
         logging.info(f"🧠 [COGNITIVE_MEMORY] Initializing...")
-        if self.cognee_url:
-            logging.info(f"🧠 [COGNITIVE_MEMORY] Cognee URL configured: {self.cognee_url}")
+        if self.semantic_bridge_url:
+            logging.info(f"🧠 [COGNITIVE_MEMORY] Semantic bridge URL configured: {self.semantic_bridge_url}")
         else:
             logging.info("🧠 [COGNITIVE_MEMORY] Using PostgreSQL + Neo4j semantic storage")
     
@@ -39,13 +39,13 @@ class CognitiveMemoryManager:
             await self._ensure_memory_tables()
             logging.info("✅ [COGNITIVE_MEMORY] Database connection established")
             
-            # Check Cognee availability
-            if self.cognee_url and self.cognee_api_key:
-                self.cognee_available = await self._check_cognee_health()
-                if self.cognee_available:
-                    logging.info("✅ [COGNITIVE_MEMORY] Cognee service available")
+            # Check semantic bridge availability
+            if self.semantic_bridge_url and self.semantic_api_key:
+                self.semantic_bridge_available = await self._check_semantic_bridge_health()
+                if self.semantic_bridge_available:
+                    logging.info("✅ [COGNITIVE_MEMORY] Semantic bridge service available")
                 else:
-                    logging.info("ℹ️ [COGNITIVE_MEMORY] Cognee service unavailable - using PostgreSQL + Neo4j semantic storage")
+                    logging.info("ℹ️ [COGNITIVE_MEMORY] Semantic bridge service unavailable - using PostgreSQL + Neo4j semantic storage")
             
         except Exception as e:
             logging.error(f"❌ [COGNITIVE_MEMORY] Initialization failed: {e}")
@@ -70,9 +70,9 @@ class CognitiveMemoryManager:
             # Store in PostgreSQL for immediate retrieval
             await self._store_in_postgres(memory_id, memory_content, context, action, result)
             
-            # Store in Cognee for semantic understanding (if available)
-            if self.cognee_available:
-                await self._store_in_cognee(memory_content)
+            # Store in semantic bridge for semantic understanding (if available)
+            if self.semantic_bridge_available:
+                await self._store_in_semantic_bridge(memory_content)
             
             logging.info(f"💾 [COGNITIVE_MEMORY] Stored interaction {memory_id}")
             return memory_id
@@ -85,12 +85,12 @@ class CognitiveMemoryManager:
         """Retrieve semantically relevant context using Cognee knowledge graph or PostgreSQL"""
         
         try:
-            if self.cognee_available:
-                # Use Cognee for semantic search
-                cognee_results = await self._search_cognee(query, max_results)
-                if cognee_results:
-                    enhanced_results = await self._enhance_with_postgres_context(cognee_results)
-                    logging.info(f"🔍 [COGNITIVE_MEMORY] Retrieved {len(enhanced_results)} relevant memories via Cognee")
+            if self.semantic_bridge_available:
+                # Use semantic bridge for semantic search
+                semantic_results = await self._search_semantic_bridge(query, max_results)
+                if semantic_results:
+                    enhanced_results = await self._enhance_with_postgres_context(semantic_results)
+                    logging.info(f"🔍 [COGNITIVE_MEMORY] Retrieved {len(enhanced_results)} relevant memories via semantic bridge")
                     return enhanced_results
             
             # Fallback to PostgreSQL search
@@ -103,16 +103,16 @@ class CognitiveMemoryManager:
             return []
     
     async def consolidate_knowledge(self):
-        """Process and create relationships in Cognee knowledge graph"""
-        if not self.cognee_available:
-            logging.debug("🧩 [COGNITIVE_MEMORY] Cognee not available - skipping consolidation")
+        """Process and create relationships in semantic bridge knowledge graph"""
+        if not self.semantic_bridge_available:
+            logging.debug("🧩 [COGNITIVE_MEMORY] Semantic bridge not available - skipping consolidation")
             return
         
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"{self.cognee_url}/api/v1/cognify",
-                    headers={'Authorization': f'Bearer {self.cognee_api_key}'},
+                    f"{self.semantic_bridge_url}/api/v1/cognify",
+                    headers={'Authorization': f'Bearer {self.semantic_api_key}'},
                     json={'dataset_name': self.dataset_name}
                 ) as response:
                     if response.status == 200:
@@ -153,26 +153,26 @@ class CognitiveMemoryManager:
                 VALUES ($1, $2, $3, $4, $5, $6)
             """, memory_id, content, json.dumps(context), action, json.dumps(result), datetime.now())
     
-    async def _check_cognee_health(self) -> bool:
-        """Check if Cognee service is available"""
+    async def _check_semantic_bridge_health(self) -> bool:
+        """Check if semantic bridge service is available"""
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{self.cognee_url}/health", timeout=5) as response:
+                async with session.get(f"{self.semantic_bridge_url}/health", timeout=5) as response:
                     return response.status == 200
         except:
             return False
     
-    async def _store_in_cognee(self, content: str):
-        """Store content in Cognee knowledge graph"""
-        if not self.cognee_api_key:
-            logging.warning("⚠️ [COGNITIVE_MEMORY] No Cognee API key configured, skipping storage")
+    async def _store_in_semantic_bridge(self, content: str):
+        """Store content in semantic bridge knowledge graph"""
+        if not self.semantic_api_key:
+            logging.warning("⚠️ [COGNITIVE_MEMORY] No semantic bridge API key configured, skipping storage")
             return
             
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"{self.cognee_url}/api/v1/add",
-                    headers={'Authorization': f'Bearer {self.cognee_api_key}'},
+                    f"{self.semantic_bridge_url}/api/v1/add",
+                    headers={'Authorization': f'Bearer {self.semantic_api_key}'},
                     json={
                         'data': [content],
                         'dataset_name': self.dataset_name
@@ -180,26 +180,26 @@ class CognitiveMemoryManager:
                     timeout=10
                 ) as response:
                     if response.status == 200:
-                        logging.info("✅ [COGNITIVE_MEMORY] Stored in Cognee knowledge graph")
+                        logging.info("✅ [COGNITIVE_MEMORY] Stored in semantic bridge knowledge graph")
                     elif response.status == 401:
-                        logging.error("❌ [COGNITIVE_MEMORY] Cognee authentication failed (401). Check your API key or credentials.")
-                        self.cognee_available = False  # Disable further attempts
+                        logging.error("❌ [COGNITIVE_MEMORY] Semantic bridge authentication failed (401). Check your API key or credentials.")
+                        self.semantic_bridge_available = False  # Disable further attempts
                     else:
                         error_text = await response.text()
-                        logging.error(f"❌ [COGNITIVE_MEMORY] Cognee storage failed: {response.status} - {error_text}")
+                        logging.error(f"❌ [COGNITIVE_MEMORY] Semantic bridge storage failed: {response.status} - {error_text}")
         except Exception as e:
-            logging.error(f"❌ [COGNITIVE_MEMORY] Cognee storage error: {e}")
+            logging.error(f"❌ [COGNITIVE_MEMORY] Semantic bridge storage error: {e}")
     
-    async def _search_cognee(self, query: str, max_results: int) -> List[Dict]:
-        """Search Cognee knowledge graph"""
-        if not self.cognee_api_key:
+    async def _search_semantic_bridge(self, query: str, max_results: int) -> List[Dict]:
+        """Search semantic bridge knowledge graph"""
+        if not self.semantic_api_key:
             return []
             
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"{self.cognee_url}/api/v1/search",
-                    headers={'Authorization': f'Bearer {self.cognee_api_key}'},
+                    f"{self.semantic_bridge_url}/api/v1/search",
+                    headers={'Authorization': f'Bearer {self.semantic_api_key}'},
                     json={
                         'query': query,
                         'dataset_name': self.dataset_name,
@@ -210,25 +210,25 @@ class CognitiveMemoryManager:
                     if response.status == 200:
                         return await response.json()
                     elif response.status == 401:
-                        logging.error("❌ [COGNITIVE_MEMORY] Cognee authentication failed (401). Check your API key or credentials.")
-                        self.cognee_available = False  # Disable further attempts
+                        logging.error("❌ [COGNITIVE_MEMORY] Semantic bridge authentication failed (401). Check your API key or credentials.")
+                        self.semantic_bridge_available = False  # Disable further attempts
                         return []
                     else:
                         error_text = await response.text()
-                        logging.error(f"❌ [COGNITIVE_MEMORY] Cognee search failed: {response.status} - {error_text}")
+                        logging.error(f"❌ [COGNITIVE_MEMORY] Semantic bridge search failed: {response.status} - {error_text}")
                         return []
         except Exception as e:
-            logging.error(f"❌ [COGNITIVE_MEMORY] Cognee search error: {e}")
+            logging.error(f"❌ [COGNITIVE_MEMORY] Semantic bridge search error: {e}")
             return []
     
-    async def _enhance_with_postgres_context(self, cognee_results: List[Dict]) -> List[MemoryEntry]:
-        """Enhance Cognee results with PostgreSQL context"""
+    async def _enhance_with_postgres_context(self, semantic_results: List[Dict]) -> List[MemoryEntry]:
+        """Enhance semantic bridge results with PostgreSQL context"""
         enhanced_results = []
         
-        for result in cognee_results:
-            # Extract memory entry details from Cognee result
+        for result in semantic_results:
+            # Extract memory entry details from semantic bridge result
             memory_entry = MemoryEntry(
-                id=result.get('id', 'cognee_result'),
+                id=result.get('id', 'semantic_result'),
                 content=result.get('content', ''),
                 context=result.get('metadata', {}),
                 timestamp=result.get('timestamp', datetime.now().isoformat()),
