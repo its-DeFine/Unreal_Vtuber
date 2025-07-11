@@ -1742,5 +1742,9 @@
     {
         "input": "test message",
         "response": "Hello again! Your test message has come through clearly. If there's anything specific you'd like to discuss or explore, whether it's educational topics, learning strategies, or any other inquiries, feel free to let me know. I'm here to help! \ud83d\ude0a"
+    },
+    {
+        "input": "Hello! My favorite color is blue because it reminds me of the ocean.",
+        "response": "Blue is such a calming and inspiring color, evoking images of the vast ocean and clear skies. It's wonderful how colors can connect us to nature and evoke certain feelings. Is there something specific about the ocean that resonates with you, like its tranquility or its mysterious depths? \ud83c\udf0a"
     }
 ]

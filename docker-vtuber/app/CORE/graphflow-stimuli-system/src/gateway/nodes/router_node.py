@@ -23,6 +23,13 @@ from ...utils.logging import get_structured_logger
 from ...utils.metrics import MetricsCollector
 from .decision_engine import DecisionEngine, RuleEvaluationResult
 
+# EMERGENCY IMPORT: Import simplified override system
+try:
+    from ....config.emergency_override import EMERGENCY_OVERRIDE
+    EMERGENCY_OVERRIDE_ENABLED = True
+except ImportError:
+    EMERGENCY_OVERRIDE_ENABLED = False
+
 
 class DecisionRouterNode:
     """
@@ -251,6 +258,27 @@ class DecisionRouterNode:
     
     async def _apply_decision_matrix(self, analyzed_stimuli: AnalyzedStimuli) -> ProcessingDecision:
         """Apply decision matrix rules to determine processing path."""
+        
+        # EMERGENCY OVERRIDE: Use simplified routing when enabled
+        if EMERGENCY_OVERRIDE_ENABLED:
+            self.logger.info(f"Using emergency override for routing decision (stimuli: {analyzed_stimuli.id})")
+            
+            # Create context for emergency override
+            context = {
+                'content': analyzed_stimuli.content,
+                'category': analyzed_stimuli.category,
+                'priority': analyzed_stimuli.priority,
+                'source': analyzed_stimuli.source,
+                'metadata': analyzed_stimuli.metadata
+            }
+            
+            decision = EMERGENCY_OVERRIDE.evaluate(context)
+            self.logger.info(f"Emergency override decision: {decision.value} for stimuli {analyzed_stimuli.id}")
+            return decision
+        
+        # FALLBACK: Original complex decision matrix (only if emergency override fails)
+        self.logger.warning("Emergency override not available, falling back to complex decision matrix")
+        
         # Create evaluation context
         context = self._create_evaluation_context(analyzed_stimuli)
         

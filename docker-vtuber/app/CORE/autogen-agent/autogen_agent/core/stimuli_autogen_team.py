@@ -177,7 +177,7 @@ class StimuliAutoGenTeam:
                 name="stimuli_analyzer_agent",
                 system_message=analyzer_system_message,
                 llm_config=llm_config,
-                max_consecutive_auto_reply=2,
+                max_consecutive_auto_reply=10,  # EMERGENCY FIX: Increase to prevent early termination
             )
             
             # Decision Strategist Agent
@@ -207,7 +207,7 @@ class StimuliAutoGenTeam:
                 name="decision_strategist_agent",
                 system_message=strategist_system_message,
                 llm_config=llm_config,
-                max_consecutive_auto_reply=2,
+                max_consecutive_auto_reply=10,  # EMERGENCY FIX: Increase to prevent early termination
             )
             
             # Action Coordinator Agent
@@ -237,7 +237,7 @@ class StimuliAutoGenTeam:
                 name="action_coordinator_agent",
                 system_message=coordinator_system_message,
                 llm_config=llm_config,
-                max_consecutive_auto_reply=1,
+                max_consecutive_auto_reply=5,  # EMERGENCY FIX: Increase to prevent early termination
             )
             
             logging.info("🤖 [STIMULI_TEAM] Standard stimuli agents created successfully with character context")
@@ -320,7 +320,7 @@ class StimuliAutoGenTeam:
             self.stimuli_group_chat = GroupChat(
                 agents=[self.stimuli_analyzer, self.decision_strategist, self.action_coordinator],
                 messages=[],
-                max_round=5  # Allow thorough stimuli analysis
+                max_round=20  # EMERGENCY FIX: Increase to prevent early termination and allow thorough analysis
             )
             
             # Create group chat manager with character context
@@ -366,7 +366,7 @@ class StimuliAutoGenTeam:
             user_proxy = UserProxyAgent(
                 name="stimuli_orchestrator",
                 human_input_mode="NEVER",
-                max_consecutive_auto_reply=1,
+                max_consecutive_auto_reply=5,  # EMERGENCY FIX: Increase to prevent early termination
                 code_execution_config=False,
                 system_message="You orchestrate stimuli analysis and decision-making for the autonomous system."
             )

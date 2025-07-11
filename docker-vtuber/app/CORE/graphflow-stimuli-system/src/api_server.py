@@ -313,7 +313,8 @@ async def submit_stimuli(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/v1/status", response_model=SystemStatusResponse, tags=["system"])
+@app.get("/api/v1/health", response_model=SystemStatusResponse, tags=["system"])
+@app.get("/api/v1/status", response_model=SystemStatusResponse, tags=["system"])  # Legacy endpoint
 async def get_system_status(api_key: APIKeyInfo = Depends(verify_api_key)):
     """Get overall system status."""
     if not gateway:

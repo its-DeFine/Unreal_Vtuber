@@ -236,7 +236,8 @@ def delete_character(character_id: str):
         return jsonify({"error": str(e)}), 500
 
 
-@reactive_api.route('/mode/status', methods=['GET'])
+@reactive_api.route('/mode/health', methods=['GET'])
+@reactive_api.route('/mode/status', methods=['GET'])  # Legacy endpoint
 def get_mode_status():
     """Get current mode status"""
     try:
@@ -451,7 +452,8 @@ Behavioral Rules:
 # System Status Endpoints
 # =======================
 
-@reactive_api.route('/status', methods=['GET'])
+@reactive_api.route('/health', methods=['GET'])
+@reactive_api.route('/status', methods=['GET'])  # Legacy endpoint
 @require_orchestrator
 def get_system_status():
     """Get overall system status"""

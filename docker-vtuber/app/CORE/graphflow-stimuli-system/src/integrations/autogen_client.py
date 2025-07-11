@@ -162,31 +162,37 @@ class AutoGenClient:
             Tuple of (success, list of agent status dicts)
         """
         session = await self.ensure_session()
-        url = f"{self.endpoint}/api/v1/agents/status"
         
-        try:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    agents = data.get("agents", [])
-                    
-                    # Enrich agent data
-                    for agent in agents:
-                        agent["status_timestamp"] = datetime.utcnow().isoformat()
-                        agent["health"] = self._calculate_agent_health(agent)
-                    
-                    return True, agents
-                else:
-                    error_data = await response.json()
-                    self.logger.error(
-                        f"Failed to get agent status: {response.status}",
-                        error=error_data.get("error")
-                    )
-                    return False, []
-                    
-        except Exception as e:
-            self.logger.error(f"Agent status error: {e}")
-            return False, []
+        # Try new /health endpoint first, fallback to legacy /status
+        urls_to_try = [
+            f"{self.endpoint}/api/v1/agents/health",
+            f"{self.endpoint}/api/v1/agents/status"
+        ]
+        
+        for url in urls_to_try:
+            try:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        agents = data.get("agents", [])
+                        
+                        # Enrich agent data
+                        for agent in agents:
+                            agent["status_timestamp"] = datetime.utcnow().isoformat()
+                            agent["health"] = self._calculate_agent_health(agent)
+                        
+                        return True, agents
+                    else:
+                        # Try next URL if this one fails
+                        continue
+            except Exception as e:
+                # Try next URL if this one fails
+                self.logger.warning(f"Failed to check {url}: {e}")
+                continue
+        
+        # If all URLs failed
+        self.logger.error("Failed to get agent status from all endpoints")
+        return False, []
     
     async def get_task_status(self, task_id: str) -> Tuple[bool, Dict[str, Any]]:
         """
@@ -199,22 +205,31 @@ class AutoGenClient:
             Tuple of (success, task status dict)
         """
         session = await self.ensure_session()
-        url = f"{self.endpoint}/api/v1/tasks/{task_id}/status"
+        # Try new /health endpoint first, fallback to legacy /status
+        urls_to_try = [
+            f"{self.endpoint}/api/v1/tasks/{task_id}/health",
+            f"{self.endpoint}/api/v1/tasks/{task_id}/status"
+        ]
         
-        try:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return True, data
-                elif response.status == 404:
-                    return False, {"error": "Task not found"}
-                else:
-                    error_data = await response.json()
-                    return False, error_data
-                    
-        except Exception as e:
-            self.logger.error(f"Task status error: {e}")
-            return False, {"error": str(e)}
+        for url in urls_to_try:
+            try:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return True, data
+                    elif response.status == 404:
+                        return False, {"error": "Task not found"}
+                    else:
+                        # Try next URL if this one fails
+                        continue
+            except Exception as e:
+                # Try next URL if this one fails
+                self.logger.warning(f"Failed to check {url}: {e}")
+                continue
+        
+        # If all URLs failed
+        self.logger.error(f"Failed to get task status from all endpoints", task_id=task_id)
+        return False, {"error": "All endpoints failed"}
     
     async def get_task_result(self, task_id: str) -> Tuple[bool, Dict[str, Any]]:
         """

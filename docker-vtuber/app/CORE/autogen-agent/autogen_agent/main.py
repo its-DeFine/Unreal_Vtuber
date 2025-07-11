@@ -397,7 +397,8 @@ async def search_semantic_map(request: dict):
         logging.error(f"❌ [API] Semantic map search error: {e}")
         return {"error": str(e)}, 500
 
-@app.get("/api/semantic-map/status")
+@app.get("/api/semantic-map/health")
+@app.get("/api/semantic-map/status")  # Legacy endpoint
 async def get_semantic_map_status():
     """Get status of semantic map services"""
     try:
@@ -548,7 +549,8 @@ async def get_query_examples():
         }
     }
 
-@app.get("/api/semantic-map/consolidation/status")
+@app.get("/api/semantic-map/consolidation/health")
+@app.get("/api/semantic-map/consolidation/status")  # Legacy endpoint
 async def get_consolidation_status():
     """Get graph consolidation service status"""
     try:
@@ -756,7 +758,8 @@ async def get_performance_analytics():
     except Exception as e:
         return {"error": str(e)}, 500
 
-@app.get("/api/persona/status")
+@app.get("/api/persona/health")
+@app.get("/api/persona/status")  # Legacy endpoint
 async def get_persona_status():
     """Get persona-aware system status"""
     try:
@@ -987,7 +990,7 @@ async def run_autogen_decision_cycle(iteration: int, scb: SCBClient, vtuber: VTu
         user_proxy = UserProxyAgent(
             name="system_orchestrator",
             human_input_mode="NEVER",
-            max_consecutive_auto_reply=1,
+            max_consecutive_auto_reply=10,  # EMERGENCY FIX: Increase to prevent early termination
             code_execution_config=False,
             system_message="You orchestrate multi-agent autonomous system analysis and optimization."
         )
@@ -1425,7 +1428,7 @@ def initialize_autogen_agents():
                 
                 Keep responses concise (2-3 sentences), engaging, and technically informed. 
                 Use emojis appropriately to enhance readability.""",
-                "max_consecutive_auto_reply": 1,
+                "max_consecutive_auto_reply": 10,  # EMERGENCY FIX: Increase to prevent early termination
             }
             
             # Add llm_config to agent
@@ -1451,7 +1454,7 @@ def initialize_autogen_agents():
             
             When speaking, focus on technical implementation details, performance metrics, and code quality.
             Always consider how your suggestions align with current system goals.""",
-            "max_consecutive_auto_reply": 1,
+            "max_consecutive_auto_reply": 10,  # EMERGENCY FIX: Increase to prevent early termination
         }
         
             programmer_kwargs["llm_config"] = llm_config
@@ -1476,7 +1479,7 @@ def initialize_autogen_agents():
             
             Provide analytical insights with specific metrics and data-driven observations.
             Focus on quantitative assessments and pattern recognition.""",
-            "max_consecutive_auto_reply": 1,
+            "max_consecutive_auto_reply": 10,  # EMERGENCY FIX: Increase to prevent early termination
         }
         
             observer_kwargs["llm_config"] = llm_config

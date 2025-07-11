@@ -37,6 +37,11 @@ services:
       - API_KEYS_FILE=/app/config/api_keys.json
       - RATE_LIMIT_REQUESTS_PER_MINUTE=60
       
+      # EMERGENCY ROUTING OVERRIDES - Force proper behavior
+      - FORCE_SPEECH_ROUTING=true
+      - FORCE_S1_INTERACTION=true
+      - FALLBACK_DECISION=AVATAR_AND_ANALYSIS
+      
     volumes:
       - ./app/CORE/graphflow-stimuli-system/config:/app/config
       - ./app/CORE/graphflow-stimuli-system/logs:/app/logs
@@ -165,6 +170,11 @@ services:
       - NEO4J_SEMANTIC_STORAGE=true
       - NEO4J_CONVERSATION_STORAGE=true
       - NEO4J_PATTERN_LEARNING=true
+      
+      # EMERGENCY OVERRIDES - Prevent early termination and ensure tool execution
+      - FORCE_TOOL_EXECUTION=true
+      - DISABLE_EARLY_TERMINATION=true
+      - EXTEND_CONVERSATION_ROUNDS=true
     env_file:
       - .env
     ports:
