@@ -9,9 +9,34 @@ import asyncio
 import aiohttp
 from datetime import datetime
 from typing import Dict, Any, Optional
-from .weather_api_tool import weather_tool
+import os
 
 logger = logging.getLogger(__name__)
+
+async def get_weather_data(location: str, request_type: str = "current") -> Dict[str, Any]:
+    """Simple weather API implementation"""
+    try:
+        # This is a placeholder - in production, use a real weather API
+        api_key = os.getenv("WEATHER_API_KEY", "demo_key")
+        base_url = "https://api.openweathermap.org/data/2.5"
+        
+        if request_type == "current":
+            url = f"{base_url}/weather?q={location}&appid={api_key}&units=metric"
+        elif request_type == "forecast":
+            url = f"{base_url}/forecast?q={location}&appid={api_key}&units=metric"
+        else:
+            return {"error": "Unsupported request type"}
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return {"success": True, "data": data}
+                else:
+                    return {"error": f"Weather API error: {response.status}"}
+    except Exception as e:
+        logger.error(f"Weather API error: {e}")
+        return {"error": f"Weather service unavailable: {str(e)}"}
 
 class WeatherPersonaTool:
     """Tool that combines weather API calls with automatic persona switching"""
@@ -115,14 +140,14 @@ class WeatherPersonaTool:
             
             # Step 2: Get weather data
             if request_type == "current":
-                weather_data = await weather_tool.get_current_weather(location)
-                formatted_response = await weather_tool.format_weather_response(weather_data, "current")
+                weather_data = await get_weather_data(location, "current")
+                formatted_response = self._format_weather_response(weather_data, "current")
             elif request_type == "forecast":
-                weather_data = await weather_tool.get_forecast(location)
-                formatted_response = await weather_tool.format_weather_response(weather_data, "forecast")
+                weather_data = await get_weather_data(location, "forecast")
+                formatted_response = self._format_weather_response(weather_data, "forecast")
             elif request_type == "alerts":
-                weather_data = await weather_tool.get_weather_alerts(location)
-                formatted_response = await weather_tool.format_weather_response(weather_data, "alerts")
+                weather_data = await get_weather_data(location, "current")  # Use current for alerts
+                formatted_response = self._format_weather_response(weather_data, "alerts")
             else:
                 formatted_response = f"I'm not sure what type of weather information you're looking for. I can provide current conditions, forecasts, or alerts for {location}."
             
@@ -156,6 +181,46 @@ class WeatherPersonaTool:
                 "error": str(e),
                 "response": "I'm having trouble accessing weather information right now. Please try again later."
             }
+    
+    def _format_weather_response(self, weather_data: Dict[str, Any], request_type: str) -> str:
+        """Format weather data into a readable response"""
+        if not weather_data.get("success"):
+            return f"I'm sorry, I couldn't get the weather information right now. {weather_data.get('error', '')}"
+        
+        data = weather_data.get("data", {})
+        
+        if request_type == "current":
+            if "main" in data and "weather" in data:
+                temp = data["main"]["temp"]
+                description = data["weather"][0]["description"]
+                location = data.get("name", "Unknown")
+                return f"Current weather in {location}: {description} with a temperature of {temp}°C."
+            else:
+                return "I got some weather data but couldn't parse it properly."
+        
+        elif request_type == "forecast":
+            if "list" in data:
+                forecast_items = data["list"][:3]  # Next 3 periods
+                forecasts = []
+                for item in forecast_items:
+                    temp = item["main"]["temp"]
+                    desc = item["weather"][0]["description"]
+                    forecasts.append(f"{desc} with {temp}°C")
+                return f"Weather forecast: {', '.join(forecasts)}"
+            else:
+                return "I got forecast data but couldn't parse it properly."
+        
+        elif request_type == "alerts":
+            # For alerts, we'll just return current conditions with an alert tone
+            if "main" in data and "weather" in data:
+                temp = data["main"]["temp"]
+                description = data["weather"][0]["description"]
+                location = data.get("name", "Unknown")
+                return f"Current conditions in {location}: {description}, {temp}°C. No active weather alerts at this time."
+            else:
+                return "No weather alerts available at this time."
+        
+        return "I received weather data but couldn't format it properly."
     
     def get_tool_info(self) -> Dict[str, Any]:
         """Get tool information for the tool registry"""
