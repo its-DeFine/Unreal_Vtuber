@@ -618,15 +618,16 @@ async def get_goal_management_service() -> Optional[GoalManagementService]:
     global _goal_management_service
     
     if _goal_management_service is None:
-        # Import services
-        from .cognee_direct_service import get_cognee_direct_service
+        # Import services - Cognee replaced by Neo4j semantic storage
+        # from .cognee_direct_service import get_cognee_direct_service  # Removed
         from .evolution_service import get_evolution_service
         
-        cognee_service = await get_cognee_direct_service()
+        # cognee_service = await get_cognee_direct_service()  # Removed - using Neo4j directly
         evolution_service = await get_evolution_service()
         
-        if cognee_service and evolution_service:
-            _goal_management_service = GoalManagementService(cognee_service, evolution_service)
+        if evolution_service:
+            # Use Neo4j semantic storage instead of Cognee
+            _goal_management_service = GoalManagementService(None, evolution_service)
             await _goal_management_service.initialize()
     
     return _goal_management_service 

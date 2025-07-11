@@ -35,7 +35,7 @@ async def define_autonomous_goal(natural_language_goal: str, priority: int = 5) 
     try:
         goal_service = await get_goal_management_service()
         if not goal_service:
-            return {"success": False, "error": "Goal management service not available"}
+            return {"success": False, "error": "Goal management service not available - using Neo4j semantic storage"}
         
         # Define the goal
         goal = await goal_service.define_goal(natural_language_goal, priority)
@@ -89,7 +89,7 @@ async def get_active_goals(status_filter: str = None) -> Dict[str, Any]:
     try:
         goal_service = await get_goal_management_service()
         if not goal_service:
-            return {"success": False, "error": "Goal management service not available"}
+            return {"success": False, "error": "Goal management service not available - using Neo4j semantic storage"}
         
         # Parse status filter
         status_enum = None
@@ -153,7 +153,7 @@ async def get_next_priority_goal() -> Dict[str, Any]:
     try:
         goal_service = await get_goal_management_service()
         if not goal_service:
-            return {"success": False, "error": "Goal management service not available"}
+            return {"success": False, "error": "Goal management service not available - using Neo4j semantic storage"}
         
         # Get next priority goal
         next_goal = await goal_service.get_next_priority_goal()
@@ -236,7 +236,7 @@ async def update_goal_progress(goal_id: str, progress_data: Dict[str, Any]) -> D
     try:
         goal_service = await get_goal_management_service()
         if not goal_service:
-            return {"success": False, "error": "Goal management service not available"}
+            return {"success": False, "error": "Goal management service not available - using Neo4j semantic storage"}
         
         # Update goal progress
         success = await goal_service.update_goal_progress(goal_id, progress_data)
@@ -302,7 +302,7 @@ async def generate_goal_performance_report(timeframe_hours: int = 24) -> Dict[st
     try:
         goal_service = await get_goal_management_service()
         if not goal_service:
-            return {"success": False, "error": "Goal management service not available"}
+            return {"success": False, "error": "Goal management service not available - using Neo4j semantic storage"}
         
         # Generate performance metrics
         metrics = await goal_service.generate_performance_metrics(timeframe_hours)
@@ -423,7 +423,7 @@ async def query_goal_memory(query: str, limit: int = 5) -> Dict[str, Any]:
     try:
         goal_service = await get_goal_management_service()
         if not goal_service:
-            return {"success": False, "error": "Goal management service not available"}
+            return {"success": False, "error": "Goal management service not available - using Neo4j semantic storage"}
         
         # Query goal memory
         memories = await goal_service.query_goal_memory(query, limit)

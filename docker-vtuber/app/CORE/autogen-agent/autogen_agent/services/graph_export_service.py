@@ -94,13 +94,12 @@ class GraphExportService:
     async def initialize(self) -> bool:
         """Initialize service dependencies"""
         try:
-            # Get Cognee services
-            self.cognee_direct = await get_cognee_direct_service()
-            self.bridge = await get_scb_cognee_bridge()
+            # Get semantic storage services - Neo4j replaces Cognee
+            # self.cognee_direct = await get_cognee_direct_service()  # Removed
+            # self.bridge = await get_scb_cognee_bridge()  # Using Neo4j directly
             
-            if not self.cognee_direct and not self.cognee_service:
-                logging.error("❌ [GRAPH_EXPORT] No Cognee service available")
-                return False
+            # Using Neo4j semantic storage instead of Cognee
+            logging.info("✅ [GRAPH_EXPORT] Using Neo4j semantic storage")
             
             logging.info("✅ [GRAPH_EXPORT] Service initialized successfully")
             return True

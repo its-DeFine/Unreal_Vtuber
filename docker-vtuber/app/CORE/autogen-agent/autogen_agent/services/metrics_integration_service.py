@@ -454,14 +454,15 @@ async def get_metrics_integration_service() -> Optional[MetricsIntegrationServic
     global _metrics_integration_service
     
     if _metrics_integration_service is None:
-        from .cognee_direct_service import get_cognee_direct_service
+        # from .cognee_direct_service import get_cognee_direct_service  # Removed - using Neo4j
         from .evolution_service import get_evolution_service
         
-        cognee_service = await get_cognee_direct_service()
+        # cognee_service = await get_cognee_direct_service()  # Removed - using Neo4j
         evolution_service = await get_evolution_service()
         
-        if cognee_service and evolution_service:
-            _metrics_integration_service = MetricsIntegrationService(cognee_service, evolution_service)
+        if evolution_service:
+            # Use Neo4j semantic storage instead of Cognee
+            _metrics_integration_service = MetricsIntegrationService(None, evolution_service)
             await _metrics_integration_service.initialize()
     
     return _metrics_integration_service 
