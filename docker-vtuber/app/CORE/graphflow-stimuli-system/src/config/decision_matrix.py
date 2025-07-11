@@ -513,20 +513,13 @@ class DecisionRulesConfig:
             description="Default fallback to analysis only for low priority non-interactive content"
         ))
         
-        # Improved final fallback with better speech handling  
+        # NUCLEAR OPTION: Force all routing to AVATAR_AND_ANALYSIS for emergency testing
         default_rules.add_rule(DecisionRule(
-            id="default_interactive_fallback",
-            condition='category in ["USER_INTERACTION", "CONTEXTUAL_UPDATE"] or any(keyword in content.lower() for keyword in ["hello", "hi", "speak", "test"])',
+            id="nuclear_speech_override", 
+            condition='True',  # Always matches
             decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
-            priority=8,
-            description="Interactive content and greetings default to avatar for better user experience"
-        ))
-        default_rules.add_rule(DecisionRule(
-            id="default_2",
-            condition='True',  # Catch-all fallback
-            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
-            priority=5,
-            description="Final fallback enables avatar for all unmatched cases to ensure speech capability"
+            priority=999,  # Highest priority
+            description="NUCLEAR OVERRIDE: Force all stimuli to AVATAR_AND_ANALYSIS for emergency testing"
         ))
         self.categories["default_rules"] = default_rules
         
