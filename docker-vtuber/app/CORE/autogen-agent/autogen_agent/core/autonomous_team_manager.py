@@ -104,28 +104,10 @@ class AutonomousTeamManager:
                 logging.info(f"🔧 [TEAM_MANAGER] Initializing {team_config.team_name}")
                 
                 # Create team instance
-                team = StimuliAutoGenTeam(
-                    tool_registry=self.tool_registry,
-                    scb_client=self.scb_client,
-                    vtuber_client=self.vtuber_client,
-                    team_config={
-                        "name": team_config.team_name,
-                        "agents": [
-                            {
-                                "name": agent.name,
-                                "role": agent.role,
-                                "system_message": agent.system_message,
-                                "tools": agent.tools
-                            }
-                            for agent in team_config.agents
-                        ],
-                        "tools": team_config.shared_tools,
-                        "max_rounds": team_config.max_rounds
-                    }
-                )
+                team = StimuliAutoGenTeam()
                 
                 # Initialize team
-                if await team.initialize():
+                if team.initialize_team():
                     self.character_teams[char_type.value] = team
                     
                     # Create execution context

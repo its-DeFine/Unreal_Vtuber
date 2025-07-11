@@ -109,14 +109,9 @@ class QueueConsumerService:
         # Create teams for each configuration
         for character_type, config in team_configs.items():
             try:
-                team = StimuliAutoGenTeam(
-                    tool_registry=tool_registry,
-                    scb_client=scb_client,
-                    vtuber_client=vtuber_client,
-                    team_config=config
-                )
+                team = StimuliAutoGenTeam()
                 
-                if await team.initialize():
+                if team.initialize_team():
                     self.character_teams[character_type] = team
                     logging.info(f"✅ [QUEUE_CONSUMER] Initialized {config['name']}")
                 else:
