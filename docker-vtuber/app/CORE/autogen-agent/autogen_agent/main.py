@@ -1718,6 +1718,298 @@ async def startup_tasks():
             
     except Exception as e:
         logging.error(f"❌ [STARTUP] Semantic map services error: {e}")
+    
+    # Phase 3: BULLETPROOF ORCHESTRATOR INITIALIZATION
+    orchestrator_success = await initialize_stimuli_orchestrator()
+    
+    if orchestrator_success:
+        logging.info("🎯 [STARTUP] Stimuli orchestrator initialization: SUCCESS")
+    else:
+        logging.error("❌ [STARTUP] Stimuli orchestrator initialization: FAILED")
+        # Application continues with fallback mechanisms
+    
+    logging.info("🎉 [STARTUP] Comprehensive application initialization completed")
+
+async def initialize_stimuli_orchestrator():
+    """
+    BULLETPROOF ORCHESTRATOR INITIALIZATION
+    =====================================
+    
+    This function ensures the StimuliResponsiveOrchestrator is always initialized
+    with comprehensive error handling and fallback mechanisms.
+    """
+    global global_orchestrator, global_tool_registry, global_cognitive_system
+    
+    initialization_start = datetime.now()
+    logging.info("🎯 [ORCHESTRATOR] Starting bulletproof orchestrator initialization...")
+    
+    try:
+        # Phase 1: Environment Validation
+        logging.info("📋 [ORCHESTRATOR] Phase 1: Environment validation...")
+        
+        use_autogen = os.getenv("USE_AUTOGEN_LLM", "false").lower() == "true"
+        use_cognitive = os.getenv("USE_COGNITIVE_ENHANCEMENT", "false").lower() == "true"
+        
+        if not use_autogen:
+            logging.warning("⚠️ [ORCHESTRATOR] USE_AUTOGEN_LLM is false - orchestrator disabled")
+            return False
+            
+        if not AUTOGEN_AVAILABLE:
+            logging.error("❌ [ORCHESTRATOR] Microsoft AutoGen not available")
+            return False
+            
+        logging.info("✅ [ORCHESTRATOR] Environment validation passed")
+        
+        # Phase 2: AutoGen Agents Initialization
+        logging.info("📋 [ORCHESTRATOR] Phase 2: AutoGen agents initialization...")
+        
+        if not initialize_autogen_agents():
+            logging.error("❌ [ORCHESTRATOR] AutoGen agents initialization failed")
+            return False
+            
+        logging.info("✅ [ORCHESTRATOR] AutoGen agents initialized successfully")
+        
+        # Phase 3: Client Initialization
+        logging.info("📋 [ORCHESTRATOR] Phase 3: Client initialization...")
+        
+        try:
+            # Initialize SCB client
+            scb_client = SCBClient()
+            logging.info("✅ [ORCHESTRATOR] SCB client initialized")
+            
+            # Initialize VTuber client  
+            vtuber_client = VTuberClient()
+            logging.info("✅ [ORCHESTRATOR] VTuber client initialized")
+            
+        except Exception as e:
+            logging.warning(f"⚠️ [ORCHESTRATOR] Client initialization failed: {e}")
+            # Use fallback null clients
+            scb_client = None
+            vtuber_client = None
+            logging.info("🔄 [ORCHESTRATOR] Using fallback null clients")
+        
+        # Phase 4: Tool Registry Initialization
+        logging.info("📋 [ORCHESTRATOR] Phase 4: Tool registry initialization...")
+        
+        try:
+            global_tool_registry = ToolRegistry()
+            # ToolRegistry loads tools automatically in __init__, no separate initialize() method
+            
+            # Initialize persona-aware tool registry
+            persona_registry = initialize_persona_tool_registry()
+            
+            tool_count = len(global_tool_registry.tools) if global_tool_registry else 0
+            logging.info(f"✅ [ORCHESTRATOR] Tool registry initialized with {tool_count} tools")
+            
+        except Exception as e:
+            logging.error(f"❌ [ORCHESTRATOR] Tool registry initialization failed: {e}")
+            # Create minimal fallback registry
+            global_tool_registry = ToolRegistry()
+            logging.info("🔄 [ORCHESTRATOR] Using fallback minimal tool registry")
+        
+        # Phase 5: Cognitive System Initialization (if enabled)
+        logging.info("📋 [ORCHESTRATOR] Phase 5: Cognitive system initialization...")
+        
+        global_cognitive_system = None
+        if use_cognitive:
+            try:
+                # Get database URL from environment or use default
+                db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@autogen_postgres:5432/autonomous_agent")
+                
+                cognitive_manager = CognitiveMemoryManager(db_url=db_url)
+                await cognitive_manager.initialize()
+                
+                cognitive_decision_engine = CognitiveDecisionEngine(cognitive_manager)
+                
+                global_cognitive_system = type('CognitiveSystem', (), {
+                    'memory_manager': cognitive_manager,
+                    'decision_engine': cognitive_decision_engine,
+                    'enabled': True
+                })()
+                
+                logging.info("✅ [ORCHESTRATOR] Cognitive system initialized")
+                
+            except Exception as e:
+                logging.warning(f"⚠️ [ORCHESTRATOR] Cognitive system initialization failed: {e}")
+                logging.info("🔄 [ORCHESTRATOR] Continuing without cognitive enhancement")
+        
+        # Phase 6: Orchestrator Creation
+        logging.info("📋 [ORCHESTRATOR] Phase 6: Creating StimuliResponsiveOrchestrator...")
+        
+        try:
+            # Get loop interval from environment
+            loop_interval = int(os.getenv("LOOP_INTERVAL", "20"))
+            
+            global_orchestrator = StimuliResponsiveOrchestrator(
+                tool_registry=global_tool_registry,
+                scb_client=scb_client,
+                vtuber_client=vtuber_client,
+                autonomous_loop_function=run_autogen_decision_cycle,
+                loop_interval=loop_interval
+            )
+            
+            logging.info("✅ [ORCHESTRATOR] StimuliResponsiveOrchestrator created successfully")
+            
+        except Exception as e:
+            logging.error(f"❌ [ORCHESTRATOR] Failed to create orchestrator: {e}")
+            
+            # FALLBACK: Create minimal orchestrator
+            try:
+                logging.info("🔄 [ORCHESTRATOR] Attempting fallback minimal orchestrator...")
+                
+                minimal_registry = ToolRegistry()
+                global_orchestrator = StimuliResponsiveOrchestrator(
+                    tool_registry=minimal_registry,
+                    scb_client=None,
+                    vtuber_client=None,
+                    autonomous_loop_function=run_autogen_decision_cycle,
+                    loop_interval=20
+                )
+                
+                logging.info("✅ [ORCHESTRATOR] Fallback minimal orchestrator created")
+                
+            except Exception as fallback_error:
+                logging.error(f"❌ [ORCHESTRATOR] Fallback orchestrator failed: {fallback_error}")
+                
+                # EMERGENCY FALLBACK: Create absolute minimal orchestrator
+                try:
+                    logging.info("🆘 [ORCHESTRATOR] Creating emergency fallback orchestrator...")
+                    
+                    class EmergencyOrchestrator:
+                        def __init__(self):
+                            self.initialized = True
+                            
+                        async def receive_stimuli(self, stimuli_data):
+                            return StimuliResponse(
+                                success=False,
+                                stimuli_id=stimuli_data.get("stimuli_id", "emergency"),
+                                processing_time=0.0,
+                                tools_triggered=["emergency_fallback"],
+                                agent_decision="Emergency fallback mode - orchestrator initialization failed",
+                                response_content="System in emergency mode",
+                                error_message="Orchestrator initialization failed"
+                            )
+                            
+                        def get_status(self):
+                            return {
+                                "autonomous_state": "emergency_fallback",
+                                "current_stimuli": None,
+                                "statistics": {"stimuli_processed": 0},
+                                "queue_size": 0
+                            }
+                            
+                        async def start(self):
+                            pass
+                            
+                        async def stop(self):
+                            pass
+                    
+                    global_orchestrator = EmergencyOrchestrator()
+                    logging.info("🆘 [ORCHESTRATOR] Emergency fallback orchestrator created")
+                    
+                except Exception as emergency_error:
+                    logging.error(f"💀 [ORCHESTRATOR] TOTAL SYSTEM FAILURE: {emergency_error}")
+                    return False
+        
+        # Phase 7: Orchestrator Startup
+        logging.info("📋 [ORCHESTRATOR] Phase 7: Starting orchestrator...")
+        
+        try:
+            if hasattr(global_orchestrator, 'start'):
+                await global_orchestrator.start()
+                logging.info("✅ [ORCHESTRATOR] Orchestrator started successfully")
+            else:
+                logging.info("ℹ️ [ORCHESTRATOR] Orchestrator has no start method")
+            
+        except Exception as e:
+            logging.error(f"❌ [ORCHESTRATOR] Failed to start orchestrator: {e}")
+            # Don't fail completely - orchestrator might still work for API calls
+            logging.info("🔄 [ORCHESTRATOR] Continuing with unstarted orchestrator")
+        
+        # Phase 8: API Setup
+        logging.info("📋 [ORCHESTRATOR] Phase 8: Setting up stimuli API...")
+        
+        try:
+            setup_stimuli_api(app, global_orchestrator)
+            logging.info("✅ [ORCHESTRATOR] Stimuli API setup completed")
+            
+        except Exception as e:
+            logging.error(f"❌ [ORCHESTRATOR] API setup failed: {e}")
+            return False
+        
+        # Phase 9: Queue Consumer Service
+        logging.info("📋 [ORCHESTRATOR] Phase 9: Initializing queue consumer service...")
+        
+        try:
+            from .core.queue_consumer_service import initialize_queue_consumer_service
+            
+            global_queue_consumer = await initialize_queue_consumer_service(
+                tool_registry=global_tool_registry,
+                scb_client=scb_client,
+                vtuber_client=vtuber_client
+            )
+            
+            if global_queue_consumer:
+                logging.info("✅ [ORCHESTRATOR] Queue consumer service initialized and started")
+            else:
+                logging.warning("⚠️ [ORCHESTRATOR] Queue consumer service initialization failed")
+                
+        except Exception as e:
+            logging.error(f"❌ [ORCHESTRATOR] Queue consumer service error: {e}")
+            # Don't fail completely - system can work without it
+        
+        # Phase 10: Autonomous Team Manager
+        logging.info("📋 [ORCHESTRATOR] Phase 10: Initializing autonomous team manager...")
+        
+        try:
+            from .core.autonomous_team_manager import initialize_autonomous_team_manager
+            
+            global_team_manager = await initialize_autonomous_team_manager(
+                tool_registry=global_tool_registry,
+                scb_client=scb_client,
+                vtuber_client=vtuber_client,
+                execution_interval=60  # Run every minute
+            )
+            
+            if global_team_manager:
+                logging.info("✅ [ORCHESTRATOR] Autonomous team manager initialized and started")
+            else:
+                logging.warning("⚠️ [ORCHESTRATOR] Autonomous team manager initialization failed")
+                
+        except Exception as e:
+            logging.error(f"❌ [ORCHESTRATOR] Autonomous team manager error: {e}")
+            # Don't fail completely - system can work without it
+        
+        # Phase 11: Health Check
+        logging.info("📋 [ORCHESTRATOR] Phase 11: Health check...")
+        
+        try:
+            if global_orchestrator:
+                status = global_orchestrator.get_status()
+                logging.info(f"✅ [ORCHESTRATOR] Health check passed: {status.get('autonomous_state', 'unknown')}")
+            else:
+                logging.error("❌ [ORCHESTRATOR] Health check failed: orchestrator is None")
+                return False
+                
+        except Exception as e:
+            logging.warning(f"⚠️ [ORCHESTRATOR] Health check failed: {e}")
+            # Don't fail completely - orchestrator might still work
+        
+        # Success!
+        elapsed_time = (datetime.now() - initialization_start).total_seconds()
+        logging.info(f"🎉 [ORCHESTRATOR] Bulletproof initialization completed successfully in {elapsed_time:.2f}s")
+        logging.info(f"🎯 [ORCHESTRATOR] Orchestrator type: {type(global_orchestrator).__name__}")
+        logging.info(f"🛠️ [ORCHESTRATOR] Tool registry: {len(global_tool_registry.tools) if global_tool_registry else 0} tools")
+        logging.info(f"🧠 [ORCHESTRATOR] Cognitive system: {'enabled' if global_cognitive_system else 'disabled'}")
+        logging.info(f"🔄 [ORCHESTRATOR] Queue consumer: {'active' if 'global_queue_consumer' in locals() else 'inactive'}")
+        
+        return True
+        
+    except Exception as e:
+        elapsed_time = (datetime.now() - initialization_start).total_seconds()
+        logging.error(f"💥 [ORCHESTRATOR] CRITICAL FAILURE in bulletproof initialization after {elapsed_time:.2f}s: {e}")
+        logging.error(f"💥 [ORCHESTRATOR] Exception type: {type(e).__name__}")
+        return False
 
 async def shutdown_tasks():
     """Cleanup resources on shutdown"""

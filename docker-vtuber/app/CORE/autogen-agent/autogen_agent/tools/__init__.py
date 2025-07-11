@@ -7,6 +7,12 @@ Available tool categories:
 - analysis: Data analysis and query tools
 - control: VTuber control and interaction tools
 - samples: Example tools for reference
+
+Team-specific tools:
+- trader: Trading and financial analysis tools
+- streamer: Streaming and community management tools
+- teacher: Educational and assessment tools
+- common: Shared tools available to all teams
 """
 
 # Keep backward compatibility for semantic graph tool
@@ -16,8 +22,41 @@ from .analysis.semantic_graph_query_tool import (
     SemanticGraphQueryTool
 )
 
+# Import tool catalog for discovery
+from .tool_catalog import (
+    get_tool_catalog,
+    discover_team_tools,
+    find_tool,
+    list_tools_by_category
+)
+
+# Import base tool framework
+from .base_tool import (
+    BaseTool,
+    ToolResult,
+    ToolParameter,
+    ToolExecutionContext,
+    ToolStatus,
+    AsyncFunctionTool
+)
+
 __all__ = [
+    # Semantic graph tools (backward compatibility)
     "get_semantic_query_tool",
     "query_semantic_graph", 
-    "SemanticGraphQueryTool"
+    "SemanticGraphQueryTool",
+    
+    # Tool catalog
+    "get_tool_catalog",
+    "discover_team_tools",
+    "find_tool",
+    "list_tools_by_category",
+    
+    # Base tool framework
+    "BaseTool",
+    "ToolResult",
+    "ToolParameter",
+    "ToolExecutionContext",
+    "ToolStatus",
+    "AsyncFunctionTool"
 ]

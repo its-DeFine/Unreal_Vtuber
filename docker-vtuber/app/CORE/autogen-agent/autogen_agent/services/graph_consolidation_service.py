@@ -11,6 +11,7 @@ from typing import Dict, List, Any, Optional
 from collections import defaultdict
 
 from .neo4j_semantic_storage import get_neo4j_storage, SemanticContext, SemanticNode
+from .team_insight_consolidator import consolidate_team_insights_daily
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,10 @@ class GraphConsolidationService:
             
             # Create daily summary
             await self._create_daily_summary(start_time, end_time)
+            
+            # Consolidate team insights
+            await consolidate_team_insights_daily(date)
+            logger.info("🎯 [CONSOLIDATION] Team insights consolidated")
             
             # Archive old nodes
             await self._archive_nodes(start_time, end_time)
