@@ -449,3 +449,58 @@ class System1Interface:
         except Exception as e:
             self.logger.error(f"Failed to get queue status: {e}")
             return {"error": str(e)}
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Perform health check on System1 (Avatar/Speech) system.
+        
+        Returns:
+            Health status information compatible with background task manager
+        """
+        if not self.is_initialized:
+            return {
+                "status": "unhealthy",
+                "message": "Interface not initialized",
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        try:
+            # Use existing system availability check
+            system_status = await self.check_system_availability()
+            
+            # Convert to format expected by background task manager
+            if system_status.is_available:
+                return {
+                    "status": "healthy",
+                    "message": "System1 (Avatar/Speech) is operational",
+                    "timestamp": datetime.now().isoformat(),
+                    "details": {
+                        "avatar_state": system_status.avatar_state.value if system_status.avatar_state else "unknown",
+                        "queue_size": system_status.queue_size,
+                        "active_character": system_status.active_character,
+                        "mode": system_status.mode.value if system_status.mode else "unknown",
+                        "endpoint": self.config.vtuber_endpoint
+                    }
+                }
+            else:
+                return {
+                    "status": "unhealthy",
+                    "message": f"System1 unavailable: {system_status.error_message}",
+                    "timestamp": datetime.now().isoformat(),
+                    "details": {
+                        "error": system_status.error_message,
+                        "endpoint": self.config.vtuber_endpoint
+                    }
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Health check failed: {e}")
+            return {
+                "status": "error",
+                "message": f"Health check error: {str(e)}",
+                "timestamp": datetime.now().isoformat(),
+                "details": {
+                    "error": str(e),
+                    "endpoint": self.config.vtuber_endpoint
+                }
+            }

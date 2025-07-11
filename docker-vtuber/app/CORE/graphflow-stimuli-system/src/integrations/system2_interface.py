@@ -454,3 +454,95 @@ class System2Interface:
             return True
         
         return False
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Perform health check on System2 (Multi-Agent) system.
+        
+        Returns:
+            Health status information compatible with background task manager
+        """
+        if not self.is_initialized:
+            return {
+                "status": "unhealthy",
+                "message": "Interface not initialized",
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        try:
+            # Check AutoGen client connectivity
+            autogen_healthy = await self.autogen_client.health_check()
+            
+            # Check agent statuses
+            agent_statuses = await self.get_agent_status()
+            healthy_agents = sum(1 for agent in agent_statuses if agent.status == AgentStatusEnum.AVAILABLE)
+            total_agents = len(agent_statuses)
+            
+            # Check Cognee client if configured
+            cognee_healthy = True
+            cognee_error = None
+            if self.config.cognee_api_key:
+                try:
+                    # Try a simple test query to check Cognee health
+                    test_results = await self.query_cognee_memory("health check", limit=1)
+                    cognee_healthy = True
+                except Exception as e:
+                    cognee_healthy = False
+                    cognee_error = str(e)
+            
+            # Determine overall health
+            overall_healthy = autogen_healthy and (healthy_agents > 0) and cognee_healthy
+            
+            if overall_healthy:
+                return {
+                    "status": "healthy",
+                    "message": "System2 (Multi-Agent) is operational",
+                    "timestamp": datetime.now().isoformat(),
+                    "details": {
+                        "autogen_healthy": autogen_healthy,
+                        "cognee_healthy": cognee_healthy,
+                        "healthy_agents": healthy_agents,
+                        "total_agents": total_agents,
+                        "active_tasks": len(self._active_tasks),
+                        "autogen_endpoint": self.config.autogen_endpoint,
+                        "cognee_endpoint": self.config.cognee_endpoint,
+                        "evolution_engine_enabled": self.config.evolution_engine_enabled
+                    }
+                }
+            else:
+                issues = []
+                if not autogen_healthy:
+                    issues.append("AutoGen system unreachable")
+                if healthy_agents == 0:
+                    issues.append("No healthy agents available")
+                if not cognee_healthy and cognee_error:
+                    issues.append(f"Cognee system error: {cognee_error}")
+                
+                return {
+                    "status": "unhealthy",
+                    "message": f"System2 issues: {'; '.join(issues)}",
+                    "timestamp": datetime.now().isoformat(),
+                    "details": {
+                        "autogen_healthy": autogen_healthy,
+                        "cognee_healthy": cognee_healthy,
+                        "cognee_error": cognee_error,
+                        "healthy_agents": healthy_agents,
+                        "total_agents": total_agents,
+                        "issues": issues,
+                        "autogen_endpoint": self.config.autogen_endpoint,
+                        "cognee_endpoint": self.config.cognee_endpoint
+                    }
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Health check failed: {e}")
+            return {
+                "status": "error",
+                "message": f"Health check error: {str(e)}",
+                "timestamp": datetime.now().isoformat(),
+                "details": {
+                    "error": str(e),
+                    "autogen_endpoint": self.config.autogen_endpoint,
+                    "cognee_endpoint": self.config.cognee_endpoint
+                }
+            }

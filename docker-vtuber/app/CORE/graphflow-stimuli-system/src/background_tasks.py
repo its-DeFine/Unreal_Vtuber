@@ -127,6 +127,23 @@ class BackgroundTaskManager:
         self.running = True
         logger.info("Starting background task manager")
         
+        # Initialize system interfaces first
+        try:
+            logger.info("Initializing System1 interface for health monitoring")
+            await self.system1_interface.initialize()
+            logger.info("System1 interface initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize System1 interface: {e}")
+            # Continue without failing - interface will report unhealthy status
+        
+        try:
+            logger.info("Initializing System2 interface for health monitoring")
+            await self.system2_interface.initialize()
+            logger.info("System2 interface initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize System2 interface: {e}")
+            # Continue without failing - interface will report unhealthy status
+        
         # Start tasks
         self.tasks = [
             asyncio.create_task(self._health_check_loop()),
@@ -153,6 +170,19 @@ class BackgroundTaskManager:
         
         # Wait for all tasks to complete
         await asyncio.gather(*self.tasks, return_exceptions=True)
+        
+        # Shutdown system interfaces
+        try:
+            logger.info("Shutting down System1 interface")
+            await self.system1_interface.shutdown()
+        except Exception as e:
+            logger.warning(f"Error shutting down System1 interface: {e}")
+        
+        try:
+            logger.info("Shutting down System2 interface") 
+            await self.system2_interface.shutdown()
+        except Exception as e:
+            logger.warning(f"Error shutting down System2 interface: {e}")
         
         logger.info("All background tasks stopped")
     
