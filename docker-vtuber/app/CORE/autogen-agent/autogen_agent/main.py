@@ -2291,7 +2291,10 @@ async def shutdown_tasks():
     logging.info("✅ [SHUTDOWN] Application shutdown completed")
 
 def main() -> None:
-    """Main entry point - supports AutoGen LLM, cognitive, and legacy modes"""
+    """Main entry point - supports AutoGen LLM, cognitive, S2 teams, and legacy modes"""
+    
+    # Check if we should use S2 teams
+    use_s2_teams = os.getenv("USE_S2_TEAMS", "false").lower() == "true"
     
     # Check if we should use AutoGen LLM mode
     use_autogen = os.getenv("USE_AUTOGEN_LLM", "true").lower() == "true"
@@ -2300,6 +2303,21 @@ def main() -> None:
     logging.info("🔧 [MAIN] Client Activation Configuration:")
     logging.info(f"   🎭 VTuber: Controlled via tool activation (default: disabled)")
     logging.info(f"   🔗 SCB/AgentNet: {os.getenv('AGENTNET_ENABLED', 'false')} (AGENTNET_ENABLED)")
+    logging.info(f"   🎯 S2 Teams: {use_s2_teams} (USE_S2_TEAMS)")
+    
+    # S2 Teams mode takes precedence
+    if use_s2_teams:
+        logging.info("🎯 [MAIN] Starting with S2 Specialized Teams System")
+        
+        # Run FastAPI with lifespan events for S2 teams
+        import uvicorn
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=8000,
+            log_level="info"
+        )
+        return
     
     if use_autogen and AUTOGEN_AVAILABLE:
         logging.info("🤖 [MAIN] Starting AutoGen with LLM-Powered Multi-Agent System")
