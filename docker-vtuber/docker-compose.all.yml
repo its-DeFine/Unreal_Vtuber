@@ -119,6 +119,7 @@ services:
     container_name: autogen_agent
     volumes:
       - ./app/CORE/autogen-agent/autogen_agent:/app/autogen_agent
+      - /tmp/s2_processing_queue.json:/tmp/s2_processing_queue.json
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@autogen_postgres:5432/autonomous_agent
       - USE_COGNITIVE_ENHANCEMENT=true
@@ -175,6 +176,12 @@ services:
       - FORCE_TOOL_EXECUTION=true
       - DISABLE_EARLY_TERMINATION=true
       - EXTEND_CONVERSATION_ROUNDS=true
+      
+      # S2 Teams Configuration
+      - USE_S2_TEAMS=true
+      - S2_QUEUE_FILE=/tmp/s2_processing_queue.json
+      - S2_POLL_INTERVAL=5
+      - S2_EXECUTION_INTERVAL=60
     env_file:
       - .env
     ports:

@@ -102,6 +102,10 @@ global_orchestrator = None
 global_scb_neo4j_bridge = None
 global_graph_export_service = None
 
+# Global S2 Teams System instances
+global_queue_consumer = None
+global_team_manager = None
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -827,6 +831,83 @@ async def search_memory_api(request: dict):
             "query": request.get("query", "")
         }
     except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.post("/api/s2/queue")
+async def queue_stimuli_to_s2(request: dict):
+    """Queue stimuli to S2 teams system"""
+    try:
+        if not global_queue_consumer:
+            return {"error": "S2 teams not initialized"}, 503
+        
+        # Extract stimuli data
+        content = request.get("content", "")
+        source = request.get("source", "api")
+        priority = request.get("priority", "medium")
+        metadata = request.get("metadata", {})
+        
+        if not content:
+            return {"error": "Content is required"}, 400
+        
+        # Create batch format
+        batch = {
+            "prompt": content,
+            "timestamp": datetime.now().isoformat(),
+            "source": source,
+            "processing_mode": "s2_only"
+        }
+        
+        # Write to queue file
+        queue_file = os.getenv("S2_QUEUE_FILE", "/tmp/s2_processing_queue.json")
+        
+        # Read existing queue
+        try:
+            with open(queue_file, 'r') as f:
+                queue = json.load(f)
+        except:
+            queue = []
+        
+        # Add to queue
+        queue.append(batch)
+        
+        # Write back
+        with open(queue_file, 'w') as f:
+            json.dump(queue, f, indent=2)
+        
+        return {
+            "success": True,
+            "batch_id": f"batch_{batch['timestamp']}",
+            "queue_size": len(queue),
+            "message": "Stimuli queued for S2 processing"
+        }
+        
+    except Exception as e:
+        logging.error(f"❌ [API] S2 queue error: {e}")
+        return {"error": str(e)}, 500
+
+@app.get("/api/s2/status")
+async def get_s2_status():
+    """Get S2 teams system status"""
+    try:
+        status = {
+            "enabled": os.getenv("USE_S2_TEAMS", "false").lower() == "true",
+            "queue_consumer": global_queue_consumer is not None,
+            "team_manager": global_team_manager is not None,
+            "teams": {}
+        }
+        
+        if global_queue_consumer:
+            status["queue_file"] = os.getenv("S2_QUEUE_FILE", "/tmp/s2_processing_queue.json")
+            status["teams_count"] = len(global_queue_consumer.character_teams)
+            status["current_character"] = global_queue_consumer.current_character_id
+        
+        if global_team_manager:
+            status["team_status"] = global_team_manager.get_status()
+        
+        return status
+        
+    except Exception as e:
+        logging.error(f"❌ [API] S2 status error: {e}")
         return {"error": str(e)}, 500
 
 @app.get("/vtuber/control")
@@ -1719,16 +1800,132 @@ async def startup_tasks():
     except Exception as e:
         logging.error(f"❌ [STARTUP] Semantic map services error: {e}")
     
-    # Phase 3: BULLETPROOF ORCHESTRATOR INITIALIZATION
-    orchestrator_success = await initialize_stimuli_orchestrator()
+    # Phase 3: S2 TEAMS OR ORCHESTRATOR INITIALIZATION
+    use_s2_teams = os.getenv("USE_S2_TEAMS", "false").lower() == "true"
     
-    if orchestrator_success:
-        logging.info("🎯 [STARTUP] Stimuli orchestrator initialization: SUCCESS")
+    if use_s2_teams:
+        logging.info("🚀 [STARTUP] Initializing S2 Specialized Teams System...")
+        s2_success = await initialize_s2_teams()
+        if s2_success:
+            logging.info("🎯 [STARTUP] S2 teams initialization: SUCCESS")
+        else:
+            logging.error("❌ [STARTUP] S2 teams initialization: FAILED")
     else:
-        logging.error("❌ [STARTUP] Stimuli orchestrator initialization: FAILED")
-        # Application continues with fallback mechanisms
+        # Original orchestrator initialization
+        orchestrator_success = await initialize_stimuli_orchestrator()
+        if orchestrator_success:
+            logging.info("🎯 [STARTUP] Stimuli orchestrator initialization: SUCCESS")
+        else:
+            logging.error("❌ [STARTUP] Stimuli orchestrator initialization: FAILED")
     
     logging.info("🎉 [STARTUP] Comprehensive application initialization completed")
+
+async def initialize_s2_teams():
+    """
+    Initialize S2 Specialized Teams System
+    =====================================
+    
+    This function initializes the queue-based S2 teams with character specialization.
+    """
+    global global_queue_consumer, global_team_manager, global_tool_registry, global_scb_client, global_vtuber_client
+    
+    try:
+        # Configure Ollama if available
+        if os.getenv("USE_OLLAMA", "false").lower() == "true":
+            logging.info("🦙 [S2] Configuring Ollama integration...")
+            os.environ["AUTOGEN_USE_OLLAMA"] = "true"
+        
+        # Phase 0: Initialize core dependencies
+        logging.info("📋 [S2] Phase 0: Initializing core dependencies...")
+        
+        # Initialize clients
+        try:
+            global_scb_client = SCBClient()
+            logging.info("✅ [S2] SCB client initialized")
+            
+            global_vtuber_client = VTuberClient()
+            logging.info("✅ [S2] VTuber client initialized")
+        except Exception as e:
+            logging.warning(f"⚠️ [S2] Client initialization warning: {e}")
+            global_scb_client = None
+            global_vtuber_client = None
+        
+        # Initialize tool registry
+        if not global_tool_registry:
+            try:
+                global_tool_registry = ToolRegistry()
+                global_tool_registry.load_tools()
+                tool_count = len(global_tool_registry.tools) if global_tool_registry else 0
+                logging.info(f"✅ [S2] Tool registry initialized with {tool_count} tools")
+            except Exception as e:
+                logging.error(f"❌ [S2] Tool registry initialization failed: {e}")
+                return False
+        
+        # Phase 1: Initialize Queue Consumer Service
+        logging.info("📋 [S2] Phase 1: Initializing Queue Consumer Service...")
+        
+        from .core.queue_consumer_service import QueueConsumerService
+        from .core.autonomous_team_manager import initialize_autonomous_team_manager
+        
+        # Create queue consumer
+        queue_file = os.getenv("S2_QUEUE_FILE", "/tmp/s2_processing_queue.json")
+        poll_interval = int(os.getenv("S2_POLL_INTERVAL", "5"))
+        
+        global_queue_consumer = QueueConsumerService(
+            queue_file=queue_file,
+            poll_interval=poll_interval
+        )
+        
+        # Initialize teams with tools and clients
+        teams_initialized = await global_queue_consumer.initialize_teams(
+            tool_registry=global_tool_registry,
+            scb_client=global_scb_client,
+            vtuber_client=global_vtuber_client
+        )
+        
+        if not teams_initialized:
+            logging.error("❌ [S2] Failed to initialize character teams")
+            return False
+            
+        logging.info(f"✅ [S2] Queue consumer initialized with {len(global_queue_consumer.character_teams)} teams")
+        
+        # Phase 2: Initialize Autonomous Team Manager
+        logging.info("📋 [S2] Phase 2: Initializing Autonomous Team Manager...")
+        
+        execution_interval = int(os.getenv("S2_EXECUTION_INTERVAL", "60"))
+        
+        global_team_manager = await initialize_autonomous_team_manager(
+            tool_registry=global_tool_registry,
+            scb_client=global_scb_client,
+            vtuber_client=global_vtuber_client,
+            execution_interval=execution_interval
+        )
+        
+        if not global_team_manager:
+            logging.error("❌ [S2] Failed to initialize autonomous team manager")
+            return False
+            
+        logging.info("✅ [S2] Autonomous team manager initialized")
+        
+        # Phase 3: Start Queue Processing
+        logging.info("📋 [S2] Phase 3: Starting queue processing...")
+        
+        # Start polling in background
+        asyncio.create_task(global_queue_consumer.start())
+        logging.info("🔄 [S2] Queue consumer polling started")
+        
+        # Log configuration
+        logging.info(f"📁 [S2] Queue file: {queue_file}")
+        logging.info(f"⏱️ [S2] Poll interval: {poll_interval} seconds")
+        logging.info(f"⏱️ [S2] Autonomous execution interval: {execution_interval} seconds")
+        
+        return True
+        
+    except Exception as e:
+        logging.error(f"❌ [S2] Initialization error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 async def initialize_stimuli_orchestrator():
     """
@@ -1842,8 +2039,8 @@ async def initialize_stimuli_orchestrator():
             
             global_orchestrator = StimuliResponsiveOrchestrator(
                 tool_registry=global_tool_registry,
-                scb_client=scb_client,
-                vtuber_client=vtuber_client,
+                scb_client=global_scb_client,
+                vtuber_client=global_vtuber_client,
                 autonomous_loop_function=run_autogen_decision_cycle,
                 loop_interval=loop_interval
             )
@@ -1945,8 +2142,8 @@ async def initialize_stimuli_orchestrator():
             
             global_queue_consumer = await initialize_queue_consumer_service(
                 tool_registry=global_tool_registry,
-                scb_client=scb_client,
-                vtuber_client=vtuber_client
+                scb_client=global_scb_client,
+                vtuber_client=global_vtuber_client
             )
             
             if global_queue_consumer:
@@ -1966,8 +2163,8 @@ async def initialize_stimuli_orchestrator():
             
             global_team_manager = await initialize_autonomous_team_manager(
                 tool_registry=global_tool_registry,
-                scb_client=scb_client,
-                vtuber_client=vtuber_client,
+                scb_client=global_scb_client,
+                vtuber_client=global_vtuber_client,
                 execution_interval=60  # Run every minute
             )
             
