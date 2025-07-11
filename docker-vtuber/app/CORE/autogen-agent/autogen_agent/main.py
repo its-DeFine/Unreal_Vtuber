@@ -52,9 +52,14 @@ LOOP_INTERVAL = int(os.getenv("LOOP_INTERVAL", "20"))
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI startup and shutdown events"""
     # Startup
+    print("🎆 LIFESPAN: Calling startup_tasks()")
+    logging.info("🎆 LIFESPAN: Calling startup_tasks()")
     await startup_tasks()
+    print("🎆 LIFESPAN: startup_tasks() completed")
+    logging.info("🎆 LIFESPAN: startup_tasks() completed")
     yield
     # Shutdown
+    print("🎆 LIFESPAN: Calling shutdown_tasks()")
     await shutdown_tasks()
 
 app = FastAPI(lifespan=lifespan)
@@ -1746,6 +1751,9 @@ async def startup_tasks():
     """Initialize services on FastAPI startup"""
     global mcp_server
     
+    logging.info("🚀 [STARTUP] ========== STARTUP TASKS BEGINNING ==========")
+    logging.info(f"🚀 [STARTUP] USE_S2_TEAMS = {os.getenv('USE_S2_TEAMS', 'false')}")
+    
     try:
         logging.info("🔗 [STARTUP] Initializing MCP server on FastAPI startup...")
         
@@ -1802,6 +1810,7 @@ async def startup_tasks():
     
     # Phase 3: S2 TEAMS OR ORCHESTRATOR INITIALIZATION
     use_s2_teams = os.getenv("USE_S2_TEAMS", "false").lower() == "true"
+    logging.info(f"🎯 [STARTUP] Phase 3: S2 Teams = {use_s2_teams}")
     
     if use_s2_teams:
         logging.info("🚀 [STARTUP] Initializing S2 Specialized Teams System...")
@@ -1818,7 +1827,7 @@ async def startup_tasks():
         else:
             logging.error("❌ [STARTUP] Stimuli orchestrator initialization: FAILED")
     
-    logging.info("🎉 [STARTUP] Comprehensive application initialization completed")
+    logging.info("🎉 [STARTUP] ========== STARTUP TASKS COMPLETED ==========")
 
 async def initialize_s2_teams():
     """
@@ -2293,8 +2302,13 @@ async def shutdown_tasks():
 def main() -> None:
     """Main entry point - supports AutoGen LLM, cognitive, S2 teams, and legacy modes"""
     
+    print("🚀🚀🚀 MAIN FUNCTION STARTED 🚀🚀🚀")
+    logging.info("🚀🚀🚀 MAIN FUNCTION STARTED 🚀🚀🚀")
+    
     # Check if we should use S2 teams
     use_s2_teams = os.getenv("USE_S2_TEAMS", "false").lower() == "true"
+    print(f"🎯 USE_S2_TEAMS = {use_s2_teams}")
+    logging.info(f"🎯 [MAIN] USE_S2_TEAMS = {use_s2_teams}")
     
     # Check if we should use AutoGen LLM mode
     use_autogen = os.getenv("USE_AUTOGEN_LLM", "true").lower() == "true"

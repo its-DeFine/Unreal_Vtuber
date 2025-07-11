@@ -8,16 +8,13 @@ Specialized tools for financial trading operations:
 - trading_tool: Trade execution and order management
 """
 
-from .market_data_tool import MarketDataTool
-from .portfolio_tool import PortfolioTool
-from .risk_calculator_tool import RiskCalculatorTool
-from .technical_analysis_tool import TechnicalAnalysisTool
-from .trading_tool import TradingTool
+# The tools use async functions, not classes
+# They are loaded dynamically by the tool registry
 
 __all__ = [
-    "MarketDataTool",
-    "PortfolioTool", 
-    "RiskCalculatorTool",
-    "TechnicalAnalysisTool",
-    "TradingTool"
+    "market_data_tool",
+    "portfolio_tool", 
+    "risk_calculator_tool",
+    "technical_analysis_tool",
+    "trading_tool"
 ]
