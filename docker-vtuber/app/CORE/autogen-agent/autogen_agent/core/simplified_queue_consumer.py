@@ -168,9 +168,30 @@ class SimplifiedQueueConsumer:
         start_time = datetime.now()
         
         try:
-            # Get team type from character or metadata
-            character_id = item.get("metadata", {}).get("character_id")
-            team_type = self.character_mapping.get(character_id, "educator")  # Default to educator
+            # Get team type from multiple sources
+            metadata = item.get("metadata", {})
+            
+            # Check character_type first (direct team type)
+            team_type = metadata.get("character_type")
+            
+            # If not found, check character_id mapping
+            if not team_type:
+                character_id = metadata.get("character_id")
+                team_type = self.character_mapping.get(character_id)
+            
+            # If still not found, analyze content for team selection
+            if not team_type:
+                content = item.get("prompt", "").lower()
+                if any(word in content for word in ["market", "trading", "bitcoin", "crypto", "stock", "invest"]):
+                    team_type = "trader"
+                elif any(word in content for word in ["teach", "learn", "explain", "education", "lesson"]):
+                    team_type = "educator"
+                elif any(word in content for word in ["stream", "content", "video", "audience", "engage"]):
+                    team_type = "streamer"
+                else:
+                    team_type = "educator"  # Default
+            
+            logging.info(f"🎯 [QUEUE] Selected team type: {team_type} for item with metadata: {metadata}")
             
             # Get appropriate team
             team = self.teams.get(team_type)

@@ -255,7 +255,8 @@ def get_llm_config():
             "config_list": [{
                 "model": ollama_model,
                 "base_url": f"{ollama_host}/v1",
-                "api_key": "ollama"
+                "api_key": "ollama",
+                "price": [0, 0]  # Set price to 0 to suppress warnings
             }],
             "temperature": 0.7,
             "max_tokens": 2048,
