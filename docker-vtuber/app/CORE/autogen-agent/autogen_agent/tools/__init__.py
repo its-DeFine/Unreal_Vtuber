@@ -1,18 +1,13 @@
 """Tools module - organized by category
 
 Available tool categories:
-- system: Core system tools (SCB, evolution, management)
-- character: Character management tools
-- persona: Persona-specific tools (medical, education, fitness)
-- analysis: Data analysis and query tools
-- control: VTuber control and interaction tools
-- samples: Example tools for reference
+- system: Core system tools (SCB, stimuli action executor, management)
+- analysis: Data analysis and semantic graph query tools
 
 Team-specific tools:
-- trader: Trading and financial analysis tools
+- trader: Trading and financial analysis tools  
 - streamer: Streaming and community management tools
 - teacher: Educational and assessment tools
-- common: Shared tools available to all teams
 """
 
 # Keep backward compatibility for semantic graph tool
