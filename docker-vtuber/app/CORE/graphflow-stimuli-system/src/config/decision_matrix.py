@@ -217,6 +217,13 @@ class DecisionRulesConfig:
         
         # S2-specific routing rules (highest priority in this category)
         admin_override_category.add_rule(DecisionRule(
+            id="trader_always_s2",
+            condition='metadata.get("character_id", "").lower() in ["trader", "trader_character"] or "trader" in metadata.get("character_type", "").lower()',
+            decision=ProcessingDecision.ANALYSIS_ONLY,
+            priority=99,
+            description="Trader characters ALWAYS go to S2 only, never S1"
+        ))
+        admin_override_category.add_rule(DecisionRule(
             id="s2_teams_override",
             condition='metadata.get("target_systems") == ["s2"] or metadata.get("force_s2") == True',
             decision=ProcessingDecision.ANALYSIS_ONLY,

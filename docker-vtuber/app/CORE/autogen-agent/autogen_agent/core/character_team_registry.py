@@ -226,8 +226,7 @@ class CharacterTeamRegistry:
         # Maps both full template names and simplified names
         character_mapping = {
             # TRADER TEAM - Financial analysis and trading
-            "dr._house_doctor_template": CharacterType.TRADER,
-            "dr._martinez_doctor_template": CharacterType.TRADER,
+            # Note: dr._house and dr._martinez removed - they should NOT be mapped to trader
             "trader_character": CharacterType.TRADER,
             "trader": CharacterType.TRADER,
             

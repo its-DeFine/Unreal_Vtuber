@@ -78,9 +78,9 @@ TEST_SCENARIOS = {
         {
             "name": "Market Update Speech",
             "content": "Give me a market update on Bitcoin and explain the trends to viewers",
-            "metadata": {"target_systems": ["s1", "s2"], "character_id": "dr._house_doctor_template"},
-            "expected_decision": "AVATAR_AND_ANALYSIS",
-            "description": "Trader provides spoken update (S1) with analysis (S2)"
+            "metadata": {"target_systems": ["s2"], "character_id": "trader_character"},
+            "expected_decision": "ANALYSIS_ONLY",
+            "description": "Trader provides market analysis (S2 only - traders don't use S1)"
         },
         {
             "name": "Stream Planning Discussion",
