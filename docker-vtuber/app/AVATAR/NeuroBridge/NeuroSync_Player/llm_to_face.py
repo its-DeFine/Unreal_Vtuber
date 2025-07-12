@@ -176,6 +176,56 @@ def health():
             "error": str(e)
         }), 500
 
+@app.route("/metrics", methods=['GET'])
+def metrics():
+    """Metrics endpoint for Prometheus monitoring"""
+    import psutil
+    import time
+    from flask import Response
+    
+    global system_objects, llm_config_global
+    
+    # Get system metrics
+    cpu_percent = psutil.cpu_percent()
+    memory = psutil.virtual_memory()
+    
+    # Check system status
+    is_initialized = system_objects is not None and llm_config_global is not None
+    
+    # Generate Prometheus-formatted metrics
+    metrics_text = f"""# HELP neurosync_player_cpu_percent CPU usage percentage
+# TYPE neurosync_player_cpu_percent gauge
+neurosync_player_cpu_percent{{service="neurosync-player"}} {cpu_percent}
+
+# HELP neurosync_player_memory_percent Memory usage percentage  
+# TYPE neurosync_player_memory_percent gauge
+neurosync_player_memory_percent{{service="neurosync-player"}} {memory.percent}
+
+# HELP neurosync_player_memory_available Available memory in bytes
+# TYPE neurosync_player_memory_available gauge
+neurosync_player_memory_available{{service="neurosync-player"}} {memory.available}
+
+# HELP neurosync_player_memory_total Total memory in bytes
+# TYPE neurosync_player_memory_total gauge
+neurosync_player_memory_total{{service="neurosync-player"}} {memory.total}
+
+# HELP neurosync_player_uptime Service uptime in seconds
+# TYPE neurosync_player_uptime counter
+neurosync_player_uptime{{service="neurosync-player"}} {time.time()}
+
+# HELP neurosync_player_system_status System initialization status (1=initialized, 0=not initialized)
+# TYPE neurosync_player_system_status gauge
+neurosync_player_system_status{{service="neurosync-player"}} {1 if is_initialized else 0}
+
+# HELP neurosync_player_service_status Service endpoint status (1=available, 0=unavailable)
+# TYPE neurosync_player_service_status gauge
+neurosync_player_service_status{{service="neurosync-player",endpoint="process_text"}} 1
+neurosync_player_service_status{{service="neurosync-player",endpoint="health"}} 1
+neurosync_player_service_status{{service="neurosync-player",endpoint="game_control"}} 1
+"""
+    
+    return Response(metrics_text, mimetype='text/plain')
+
 @app.route("/process_text", methods=['POST'])
 def handle_process_text():
     global chat_history_global, full_history_global

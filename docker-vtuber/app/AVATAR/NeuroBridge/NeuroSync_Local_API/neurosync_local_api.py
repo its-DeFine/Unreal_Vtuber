@@ -163,5 +163,57 @@ def audio_to_blendshapes_route():
     generated_facial_data_list = generated_facial_data.tolist() if isinstance(generated_facial_data, np.ndarray) else generated_facial_data
     return jsonify({'blendshapes': generated_facial_data_list})
 
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    return jsonify({'status': 'ok', 'service': 'neurosync-local-api'})
+
+@app.route('/metrics', methods=['GET'])
+def metrics():
+    """Metrics endpoint for Prometheus monitoring"""
+    import psutil
+    import time
+    from flask import Response
+    
+    # Get system metrics
+    cpu_percent = psutil.cpu_percent()
+    memory = psutil.virtual_memory()
+    
+    # Generate Prometheus-formatted metrics
+    metrics_text = f"""# HELP neurosync_cpu_percent CPU usage percentage
+# TYPE neurosync_cpu_percent gauge
+neurosync_cpu_percent{{service="neurosync-local-api"}} {cpu_percent}
+
+# HELP neurosync_memory_percent Memory usage percentage  
+# TYPE neurosync_memory_percent gauge
+neurosync_memory_percent{{service="neurosync-local-api"}} {memory.percent}
+
+# HELP neurosync_memory_available Available memory in bytes
+# TYPE neurosync_memory_available gauge
+neurosync_memory_available{{service="neurosync-local-api"}} {memory.available}
+
+# HELP neurosync_memory_total Total memory in bytes
+# TYPE neurosync_memory_total gauge
+neurosync_memory_total{{service="neurosync-local-api"}} {memory.total}
+
+# HELP neurosync_uptime Service uptime in seconds
+# TYPE neurosync_uptime counter
+neurosync_uptime{{service="neurosync-local-api"}} {time.time()}
+
+# HELP neurosync_service_status Service status (1=running, 0=down)
+# TYPE neurosync_service_status gauge
+neurosync_service_status{{service="neurosync-local-api",name="audio_to_blendshapes"}} 1
+neurosync_service_status{{service="neurosync-local-api",name="scb_ping"}} 1
+neurosync_service_status{{service="neurosync-local-api",name="scb_slice"}} 1
+neurosync_service_status{{service="neurosync-local-api",name="scb_event"}} 1
+neurosync_service_status{{service="neurosync-local-api",name="scb_directive"}} 1
+
+# HELP neurosync_device_info Device information
+# TYPE neurosync_device_info gauge
+neurosync_device_info{{service="neurosync-local-api",device="{str(device)}"}} 1
+"""
+    
+    return Response(metrics_text, mimetype='text/plain')
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

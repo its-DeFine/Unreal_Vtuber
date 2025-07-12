@@ -17,10 +17,17 @@ rule_files:
 scrape_configs:
   # ===== CORE SERVICES =====
   
-  # NeuroSync S1 - VTuber Avatar
+  # NeuroSync S1 - VTuber Avatar (Flask Player)
   - job_name: 'neurosync-s1'
     static_configs:
       - targets: ['neurosync_s1:5001']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # NeuroSync Local API - Audio to Blendshapes
+  - job_name: 'neurosync-local-api'
+    static_configs:
+      - targets: ['neurosync_s1:5000']
     metrics_path: '/metrics'
     scrape_interval: 30s
 
