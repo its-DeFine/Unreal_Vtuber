@@ -16,6 +16,8 @@ TEAM_TOOL_MAPPING: Dict[CharacterType, List[str]] = {
         "risk_calculator_tool",
         "technical_analysis_tool",
         "trading_tool",
+        "internet_market_tool",  # NEW: Real-time market data from internet
+        "financial_news_tool",   # NEW: Financial news from internet
         "scb_operations_tool",
         "semantic_graph_query_tool"  # For Neo4j queries
     ],
@@ -25,6 +27,8 @@ TEAM_TOOL_MAPPING: Dict[CharacterType, List[str]] = {
         "streaming_tool",
         "analytics_tool",
         "community_tool",
+        "trending_topics_tool",     # NEW: Real-time trending topics from internet
+        "social_analytics_tool",    # NEW: Social media analytics from internet
         "scb_operations_tool",
         "semantic_graph_query_tool"  # For Neo4j queries
     ],
@@ -34,6 +38,8 @@ TEAM_TOOL_MAPPING: Dict[CharacterType, List[str]] = {
         "assessment_tool",
         "learning_tool",
         "curriculum_tool",
+        "research_access_tool",     # NEW: Research papers and educational resources from internet
+        "educational_search_tool",  # NEW: Educational content search from internet
         "scb_operations_tool", 
         "semantic_graph_query_tool"  # For Neo4j queries
     ],
