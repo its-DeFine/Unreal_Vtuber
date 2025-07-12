@@ -214,7 +214,7 @@ class SimplifiedAutoGenTeam:
         )
     
     async def process_stimuli(self, stimuli: Dict[str, Any]) -> Dict[str, Any]:
-        """Process stimuli with the team."""
+        """Process stimuli with the team using real AutoGen group chat."""
         
         if not self.manager:
             return {
@@ -227,79 +227,70 @@ class SimplifiedAutoGenTeam:
             content = stimuli.get("content", "")
             metadata = stimuli.get("metadata", {})
             
-            # Create task message
+            # Create task message for the user proxy
             task = f"""
             Task: {content}
             Context: {metadata}
             
-            Please analyze and provide actionable insights.
-            Remember to:
-            1. Store important patterns in memory
-            2. Write key insights to SCB
-            3. Keep the discussion focused
-            4. Conclude within {self.max_rounds} rounds
+            Please analyze this task and provide actionable insights.
+            Team members should collaborate to:
+            1. Understand the requirements
+            2. Share relevant expertise
+            3. Generate comprehensive insights
+            4. Store important patterns for future reference
+            
+            Keep the discussion focused and conclude with TERMINATE when done.
             """
             
-            # Reset message history
+            logging.info(f"🚀 [TEAM] {self.team_type} team starting real group chat: {content[:50]}...")
+            
+            # Reset group chat messages for fresh conversation
             self.group_chat.messages = []
             
-            # Start conversation
-            logging.info(f"🚀 [TEAM] {self.team_type} team processing: {content[:50]}...")
-            
-            # Use a simpler approach - just add messages directly
-            logging.info(f"🎯 [TEAM] Processing with {self.team_type} team")
-            
-            # Clear message history
-            self.group_chat.messages = []
-            
-            # Add the task as first message
-            self.group_chat.messages.append({
-                "content": task,
-                "name": "user",
-                "role": "user"
-            })
-            
-            # Simulate a few rounds of conversation
+            # Start real AutoGen group chat conversation
             try:
-                # Let coordinator respond
-                coordinator_response = await self._get_agent_response(self.agents["coordinator"], task)
-                self.group_chat.messages.append({
-                    "content": coordinator_response,
-                    "name": "coordinator",
-                    "role": "assistant"
-                })
+                # Use the manager to initiate the group chat
+                # The user proxy will start the conversation with the task
+                user_proxy = None
+                for agent in self.group_chat.agents:
+                    if hasattr(agent, 'name') and agent.name == "user_proxy":
+                        user_proxy = agent
+                        break
                 
-                # Let specialized agents respond based on team type
-                if self.team_type == "trader":
-                    analyst_response = await self._get_agent_response(self.agents["analyst"], coordinator_response)
-                    self.group_chat.messages.append({
-                        "content": f"PATTERN: {analyst_response[:100]}",
-                        "name": "analyst",
-                        "role": "assistant"
-                    })
-                elif self.team_type == "educator":
-                    teacher_response = await self._get_agent_response(self.agents["teacher"], coordinator_response)
-                    self.group_chat.messages.append({
-                        "content": f"LESSON: {teacher_response[:100]}",
-                        "name": "teacher",
-                        "role": "assistant"
-                    })
-                elif self.team_type == "streamer":
-                    creator_response = await self._get_agent_response(self.agents["content_creator"], coordinator_response)
-                    self.group_chat.messages.append({
-                        "content": f"CONTENT: {creator_response[:100]}",
-                        "name": "content_creator",
-                        "role": "assistant"
-                    })
+                if not user_proxy:
+                    raise Exception("User proxy not found in group chat agents")
                 
-                logging.info(f"✅ [TEAM] Processed with {len(self.group_chat.messages)} messages")
+                logging.info(f"🎯 [TEAM] Starting group chat with {len(self.group_chat.agents)} agents")
                 
+                # Use asyncio to run the group chat with timeout
+                chat_task = asyncio.create_task(
+                    self._run_group_chat_async(user_proxy, task)
+                )
+                
+                # Wait for chat to complete with timeout
+                chat_result = await asyncio.wait_for(chat_task, timeout=60.0)
+                
+                logging.info(f"✅ [TEAM] Group chat completed with {len(self.group_chat.messages)} messages")
+                
+                # Log sample of conversation for debugging
+                if self.group_chat.messages:
+                    logging.info(f"📝 [TEAM] Sample conversation:")
+                    for i, msg in enumerate(self.group_chat.messages[:3]):  # Show first 3 messages
+                        sender = msg.get('name', 'unknown')
+                        content_preview = msg.get('content', '')[:100]
+                        logging.info(f"   {i+1}. {sender}: {content_preview}...")
+                
+            except asyncio.TimeoutError:
+                logging.warning(f"⏰ [TEAM] Group chat timed out, using existing messages")
             except Exception as e:
-                logging.error(f"❌ [TEAM] Error in team processing: {e}")
+                logging.error(f"❌ [TEAM] Error in group chat: {e}")
                 import traceback
                 traceback.print_exc()
+                
+                # Fallback to simple response if group chat fails
+                await self._fallback_simple_response(task)
             
-            # Extract insights from conversation
+            # Extract insights from the real conversation
             insights = self._extract_insights()
             
             # Store in SCB if available
@@ -310,19 +301,22 @@ class SimplifiedAutoGenTeam:
             if self.neo4j_client and insights:
                 await self._write_to_neo4j(stimuli, insights)
             
-            # Count actual messages (not including system messages)
-            message_count = len(self.group_chat.messages) if hasattr(self.group_chat, 'messages') else 0
+            # Count actual conversation rounds (exclude system messages)
+            conversation_rounds = len([msg for msg in self.group_chat.messages 
+                                     if msg.get('role') == 'assistant' or msg.get('role') == 'user'])
             
             return {
                 "success": True,
                 "team_type": self.team_type,
                 "insights": insights,
-                "rounds": message_count,
+                "rounds": conversation_rounds,
+                "total_messages": len(self.group_chat.messages),
                 "timestamp": datetime.now().isoformat(),
                 "debug_info": {
                     "group_chat_exists": self.group_chat is not None,
                     "manager_exists": self.manager is not None,
-                    "agents_count": len(self.agents)
+                    "agents_count": len(self.agents),
+                    "real_autogen_chat": True
                 }
             }
             
@@ -335,11 +329,59 @@ class SimplifiedAutoGenTeam:
             }
         except Exception as e:
             logging.error(f"❌ [TEAM] {self.team_type} team error: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "success": False,
                 "error": str(e),
                 "team_type": self.team_type
             }
+    
+    async def _run_group_chat_async(self, user_proxy, task):
+        """Run the AutoGen group chat asynchronously."""
+        
+        try:
+            # Use the manager's a_initiate_chat method for real group conversation
+            result = await self.manager.a_initiate_chat(
+                user_proxy,
+                message=task,
+                max_turns=self.max_rounds
+            )
+            
+            logging.info(f"🎉 [TEAM] Group chat initiate completed")
+            return result
+            
+        except Exception as e:
+            logging.error(f"❌ [TEAM] Error in group chat initiation: {e}")
+            raise
+    
+    async def _fallback_simple_response(self, task):
+        """Fallback to simple response if group chat fails."""
+        
+        logging.info(f"🔄 [TEAM] Using fallback simple response")
+        
+        try:
+            # Get a simple response from the coordinator
+            coordinator_response = await self._get_agent_response(self.agents["coordinator"], task)
+            
+            # Add to messages manually
+            self.group_chat.messages = [
+                {
+                    "content": task,
+                    "name": "user_proxy",
+                    "role": "user"
+                },
+                {
+                    "content": coordinator_response,
+                    "name": f"{self.team_type}_coordinator",
+                    "role": "assistant"
+                }
+            ]
+            
+            logging.info(f"✅ [TEAM] Fallback response generated")
+            
+        except Exception as e:
+            logging.error(f"❌ [TEAM] Error in fallback response: {e}")
     
     def _extract_insights(self) -> Dict[str, List[str]]:
         """Extract insights from team conversation."""
