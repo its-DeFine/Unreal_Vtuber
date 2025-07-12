@@ -1,26 +1,23 @@
 """
-Base tool framework for AutoGen agents.
+Base Tool Framework for S2 AutoGen Agent Tools
 
-Provides the foundation for creating tools that agents can use to interact
-with external systems and perform specialized tasks.
+Provides the foundational classes and interfaces for all tools in the system.
 """
 
 import asyncio
-import logging
+import time
+import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Callable, Union
-import json
+from typing import Any, Dict, List, Optional, Union
+import logging
 
 logger = logging.getLogger(__name__)
 
 
 class ToolStatus(str, Enum):
     """Tool execution status"""
-    PENDING = "pending"
-    RUNNING = "running" 
     SUCCESS = "success"
     FAILED = "failed"
     TIMEOUT = "timeout"
@@ -31,76 +28,56 @@ class ToolStatus(str, Enum):
 class ToolParameter:
     """Tool parameter definition"""
     name: str
-    type: str
+    type: str  # "string", "integer", "number", "boolean", "array", "object"
     description: str
-    required: bool = True
+    required: bool = False
     default: Any = None
     enum: Optional[List[str]] = None
-    
-    def validate(self, value: Any) -> bool:
-        """Validate parameter value"""
-        if self.required and value is None:
-            return False
-        
-        if self.enum and value not in self.enum:
-            return False
-            
-        return True
-
-
-@dataclass 
-class ToolExecutionContext:
-    """Context information for tool execution"""
-    user_id: Optional[str] = None
-    session_id: Optional[str] = None
-    team_type: Optional[str] = None
-    character_id: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    minimum: Optional[Union[int, float]] = None
+    maximum: Optional[Union[int, float]] = None
 
 
 @dataclass
+class ToolExecutionContext:
+    """Context for tool execution"""
+    request_id: str
+    user_id: Optional[str] = None
+    team_type: Optional[str] = None
+    session_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass 
 class ToolResult:
-    """Tool execution result"""
+    """Result from tool execution"""
     success: bool
     status: ToolStatus
-    result: Any = None
+    result: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
-    execution_time: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization"""
-        return {
-            "success": self.success,
-            "status": self.status.value,
-            "result": self.result,
-            "error_message": self.error_message,
-            "execution_time": self.execution_time,
-            "metadata": self.metadata
-        }
+    metadata: Optional[Dict[str, Any]] = None
+    execution_time_ms: Optional[float] = None
 
 
 class BaseTool(ABC):
     """
-    Base class for all tools used by AutoGen agents.
+    Base class for all tools in the S2 system.
     
-    Tools provide specific capabilities to agents like market data access,
-    educational content generation, or streaming analytics.
+    Provides common functionality for parameter validation, execution context,
+    error handling, and result formatting.
     """
     
     def __init__(
         self,
         name: str,
         description: str,
-        parameters: List[ToolParameter] = None,
+        parameters: List[ToolParameter],
         timeout: float = 30.0
     ):
         self.name = name
         self.description = description
-        self.parameters = parameters or []
+        self.parameters = parameters
         self.timeout = timeout
-        self._execution_count = 0
-        self._last_execution = None
+        self._parameter_map = {p.name: p for p in parameters}
     
     @abstractmethod
     async def execute(
@@ -108,11 +85,139 @@ class BaseTool(ABC):
         context: ToolExecutionContext,
         **kwargs
     ) -> ToolResult:
-        """Execute the tool with given parameters"""
+        """
+        Execute the tool with given parameters.
+        
+        Args:
+            context: Execution context with request metadata
+            **kwargs: Tool-specific parameters
+            
+        Returns:
+            ToolResult with execution outcome
+        """
         pass
     
-    def get_function_schema(self) -> Dict[str, Any]:
-        """Get OpenAI function schema for this tool"""
+    def validate_parameters(self, parameters: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Validate input parameters against tool definition.
+        
+        Returns:
+            Dict of validation errors (empty if valid)
+        """
+        errors = {}
+        
+        # Check required parameters
+        for param in self.parameters:
+            if param.required and param.name not in parameters:
+                errors[param.name] = f"Required parameter '{param.name}' is missing"
+        
+        # Validate parameter types and constraints
+        for param_name, value in parameters.items():
+            if param_name not in self._parameter_map:
+                errors[param_name] = f"Unknown parameter '{param_name}'"
+                continue
+                
+            param = self._parameter_map[param_name]
+            error = self._validate_parameter_value(param, value)
+            if error:
+                errors[param_name] = error
+        
+        return errors
+    
+    def _validate_parameter_value(self, param: ToolParameter, value: Any) -> Optional[str]:
+        """Validate a single parameter value"""
+        if value is None:
+            return None
+            
+        # Type validation
+        if param.type == "string" and not isinstance(value, str):
+            return f"Expected string, got {type(value).__name__}"
+        elif param.type == "integer" and not isinstance(value, int):
+            return f"Expected integer, got {type(value).__name__}"
+        elif param.type == "number" and not isinstance(value, (int, float)):
+            return f"Expected number, got {type(value).__name__}"
+        elif param.type == "boolean" and not isinstance(value, bool):
+            return f"Expected boolean, got {type(value).__name__}"
+        elif param.type == "array" and not isinstance(value, list):
+            return f"Expected array, got {type(value).__name__}"
+        elif param.type == "object" and not isinstance(value, dict):
+            return f"Expected object, got {type(value).__name__}"
+        
+        # Enum validation
+        if param.enum and value not in param.enum:
+            return f"Value must be one of: {param.enum}"
+        
+        # Range validation for numbers
+        if param.type in ["integer", "number"]:
+            if param.minimum is not None and value < param.minimum:
+                return f"Value must be >= {param.minimum}"
+            if param.maximum is not None and value > param.maximum:
+                return f"Value must be <= {param.maximum}"
+        
+        return None
+    
+    async def execute_with_timeout(
+        self,
+        context: ToolExecutionContext,
+        **kwargs
+    ) -> ToolResult:
+        """
+        Execute tool with timeout and error handling.
+        """
+        start_time = time.time()
+        
+        try:
+            # Validate parameters
+            validation_errors = self.validate_parameters(kwargs)
+            if validation_errors:
+                return ToolResult(
+                    success=False,
+                    status=ToolStatus.FAILED,
+                    error_message=f"Parameter validation failed: {validation_errors}",
+                    execution_time_ms=(time.time() - start_time) * 1000
+                )
+            
+            # Apply defaults for missing parameters
+            for param in self.parameters:
+                if param.name not in kwargs and param.default is not None:
+                    kwargs[param.name] = param.default
+            
+            # Execute with timeout
+            result = await asyncio.wait_for(
+                self.execute(context, **kwargs),
+                timeout=self.timeout
+            )
+            
+            # Add execution time
+            result.execution_time_ms = (time.time() - start_time) * 1000
+            
+            return result
+            
+        except asyncio.TimeoutError:
+            return ToolResult(
+                success=False,
+                status=ToolStatus.TIMEOUT,
+                error_message=f"Tool execution timed out after {self.timeout}s",
+                execution_time_ms=(time.time() - start_time) * 1000
+            )
+        except asyncio.CancelledError:
+            return ToolResult(
+                success=False,
+                status=ToolStatus.CANCELLED,
+                error_message="Tool execution was cancelled",
+                execution_time_ms=(time.time() - start_time) * 1000
+            )
+        except Exception as e:
+            logger.exception(f"Tool {self.name} execution failed")
+            return ToolResult(
+                success=False,
+                status=ToolStatus.FAILED,
+                error_message=str(e),
+                execution_time_ms=(time.time() - start_time) * 1000
+            )
+    
+    def get_schema(self) -> Dict[str, Any]:
+        """Get OpenAPI-style schema for this tool"""
         properties = {}
         required = []
         
@@ -124,7 +229,10 @@ class BaseTool(ABC):
             
             if param.enum:
                 prop["enum"] = param.enum
-            
+            if param.minimum is not None:
+                prop["minimum"] = param.minimum
+            if param.maximum is not None:
+                prop["maximum"] = param.maximum
             if param.default is not None:
                 prop["default"] = param.default
                 
@@ -142,100 +250,21 @@ class BaseTool(ABC):
                 "required": required
             }
         }
-    
-    def validate_parameters(self, **kwargs) -> List[str]:
-        """Validate provided parameters, return list of errors"""
-        errors = []
-        
-        for param in self.parameters:
-            value = kwargs.get(param.name)
-            
-            if not param.validate(value):
-                if param.required and value is None:
-                    errors.append(f"Missing required parameter: {param.name}")
-                elif param.enum and value not in param.enum:
-                    errors.append(f"Invalid value for {param.name}: {value}. Must be one of {param.enum}")
-        
-        return errors
-    
-    async def safe_execute(
-        self,
-        context: ToolExecutionContext,
-        **kwargs
-    ) -> ToolResult:
-        """Execute tool with error handling and timeout"""
-        start_time = datetime.now()
-        
-        try:
-            # Validate parameters
-            validation_errors = self.validate_parameters(**kwargs)
-            if validation_errors:
-                return ToolResult(
-                    success=False,
-                    status=ToolStatus.FAILED,
-                    error_message=f"Parameter validation failed: {'; '.join(validation_errors)}",
-                    execution_time=0.0
-                )
-            
-            # Execute with timeout
-            result = await asyncio.wait_for(
-                self.execute(context, **kwargs),
-                timeout=self.timeout
-            )
-            
-            execution_time = (datetime.now() - start_time).total_seconds()
-            result.execution_time = execution_time
-            
-            self._execution_count += 1
-            self._last_execution = datetime.now()
-            
-            logger.debug(f"Tool {self.name} executed successfully in {execution_time:.2f}s")
-            return result
-            
-        except asyncio.TimeoutError:
-            execution_time = (datetime.now() - start_time).total_seconds()
-            logger.error(f"Tool {self.name} timed out after {execution_time:.2f}s")
-            return ToolResult(
-                success=False,
-                status=ToolStatus.TIMEOUT,
-                error_message=f"Tool execution timed out after {self.timeout}s",
-                execution_time=execution_time
-            )
-            
-        except Exception as e:
-            execution_time = (datetime.now() - start_time).total_seconds()
-            logger.error(f"Tool {self.name} failed: {e}")
-            return ToolResult(
-                success=False,
-                status=ToolStatus.FAILED,
-                error_message=str(e),
-                execution_time=execution_time
-            )
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Get tool usage statistics"""
-        return {
-            "name": self.name,
-            "execution_count": self._execution_count,
-            "last_execution": self._last_execution.isoformat() if self._last_execution else None,
-            "timeout": self.timeout
-        }
 
 
 class AsyncFunctionTool(BaseTool):
     """
-    Tool wrapper for async functions.
+    Wrapper to convert async functions into tools.
     
-    Allows easy conversion of async functions into tools that can be used
-    by AutoGen agents.
+    Useful for simple functions that don't need full tool class implementation.
     """
     
     def __init__(
         self,
         name: str,
         description: str,
-        func: Callable,
-        parameters: List[ToolParameter] = None,
+        parameters: List[ToolParameter],
+        func,
         timeout: float = 30.0
     ):
         super().__init__(name, description, parameters, timeout)
@@ -249,14 +278,14 @@ class AsyncFunctionTool(BaseTool):
         """Execute the wrapped function"""
         try:
             if asyncio.iscoroutinefunction(self.func):
-                result = await self.func(**kwargs)
+                result = await self.func(context, **kwargs)
             else:
-                result = self.func(**kwargs)
+                result = self.func(context, **kwargs)
             
             return ToolResult(
                 success=True,
                 status=ToolStatus.SUCCESS,
-                result=result
+                result=result if isinstance(result, dict) else {"result": result}
             )
             
         except Exception as e:
@@ -270,15 +299,21 @@ class AsyncFunctionTool(BaseTool):
 def create_simple_tool(
     name: str,
     description: str,
-    func: Callable,
-    parameters: List[ToolParameter] = None,
+    parameters: List[ToolParameter],
+    func,
     timeout: float = 30.0
 ) -> AsyncFunctionTool:
-    """Create a simple tool from a function"""
-    return AsyncFunctionTool(
-        name=name,
-        description=description,
-        func=func,
-        parameters=parameters,
-        timeout=timeout
-    )
+    """Helper function to create simple tools from functions"""
+    return AsyncFunctionTool(name, description, parameters, func, timeout)
+
+
+# Export all public classes and functions
+__all__ = [
+    "ToolStatus",
+    "ToolParameter", 
+    "ToolExecutionContext",
+    "ToolResult",
+    "BaseTool",
+    "AsyncFunctionTool",
+    "create_simple_tool"
+]

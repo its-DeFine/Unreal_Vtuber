@@ -3,7 +3,7 @@ S2 Queue Orchestrator
 ====================
 
 Minimal orchestrator for S2 teams mode that handles API endpoints
-and writes stimuli to the queue file for processing.
+and queues stimuli using the shared queue service for processing.
 """
 
 import os
@@ -16,11 +16,20 @@ from typing import Dict, Any, Optional, List
 
 from .stimuli_response import StimuliResponse
 
+# Import shared queue service
+try:
+    from ...shared.queue.queue_service import QueueService, QueueMessage, MessageStatus
+    from ...shared.di import get_service
+    SHARED_QUEUE_AVAILABLE = True
+except ImportError:
+    logging.warning("Shared queue service not available, falling back to file-based queue")
+    SHARED_QUEUE_AVAILABLE = False
+
 
 class S2QueueOrchestrator:
     """
-    Minimal orchestrator that writes stimuli to queue file for S2 teams processing.
-    This allows the API endpoints to work while delegating actual processing to the queue consumer.
+    Minimal orchestrator that queues stimuli using the shared queue service for S2 teams processing.
+    Falls back to file-based queue if shared service is not available.
     """
     
     def __init__(
@@ -28,15 +37,27 @@ class S2QueueOrchestrator:
         queue_file: str = None,
         character_state_manager=None
     ):
-        # Use shared volume path if not specified
-        if queue_file is None:
-            queue_file = os.getenv("S2_QUEUE_FILE", "/tmp/s2_queue/s2_processing_queue.json")
-            
-        self.queue_file = Path(queue_file)
         self.character_state_manager = character_state_manager
         
-        # Ensure queue directory exists
-        self.queue_file.parent.mkdir(parents=True, exist_ok=True)
+        # Try to use shared queue service first
+        if SHARED_QUEUE_AVAILABLE:
+            try:
+                self.queue_service = get_service(QueueService)
+                self.use_shared_queue = True
+                logging.info("S2 Queue Orchestrator using shared queue service")
+            except Exception as e:
+                logging.warning(f"Failed to initialize shared queue service: {e}, falling back to file-based")
+                self.use_shared_queue = False
+        else:
+            self.use_shared_queue = False
+        
+        # Fallback to file-based queue
+        if not self.use_shared_queue:
+            if queue_file is None:
+                queue_file = os.getenv("S2_QUEUE_FILE", "/tmp/s2_queue/s2_processing_queue.json")
+            self.queue_file = Path(queue_file)
+            self.queue_file.parent.mkdir(parents=True, exist_ok=True)
+            logging.info("S2 Queue Orchestrator using file-based queue")
         
         # Initialize empty tool registry (for API compatibility)
         self.tool_registry = type('ToolRegistry', (), {'tools': {}})()

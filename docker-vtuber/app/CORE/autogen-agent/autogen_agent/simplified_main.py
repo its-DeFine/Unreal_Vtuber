@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from .core.s2_queue_orchestrator import S2QueueOrchestrator
 from .core.simplified_queue_consumer import initialize_queue_consumer, get_queue_consumer
@@ -97,6 +98,74 @@ async def health_check():
         }
     
     return health_data
+
+
+@app.get("/metrics")
+async def metrics():
+    """Metrics endpoint for Prometheus monitoring."""
+    import psutil
+    
+    global global_orchestrator, global_queue_consumer, global_scb_client, global_neo4j_client
+    
+    # Get system metrics
+    cpu_percent = psutil.cpu_percent()
+    memory = psutil.virtual_memory()
+    
+    # Check service status
+    orchestrator_running = 1 if global_orchestrator else 0
+    queue_consumer_running = 1 if global_queue_consumer else 0
+    scb_connected = 1 if global_scb_client else 0
+    neo4j_connected = 1 if global_neo4j_client else 0
+    
+    # Get queue stats if available
+    queue_size = 0
+    if global_queue_consumer and hasattr(global_queue_consumer, 'get_stats'):
+        try:
+            stats = global_queue_consumer.get_stats()
+            queue_size = stats.get('queue_size', 0) if isinstance(stats, dict) else 0
+        except:
+            queue_size = 0
+    
+    # Generate Prometheus-formatted metrics
+    metrics_text = f"""# HELP autogen_cpu_percent CPU usage percentage
+# TYPE autogen_cpu_percent gauge
+autogen_cpu_percent{{service="autogen-agent"}} {cpu_percent}
+
+# HELP autogen_memory_percent Memory usage percentage  
+# TYPE autogen_memory_percent gauge
+autogen_memory_percent{{service="autogen-agent"}} {memory.percent}
+
+# HELP autogen_memory_available Available memory in bytes
+# TYPE autogen_memory_available gauge
+autogen_memory_available{{service="autogen-agent"}} {memory.available}
+
+# HELP autogen_memory_total Total memory in bytes
+# TYPE autogen_memory_total gauge
+autogen_memory_total{{service="autogen-agent"}} {memory.total}
+
+# HELP autogen_uptime Service uptime in seconds
+# TYPE autogen_uptime counter
+autogen_uptime{{service="autogen-agent"}} {time.time()}
+
+# HELP autogen_service_status Service component status (1=running, 0=stopped)
+# TYPE autogen_service_status gauge
+autogen_service_status{{service="autogen-agent",component="orchestrator"}} {orchestrator_running}
+autogen_service_status{{service="autogen-agent",component="queue_consumer"}} {queue_consumer_running}
+autogen_service_status{{service="autogen-agent",component="scb_client"}} {scb_connected}
+autogen_service_status{{service="autogen-agent",component="neo4j_client"}} {neo4j_connected}
+
+# HELP autogen_queue_size Number of items in processing queue
+# TYPE autogen_queue_size gauge
+autogen_queue_size{{service="autogen-agent"}} {queue_size}
+
+# HELP autogen_endpoint_status Endpoint availability status (1=available, 0=unavailable)
+# TYPE autogen_endpoint_status gauge
+autogen_endpoint_status{{service="autogen-agent",endpoint="health"}} 1
+autogen_endpoint_status{{service="autogen-agent",endpoint="status"}} 1
+autogen_endpoint_status{{service="autogen-agent",endpoint="test_process"}} 1
+"""
+    
+    return Response(content=metrics_text, media_type="text/plain")
 
 
 @app.get("/api/status")
