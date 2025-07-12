@@ -22,13 +22,7 @@ from utils.game_control.game_control_processor import GameControlProcessor
 from utils.game_control.unreal_tcp_controller import UnrealTCPController, TCPConnectionConfig
 from config import get_llm_config, setup_warnings
 
-# Import orchestrator version manager
-from orchestrator_version_manager import (
-    initialize_orchestrator as init_orchestrator,
-    get_current_wrapper,
-    get_orchestrator_version
-)
-# Priority and ActionType imports removed - not used in this file
+# S1 system - no orchestrator needed, stimuli-driven only
 
 # --- Global Variables for Flask App ---
 app = Flask(__name__)
@@ -56,8 +50,7 @@ current_character_data = None
 game_control_processor = None
 tcp_controller = None
 
-# Orchestrator objects
-orchestrator_wrapper = None
+# S1 system - orchestrator functionality removed
 
 # --- End Global Variables ---
 
@@ -134,56 +127,15 @@ def main_setup():
     print("💡 Ready to process autonomous VTuber interactions!")
 
 
-def setup_orchestration():
-    """Initialize the autonomous orchestrator using version manager"""
-    global orchestrator_wrapper, system_objects
-    
-    print("🤖 Initializing Autonomous Orchestration System...")
+def setup_s1_system():
+    """Initialize S1 avatar system - stimuli-driven only"""
+    print("🎯 S1 Avatar System Initialized")
     print("=" * 70)
-    
-    # Get the orchestrator version
-    version = get_orchestrator_version()
-    print(f"📌 Orchestrator Version: {version.upper()}")
-    
-    # Check if orchestration is enabled
-    orchestration_enabled = os.getenv("AUTONOMOUS_ORCHESTRATION_ENABLED", "true").lower() == "true"
-    
-    if orchestration_enabled:
-        print("✅ Autonomous Orchestration: ENABLED")
-        
-        # Initialize orchestrator using version manager
-        orchestrator_wrapper = init_orchestrator(app, system_objects)
-        
-        if orchestrator_wrapper:
-            # Register speech completion callback for proper state management
-            if hasattr(orchestrator_wrapper, 'register_speech_completion_callback'):
-                orchestrator_wrapper.register_speech_completion_callback(system_objects)
-            
-            # Display configuration based on version
-            if version == "v3":
-                print("🎯 Using AutoGen-based Orchestrator V3")
-                print(f"   Persona: {os.getenv('ORCHESTRATOR_PERSONA', 'interactive_streamer')}")
-                print(f"   Autonomous Content: {os.getenv('AUTONOMOUS_CONTENT_ENABLED', 'true')}")
-                print(f"   Group Chat: {os.getenv('GROUP_CHAT_ENABLED', 'true')}")
-                print(f"   SCB Integration: {os.getenv('SCB_INTEGRATION_ENABLED', 'true')}")
-            else:
-                print("⚠️ Using deprecated Orchestrator V2")
-                print("💡 Migrate to V3 by setting ORCHESTRATOR_VERSION=v3")
-            
-            print("✅ Autonomous Orchestrator ready!")
-            print("🚀 System will now make autonomous decisions about speech and environment!")
-        else:
-            print("❌ Failed to initialize orchestrator")
-            orchestrator_wrapper = None
-    else:
-        print("🚫 Autonomous Orchestration: DISABLED")
-        print("✅ Pure Stimuli-Driven Architecture Active")
-        print("💡 S1 Avatar will only respond to external stimuli from S2 AutoGen system")
-        print("🎯 All intelligence and decision-making handled by S2, S1 is pure execution layer")
-        orchestrator_wrapper = None
-    
+    print("✅ Pure Stimuli-Driven Architecture Active")
+    print("💡 S1 Avatar responds to external stimuli from S2 system")
+    print("🎯 All intelligence and decision-making handled by S2")
     print("=" * 70)
-    return orchestrator_wrapper
+    return True
 
 
 # Routes are now handled by the version manager and registered automatically
@@ -197,14 +149,8 @@ def health():
         # Check if system is initialized
         is_initialized = system_objects is not None and llm_config_global is not None
         
-        # Check orchestrator status
-        orchestrator_status = "unknown"
-        try:
-            orchestrator_wrapper = get_current_wrapper()
-            if orchestrator_wrapper:
-                orchestrator_status = "active"
-        except:
-            orchestrator_status = "inactive"
+        # S1 system status - always stimuli_triggered
+        s1_status = "stimuli_triggered"
         
         # Check if payment window is active (if payment is enabled)
         payment_status = "disabled"
@@ -215,7 +161,8 @@ def health():
             "status": "healthy" if is_initialized else "unhealthy",
             "timestamp": datetime.now().isoformat(),
             "system_initialized": is_initialized,
-            "orchestrator_status": orchestrator_status,
+            "s1_status": s1_status,
+            "stimuli_triggered": True,
             "payment_status": payment_status,
             "llm_provider": llm_config_global.get('provider', 'unknown') if llm_config_global else 'unknown'
         }
@@ -348,7 +295,7 @@ def handle_process_text():
             "status": "direct_speech",
             "message": "Direct speech processed through TTS pipeline",
             "llm_provider": "none",
-            "orchestrator_enabled": orchestrator_wrapper is not None
+            "s1_system": True
         }
         
     # Orchestrator processing - DISABLED to prevent duplicate processing
@@ -360,9 +307,7 @@ def handle_process_text():
         chunk_queue = system_objects['chunk_queue']
         audio_queue = system_objects['audio_queue']
         
-        # Update orchestrator state even for non-orchestrated requests
-        if orchestrator_wrapper and orchestrator_wrapper.state_hooks:
-            orchestrator_wrapper.state_hooks.hook_conversation_input(user_input, autonomous_context)
+        # S1 system - no orchestrator state management needed
         
         # Normal LLM processing with dynamic character-aware system message
         from config import get_character_aware_system_message
@@ -391,7 +336,7 @@ def handle_process_text():
             "status": "processing", 
             "message": "Input processed.",
             "llm_provider": provider,
-            "orchestrator_enabled": orchestrator_wrapper is not None
+            "s1_system": True
         }
     
     app.logger.info(f"✅ Text processing completed with {provider}")
@@ -433,9 +378,7 @@ def handle_game_control():
     if autonomous_context:
         app.logger.info(f"🤖 Autonomous context for game control: {autonomous_context}")
 
-    # Orchestrator processing for game control
-    if orchestrator_wrapper and orchestrator_wrapper.state_hooks:
-        orchestrator_wrapper.state_hooks.hook_environment_change_start(game_prompt)
+    # S1 system - no orchestrator processing needed
     
     # Process the game control prompt asynchronously
     async def process_game_control():
@@ -450,17 +393,13 @@ def handle_game_control():
             
             app.logger.info(f"🎯 Game control complete: {results['success']}/{results['total']} commands successful")
             
-            # Notify orchestrator of completion
-            if orchestrator_wrapper and orchestrator_wrapper.state_hooks:
-                success = results['success'] > 0
-                orchestrator_wrapper.state_hooks.hook_environment_change_end(game_prompt, success)
+            # S1 system - no orchestrator notification needed
             
             return {"commands": commands, "results": results}
             
         except Exception as e:
             app.logger.error(f"❌ Game control processing error: {e}")
-            if orchestrator_wrapper and orchestrator_wrapper.state_hooks:
-                orchestrator_wrapper.state_hooks.hook_environment_change_end("error", False)
+            # S1 system - no orchestrator error handling needed
             return {"error": str(e), "commands": [], "results": {"success": 0, "failed": 0, "total": 0}}
     
     # Run the async processing
@@ -487,7 +426,7 @@ def handle_game_control():
         "commands_failed": result.get("results", {}).get("failed", 0),
         "tcp_host": tcp_controller.config.host,
         "tcp_port": tcp_controller.config.port,
-        "orchestrator_enabled": orchestrator_wrapper is not None
+        "s1_system": True
     }
     
     if "results" in result and "commands" in result["results"]:
@@ -738,40 +677,23 @@ def handle_character_create():
         return jsonify({"error": "Failed to create character", "details": str(e)}), 500
 
 
-def start_orchestrator_async():
-    """Start the orchestrator background processing - UPDATED TO PREVENT COMPETING LLM PROCESSES"""
-    if orchestrator_wrapper:
-        try:
-            # NEW: Use the improved method that prevents duplicate LLM calls
-            orchestrator_wrapper.start_background_processing()
-            app.logger.info("✅ Orchestrator wrapper started (background processing disabled)")
-            app.logger.info("📌 Reactive API routes active - autonomous mode via direct API calls only")
-            
-            # Keep thread alive to maintain API routes but no competing background processing
-            import time
-            while True:
-                time.sleep(10)  # Simple keepalive, no processing
-                
-        except Exception as e:
-            print(f"❌ Orchestrator wrapper error: {e}")
-    else:
-        print("⚠️ No orchestrator wrapper available")
+def s1_keepalive():
+    """Simple keepalive for S1 system - no background processing needed"""
+    app.logger.info("✅ S1 system keepalive started")
+    app.logger.info("📌 S1 avatar ready for stimuli from S2 system")
+    
+    # Simple keepalive loop
+    import time
+    while True:
+        time.sleep(30)  # S1 system keepalive
 
 
 def cleanup_resources():
-    global system_objects, orchestrator_wrapper
+    global system_objects
     
-    print("Cleaning up resources...")
+    print("Cleaning up S1 system resources...")
     
-    # Stop orchestrator first
-    if orchestrator_wrapper:
-        print("Stopping autonomous orchestrator...")
-        try:
-            asyncio.run(orchestrator_wrapper.stop_orchestrator())
-        except Exception as e:
-            print(f"Warning: Error stopping orchestrator: {e}")
-    
-    # Clean up original system objects
+    # Clean up system objects
     if system_objects:
         system_objects['chunk_queue'].join()
         system_objects['chunk_queue'].put(None)
@@ -785,7 +707,7 @@ def cleanup_resources():
         if system_objects.get('socket_connection'):
             system_objects['socket_connection'].close()
     
-    print("Resources cleaned up.")
+    print("S1 system resources cleaned up.")
 
 
 if __name__ == "__main__":
@@ -795,18 +717,18 @@ if __name__ == "__main__":
         # Initialize core system
         main_setup()
         
-        # Initialize orchestration
-        orchestrator_wrapper = setup_orchestration()
+        # Initialize S1 system
+        s1_initialized = setup_s1_system()
         
-        # Start orchestrator in background thread if enabled
-        if orchestrator_wrapper:
-            orchestrator_thread = threading.Thread(
-                target=start_orchestrator_async, 
+        # Start S1 keepalive thread
+        if s1_initialized:
+            s1_thread = threading.Thread(
+                target=s1_keepalive, 
                 daemon=True,
-                name="AutonomousOrchestrator"
+                name="S1Keepalive"
             )
-            orchestrator_thread.start()
-            print("🚀 Autonomous orchestrator thread started!")
+            s1_thread.start()
+            print("🚀 S1 system keepalive thread started!")
         
         # Configure Flask logging
         handler = logging.StreamHandler(sys.stdout)
@@ -820,13 +742,13 @@ if __name__ == "__main__":
         flask_port = int(os.getenv("PLAYER_PORT", "5001"))
         app.logger.info(f"🌐 Starting NeuroSync Player Orchestrated HTTP server on port {flask_port}...")
         
-        print("🎭 AUTONOMOUS VTUBER SYSTEM READY!")
+        print("🎭 S1 AVATAR SYSTEM READY!")
         print("=" * 70)
         print("📡 HTTP API Endpoints:")
-        print("   /process_text - Process text input (with autonomous decisions)")
-        print("   /game_control - Control game environment (with autonomous decisions)")
-        print("   /orchestrator/status - Get orchestrator status")
-        print("   /orchestrator/control - Manual orchestrator control")
+        print("   /process_text - Process text input (stimuli-driven)")
+        print("   /game_control - Control game environment (stimuli-driven)")
+        print("   /health - System health status")
+        print("   /character/* - Character management endpoints")
         print("=" * 70)
         
         app.run(host='0.0.0.0', port=flask_port, debug=False)
