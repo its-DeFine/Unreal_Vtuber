@@ -72,7 +72,6 @@ The pytest configuration has been updated to work from the consolidated location
 
 Some tests may have import issues that need manual fixing:
 - GraphFlow tests importing from `src.*` paths
-- System2 integration tests with relative imports
 - Context service tests with path dependencies
 
 ## Running Tests

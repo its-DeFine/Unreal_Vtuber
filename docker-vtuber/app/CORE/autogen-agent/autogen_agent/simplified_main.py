@@ -178,7 +178,7 @@ async def startup_tasks():
             neo4j_password = os.getenv("NEO4J_PASSWORD", "password123")
             
             global_neo4j_client = Neo4jSemanticStorage(neo4j_uri, neo4j_user, neo4j_password)
-            await global_neo4j_client.initialize()
+            # No need to call initialize - constructor handles connection
             logging.info("✅ [STARTUP] Neo4j client initialized")
         except Exception as e:
             logging.warning(f"⚠️ [STARTUP] Neo4j client initialization failed: {e}")
@@ -231,7 +231,14 @@ async def shutdown_tasks():
     
     # Close Neo4j connection
     if global_neo4j_client:
-        await global_neo4j_client.close()
+        try:
+            # Neo4j client may not have async close method
+            if hasattr(global_neo4j_client, 'close'):
+                await global_neo4j_client.close()
+            elif hasattr(global_neo4j_client, '_driver') and global_neo4j_client._driver:
+                global_neo4j_client._driver.close()
+        except Exception as e:
+            logging.warning(f"Warning closing Neo4j: {e}")
     
     logging.info("👋 [SHUTDOWN] Shutdown complete")
 

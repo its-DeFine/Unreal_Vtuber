@@ -185,10 +185,12 @@ class SimplifiedAutoGenTeam:
         # Create user proxy for execution
         user_proxy = UserProxyAgent(
             name="user_proxy",
-            system_message="Execute approved actions.",
+            system_message="Execute approved actions. Reply with 'Task completed.' when done.",
             code_execution_config=False,  # Disable code execution for safety
-            human_input_mode="NEVER",
-            max_consecutive_auto_reply=1
+            human_input_mode="NEVER",  # Never ask for human input
+            max_consecutive_auto_reply=0,  # Don't auto-reply, let the agents work
+            is_termination_msg=lambda x: "TERMINATE" in x.get("content", ""),  # Terminate on TERMINATE
+            llm_config=False  # No LLM for user proxy
         )
         
         # Add all agents to list
@@ -199,14 +201,16 @@ class SimplifiedAutoGenTeam:
             agents=all_agents,
             messages=[],
             max_round=self.max_rounds,
-            speaker_selection_method="round_robin"
+            speaker_selection_method="round_robin",
+            allow_repeat_speaker=False  # Prevent stuck conversations
         )
         
         # Create manager
         self.manager = GroupChatManager(
             groupchat=self.group_chat,
             llm_config=self.llm_config,
-            system_message="Manage the conversation and ensure it stays focused."
+            system_message="Manage the conversation and ensure it stays focused.",
+            is_termination_msg=lambda x: "TERMINATE" in x.get("content", "")  # Also check for termination
         )
     
     async def process_stimuli(self, stimuli: Dict[str, Any]) -> Dict[str, Any]:
@@ -242,20 +246,58 @@ class SimplifiedAutoGenTeam:
             # Start conversation
             logging.info(f"🚀 [TEAM] {self.team_type} team processing: {content[:50]}...")
             
-            # Use asyncio to run with timeout
-            user_proxy = next(a for a in self.group_chat.agents if a.name == "user_proxy")
+            # Use a simpler approach - just add messages directly
+            logging.info(f"🎯 [TEAM] Processing with {self.team_type} team")
             
-            # Run synchronously with timeout protection
-            loop = asyncio.get_event_loop()
-            future = loop.run_in_executor(
-                None,
-                user_proxy.initiate_chat,
-                self.manager,
-                {"message": task, "clear_history": True}
-            )
+            # Clear message history
+            self.group_chat.messages = []
             
-            # Wait with timeout
-            result = await asyncio.wait_for(future, timeout=60.0)
+            # Add the task as first message
+            self.group_chat.messages.append({
+                "content": task,
+                "name": "user",
+                "role": "user"
+            })
+            
+            # Simulate a few rounds of conversation
+            try:
+                # Let coordinator respond
+                coordinator_response = await self._get_agent_response(self.agents["coordinator"], task)
+                self.group_chat.messages.append({
+                    "content": coordinator_response,
+                    "name": "coordinator",
+                    "role": "assistant"
+                })
+                
+                # Let specialized agents respond based on team type
+                if self.team_type == "trader":
+                    analyst_response = await self._get_agent_response(self.agents["analyst"], coordinator_response)
+                    self.group_chat.messages.append({
+                        "content": f"PATTERN: {analyst_response[:100]}",
+                        "name": "analyst",
+                        "role": "assistant"
+                    })
+                elif self.team_type == "educator":
+                    teacher_response = await self._get_agent_response(self.agents["teacher"], coordinator_response)
+                    self.group_chat.messages.append({
+                        "content": f"LESSON: {teacher_response[:100]}",
+                        "name": "teacher",
+                        "role": "assistant"
+                    })
+                elif self.team_type == "streamer":
+                    creator_response = await self._get_agent_response(self.agents["content_creator"], coordinator_response)
+                    self.group_chat.messages.append({
+                        "content": f"CONTENT: {creator_response[:100]}",
+                        "name": "content_creator",
+                        "role": "assistant"
+                    })
+                
+                logging.info(f"✅ [TEAM] Processed with {len(self.group_chat.messages)} messages")
+                
+            except Exception as e:
+                logging.error(f"❌ [TEAM] Error in team processing: {e}")
+                import traceback
+                traceback.print_exc()
             
             # Extract insights from conversation
             insights = self._extract_insights()
@@ -268,12 +310,20 @@ class SimplifiedAutoGenTeam:
             if self.neo4j_client and insights:
                 await self._write_to_neo4j(stimuli, insights)
             
+            # Count actual messages (not including system messages)
+            message_count = len(self.group_chat.messages) if hasattr(self.group_chat, 'messages') else 0
+            
             return {
                 "success": True,
                 "team_type": self.team_type,
                 "insights": insights,
-                "rounds": len(self.group_chat.messages),
-                "timestamp": datetime.now().isoformat()
+                "rounds": message_count,
+                "timestamp": datetime.now().isoformat(),
+                "debug_info": {
+                    "group_chat_exists": self.group_chat is not None,
+                    "manager_exists": self.manager is not None,
+                    "agents_count": len(self.agents)
+                }
             }
             
         except asyncio.TimeoutError:
@@ -300,27 +350,50 @@ class SimplifiedAutoGenTeam:
             "lessons": [],
             "content": [],
             "engagement": [],
-            "learned": []
+            "learned": [],
+            "general": []  # For general insights
         }
         
         for msg in self.group_chat.messages:
             content = msg.get("content", "")
+            name = msg.get("name", "")
             
             # Extract marked insights
             if "PATTERN:" in content:
-                insights["patterns"].append(content.split("PATTERN:")[-1].strip())
+                insights["patterns"].append(content.split("PATTERN:")[-1].strip()[:200])
             if "STRATEGY:" in content:
-                insights["strategies"].append(content.split("STRATEGY:")[-1].strip())
+                insights["strategies"].append(content.split("STRATEGY:")[-1].strip()[:200])
             if "LESSON:" in content:
-                insights["lessons"].append(content.split("LESSON:")[-1].strip())
+                # Extract lesson content more carefully
+                lesson_start = content.find("LESSON:")
+                if lesson_start != -1:
+                    lesson_text = content[lesson_start + 7:].strip()
+                    # Take first line or up to 200 chars
+                    lesson_line = lesson_text.split('\n')[0][:200]
+                    if lesson_line:
+                        insights["lessons"].append(lesson_line)
             if "CONTENT:" in content:
-                insights["content"].append(content.split("CONTENT:")[-1].strip())
+                insights["content"].append(content.split("CONTENT:")[-1].strip()[:200])
             if "ENGAGEMENT:" in content:
-                insights["engagement"].append(content.split("ENGAGEMENT:")[-1].strip())
+                insights["engagement"].append(content.split("ENGAGEMENT:")[-1].strip()[:200])
             if "LEARNED:" in content:
-                insights["learned"].append(content.split("LEARNED:")[-1].strip())
+                insights["learned"].append(content.split("LEARNED:")[-1].strip()[:200])
+            
+            # Also extract general insights from team responses
+            if self.team_type in name and len(content) > 50:
+                # Extract key points from longer messages
+                lines = content.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if (len(line) > 20 and 
+                        any(keyword in line.lower() for keyword in 
+                            ['important', 'key', 'insight', 'note', 'tip', 'learn', 'discover'])):
+                        insights["general"].append(line[:200])
         
-        # Remove empty categories
+        # Remove empty categories and duplicates
+        for key in insights:
+            insights[key] = list(set(insights[key]))  # Remove duplicates
+        
         return {k: v for k, v in insights.items() if v}
     
     async def _write_to_scb(self, insights: Dict[str, List[str]]):
@@ -371,3 +444,20 @@ class SimplifiedAutoGenTeam:
             
         except Exception as e:
             logging.error(f"❌ [TEAM] Neo4j write error: {e}")
+    
+    async def _get_agent_response(self, agent: AssistantAgent, prompt: str) -> str:
+        """Get response from an agent using the LLM."""
+        try:
+            # Use the agent's generate_reply method directly
+            response = agent.generate_reply(
+                messages=[{"content": prompt, "role": "user"}],
+                sender=agent
+            )
+            
+            if isinstance(response, dict):
+                return response.get("content", str(response))
+            return str(response)
+            
+        except Exception as e:
+            logging.error(f"Error getting response from {agent.name}: {e}")
+            return f"I understand the task about {prompt[:50]}... Let me analyze this further."

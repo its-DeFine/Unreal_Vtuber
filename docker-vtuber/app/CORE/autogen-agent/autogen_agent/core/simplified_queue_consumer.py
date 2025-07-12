@@ -69,18 +69,25 @@ class SimplifiedQueueConsumer:
         # Create teams for each type
         for team_type in ["trader", "educator", "streamer"]:
             try:
+                logging.info(f"🔨 [QUEUE] Creating {team_type} team...")
                 team = SimplifiedAutoGenTeam(team_type, llm_config)
                 team.set_clients(scb_client, neo4j_client)
                 
                 if team.create_team():
                     self.teams[team_type] = team
-                    logging.info(f"✅ [QUEUE] Created {team_type} team")
+                    logging.info(f"✅ [QUEUE] Created {team_type} team successfully")
                 else:
                     logging.error(f"❌ [QUEUE] Failed to create {team_type} team")
                     
+            except EOFError as e:
+                logging.error(f"❌ [QUEUE] EOF Error creating {team_type} team - this usually means AutoGen is trying to read input: {e}")
+                # Try to continue with other teams
             except Exception as e:
                 logging.error(f"❌ [QUEUE] Error creating {team_type} team: {e}")
+                import traceback
+                traceback.print_exc()
         
+        logging.info(f"📊 [QUEUE] Successfully created {len(self.teams)} teams: {list(self.teams.keys())}")
         return len(self.teams) > 0
     
     async def start(self):
