@@ -116,12 +116,12 @@ class CoreConfig(BaseSettings):
     environment: str = "development"
     
     # Service configuration
-    queue: QueueConfig = field(default_factory=QueueConfig)
-    database: DatabaseConfig = field(default_factory=DatabaseConfig)
-    scb: SCBConfig = field(default_factory=SCBConfig)
-    autogen: AutoGenConfig = field(default_factory=AutoGenConfig)
-    monitoring: MonitoringConfig = field(default_factory=MonitoringConfig)
-    security: SecurityConfig = field(default_factory=SecurityConfig)
+    queue: QueueConfig = Field(default_factory=QueueConfig)
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    scb: SCBConfig = Field(default_factory=SCBConfig)
+    autogen: AutoGenConfig = Field(default_factory=AutoGenConfig)
+    monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
     
     # API configuration
     api_host: str = "0.0.0.0"
@@ -133,10 +133,11 @@ class CoreConfig(BaseSettings):
     log_dir: Path = Path("/tmp/core_logs")
     config_dir: Path = Path("/etc/core")
     
-    class Config:
-        env_prefix = "CORE_"
-        env_nested_delimiter = "__"
-        case_sensitive = False
+    model_config = {
+        "env_prefix": "CORE_",
+        "env_nested_delimiter": "__",
+        "case_sensitive": False
+    }
         
     @validator('data_dir', 'log_dir', 'config_dir', pre=True)
     def ensure_path_object(cls, v):

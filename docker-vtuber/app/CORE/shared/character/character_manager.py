@@ -24,7 +24,7 @@ from ..queue import QueueService
 logger = logging.getLogger(__name__)
 
 
-class CharacterState(str, Enum):
+class CharacterOperationalState(str, Enum):
     """Character operational states"""
     INACTIVE = "inactive"
     IDLE = "idle"
@@ -68,10 +68,10 @@ class CharacterProfile:
 
 
 @dataclass
-class CharacterState:
+class CharacterRuntimeState:
     """Real-time character state"""
     character_id: str
-    current_state: CharacterState
+    current_state: CharacterOperationalState
     last_activity: datetime
     current_mission: Optional[str]
     active_sessions: Set[str]
@@ -134,7 +134,7 @@ class CharacterManager(ServiceLifecycle):
         
         # Character data
         self.profiles: Dict[str, CharacterProfile] = {}
-        self.states: Dict[str, CharacterState] = {}
+        self.states: Dict[str, CharacterRuntimeState] = {}
         self.mission_templates: Dict[str, MissionTemplate] = {}
         
         # Synchronization
@@ -214,9 +214,9 @@ class CharacterManager(ServiceLifecycle):
         )
         
         # Create initial state
-        state = CharacterState(
+        state = CharacterRuntimeState(
             character_id=character_id,
-            current_state=CharacterState.IDLE,
+            current_state=CharacterOperationalState.IDLE,
             last_activity=datetime.now(),
             current_mission=None,
             active_sessions=set(),
@@ -239,7 +239,7 @@ class CharacterManager(ServiceLifecycle):
         return self.profiles.get(character_id)
     
     @handle_errors(operation="get_character_state", component="character_manager")
-    async def get_character_state(self, character_id: str) -> Optional[CharacterState]:
+    async def get_character_state(self, character_id: str) -> Optional[CharacterRuntimeState]:
         """Get character state"""
         return self.states.get(character_id)
     
@@ -247,7 +247,7 @@ class CharacterManager(ServiceLifecycle):
     async def update_character_state(
         self,
         character_id: str,
-        state: CharacterState = None,
+        state: CharacterOperationalState = None,
         current_mission: str = None,
         add_session: str = None,
         remove_session: str = None,
@@ -284,7 +284,7 @@ class CharacterManager(ServiceLifecycle):
                 char_state.error_count += 1
                 char_state.last_error = error_message
                 if char_state.error_count > 5:  # Too many errors
-                    char_state.current_state = CharacterState.ERROR
+                    char_state.current_state = CharacterOperationalState.ERROR
             
             char_state.last_activity = datetime.now()
         
@@ -323,7 +323,7 @@ class CharacterManager(ServiceLifecycle):
         # Update character state
         await self.update_character_state(
             character_id=character_id,
-            state=CharacterState.BUSY,
+            state=CharacterOperationalState.BUSY,
             current_mission=mission_id,
             add_session=session_id
         )
@@ -383,7 +383,7 @@ class CharacterManager(ServiceLifecycle):
         # Update state
         await self.update_character_state(
             character_id=character_id,
-            state=CharacterState.IDLE,
+            state=CharacterOperationalState.IDLE,
             current_mission=None,
             remove_session=session_id,
             performance_metrics=performance_update
@@ -406,7 +406,7 @@ class CharacterManager(ServiceLifecycle):
             state = self.states.get(character_id)
             
             # Check availability
-            if not state or state.current_state not in [CharacterState.IDLE]:
+            if not state or state.current_state not in [CharacterOperationalState.IDLE]:
                 continue
             
             # Check mission type
@@ -549,7 +549,7 @@ class CharacterManager(ServiceLifecycle):
         total_characters = len(self.profiles)
         
         state_counts = {}
-        for state in CharacterState:
+        for state in CharacterOperationalState:
             state_counts[state.value] = sum(
                 1 for s in self.states.values() 
                 if s.current_state == state
