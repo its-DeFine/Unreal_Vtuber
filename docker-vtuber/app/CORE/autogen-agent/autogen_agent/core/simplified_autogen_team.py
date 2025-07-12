@@ -408,7 +408,8 @@ class SimplifiedAutoGenTeam:
                 "timestamp": datetime.now().isoformat()
             }
             
-            await self.scb_client.write("s2_team_insights", scb_data)
+            # Use set_state for SCB client (not write)
+            self.scb_client.set_state("s2_team_insights", scb_data)
             logging.info(f"✅ [TEAM] Wrote insights to SCB")
             
         except Exception as e:
