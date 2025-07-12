@@ -14,7 +14,8 @@ from typing import Dict, Any, Optional, Union, List
 from dataclasses import dataclass, field
 from enum import Enum
 import redis
-from pydantic import BaseSettings, validator
+from pydantic import Field, validator
+from pydantic_settings import BaseSettings
 
 
 class SystemMode(str, Enum):
