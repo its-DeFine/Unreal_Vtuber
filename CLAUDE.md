@@ -1,3 +1,4 @@
 - we are only putting scripts, tests and docs in the root of the repository, and nowhere else. We are always carefull to categorize them properly in their relevant subfolders after we create them. 
 - always use unified cluster for docker compose or when you create and add different containers, only if you are specifically prompted to do otherwise you should create a container under a new cluster.
-- If we crreate a doc we always put the day and time of it's creation and if we updated it we mention that we updated it and then we mention the time and date of the update as well
+- If we crreate a doc we always put the day and time of it's creation and if we updated it we mention that we updated it and then we mention the time and date of the update as well.
+
