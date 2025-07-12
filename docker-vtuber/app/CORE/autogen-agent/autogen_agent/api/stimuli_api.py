@@ -140,14 +140,18 @@ def setup_stimuli_api(app: FastAPI, orchestrator: S2QueueOrchestrator):
         
         try:
             # Get consolidation system status including admin operations
-            consolidation_status = global_orchestrator.consolidator.get_status() if global_orchestrator.consolidator else {}
+            consolidation_status = {}
+            if hasattr(global_orchestrator, 'consolidator') and global_orchestrator.consolidator:
+                consolidation_status = global_orchestrator.consolidator.get_status()
+            else:
+                consolidation_status = {"status": "not_available", "message": "Consolidator not initialized"}
             
             # Get character system status from S1
             import aiohttp
             s1_characters = {}
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get("http://neurosync:5001/character/list") as response:
+                    async with session.get("http://neurosync_s1:5001/character/list") as response:
                         if response.status == 200:
                             s1_characters = await response.json()
             except Exception as e:
@@ -253,6 +257,83 @@ def setup_stimuli_api(app: FastAPI, orchestrator: S2QueueOrchestrator):
             raise HTTPException(
                 status_code=500, 
                 detail=f"Error resuming autonomous mode: {str(e)}"
+            )
+    
+    @app.get("/api/queue/health")
+    async def get_queue_health():
+        """
+        Get detailed health information about the queue consumer task.
+        """
+        from ..core.simplified_queue_consumer import get_queue_consumer
+        
+        queue_consumer = get_queue_consumer()
+        if not queue_consumer:
+            raise HTTPException(
+                status_code=503,
+                detail="Queue consumer not initialized"
+            )
+        
+        try:
+            health_info = queue_consumer.get_task_health()
+            
+            # Add overall health assessment
+            overall_health = "healthy"
+            if not health_info["consumer_running"]:
+                overall_health = "stopped"
+            elif health_info["task_status"] == "failed":
+                overall_health = "failed"
+            elif health_info["task_status"] in ["completed", "cancelled", "not_created"]:
+                overall_health = "unhealthy"
+            elif health_info["teams_count"] == 0:
+                overall_health = "degraded"
+            
+            health_info["overall_health"] = overall_health
+            health_info["timestamp"] = datetime.now().isoformat()
+            
+            return health_info
+            
+        except Exception as e:
+            logging.error(f"❌ [STIMULI_API] Error getting queue health: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error getting queue health: {str(e)}"
+            )
+    
+    @app.post("/api/queue/restart")
+    async def restart_queue_processing():
+        """
+        Restart the queue processing task if it's not running properly.
+        """
+        from ..core.simplified_queue_consumer import get_queue_consumer
+        
+        queue_consumer = get_queue_consumer()
+        if not queue_consumer:
+            raise HTTPException(
+                status_code=503,
+                detail="Queue consumer not initialized"
+            )
+        
+        try:
+            logging.info("🔄 [STIMULI_API] Manual queue restart requested")
+            success = await queue_consumer.restart_processing_task()
+            
+            if success:
+                return {
+                    "success": True,
+                    "message": "Queue processing task restarted successfully",
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to restart queue processing task"
+                )
+                
+        except Exception as e:
+            logging.error(f"❌ [STIMULI_API] Error restarting queue: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error restarting queue: {str(e)}"
             )
     
     @app.get("/api/stimuli/tools")

@@ -85,9 +85,9 @@ class S2QueueOrchestrator:
             character_id = None
             if self.character_state_manager:
                 try:
-                    current_char = await self.character_state_manager.get_current_character()
+                    current_char = self.character_state_manager.get_current_character()
                     if current_char:
-                        character_id = current_char.get("id")
+                        character_id = getattr(current_char, 'id', None) or current_char.get("id", None) if hasattr(current_char, 'get') else None
                 except Exception as e:
                     logging.warning(f"Could not get current character: {e}")
             

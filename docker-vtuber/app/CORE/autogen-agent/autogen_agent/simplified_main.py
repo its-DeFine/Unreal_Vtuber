@@ -35,21 +35,59 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+# Add startup logging immediately
+print("🔥 [MODULE] simplified_main.py loaded")
+logging.info("🔥 [MODULE] simplified_main.py logging initialized")
+
 # Global instances
 global_orchestrator = None
 global_queue_consumer = None
 global_scb_client = None
 global_neo4j_client = None
 
+# Track if we've done manual startup
+_manual_startup_done = False
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan manager for startup/shutdown."""
+    
+    global _manual_startup_done
+    
+    print("🔄 [LIFESPAN] Starting FastAPI application...")
+    logging.info("🔄 [LIFESPAN] Starting FastAPI application...")
+    
     # Startup
-    await startup_tasks()
+    try:
+        if not _manual_startup_done:
+            print("🚀 [LIFESPAN] Running startup tasks...")
+            logging.info("🚀 [LIFESPAN] Running startup tasks...")
+            await startup_tasks()
+            _manual_startup_done = True
+            print("✅ [LIFESPAN] Startup tasks completed")
+            logging.info("✅ [LIFESPAN] Startup tasks completed")
+        else:
+            print("⏭️ [LIFESPAN] Startup already done")
+            logging.info("⏭️ [LIFESPAN] Startup already done")
+    except Exception as e:
+        print(f"❌ [LIFESPAN] Startup failed: {e}")
+        logging.error(f"❌ [LIFESPAN] Startup failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+    
     yield
+    
     # Shutdown
-    await shutdown_tasks()
+    try:
+        print("🛑 [LIFESPAN] Running shutdown tasks...")
+        await shutdown_tasks()
+        print("✅ [LIFESPAN] Shutdown tasks completed")
+        logging.info("✅ [LIFESPAN] Shutdown tasks completed")
+    except Exception as e:
+        print(f"❌ [LIFESPAN] Shutdown failed: {e}")
+        logging.error(f"❌ [LIFESPAN] Shutdown failed: {e}")
 
 
 # Create FastAPI app
@@ -344,6 +382,55 @@ def get_llm_config():
         }
 
 
+print(f"🔍 [MODULE] __name__ = {__name__}")
+
 if __name__ == "__main__":
+    print("🚀 [MAIN] __main__ block entered!")
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import asyncio
+    
+    # Add startup logging
+    print("🚀 [MAIN] Starting S2 AutoGen Agent...")
+    logging.info("🚀 [MAIN] Starting S2 AutoGen Agent...")
+    
+    # Try manual startup first to debug
+    async def manual_startup_test():
+        try:
+            print("🔍 [DEBUG] Testing manual startup...")
+            logging.info("🔍 [DEBUG] Testing manual startup...")
+            await startup_tasks()
+            print("✅ [DEBUG] Manual startup completed")
+            logging.info("✅ [DEBUG] Manual startup completed")
+            return True
+        except Exception as e:
+            print(f"❌ [DEBUG] Manual startup failed: {e}")
+            logging.error(f"❌ [DEBUG] Manual startup failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    # Test startup manually first
+    try:
+        print("🧪 [MAIN] Running manual startup test...")
+        result = asyncio.run(manual_startup_test())
+        if result:
+            print("✅ [MAIN] Manual startup test passed")
+            logging.info("✅ [MAIN] Manual startup test passed")
+        else:
+            print("❌ [MAIN] Manual startup test failed")
+            logging.error("❌ [MAIN] Manual startup test failed")
+    except Exception as e:
+        print(f"❌ [MAIN] Could not run manual startup test: {e}")
+        logging.error(f"❌ [MAIN] Could not run manual startup test: {e}")
+    
+    # Run with proper lifespan support
+    print("🌐 [MAIN] Starting uvicorn server...")
+    uvicorn.run(
+        app,  # Use the app directly since we're in the same module
+        host="0.0.0.0", 
+        port=8000,
+        reload=False,
+        log_level="info"
+    )
+else:
+    print("🔄 [MODULE] Not running as main, module imported")
