@@ -45,6 +45,7 @@ services:
     volumes:
       - ./app/CORE/graphflow-stimuli-system/config:/app/config
       - ./app/CORE/graphflow-stimuli-system/logs:/app/logs
+      - s2_queue_volume:/tmp/s2_queue
     depends_on:
       - redis
       - autogen_postgres
@@ -119,6 +120,7 @@ services:
     container_name: autogen_agent
     volumes:
       - ./app/CORE/autogen-agent/autogen_agent:/app/autogen_agent
+      - s2_queue_volume:/tmp/s2_queue
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@autogen_postgres:5432/autonomous_agent
       - USE_COGNITIVE_ENHANCEMENT=true
@@ -178,7 +180,8 @@ services:
       
       # S2 Teams Configuration
       - USE_S2_TEAMS=true
-      - S2_QUEUE_FILE=/tmp/s2_processing_queue.json
+      - S2_QUEUE_FILE=/tmp/s2_queue/s2_processing_queue.json
+      - S2_PROCESSED_FILE=/tmp/s2_queue/s2_processed_stimuli.json
       - S2_POLL_INTERVAL=5
       - S2_EXECUTION_INTERVAL=60
     env_file:
@@ -387,6 +390,8 @@ volumes:
   neo4j_data:
     driver: local
   neo4j_logs:
+    driver: local
+  s2_queue_volume:
     driver: local
   neo4j_import:
     driver: local

@@ -306,24 +306,88 @@ class StimuliResponsiveOrchestrator:
         try:
             logging.info(f"🔗 [STIMULI_ORCHESTRATOR] Processing stimuli with consolidation: {stimuli_request.stimuli_id}")
             
-            # Register S2 discussion with capacity monitor if this goes to S2
-            if self.capacity_monitor:
-                discussion_id = f"stimuli_{stimuli_request.stimuli_id}"
-                self.capacity_monitor.register_s2_discussion_start(discussion_id)
+            # Check if USE_S2_TEAMS is enabled - if so, just queue and let queue consumer handle it
+            use_s2_teams = os.getenv("USE_S2_TEAMS", "false").lower() == "true"
             
-            # Add stimuli to consolidator
-            stimuli_id = await self.consolidator.add_stimuli(stimuli_data)
+            if use_s2_teams:
+                # For S2 teams mode, bypass consolidator and write directly to queue
+                # This ensures the queue consumer picks it up with proper character context
+                logging.info(f"📝 [STIMULI_ORCHESTRATOR] S2 teams mode - queueing stimuli directly")
+                
+                # Get current character ID for S2 processing
+                character_id = None
+                try:
+                    from ..services.character_state_manager import get_character_state_manager
+                    char_manager = get_character_state_manager()
+                    if char_manager:
+                        current_char = await char_manager.get_current_character()
+                        if current_char:
+                            character_id = current_char.get("id")
+                except Exception as e:
+                    logging.warning(f"⚠️ [STIMULI_ORCHESTRATOR] Could not get character ID: {e}")
+                
+                # Add character_id to metadata
+                if character_id:
+                    stimuli_data["metadata"] = stimuli_data.get("metadata", {})
+                    stimuli_data["metadata"]["character_id"] = character_id
+                
+                # Write directly to S2 queue file
+                s2_queue_file = os.getenv("S2_QUEUE_FILE", "/tmp/s2_processing_queue.json")
+                try:
+                    existing_queue = []
+                    if os.path.exists(s2_queue_file):
+                        with open(s2_queue_file, 'r') as f:
+                            existing_queue = json.load(f)
+                    
+                    # Add new stimuli to queue
+                    queue_entry = {
+                        "prompt": stimuli_data.get("content", ""),
+                        "timestamp": datetime.now().isoformat(),
+                        "source": stimuli_data.get("source", "orchestrator"),
+                        "processing_mode": "s2_only",
+                        "metadata": stimuli_data.get("metadata", {})
+                    }
+                    existing_queue.append(queue_entry)
+                    
+                    # Write back to queue
+                    with open(s2_queue_file, 'w') as f:
+                        json.dump(existing_queue, f, indent=2)
+                    
+                    logging.info(f"✅ [STIMULI_ORCHESTRATOR] Stimuli queued for S2 processing with character_id: {character_id}")
+                    
+                    return StimuliResponse(
+                        stimuli_id=stimuli_request.stimuli_id,
+                        success=True,
+                        processing_time=time.time() - start_time,
+                        tools_triggered=["s2_queue"],
+                        agent_decision="Stimuli queued for S2 specialized team processing",
+                        response_content=f"Stimuli queued for S2 team (character: {character_id or 'default'})"
+                    )
+                    
+                except Exception as e:
+                    logging.error(f"❌ [STIMULI_ORCHESTRATOR] Error writing to S2 queue: {e}")
+                    raise
             
-            # For now, return a success response - the consolidator will handle actual processing
-            # In the future, this could wait for batch completion or return immediately
-            return StimuliResponse(
-                stimuli_id=stimuli_request.stimuli_id,
-                success=True,
-                processing_time=time.time() - start_time,
-                tools_triggered=["consolidation_system"],
-                agent_decision="Stimuli added to consolidation queue for intelligent batching",
-                response_content=f"Stimuli {stimuli_id} queued for consolidation processing"
-            )
+            else:
+                # Regular consolidation mode (non-S2 teams)
+                # Register S2 discussion with capacity monitor if this goes to S2
+                if self.capacity_monitor:
+                    discussion_id = f"stimuli_{stimuli_request.stimuli_id}"
+                    self.capacity_monitor.register_s2_discussion_start(discussion_id)
+                
+                # Add stimuli to consolidator
+                stimuli_id = await self.consolidator.add_stimuli(stimuli_data)
+                
+                # For now, return a success response - the consolidator will handle actual processing
+                # In the future, this could wait for batch completion or return immediately
+                return StimuliResponse(
+                    stimuli_id=stimuli_request.stimuli_id,
+                    success=True,
+                    processing_time=time.time() - start_time,
+                    tools_triggered=["consolidation_system"],
+                    agent_decision="Stimuli added to consolidation queue for intelligent batching",
+                    response_content=f"Stimuli {stimuli_id} queued for consolidation processing"
+                )
             
         except Exception as e:
             logging.error(f"❌ [STIMULI_ORCHESTRATOR] Error in consolidation processing: {e}")
@@ -332,8 +396,8 @@ class StimuliResponsiveOrchestrator:
             return await self._process_stimuli_direct(stimuli_request)
         
         finally:
-            # Clean up S2 discussion tracking
-            if self.capacity_monitor:
+            # Clean up S2 discussion tracking (only for non-S2 teams mode)
+            if self.capacity_monitor and not use_s2_teams:
                 discussion_id = f"stimuli_{stimuli_request.stimuli_id}"
                 self.capacity_monitor.register_s2_discussion_end(discussion_id)
     

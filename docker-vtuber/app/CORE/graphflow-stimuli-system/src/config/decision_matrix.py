@@ -214,6 +214,30 @@ class DecisionRulesConfig:
         
         # High priority admin/test overrides
         admin_override_category = RuleCategory("admin_override_rules")
+        
+        # S2-specific routing rules (highest priority in this category)
+        admin_override_category.add_rule(DecisionRule(
+            id="s2_teams_override",
+            condition='metadata.get("target_systems") == ["s2"] or metadata.get("force_s2") == True',
+            decision=ProcessingDecision.ANALYSIS_ONLY,
+            priority=98,
+            description="S2 teams requests go to analysis only"
+        ))
+        admin_override_category.add_rule(DecisionRule(
+            id="s2_character_routing",
+            condition='metadata.get("s2_teams_mode") == True or metadata.get("s2_only") == True',
+            decision=ProcessingDecision.ANALYSIS_ONLY,
+            priority=97,
+            description="S2 character teams routing"
+        ))
+        admin_override_category.add_rule(DecisionRule(
+            id="analysis_request_type",
+            condition='metadata.get("request_type") == "s2_analysis" or metadata.get("processing_mode") == "s2_only"',
+            decision=ProcessingDecision.ANALYSIS_ONLY,
+            priority=96,
+            description="Explicit S2 analysis requests"
+        ))
+        
         admin_override_category.add_rule(DecisionRule(
             id="admin_override_1",
             condition='"test_user" in metadata.get("source", "") or "test_user" in source',
@@ -514,13 +538,14 @@ class DecisionRulesConfig:
         ))
         
         # NUCLEAR OPTION: Force all routing to AVATAR_AND_ANALYSIS for emergency testing
-        default_rules.add_rule(DecisionRule(
-            id="nuclear_speech_override", 
-            condition='True',  # Always matches
-            decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
-            priority=999,  # Highest priority
-            description="NUCLEAR OVERRIDE: Force all stimuli to AVATAR_AND_ANALYSIS for emergency testing"
-        ))
+        # DISABLED for S2 teams functionality
+        # default_rules.add_rule(DecisionRule(
+        #     id="nuclear_speech_override", 
+        #     condition='True',  # Always matches
+        #     decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
+        #     priority=999,  # Highest priority
+        #     description="NUCLEAR OVERRIDE: Force all stimuli to AVATAR_AND_ANALYSIS for emergency testing"
+        # ))
         self.categories["default_rules"] = default_rules
         
     def _load_custom_rules(self) -> None:

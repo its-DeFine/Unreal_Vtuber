@@ -127,6 +127,49 @@ async def submit_stimuli(request: StimuliRequest):
             else:
                 logger.error("❌ Failed to route to both S1 and S2")
                 message = "Failed to route to systems"
+        elif "ANALYSIS_ONLY" in decision_str:
+            # Route to S2 only - write directly to queue file
+            logger.info("📝 Writing to S2 queue for ANALYSIS_ONLY decision")
+            
+            # Create queue entry
+            import json
+            import os
+            
+            queue_entry = {
+                "prompt": stimuli_data["content"],
+                "timestamp": datetime.now().isoformat(),
+                "source": stimuli_data.get("source", "graphflow"),
+                "processing_mode": "s2_only",
+                "metadata": stimuli_data.get("metadata", {})
+            }
+            
+            # Write to shared queue file
+            queue_file = "/tmp/s2_queue/s2_processing_queue.json"
+            try:
+                # Ensure directory exists
+                os.makedirs(os.path.dirname(queue_file), exist_ok=True)
+                
+                # Read existing queue
+                existing_queue = []
+                if os.path.exists(queue_file):
+                    try:
+                        with open(queue_file, 'r') as f:
+                            existing_queue = json.load(f)
+                    except:
+                        existing_queue = []
+                
+                # Add new entry
+                existing_queue.append(queue_entry)
+                
+                # Write back
+                with open(queue_file, 'w') as f:
+                    json.dump(existing_queue, f, indent=2)
+                
+                logger.info(f"✅ S2 queue entry written to {queue_file}")
+                message = "Routed to S2 (AutoGen) queue for specialized team processing"
+            except Exception as e:
+                logger.error(f"❌ Failed to write to queue: {e}")
+                message = f"Failed to write to S2 queue: {str(e)}"
         else:
             logger.info(f"🔄 Decision was {decision_str}, not routing")
             message = f"Decision: {decision_str}"

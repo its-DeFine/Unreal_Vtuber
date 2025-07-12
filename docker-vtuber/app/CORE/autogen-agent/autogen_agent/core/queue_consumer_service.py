@@ -52,11 +52,18 @@ class QueueConsumerService:
     
     def __init__(
         self,
-        queue_file: str = "/tmp/s2_processing_queue.json",
-        processed_file: str = "/tmp/s2_processed_stimuli.json",
+        queue_file: str = None,
+        processed_file: str = None,
         poll_interval: float = 2.0,
         max_retries: int = 3
     ):
+        # Use shared volume path if not specified
+        import os
+        if queue_file is None:
+            queue_file = os.getenv("S2_QUEUE_FILE", "/tmp/s2_queue/s2_processing_queue.json")
+        if processed_file is None:
+            processed_file = os.getenv("S2_PROCESSED_FILE", "/tmp/s2_queue/s2_processed_stimuli.json")
+            
         self.queue_file = Path(queue_file)
         self.processed_file = Path(processed_file)
         self.poll_interval = poll_interval
