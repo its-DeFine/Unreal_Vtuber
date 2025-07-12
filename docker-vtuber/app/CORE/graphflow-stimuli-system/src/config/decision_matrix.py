@@ -218,7 +218,7 @@ class DecisionRulesConfig:
         # S2-specific routing rules (highest priority in this category)
         admin_override_category.add_rule(DecisionRule(
             id="trader_always_s2",
-            condition='metadata.get("character_id", "").lower() in ["trader", "trader_character"] or "trader" in metadata.get("character_type", "").lower()',
+            condition='"trader" in metadata.get("character_id", "").lower() or "trader" in metadata.get("character_type", "").lower() or metadata.get("team_type", "").lower() == "trader"',
             decision=ProcessingDecision.ANALYSIS_ONLY,
             priority=99,
             description="Trader characters ALWAYS go to S2 only, never S1"
@@ -244,40 +244,47 @@ class DecisionRulesConfig:
             priority=96,
             description="Explicit S2 analysis requests"
         ))
+        admin_override_category.add_rule(DecisionRule(
+            id="s2_source_detection",
+            condition='"s2_" in source or "trader" in source or "_teams" in source',
+            decision=ProcessingDecision.ANALYSIS_ONLY,
+            priority=95,
+            description="S2-related source routing"
+        ))
         
         admin_override_category.add_rule(DecisionRule(
             id="admin_override_1",
             condition='"test_user" in metadata.get("source", "") or "test_user" in source',
             decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
-            priority=95,
+            priority=90,
             description="Test requests always trigger avatar and analysis"
         ))
         admin_override_category.add_rule(DecisionRule(
             id="admin_override_2",
             condition='"test_api_key" in metadata.get("auth_key", "")',
             decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
-            priority=94,
+            priority=89,
             description="Requests with test API key trigger avatar and analysis"
         ))
         admin_override_category.add_rule(DecisionRule(
             id="admin_override_3",
-            condition='category == "DIRECT_ADMIN" or priority == "high" or priority == "HIGH"',
+            condition='category == "DIRECT_ADMIN" or (priority == "high" or priority == "HIGH") and "trader" not in metadata.get("character_id", "").lower()',
             decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
-            priority=93,
-            description="Admin requests and high priority always trigger avatar"
+            priority=88,
+            description="Admin requests and high priority always trigger avatar (except trader)"
         ))
         admin_override_category.add_rule(DecisionRule(
             id="admin_override_4",
             condition='metadata.get("force_avatar", False) == True',
             decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
-            priority=92,
+            priority=87,
             description="Force avatar metadata flag overrides other rules"
         ))
         admin_override_category.add_rule(DecisionRule(
             id="admin_override_5",
             condition='any(system in metadata.get("target_systems", []) for system in ["s1", "system1"])',
             decision=ProcessingDecision.AVATAR_AND_ANALYSIS,
-            priority=91,
+            priority=86,
             description="Explicit system1/s1 targeting triggers avatar"
         ))
         self.categories["admin_override_rules"] = admin_override_category

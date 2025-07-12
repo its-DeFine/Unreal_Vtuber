@@ -12,6 +12,7 @@ CRITICAL FIXES:
 """
 
 import os
+import re
 import logging
 from typing import Dict, Any
 from dataclasses import dataclass
@@ -43,7 +44,7 @@ class EmergencyDecisionOverride:
         # Simple keyword mappings for reliable routing
         self.speech_keywords = [
             "speak", "speech", "say", "voice", "audio", "sound", "tell", "announce",
-            "read", "tts", "avatar", "character", "hello", "hi", "respond", "test_message"
+            "read", "tts", "avatar", "hello", "hi", "respond", "test_message"
         ]
         
         self.analysis_keywords = [
@@ -54,6 +55,16 @@ class EmergencyDecisionOverride:
         self.admin_keywords = [
             "admin", "create", "character", "system", "config", "setup", "manage",
             "control", "override", "test_user", "emergency"
+        ]
+        
+        # S2-specific character types that MUST go to S2 only
+        self.s2_only_characters = [
+            "trader", "trader_character", "financial_expert", "market_analyst"
+        ]
+        
+        # S2 team types
+        self.s2_team_types = [
+            "trader", "streamer", "teacher", "researcher", "analyst"
         ]
         
         # Environment variable overrides for forced routing
@@ -71,19 +82,23 @@ class EmergencyDecisionOverride:
         Simple, reliable decision evaluation bypassing complex rules.
         
         ROUTING LOGIC:
-        1. Speech keywords → S1 (AVATAR_AND_ANALYSIS)
-        2. Analysis keywords → S2 (ANALYSIS_ONLY)  
-        3. Admin keywords → S1+S2 (AVATAR_AND_ANALYSIS)
-        4. USER_INTERACTION → S1 (AVATAR_AND_ANALYSIS)
-        5. Fallback → S1 (AVATAR_AND_ANALYSIS) for reliability
+        1. S2-specific characters (trader) → S2 ONLY (ANALYSIS_ONLY)
+        2. Explicit S2 routing metadata → S2 ONLY (ANALYSIS_ONLY)
+        3. Speech keywords → S1 (AVATAR_AND_ANALYSIS)
+        4. Analysis keywords → S2 (ANALYSIS_ONLY)  
+        5. Admin keywords → S1+S2 (AVATAR_AND_ANALYSIS)
+        6. USER_INTERACTION → S1 (AVATAR_AND_ANALYSIS)
+        7. Fallback → S1 (AVATAR_AND_ANALYSIS) for reliability
         """
         try:
             # Extract content for keyword matching
             content = ""
+            metadata = {}
             if isinstance(context, dict):
                 content = context.get('content', '')
-                if 'metadata' in context:
-                    metadata_content = context['metadata'].get('content', '')
+                metadata = context.get('metadata', {})
+                if metadata:
+                    metadata_content = metadata.get('content', '')
                     content = f"{content} {metadata_content}".strip()
                 category = context.get('category', '').upper()
                 priority = context.get('priority', '').lower()
@@ -92,7 +107,8 @@ class EmergencyDecisionOverride:
                 # Handle AnalyzedStimuli object
                 content = getattr(context, 'content', '')
                 if hasattr(context, 'metadata') and context.metadata:
-                    metadata_content = context.metadata.get('content', '')
+                    metadata = context.metadata
+                    metadata_content = metadata.get('content', '')
                     content = f"{content} {metadata_content}".strip()
                 category = getattr(context, 'category', '').upper() if hasattr(context, 'category') else ''
                 if hasattr(context.category, 'value'):
@@ -104,10 +120,48 @@ class EmergencyDecisionOverride:
             
             content_lower = content.lower()
             
-            self.logger.info(f"Emergency override evaluating: category={category}, content='{content[:100]}...', priority={priority}, source={source}")
+            self.logger.info(f"Emergency override evaluating: category={category}, content='{content[:100]}...', priority={priority}, source={source}, metadata={metadata}")
             
-            # EMERGENCY RULES - highest priority
+            # S2-ONLY ROUTING - HIGHEST PRIORITY
+            # Check for S2-specific characters (trader, etc.)
+            character_id = metadata.get('character_id', '').lower()
+            character_type = metadata.get('character_type', '').lower()
+            team_type = metadata.get('team_type', '').lower()
+            processing_mode = metadata.get('processing_mode', '').lower()
+            
+            # Force S2-only routing for specific characters
+            if any(s2_char in character_id for s2_char in self.s2_only_characters):
+                self.logger.info(f"S2-only character detected: {character_id} → ANALYSIS_ONLY")
+                return ProcessingDecision.ANALYSIS_ONLY
+            
+            if any(s2_char in character_type for s2_char in self.s2_only_characters):
+                self.logger.info(f"S2-only character type detected: {character_type} → ANALYSIS_ONLY")
+                return ProcessingDecision.ANALYSIS_ONLY
+            
+            # Check team type
+            if team_type in self.s2_team_types and team_type == "trader":
+                self.logger.info(f"S2 trader team detected: {team_type} → ANALYSIS_ONLY")
+                return ProcessingDecision.ANALYSIS_ONLY
+            
+            # Check explicit S2 routing metadata
+            if processing_mode == "s2_only":
+                self.logger.info("Explicit s2_only processing mode → ANALYSIS_ONLY")
+                return ProcessingDecision.ANALYSIS_ONLY
+            
+            if metadata.get('s2_only') == True or metadata.get('force_s2') == True:
+                self.logger.info("S2-only flag detected → ANALYSIS_ONLY")
+                return ProcessingDecision.ANALYSIS_ONLY
+            
+            if metadata.get('target_systems') == ["s2"]:
+                self.logger.info("Target systems = [s2] → ANALYSIS_ONLY")
+                return ProcessingDecision.ANALYSIS_ONLY
+            
+            # EMERGENCY RULES - high priority
             if priority in ['emergency', 'critical', 'high']:
+                # Check if it's from a trader or S2-specific source
+                if "trader" in source or "s2_" in source:
+                    self.logger.info("Emergency from S2 source → ANALYSIS_ONLY")
+                    return ProcessingDecision.ANALYSIS_ONLY
                 self.logger.info("Emergency/high priority detected → AVATAR_AND_ANALYSIS")
                 return ProcessingDecision.AVATAR_AND_ANALYSIS
             
@@ -119,6 +173,32 @@ class EmergencyDecisionOverride:
                 self.logger.info("Admin request detected → AVATAR_AND_ANALYSIS")
                 return ProcessingDecision.AVATAR_AND_ANALYSIS
             
+            # ANALYSIS-ONLY ROUTING - Check this before speech routing
+            if any(keyword in content_lower for keyword in self.analysis_keywords):
+                # Check if it also has speech keywords (hybrid request)
+                # Use word boundary matching for short words like "hi"
+                has_speech_keyword = False
+                for keyword in self.speech_keywords:
+                    if len(keyword) <= 2:  # Short words like "hi" need word boundaries
+                        if re.search(rf'\b{keyword}\b', content_lower):
+                            has_speech_keyword = True
+                            break
+                    else:
+                        if keyword in content_lower:
+                            has_speech_keyword = True
+                            break
+                
+                if has_speech_keyword:
+                    self.logger.info("Hybrid analysis+speech request → AVATAR_AND_ANALYSIS")
+                    return ProcessingDecision.AVATAR_AND_ANALYSIS
+                # Check if it's a user interaction (usually needs avatar)
+                elif category == "USER_INTERACTION":
+                    self.logger.info("Analysis keywords in user interaction → AVATAR_AND_ANALYSIS")
+                    return ProcessingDecision.AVATAR_AND_ANALYSIS
+                else:
+                    self.logger.info(f"Analysis keywords detected: {[k for k in self.analysis_keywords if k in content_lower]} → ANALYSIS_ONLY")
+                    return ProcessingDecision.ANALYSIS_ONLY
+            
             # SPEECH ROUTING - Force S1 for any speech-related content
             if (self.force_speech_routing and 
                 any(keyword in content_lower for keyword in self.speech_keywords)):
@@ -129,16 +209,6 @@ class EmergencyDecisionOverride:
             if (category == "USER_INTERACTION" and self.force_s1_for_interaction):
                 self.logger.info("User interaction detected with S1 override → AVATAR_AND_ANALYSIS")
                 return ProcessingDecision.AVATAR_AND_ANALYSIS
-            
-            # ANALYSIS-ONLY ROUTING
-            if any(keyword in content_lower for keyword in self.analysis_keywords):
-                # Check if it also has speech keywords (hybrid request)
-                if any(keyword in content_lower for keyword in self.speech_keywords):
-                    self.logger.info("Hybrid analysis+speech request → AVATAR_AND_ANALYSIS")
-                    return ProcessingDecision.AVATAR_AND_ANALYSIS
-                else:
-                    self.logger.info(f"Analysis keywords detected: {[k for k in self.analysis_keywords if k in content_lower]} → ANALYSIS_ONLY")
-                    return ProcessingDecision.ANALYSIS_ONLY
             
             # CONTEXTUAL UPDATES with speech triggers
             if (category == "CONTEXTUAL_UPDATE" and 
@@ -188,7 +258,12 @@ if __name__ == "__main__":
         {"content": "analyze this data", "category": "CONTEXTUAL_UPDATE"},
         {"content": "admin create character", "category": "DIRECT_ADMIN"},
         {"content": "test message with speech", "source": "test_user"},
-        {"content": "emergency help needed", "priority": "emergency"}
+        {"content": "emergency help needed", "priority": "emergency"},
+        {"content": "market analysis", "metadata": {"character_id": "trader"}},
+        {"content": "portfolio update", "metadata": {"character_type": "trader"}},
+        {"content": "analyze Bitcoin", "metadata": {"processing_mode": "s2_only"}},
+        {"content": "teach me Python", "metadata": {"team_type": "teacher"}},
+        {"content": "stream content", "metadata": {"target_systems": ["s2"]}}
     ]
     
     for test in test_cases:
