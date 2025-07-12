@@ -70,6 +70,14 @@ ehthumbs.db
 logs/
 *.log
 
+# Chat logs and conversation history
+chat_logs/
+**/chat_logs/
+chat_history*.json
+**/chat_history*.json
+conversation*.json
+**/conversation*.json
+
 # Test output
 htmlcov/
 .tox/
