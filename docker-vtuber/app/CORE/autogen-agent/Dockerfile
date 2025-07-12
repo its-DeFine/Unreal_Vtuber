@@ -5,4 +5,4 @@ COPY static ./static
 COPY requirements.txt ./requirements.txt
 ENV PIP_DEFAULT_TIMEOUT=1000
 RUN pip install --upgrade pip && pip install --no-cache-dir --timeout 1000 -r requirements.txt
-CMD ["python", "-m", "autogen_agent.main"]
+CMD ["python", "-m", "autogen_agent.simplified_main"]

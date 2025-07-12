@@ -37,9 +37,9 @@ from .mcp_server import AutoGenMcpServer, CursorMcpToolAdapter
 from .core.agent_tool_bridge import AgentToolBridge
 from .utils.statistics_collector import StatisticsCollector
 from .services.conversation_storage_service import ConversationStorageService
-from .services.pattern_storage_service import PatternStorageService
+# PatternStorageService removed for simplification
 from .utils.gpu_monitor import GPUMonitor
-from .core.teachable_agents import create_teachable_agents, get_learning_summary
+# Teachable agents removed for simplification
 from .core.stimuli_orchestrator import StimuliResponsiveOrchestrator
 from .api.stimuli_api import setup_stimuli_api, stimuli_health_check
 from .utils.async_utils import shutdown_async_utils
@@ -208,8 +208,8 @@ async def select_tool_api(request: dict):
 async def create_goal_api(request: dict):
     """Create a SMART goal"""
     try:
-        from autogen_agent.services.goal_management_service import GoalManagementService
-        goal_service = GoalManagementService()
+        # Goal management service removed for simplification
+        goal_service = None
         await goal_service.initialize()  # Initialize the service
         
         goal = await goal_service.create_goal(
@@ -233,8 +233,8 @@ async def create_goal_api(request: dict):
 async def update_goal_progress_api(request: dict):
     """Update goal progress"""
     try:
-        from autogen_agent.services.goal_management_service import GoalManagementService
-        goal_service = GoalManagementService()
+        # Goal management service removed for simplification
+        goal_service = None
         
         progress = await goal_service.update_progress(
             request.get("goal_id"),

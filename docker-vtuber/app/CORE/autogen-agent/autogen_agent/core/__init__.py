@@ -8,7 +8,7 @@ from .stimuli_autogen_team import StimuliAutoGenTeam
 from .cognitive_decision_engine import CognitiveDecisionEngine
 from .persona_aware_tool_registry import PersonaAwareToolRegistry, initialize_persona_tool_registry, get_persona_tool_registry
 from .stimuli_consolidator import StimuliConsolidator, initialize_consolidator, get_consolidator
-from .teachable_agents import create_teachable_agents, get_learning_summary
+# Teachable agents removed for simplification
 
 __all__ = [
     'ToolRegistry',
@@ -25,6 +25,5 @@ __all__ = [
     'StimuliConsolidator',
     'initialize_consolidator',
     'get_consolidator',
-    'create_teachable_agents',
-    'get_learning_summary'
+    # Teachable agents removed
 ]

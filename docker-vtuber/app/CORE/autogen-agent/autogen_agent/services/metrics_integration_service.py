@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 # from ..services.cognee_direct_service import CogneeDirectService  # Replaced by Neo4j
 # from ..services.evolution_service import EvolutionService  # Temporarily disabled
-from autogen_agent.services.goal_management_service import GoalManagementService, get_goal_management_service
+# Goal management service removed for simplification
 
 @dataclass
 class MetricsSnapshot:
@@ -77,7 +77,7 @@ class MetricsIntegrationService:
         """Initialize metrics integration service"""
         try:
             # Get goal management service
-            self.goal_service = await get_goal_management_service()
+            self.goal_service = None  # Goal management removed
             
             # Establish performance baselines
             await self._establish_baselines()

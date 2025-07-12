@@ -118,11 +118,7 @@ class ToolCatalog:
                 "description": "SCB (State Context Bridge) operations",
                 "category": "system"
             },
-            "goal_management_tools": {
-                "module": "autogen_agent.tools.system.goal_management_tools",
-                "description": "Goal tracking and management",
-                "category": "system"
-            },
+            # Removed goal management tools - using simplified system
             "stimuli_action_executor": {
                 "module": "autogen_agent.tools.system.stimuli_action_executor",
                 "description": "Execute stimuli-based actions",

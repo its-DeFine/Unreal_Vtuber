@@ -21,7 +21,7 @@ class CharacterType(Enum):
     TRADER = "trader"
     STREAMER = "streamer"
     TEACHER = "teacher"
-    DEFAULT = "default"
+    # DEFAULT removed - only using 3 specialized teams
 
 
 @dataclass
@@ -102,7 +102,7 @@ class CharacterTeamRegistry:
                     tools=["trading_tool", "order_management_tool", "execution_analytics_tool"]
                 )
             ],
-            shared_tools=["scb_operations_tool", "goal_management_tools"],
+            shared_tools=["scb_operations_tool", "semantic_graph_query_tool"],
             scb_channels=["market_signals", "risk_alerts", "trade_execution"],
             max_rounds=6  # More rounds for complex market analysis
         )
@@ -151,7 +151,7 @@ class CharacterTeamRegistry:
                     tools=["streaming_tool", "analytics_tool", "revenue_tracking_tool"]
                 )
             ],
-            shared_tools=["scb_operations_tool", "goal_management_tools"],
+            shared_tools=["scb_operations_tool", "semantic_graph_query_tool"],
             scb_channels=["content_updates", "community_insights", "performance_metrics"],
             max_rounds=5
         )
@@ -200,65 +200,18 @@ class CharacterTeamRegistry:
                     tools=["learning_tool", "motivation_tool", "communication_tool"]
                 )
             ],
-            shared_tools=["scb_operations_tool", "goal_management_tools"],
+            shared_tools=["scb_operations_tool", "semantic_graph_query_tool"],
             scb_channels=["curriculum_updates", "student_progress", "learning_insights"],
             max_rounds=4
         )
         
-        # DEFAULT/SELF-IMPROVEMENT TEAM CONFIGURATION
-        default_config = CharacterTeamConfig(
-            character_type=CharacterType.DEFAULT,
-            team_name="Autonomous Self-Improvement Collective",
-            description="Meta-team focused on continuous system evolution and optimization",
-            mission="Continuously evolve, optimize, and enhance the entire system architecture",
-            agents=[
-                TeamAgentConfig(
-                    name="system_architect",
-                    role="Principal Systems Architect",
-                    system_message="""You are a Principal Systems Architect responsible for:
-                    - System architecture evolution
-                    - Integration optimization
-                    - Performance bottleneck identification
-                    - Scalability planning
-                    
-                    Design and implement system improvements that enhance overall capability.""",
-                    tools=["core_evolution_tool", "system_analysis_tool", "architecture_tool"]
-                ),
-                TeamAgentConfig(
-                    name="performance_optimizer",
-                    role="Performance Engineering Lead",
-                    system_message="""You are a Performance Engineering Lead focused on:
-                    - Resource optimization
-                    - Latency reduction strategies
-                    - Throughput maximization
-                    - Cost-efficiency improvements
-                    
-                    Optimize system performance across all dimensions.""",
-                    tools=["performance_tool", "resource_monitor_tool", "optimization_tool"]
-                ),
-                TeamAgentConfig(
-                    name="knowledge_curator",
-                    role="Chief Knowledge Officer",
-                    system_message="""You are a Chief Knowledge Officer specializing in:
-                    - Knowledge graph curation
-                    - Learning consolidation
-                    - Pattern recognition
-                    - Insight synthesis
-                    
-                    Curate and synthesize knowledge to enhance system intelligence.""",
-                    tools=["knowledge_tool", "pattern_tool", "synthesis_tool"]
-                )
-            ],
-            shared_tools=["scb_operations_tool", "goal_management_tools", "tool_management"],
-            scb_channels=["system_updates", "performance_metrics", "knowledge_insights"],
-            max_rounds=4
-        )
+        # DEFAULT TEAM REMOVED - Only using 3 specialized teams
         
         # Register all configurations
         self.team_configs[CharacterType.TRADER] = trader_config
         self.team_configs[CharacterType.STREAMER] = streamer_config
         self.team_configs[CharacterType.TEACHER] = teacher_config
-        self.team_configs[CharacterType.DEFAULT] = default_config
+        # Removed default team configuration
         
         logging.info(f"✅ [TEAM_REGISTRY] Initialized {len(self.team_configs)} character team configurations")
     
@@ -290,14 +243,14 @@ class CharacterTeamRegistry:
             "teacher_character": CharacterType.TEACHER,
             "teacher": CharacterType.TEACHER,
             
-            # DEFAULT TEAM - System optimization and general tasks
-            "secretary_template": CharacterType.DEFAULT,
-            "default_character": CharacterType.DEFAULT,
-            "default": CharacterType.DEFAULT
+            # Secretary defaults to teacher for educational support
+            "secretary_template": CharacterType.TEACHER,
+            "default_character": CharacterType.TEACHER,
+            "default": CharacterType.TEACHER
         }
         
-        # Get character type from mapping
-        character_type = character_mapping.get(character_id, CharacterType.DEFAULT)
+        # Get character type from mapping (default to teacher if unknown)
+        character_type = character_mapping.get(character_id, CharacterType.TEACHER)
         
         return self.get_team_config(character_type)
     

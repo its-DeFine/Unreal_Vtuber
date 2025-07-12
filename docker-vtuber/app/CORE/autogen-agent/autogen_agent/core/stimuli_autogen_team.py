@@ -14,7 +14,7 @@ except ImportError:
     AUTOGEN_AVAILABLE = False
     logging.warning("⚠️ [STIMULI_TEAM] Microsoft AutoGen not available - stimuli team disabled")
 
-from .teachable_agents import create_teachable_agents, get_learning_summary
+# Teachable agents removed for simplification
 
 
 class StimuliAutoGenTeam:

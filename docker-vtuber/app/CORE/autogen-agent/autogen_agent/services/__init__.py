@@ -4,9 +4,6 @@ from .character_state_manager import CharacterStateManager, initialize_character
 from .cognitive_memory import CognitiveMemoryManager, MemoryEntry
 from .memory_manager import MemoryManager
 from .conversation_storage_service import ConversationStorageService
-from .pattern_storage_service import PatternStorageService
-# from .evolution_service import EvolutionService  # Temporarily disabled - Cognee dependency
-from .goal_management_service import GoalManagementService
 from .graph_consolidation_service import GraphConsolidationService
 from .graph_export_service import GraphExportService
 from .graph_export_neo4j import GraphExportService as Neo4jGraphExporter
@@ -23,9 +20,10 @@ __all__ = [
     'MemoryEntry',
     'MemoryManager',
     'ConversationStorageService',
-    'PatternStorageService',
-    # 'EvolutionService',  # Temporarily disabled
-    'GoalManagementService',
+    # Services removed for simplification:
+    # 'PatternStorageService',
+    # 'EvolutionService',
+    # 'GoalManagementService',
     'GraphConsolidationService',
     'GraphExportService',
     'Neo4jGraphExporter',

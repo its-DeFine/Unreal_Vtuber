@@ -17,7 +17,7 @@ TEAM_TOOL_MAPPING: Dict[CharacterType, List[str]] = {
         "technical_analysis_tool",
         "trading_tool",
         "scb_operations_tool",
-        "goal_management_tools"
+        "semantic_graph_query_tool"  # For Neo4j queries
     ],
     
     CharacterType.STREAMER: [
@@ -26,7 +26,7 @@ TEAM_TOOL_MAPPING: Dict[CharacterType, List[str]] = {
         "analytics_tool",
         "community_tool",
         "scb_operations_tool",
-        "goal_management_tools"
+        "semantic_graph_query_tool"  # For Neo4j queries
     ],
     
     CharacterType.TEACHER: [
@@ -35,14 +35,12 @@ TEAM_TOOL_MAPPING: Dict[CharacterType, List[str]] = {
         "learning_tool",
         "curriculum_tool",
         "scb_operations_tool", 
-        "goal_management_tools"
+        "semantic_graph_query_tool"  # For Neo4j queries
     ],
     
     CharacterType.DEFAULT: [
-        "core_evolution_tool",
-        "goal_management_tools",
+        # Removed - we don't use default team anymore
         "scb_operations_tool",
-        "tool_management",
         "stimuli_action_executor"
     ]
 }
