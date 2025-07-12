@@ -36,9 +36,19 @@ class SimplifiedQueueConsumer:
         # Team management
         self.teams: Dict[str, SimplifiedAutoGenTeam] = {}
         self.character_mapping = {
+            # Trader characters
             "dr._house_doctor_template": "trader",
+            "gordon_trader_template": "trader", 
+            "marcus_trader_template": "trader",
+            # Educator characters
+            "emma_teacher_template": "educator",
+            "professor_smith_teacher_template": "educator",
+            "sarah_educator_template": "educator",
+            "diana_educator_template": "educator",
+            # Streamer characters
             "weatherman_template": "streamer",
-            "emma_teacher_template": "educator"
+            "alex_streamer_template": "streamer",
+            "mike_streamer_template": "streamer"
         }
         
         # Service state
@@ -93,12 +103,87 @@ class SimplifiedQueueConsumer:
     async def start(self):
         """Start processing queue."""
         if self.running:
-            logging.warning("Queue consumer already running")
+            logging.warning("⚠️ [QUEUE] Queue consumer already running")
             return
         
+        logging.info("🚀 [QUEUE] Starting queue consumer...")
         self.running = True
-        self.processing_task = asyncio.create_task(self._process_loop())
-        logging.info("✅ [QUEUE] Queue consumer started")
+        
+        try:
+            # Start the processing task with proper error handling
+            await self._ensure_processing_task()
+            logging.info("✅ [QUEUE] Queue consumer started successfully")
+                
+        except Exception as e:
+            logging.error(f"❌ [QUEUE] Failed to start queue consumer: {e}")
+            self.running = False
+            raise
+    
+    async def _ensure_processing_task(self):
+        """Ensure the processing task is running and healthy."""
+        
+        # Stop existing task if it's unhealthy
+        if self.processing_task:
+            if self.processing_task.cancelled() or self.processing_task.done():
+                logging.warning(f"🔄 [QUEUE] Existing task is {self.processing_task.cancelled() and 'cancelled' or 'done'}, creating new task")
+                self.processing_task = None
+        
+        # Create new task if needed
+        if not self.processing_task:
+            logging.info("🔨 [QUEUE] Creating new processing task...")
+            self.processing_task = asyncio.create_task(self._process_loop_with_recovery())
+            
+            # Give the task a moment to start
+            await asyncio.sleep(0.1)
+            
+            # Check if task started successfully
+            if self.processing_task.done():
+                exception = None
+                try:
+                    exception = self.processing_task.exception()
+                except Exception as e:
+                    exception = e
+                logging.error(f"❌ [QUEUE] Processing task failed immediately: {exception}")
+                self.running = False
+                raise Exception(f"Processing task failed to start: {exception}")
+            else:
+                logging.info("✅ [QUEUE] Processing task created and running")
+    
+    async def _process_loop_with_recovery(self):
+        """Process loop with automatic recovery from errors."""
+        
+        retry_count = 0
+        max_retries = 5
+        
+        while self.running and retry_count < max_retries:
+            try:
+                logging.info(f"🔄 [QUEUE] Starting process loop (attempt {retry_count + 1})")
+                await self._process_loop()
+                
+                # If we reach here, the loop exited normally
+                if self.running:
+                    logging.warning("🔄 [QUEUE] Process loop exited while running=True, restarting...")
+                    retry_count += 1
+                    await asyncio.sleep(2.0)  # Brief pause before retry
+                
+            except asyncio.CancelledError:
+                logging.warning("🛑 [QUEUE] Process loop was cancelled")
+                raise  # Re-raise cancellation
+                
+            except Exception as e:
+                retry_count += 1
+                logging.error(f"❌ [QUEUE] Process loop error (attempt {retry_count}/{max_retries}): {e}")
+                
+                if retry_count < max_retries:
+                    backoff_time = min(2.0 * retry_count, 10.0)  # Exponential backoff, max 10s
+                    logging.info(f"⏳ [QUEUE] Retrying in {backoff_time}s...")
+                    await asyncio.sleep(backoff_time)
+                else:
+                    logging.error("❌ [QUEUE] Max retries reached, giving up")
+                    self.running = False
+                    raise
+        
+        logging.info("🏁 [QUEUE] Process loop with recovery finished")
     
     async def stop(self):
         """Stop processing queue."""
@@ -114,27 +199,49 @@ class SimplifiedQueueConsumer:
     async def _process_loop(self):
         """Main processing loop."""
         
+        loop_iteration = 0
+        logging.info(f"🔄 [QUEUE] Starting processing loop with poll interval {self.poll_interval}s")
+        
         while self.running:
+            loop_iteration += 1
             try:
+                logging.debug(f"🔍 [QUEUE] Loop iteration {loop_iteration}, running={self.running}")
+                
                 # Read queue
                 items = await self._read_queue()
+                logging.debug(f"📖 [QUEUE] Read {len(items) if items else 0} items from queue")
                 
                 if items:
-                    logging.info(f"📋 [QUEUE] Found {len(items)} items to process")
+                    logging.info(f"📋 [QUEUE] Found {len(items)} items to process in iteration {loop_iteration}")
                     
                     # Process each item
-                    for item in items:
-                        await self._process_item(item)
+                    for i, item in enumerate(items):
+                        logging.info(f"🔨 [QUEUE] Processing item {i+1}/{len(items)}: {item.get('metadata', {}).get('stimuli_id', 'unknown')}")
+                        try:
+                            await self._process_item(item)
+                            logging.info(f"✅ [QUEUE] Successfully processed item {i+1}")
+                        except Exception as item_error:
+                            logging.error(f"❌ [QUEUE] Failed to process item {i+1}: {item_error}")
+                            # Continue with other items
                     
                     # Clear queue after processing
+                    logging.info(f"🧹 [QUEUE] Clearing queue after processing {len(items)} items")
                     await self._write_queue([])
+                    logging.info(f"✅ [QUEUE] Queue cleared successfully")
+                else:
+                    logging.debug(f"⭕ [QUEUE] No items in queue (iteration {loop_iteration})")
                 
                 # Wait before next poll
+                logging.debug(f"😴 [QUEUE] Sleeping for {self.poll_interval}s before next poll")
                 await asyncio.sleep(self.poll_interval)
                 
             except Exception as e:
-                logging.error(f"❌ [QUEUE] Error in process loop: {e}")
+                logging.error(f"❌ [QUEUE] Error in process loop iteration {loop_iteration}: {e}")
+                import traceback
+                logging.error(f"❌ [QUEUE] Traceback: {traceback.format_exc()}")
                 await asyncio.sleep(self.poll_interval)
+        
+        logging.warning(f"🛑 [QUEUE] Processing loop exited (running={self.running})")
     
     async def _read_queue(self) -> List[Dict[str, Any]]:
         """Read items from queue file."""
@@ -271,6 +378,29 @@ class SimplifiedQueueConsumer:
     def get_stats(self) -> Dict[str, Any]:
         """Get consumer statistics."""
         
+        # Check task status
+        task_status = "not_created"
+        task_exception = None
+        
+        if self.processing_task:
+            try:
+                if self.processing_task.cancelled():
+                    task_status = "cancelled"
+                elif self.processing_task.done():
+                    task_status = "completed"
+                    try:
+                        task_exception = self.processing_task.exception()
+                        if task_exception:
+                            task_status = "failed"
+                    except Exception as e:
+                        task_status = "failed"
+                        task_exception = e
+                else:
+                    task_status = "running"
+            except Exception as e:
+                task_status = "error"
+                task_exception = e
+        
         return {
             "running": self.running,
             "processed": self.stats["processed"],
@@ -278,8 +408,76 @@ class SimplifiedQueueConsumer:
             "teams_available": list(self.teams.keys()),
             "start_time": self.stats["start_time"],
             "queue_file": str(self.queue_file),
-            "poll_interval": self.poll_interval
+            "poll_interval": self.poll_interval,
+            "task_status": task_status,
+            "task_exception": str(task_exception) if task_exception else None
         }
+    
+    def get_task_health(self) -> Dict[str, Any]:
+        """Get detailed task health information."""
+        
+        health_info = {
+            "consumer_running": self.running,
+            "task_exists": self.processing_task is not None,
+            "task_status": "unknown",
+            "task_exception": None,
+            "teams_count": len(self.teams),
+            "queue_exists": self.queue_file.exists() if self.queue_file else False,
+            "restart_available": True
+        }
+        
+        if self.processing_task:
+            try:
+                if self.processing_task.cancelled():
+                    health_info["task_status"] = "cancelled"
+                elif self.processing_task.done():
+                    health_info["task_status"] = "completed"
+                    try:
+                        exception = self.processing_task.exception()
+                        if exception:
+                            health_info["task_status"] = "failed"
+                            health_info["task_exception"] = str(exception)
+                    except Exception as e:
+                        health_info["task_status"] = "failed"
+                        health_info["task_exception"] = str(e)
+                else:
+                    health_info["task_status"] = "running"
+            except Exception as e:
+                health_info["task_status"] = "error"
+                health_info["task_exception"] = str(e)
+        else:
+            health_info["task_status"] = "not_created"
+        
+        return health_info
+    
+    async def restart_processing_task(self):
+        """Restart the processing task if it's not running properly."""
+        
+        if not self.running:
+            logging.error("❌ [QUEUE] Cannot restart task - consumer not running")
+            return False
+        
+        try:
+            logging.info("🔄 [QUEUE] Manually restarting processing task...")
+            
+            # Cancel existing task if it exists
+            if self.processing_task:
+                if not self.processing_task.done():
+                    self.processing_task.cancel()
+                    try:
+                        await self.processing_task
+                    except asyncio.CancelledError:
+                        pass
+                self.processing_task = None
+            
+            # Create new task
+            await self._ensure_processing_task()
+            logging.info("✅ [QUEUE] Processing task restarted successfully")
+            return True
+            
+        except Exception as e:
+            logging.error(f"❌ [QUEUE] Failed to restart processing task: {e}")
+            return False
 
 
 # Global instance
