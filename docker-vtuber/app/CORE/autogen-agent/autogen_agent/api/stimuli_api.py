@@ -13,7 +13,8 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
 
-from autogen_agent.core.stimuli_orchestrator import StimuliResponsiveOrchestrator, StimuliResponse
+from autogen_agent.core.stimuli_response import StimuliResponse
+from autogen_agent.core.s2_queue_orchestrator import S2QueueOrchestrator
 
 
 class StimuliSubmissionRequest(BaseModel):
@@ -49,10 +50,10 @@ class OrchestratorStatusResponse(BaseModel):
 
 
 # Global orchestrator instance (will be set by main.py)
-global_orchestrator: Optional[StimuliResponsiveOrchestrator] = None
+global_orchestrator: Optional[S2QueueOrchestrator] = None
 
 
-def setup_stimuli_api(app: FastAPI, orchestrator: StimuliResponsiveOrchestrator):
+def setup_stimuli_api(app: FastAPI, orchestrator: S2QueueOrchestrator):
     """Setup stimuli API endpoints on the provided FastAPI app"""
     global global_orchestrator
     global_orchestrator = orchestrator

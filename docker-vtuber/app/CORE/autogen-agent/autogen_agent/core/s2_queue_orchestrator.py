@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-from .stimuli_orchestrator import StimuliResponse
+from .stimuli_response import StimuliResponse
 
 
 class S2QueueOrchestrator:

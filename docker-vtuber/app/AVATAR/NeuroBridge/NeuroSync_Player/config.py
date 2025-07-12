@@ -280,8 +280,8 @@ def get_tts_config():
 
 def get_config():
     """
-    Returns a dictionary of configuration parameters for the reactive orchestrator.
-    This provides compatibility with the orchestrator's expected configuration format.
+    Returns a dictionary of configuration parameters for the S1 system.
+    S1 system now triggered from external stimuli.
     """
     return {
         # LLM Configuration

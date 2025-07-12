@@ -23,7 +23,7 @@ class PersonaConfig:
     interaction_style: Dict[str, Any]
     idle_behavior: Dict[str, Any]
     filter_threshold: float = 0.5
-    orchestrator_prompt: str = ""
+    # orchestrator_prompt removed - S1 triggered from stimuli
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert persona to dictionary"""
@@ -35,7 +35,7 @@ class PersonaConfig:
             "interaction_style": self.interaction_style,
             "idle_behavior": self.idle_behavior,
             "filter_threshold": self.filter_threshold,
-            "orchestrator_prompt": self.orchestrator_prompt
+            # orchestrator_prompt removed
         }
     
     @classmethod
@@ -91,7 +91,7 @@ class PersonaManager:
                     }
                 },
                 filter_threshold=0.2,
-                orchestrator_prompt="You manage a highly interactive VTuber who loves engaging with chat. Pass through most viewer comments and create engaging responses."
+                # orchestrator_prompt removed
             ),
             
             "calm_educator": PersonaConfig(
@@ -127,7 +127,7 @@ class PersonaManager:
                     }
                 },
                 filter_threshold=0.6,
-                orchestrator_prompt="You manage an educational VTuber who values meaningful discussions. Filter out off-topic chatter but engage deeply with relevant questions."
+                # orchestrator_prompt removed
             ),
             
             "chaotic_gremlin": PersonaConfig(
@@ -163,7 +163,7 @@ class PersonaManager:
                     }
                 },
                 filter_threshold=0.1,
-                orchestrator_prompt="You manage a chaotic gremlin VTuber who thrives on randomness. Embrace the chaos, respond to everything with maximum energy."
+                # orchestrator_prompt removed
             )
         })
     
@@ -246,7 +246,7 @@ class PersonaManager:
                 }
             }),
             filter_threshold=persona_data.get("filter_threshold", 0.5),
-            orchestrator_prompt=persona_data.get("orchestrator_prompt", "You manage a VTuber. Balance engagement with natural conversation flow.")
+            # orchestrator_prompt removed
         )
         
         self.save_persona(persona_id, persona)

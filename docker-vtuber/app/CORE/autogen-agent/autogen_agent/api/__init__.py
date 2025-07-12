@@ -1,17 +1,7 @@
-# API modules for AutoGen Agent
+# API modules for Simplified S2 AutoGen Agent
 
-from .stimuli_api import (
-    setup_stimuli_api,
-    StimuliSubmissionRequest,
-    StimuliSubmissionResponse,
-    OrchestratorStatusResponse,
-    stimuli_health_check
-)
+from .stimuli_api import setup_stimuli_api
 
 __all__ = [
     'setup_stimuli_api',
-    'StimuliSubmissionRequest',
-    'StimuliSubmissionResponse', 
-    'OrchestratorStatusResponse',
-    'stimuli_health_check'
 ]
