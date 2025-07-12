@@ -136,6 +136,20 @@ async def health_check():
     stimuli_status = await stimuli_health_check()
     health_data["stimuli_processing"] = stimuli_status
     
+    # Add S2 teams status if enabled
+    if os.getenv("USE_S2_TEAMS", "false").lower() == "true":
+        health_data["s2_teams_status"] = {
+            "enabled": True,
+            "queue_consumer": global_queue_consumer is not None,
+            "team_manager": global_team_manager is not None,
+            "orchestrator": global_orchestrator is not None,
+            "queue_file": os.getenv("S2_QUEUE_FILE", "/tmp/s2_queue/s2_processing_queue.json")
+        }
+        
+        # Add queue consumer stats if available
+        if global_queue_consumer:
+            health_data["s2_teams_status"]["queue_stats"] = global_queue_consumer.get_stats()
+    
     return health_data
 
 @app.get("/api/test-db")
@@ -1817,6 +1831,19 @@ async def startup_tasks():
         s2_success = await initialize_s2_teams()
         if s2_success:
             logging.info("🎯 [STARTUP] S2 teams initialization: SUCCESS")
+            
+            # Initialize S2 queue orchestrator for API endpoints
+            from .core.s2_queue_orchestrator import S2QueueOrchestrator
+            from .services.character_state_manager import get_character_state_manager
+            
+            global global_orchestrator
+            global_orchestrator = S2QueueOrchestrator(
+                character_state_manager=get_character_state_manager()
+            )
+            
+            # Setup stimuli API endpoints
+            setup_stimuli_api(app, global_orchestrator)
+            logging.info("✅ [STARTUP] S2 Queue API endpoints configured")
         else:
             logging.error("❌ [STARTUP] S2 teams initialization: FAILED")
     else:
@@ -1927,8 +1954,8 @@ async def initialize_s2_teams():
         # Phase 3: Start Queue Processing
         logging.info("📋 [S2] Phase 3: Starting queue processing...")
         
-        # Start polling in background
-        asyncio.create_task(global_queue_consumer.start())
+        # Start polling
+        await global_queue_consumer.start()
         logging.info("🔄 [S2] Queue consumer polling started")
         
         # Log configuration
