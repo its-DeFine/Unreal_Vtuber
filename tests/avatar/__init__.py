@@ -1,1 +1,0 @@
-"""Avatar and VTuber tests."""

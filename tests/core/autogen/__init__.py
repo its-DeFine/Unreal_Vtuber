@@ -1,1 +1,0 @@
-"""AutoGen system tests."""
