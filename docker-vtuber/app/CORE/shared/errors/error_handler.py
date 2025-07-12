@@ -81,7 +81,7 @@ class ErrorRecord:
             'severity': self.severity.value,
             'category': self.category.value,
             'error_type': self.error_type,
-            'message': self.message,
+            'error_message': self.message,  # Renamed to avoid conflict with logging's 'message' field
             'traceback': self.traceback,
             'context': {
                 'operation': self.context.operation,

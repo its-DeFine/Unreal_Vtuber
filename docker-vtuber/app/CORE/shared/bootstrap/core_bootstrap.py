@@ -155,6 +155,13 @@ class CoreBootstrap:
     
     async def _start_services(self):
         """Start all lifecycle services"""
+        # Instantiate all services first to ensure they're registered for lifecycle management
+        self.container.get(ErrorHandler)
+        self.container.get(QueueService)
+        self.container.get(CharacterManager)
+        self.container.get(StimuliProcessor)
+        
+        # Now start all lifecycle services
         await self.container.start_all()
         logger.info("All services started successfully")
     

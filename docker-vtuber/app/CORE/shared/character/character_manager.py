@@ -465,6 +465,9 @@ class CharacterManager(ServiceLifecycle):
         
         for profile_data in default_profiles:
             try:
+                # Fix field name mismatch
+                if "id" in profile_data:
+                    profile_data["character_id"] = profile_data.pop("id")
                 await self.register_character(**profile_data)
             except ValidationError:
                 # Character already exists
