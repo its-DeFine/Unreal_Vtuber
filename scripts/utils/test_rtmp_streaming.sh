@@ -1,1 +1,0 @@
-RTMP_STREAM_NAME=${RTMP_STREAM_NAME:-"mystream"} 

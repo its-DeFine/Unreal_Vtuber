@@ -123,18 +123,20 @@ class UnifiedCoreAPI:
             return await self.bootstrap.health_check()
         
         # Stimuli processing endpoints (GraphFlow + AutoGen compatibility)
-        @self.app.post("/api/stimuli/receive")
-        @handle_errors(operation="receive_stimuli", component="unified_api")
-        async def receive_stimuli(
-            stimuli_id: str,
-            content: str,
-            source: str,
-            priority: str = "medium",
-            processing_mode: str = "auto",
-            team_preference: Optional[str] = None,
-            character_type: Optional[str] = None,
+        from pydantic import BaseModel
+        
+        class StimuliRequest(BaseModel):
+            stimuli_id: str
+            content: str
+            source: str
+            priority: str = "medium"
+            processing_mode: str = "auto"
+            team_preference: Optional[str] = None
+            character_type: Optional[str] = None
             metadata: dict = None
-        ):
+        
+        @self.app.post("/api/stimuli/receive")
+        async def receive_stimuli(request: StimuliRequest):
             """
             Unified stimuli processing endpoint.
             
@@ -148,34 +150,33 @@ class UnifiedCoreAPI:
             async with error_context(
                 operation="process_stimuli",
                 component="api",
-                metadata={"stimuli_id": stimuli_id, "source": source}
+                metadata={"stimuli_id": request.stimuli_id, "source": request.source}
             ):
                 processor = self.bootstrap.get_service(StimuliProcessor)
                 
                 # Convert string parameters to enums
                 try:
-                    mode = ProcessingMode(processing_mode) if processing_mode != "auto" else ProcessingMode.AUTO
+                    mode = ProcessingMode(request.processing_mode) if request.processing_mode != "auto" else ProcessingMode.AUTO
                 except ValueError:
                     mode = ProcessingMode.AUTO
                 
                 team = None
-                if team_preference:
+                if request.team_preference:
                     try:
-                        team = TeamType(team_preference)
+                        team = TeamType(request.team_preference)
                     except ValueError:
                         pass
                 
                 # Add character type to metadata for backward compatibility
-                if not metadata:
-                    metadata = {}
-                if character_type:
-                    metadata["character_type"] = character_type
+                metadata = request.metadata or {}
+                if request.character_type:
+                    metadata["character_type"] = request.character_type
                 
                 # Process stimuli
                 result = await processor.process_stimuli(
-                    content=content,
-                    source=source,
-                    priority=priority,
+                    content=request.content,
+                    source=request.source,
+                    priority=request.priority,
                     processing_mode=mode,
                     team_preference=team,
                     metadata=metadata
@@ -184,7 +185,7 @@ class UnifiedCoreAPI:
                 # Handle both single and multiple results
                 if isinstance(result, list):
                     return {
-                        "stimuli_id": stimuli_id,
+                        "stimuli_id": request.stimuli_id,
                         "status": "success",
                         "processing_mode": "multiple",
                         "results": [
@@ -200,7 +201,7 @@ class UnifiedCoreAPI:
                     }
                 else:
                     return {
-                        "stimuli_id": stimuli_id,
+                        "stimuli_id": request.stimuli_id,
                         "status": "success" if result.success else "failed",
                         "processing_mode": result.processing_mode.value,
                         "team_type": result.team_type.value if result.team_type else None,

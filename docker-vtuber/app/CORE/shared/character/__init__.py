@@ -8,7 +8,8 @@ Single source of truth for character state across S1/S2 systems.
 from .character_manager import (
     CharacterManager,
     CharacterProfile,
-    CharacterState,
+    CharacterRuntimeState,
+    CharacterOperationalState,
     MissionTemplate,
     MissionType,
     get_character_for_mission,
@@ -18,7 +19,8 @@ from .character_manager import (
 __all__ = [
     "CharacterManager",
     "CharacterProfile",
-    "CharacterState",
+    "CharacterRuntimeState",
+    "CharacterOperationalState",
     "MissionTemplate", 
     "MissionType",
     "get_character_for_mission",

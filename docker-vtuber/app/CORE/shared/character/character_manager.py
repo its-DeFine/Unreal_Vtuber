@@ -536,11 +536,11 @@ class CharacterManager(ServiceLifecycle):
         
         for character_id, state in self.states.items():
             if now - state.last_activity > stale_threshold:
-                if state.current_state == CharacterState.BUSY:
+                if state.current_state == CharacterOperationalState.BUSY:
                     logger.warning(f"Character {character_id} has been busy for too long, marking as idle")
                     await self.update_character_state(
                         character_id=character_id,
-                        state=CharacterState.IDLE,
+                        state=CharacterOperationalState.IDLE,
                         current_mission=None
                     )
     
@@ -602,9 +602,9 @@ async def update_character_mission_state(
     manager = get_container().get(CharacterManager)
     
     try:
-        state_enum = CharacterState(state)
+        state_enum = CharacterOperationalState(state)
     except ValueError:
-        state_enum = CharacterState.IDLE
+        state_enum = CharacterOperationalState.IDLE
     
     return await manager.update_character_state(
         character_id=character_id,

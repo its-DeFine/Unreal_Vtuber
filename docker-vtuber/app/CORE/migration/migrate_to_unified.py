@@ -440,8 +440,9 @@ class SimplifiedQueueConsumerCompat:
         
         # Health check
         health = await self.bootstrap.health_check()
+        logger.info(f"Health check result: {health}")
         if not health.get("healthy", False):
-            logger.error("System health check failed")
+            logger.error(f"System health check failed: {health}")
             return False
         
         # Test key functionality
