@@ -1,62 +1,58 @@
 [
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "Let's dive into a fun challenge: name a song that always gets you dancing, no matter where you are! \ud83c\udfb6\ud83d\udd7a\ud83d\udc83"
+        "input": "TSLA momentum update for all traders",
+        "response": "TSLA seems to be the star of the day with its exciting momentum! For all you traders, what's your next move? Are you ready to jump on board, or are you playing it cool? \ud83e\udd14\ud83d\udcb9"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "Here's a curious thought: if animals could talk, which one do you think would be the funniest to converse with, and why? \ud83e\udd9c\ud83d\udc36\ud83d\udc31"
+        "input": "Market update: TSLA showing bullish patterns",
+        "response": "Looks like TSLA is charging ahead with bullish patterns! Are you feeling the electric excitement, or are you keeping a cautious eye on the market currents? Let's hear your strategies! \u26a1\ud83d\udcca"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "Imagine you could teleport to any place in the world right now\u2014where would you go and what would you do first? \ud83c\udf0d\u2728"
+        "input": "Hello, I'm testing the SCB integration with the trader character.",
+        "response": "Hey there! How's the testing going with the trader character? If you need any inspiration or ideas, feel free to ask\u2014I'm here to help keep things lively! \ud83e\udd16\ud83d\udcc8"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "What\u2019s a tech breakthrough you're most excited about seeing in the next decade? Let's speculate about the future together! \ud83d\ude80\ud83d\udd2e"
+        "input": "Initialize trading analysis for today's market",
+        "response": "It\u2019s a great day to dive into the markets! What's your key focus today\u2014stocks, crypto, or something else? Let\u2019s get those analysis gears turning! \ud83d\udcca\ud83d\udd0d"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "If you could master any new skill instantly, what would it be and how would you use it to impact the world? \ud83c\udf1f\ud83d\udcda"
+        "input": "Hello, I'm testing the SCB integration with the trader character.",
+        "response": "Welcome to the world of testing and trading! How's it going so far with the integration? Feel free to share any interesting findings or questions you might have! \ud83e\udd13\ud83d\udd27"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "What\u2019s your go-to comfort food when you need a pick-me-up, and why does it hit the spot for you? \ud83c\udf55\ud83c\udf66"
+        "input": "Initialize trading analysis for today's market",
+        "response": "Before diving into the analysis, what's one market trend you're particularly curious about today? Let's explore it together! \ud83d\udcc8\ud83d\udd0d"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "Imagine you could have dinner with any historical figure\u2014who would you choose, and what would you ask them? \ud83c\udf7d\ufe0f\ud83d\udd70\ufe0f"
+        "input": "Hello, I'm testing the SCB integration with the trader character.",
+        "response": "Testing in progress! How's everything looking on your end? If you need any insights or a dash of excitement, I'm here to help keep things lively! \ud83e\udd16\ud83d\ude80"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "If you could live in any fictional universe, which one would you choose and what role would you play in it? \ud83d\ude80\ud83d\udcd6"
+        "input": "Initialize trading analysis for today's market",
+        "response": "Time to tackle the market! What's the first stock or sector you're eager to analyze today? Let's see what insights we can uncover! \ud83d\udcc8\ud83d\udd0d"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "What's the most unusual or surprising fact you've recently learned? Share it with us\u2014we love a good surprise! \ud83e\udd14\ud83d\udcda"
+        "input": "Testing SCB write from S1",
+        "response": "Great to hear you're putting things to the test! If you have any questions or want to share your findings, feel free. I'm here to keep the conversation engaging! \ud83e\uddea\u2728"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "What's something you've done recently that you're proud of, big or small? Let's celebrate your achievements! \ud83c\udf89\ud83c\udf1f"
+        "input": "Hello, I'm testing the SCB integration with the educator character.",
+        "response": "Hey there! How's the integration testing going with the educator character? If you need any educational insights or a sprinkle of curiosity, let me know! \ud83d\udcda\ud83d\udca1"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "Let's play a quick game! Type the first emoji that comes to your mind when you think of summer. Ready, set, go! \u2600\ufe0f\ud83c\udf34"
+        "input": "Initialize educational content for today's lesson",
+        "response": "Let's ignite our minds with a fun fact! Did you know that honey never spoils? Archaeologists have found pots of honey in ancient Egyptian tombs that are over 3,000 years old and still edible. Now, what topic are we diving into for today's lesson? \ud83c\udf6f\ud83d\udd0d"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "If you could time travel, would you visit the past or the future? And what would you hope to see or learn? \u23f3\ud83d\udd0d"
+        "input": "What learning approach should we use today?",
+        "response": "Let's dive into a hands-on, interactive approach today! Engaging directly with the material can make learning so much more dynamic and memorable. What's a topic you're excited to explore? \ud83e\udde9\ud83d\udca1"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "What's a hobby or activity you've always wanted to try but haven't yet? Maybe it's time to give it a go! \ud83c\udfa8\ud83c\udfb8"
+        "input": "What learning approach should we use today?",
+        "response": "How about trying a collaborative approach today? Working in groups can spark new ideas and perspectives, making learning a shared adventure. What do you think? \ud83e\udd1d\ud83d\udd0d"
     },
     {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "What's your favorite way to unwind after a long day? Everyone has their unique way to relax\u2014let's hear yours! \ud83c\udf19\u2728"
-    },
-    {
-        "input": "This is a very long speech request that should take several seconds to  server.",
-        "response": "If you could swap lives with any fictional character for a day, who would it be and why? Let your imagination run wild! \ud83c\udf1f\ud83d\udcd6"
+        "input": "What learning approach should we use today?",
+        "response": "Why not go for a project-based approach today? It lets you tackle real-world problems and apply what you learn in practical, meaningful ways. What's a project you've been curious to explore? \ud83d\ude80\ud83c\udfa8"
     }
 ]

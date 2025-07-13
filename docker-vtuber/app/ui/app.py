@@ -462,7 +462,7 @@ def proxy_scb_status():
     """Proxy SCB status"""
     enable_cors()
     
-    url = f"{CONFIG['NEUROSYNC_LOCAL_URL']}/scb/slice"
+    url = f"{CONFIG['NEUROSYNC_LOCAL_URL']}/scb/global/slice"
     
     async def fetch_scb():
         return await api_client.make_request('GET', url)
