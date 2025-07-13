@@ -60,6 +60,16 @@
 - **CLEAR PRIORITIES**: High/Medium/Low priority assignment with rationale
 - **STATUS TRANSPARENCY**: Keep stakeholders informed of progress and blockers
 
+### Test-Driven Development (TDD) Process
+**MANDATORY TDD CYCLE**: All utilities must follow strict Red-Green-Refactor methodology
+1. **UTILITY SPECIFICATION**: Define clear requirements and acceptance criteria
+2. **TEST CREATION**: Write comprehensive tests before implementation (Red phase)
+3. **IMPLEMENTATION**: Develop utility to pass tests (Green phase)
+4. **VALIDATION**: Run all tests to verify completion
+5. **ITERATION**: If tests fail, continue development until all tests pass
+6. **REFACTOR**: Improve code quality while maintaining test coverage
+7. **PROGRESSION**: Only move to next utility after current utility passes all tests
+
 ### Code Implementation Process
 1. **ANALYSIS PHASE**: Understand existing codebase, patterns, dependencies
 2. **DESIGN PHASE**: Plan architecture, identify integration points, consider edge cases
