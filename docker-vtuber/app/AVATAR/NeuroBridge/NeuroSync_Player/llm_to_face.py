@@ -22,6 +22,17 @@ from utils.llm.llm_initialiser import initialize_system
 from utils.game_control.game_control_processor import GameControlProcessor
 from utils.game_control.unreal_tcp_controller import UnrealTCPController, TCPConnectionConfig
 from config import get_llm_config, setup_warnings
+from utils.scb import scb_store
+
+# ------------------------------------------------------------------
+# SCB v2 global summary support (write-only)
+# ------------------------------------------------------------------
+try:
+    from utils.scb.scb_v2_minimal import SCBv2MinimalClient
+    _scb_v2_client = SCBv2MinimalClient()
+except Exception as _e:
+    _scb_v2_client = None
+    print(f"[S1] SCBv2Client unavailable: {_e}")
 
 # S1 system - no orchestrator needed, stimuli-driven only
 
@@ -232,7 +243,7 @@ neurosync_player_service_status{{service="neurosync-player",endpoint="game_contr
 
 @app.route("/process_text", methods=['POST'])
 def handle_process_text():
-    global chat_history_global, full_history_global
+    global chat_history_global, full_history_global, current_character_data
 
     # Check payment window if enabled
     if VTUBER_PAYMENT_ENABLED:
@@ -354,8 +365,9 @@ def handle_process_text():
         app.logger.info(f"✅ Direct speech chunk queued for TTS processing: {cleaned_text[:50]}...")
         
         # Log to SCB
-        from utils.scb import scb_store
         scb_store.append_chat(cleaned_text, actor="orchestrator")
+
+        # S1 no longer writes to SCB - only S2 writes
         
         response_data = {
             "status": "direct_speech",
@@ -380,10 +392,25 @@ def handle_process_text():
         current_system_message = get_character_aware_system_message()
         
         # Fallback: Use Flask app global character state if character manager fails
-        global current_character_data
         if current_system_message == llm_config_global.get('system_message', '') and current_character_data:
             app.logger.info(f"🔄 Using Flask app character state fallback: {current_character_data.name}")
             current_system_message = current_character_data.to_prompt_context()
+        
+        # Add SCB context to system message
+        if _scb_v2_client:
+            try:
+                team = "educator"  # Default team
+                if globals().get("current_character_data") and getattr(current_character_data, "role", None):
+                    role = current_character_data.role.lower()
+                    if role in ["trader", "educator", "streamer"]:
+                        team = role
+                
+                scb_context = _scb_v2_client.get_team_context(team=team, max_events=5)
+                if scb_context:
+                    current_system_message += f"\n\n[Recent Team Context from S2]:\n{scb_context}"
+                    app.logger.info(f"📖 Added SCB context from team '{team}' to prompt")
+            except Exception as e:
+                app.logger.warning(f"Failed to get SCB context: {e}")
         
         updated_chat_history = process_turn(
             user_input, 
@@ -405,6 +432,8 @@ def handle_process_text():
             "llm_provider": provider,
             "s1_system": True
         }
+
+        # S1 no longer writes to SCB - only S2 writes
     
     app.logger.info(f"✅ Text processing completed with {provider}")
     return jsonify(response_data), 200
