@@ -1,0 +1,99 @@
+# API Registry Configuration
+# This file defines all available APIs and their capabilities
+
+apis:
+  system1:
+    name: "Autonomous Neuro Player"
+    endpoint: "http://neurosync_s1:5001"
+    health_check: "/health"
+    capabilities:
+      - real_time_response
+      - streaming_output
+      - persona_switching
+      - tts_generation
+    personas:
+      - name: trader
+        description: "Market-savvy crypto trader"
+        triggers: ["price", "market", "trade", "crypto", "btc", "eth"]
+      - name: educator  
+        description: "Patient teacher and explainer"
+        triggers: ["explain", "teach", "learn", "how", "why", "what"]
+      - name: streamer
+        description: "Entertaining content creator"
+        triggers: ["joke", "story", "game", "fun", "chat"]
+    api_endpoints:
+      process_text:
+        method: POST
+        path: "/process_text"
+        params:
+          - name: text
+            type: string
+            required: true
+          - name: persona
+            type: string
+            required: false
+    
+  system2:
+    name: "AutoGen Multi-Agent System"
+    endpoint: "http://autogen_agent:8000"
+    health_check: "/health"
+    capabilities:
+      - deep_analysis
+      - multi_agent_reasoning
+      - tool_usage
+      - complex_planning
+    teams:
+      trader:
+        description: "Trading analysis team"
+        agents: ["trader", "analyst", "critic"]
+        tools: 
+          - market_data
+          - trading_analysis
+          - portfolio_optimizer
+        triggers: ["analyze", "strategy", "portfolio", "risk", "backtest"]
+      educator:
+        description: "Educational content team"
+        agents: ["teacher", "assistant", "validator"]
+        tools:
+          - curriculum_builder
+          - knowledge_base
+          - quiz_generator
+        triggers: ["course", "curriculum", "deep dive", "research"]
+      streamer:
+        description: "Content creation team"
+        agents: ["entertainer", "moderator", "producer"]
+        tools:
+          - content_generator
+          - audience_analyzer
+          - trend_tracker
+        triggers: ["content", "audience", "viral", "trend"]
+    api_endpoints:
+      process_complex:
+        method: POST
+        path: "/process"
+        params:
+          - name: prompt
+            type: string
+            required: true
+          - name: team
+            type: string
+            required: true
+          - name: context
+            type: object
+            required: false
+
+routing_rules:
+  # Default routing weights
+  complexity_threshold: 0.7  # Above this, route to S2
+  urgency_threshold: 0.8     # Above this, route to S1
+  
+  # Hybrid scenarios
+  hybrid_patterns:
+    - pattern: "explain.*quickly"
+      routing: "s1_then_s2"
+      s1_persona: "educator"
+      s2_team: "educator"
+    - pattern: "market.*analysis"  
+      routing: "parallel"
+      s1_persona: "trader"
+      s2_team: "trader"
