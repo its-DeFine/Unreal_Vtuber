@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # Ollama service for the orchestrator
+  ollama:
+    image: ollama/ollama:latest
+    container_name: vtuber_ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - vtuber_network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Orchestrator service
+  orchestrator:
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile
+    container_name: vtuber_orchestrator
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - API_REGISTRY_PATH=/config/api_registry.yaml
+      - LOG_LEVEL=INFO
+      - DECISION_TIMEOUT_MS=10
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./orchestrator/config:/config:ro
+      - ./logs/orchestrator:/logs
+    ports:
+      - "8080:8080"
+    networks:
+      - vtuber_network
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+networks:
+  vtuber_network:
+    external: true
+
+volumes:
+  ollama_data:
+    driver: local
