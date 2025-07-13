@@ -420,6 +420,11 @@ class SimplifiedQueueConsumer:
         """
         processing_time = (datetime.now() - start_time).total_seconds()
         
+        # Check if we need to forward to S1
+        processing_mode = item.get("processing_mode", "s2_only")
+        if processing_mode == "s1_and_s2" and result.get("success"):
+            await self._forward_to_s1(item, result)
+        
         processed_item = {
             **item,
             "processed_at": datetime.now().isoformat(),
@@ -467,6 +472,81 @@ class SimplifiedQueueConsumer:
         }
         
         await self._save_processed(failed_item)
+    
+    async def _forward_to_s1(self, item: Dict[str, Any], s2_result: Dict[str, Any]):
+        """
+        Forward processed content to S1 for speech generation.
+        
+        Args:
+            item: Original queue item with metadata
+            s2_result: Result from S2 processing
+        """
+        try:
+            import aiohttp
+            
+            # Extract insights or summary from S2 result
+            insights = s2_result.get("insights", {})
+            content = item.get("prompt", "")
+            
+            # Create enhanced content with S2 insights
+            enhanced_content = content
+            if insights:
+                # Add key insights to the speech content
+                key_insights = []
+                for category, items in insights.items():
+                    if items and isinstance(items, list):
+                        key_insights.extend(items[:1])  # Take first insight from each category
+                
+                if key_insights:
+                    enhanced_content = f"{content}. {'. '.join(key_insights)}"
+            
+            # Get character information
+            metadata = item.get("metadata", {})
+            character_id = metadata.get("character_id") or metadata.get("character_type")
+            
+            logging.info(f"🔊 [QUEUE] Forwarding to S1 for speech generation")
+            logging.info(f"   Character: {character_id}")
+            logging.info(f"   Content preview: {enhanced_content[:100]}...")
+            
+            async with aiohttp.ClientSession() as session:
+                # First, set the character if specified
+                if character_id:
+                    try:
+                        char_payload = {"character_id": character_id}
+                        async with session.post(
+                            "http://neurosync_s1:5001/character/activate",
+                            json=char_payload,
+                            timeout=aiohttp.ClientTimeout(total=5)
+                        ) as resp:
+                            if resp.status == 200:
+                                logging.info(f"✅ [QUEUE] Character {character_id} activated in S1")
+                            else:
+                                logging.warning(f"⚠️ [QUEUE] Failed to activate character: {resp.status}")
+                    except Exception as e:
+                        logging.warning(f"⚠️ [QUEUE] Could not activate character: {e}")
+                
+                # Send text for speech generation
+                try:
+                    speech_payload = {"text": enhanced_content}
+                    async with session.post(
+                        "http://neurosync_s1:5001/process_text",
+                        json=speech_payload,
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as resp:
+                        if resp.status == 200:
+                            speech_result = await resp.json()
+                            logging.info(f"✅ [QUEUE] S1 speech generation successful")
+                            logging.info(f"   Audio file: {speech_result.get('audio_file', 'N/A')}")
+                        else:
+                            error_text = await resp.text()
+                            logging.error(f"❌ [QUEUE] S1 returned {resp.status}: {error_text}")
+                except Exception as e:
+                    logging.error(f"❌ [QUEUE] Failed to send to S1: {e}")
+                    
+        except Exception as e:
+            logging.error(f"❌ [QUEUE] Error forwarding to S1: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def _save_processed(self, item: Dict[str, Any]):
         """Save processed item to history."""

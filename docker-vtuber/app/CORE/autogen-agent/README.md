@@ -77,7 +77,7 @@ from autogen_agent.tools.scb_operations_tool import run
 - **Tool Management**: Meta-tool for tool lifecycle management
 
 ### 4. Test Organization
-Tests have been moved to `/docker-vtuber/tests/autogen-agent/` with proper setup:
+Tests have been moved to `/tests/autogen-agent/` with proper setup:
 - `test_setup.py`: Common test configuration
 - Enhanced capabilities tests achieving 100% pass rate
 - Proper pytest integration with asyncio support
@@ -92,7 +92,7 @@ python -m autogen_agent.main
 
 ### Testing
 ```bash
-cd /home/geo/directories/autonomy/docker-vtuber/tests/autogen-agent
+cd /home/geo/directories/autonomy/tests/autogen-agent
 python3 -m pytest test_enhanced_capabilities.py -v
 ```
 

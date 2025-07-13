@@ -205,4 +205,4 @@ S2 teams don't switch individual characters - they select entire teams:
 
 ### Test Results
 - `/tmp/s2_memory_test_20250712_225226.json` - Comprehensive memory test results
-- `/home/geo/directories/autonomy/docker-vtuber/tests/s2_memory_conversation_test.py` - Memory testing framework
+- `/home/geo/directories/autonomy/tests/s2_memory_conversation_test.py` - Memory testing framework

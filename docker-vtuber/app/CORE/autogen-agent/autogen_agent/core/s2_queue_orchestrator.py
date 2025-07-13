@@ -91,19 +91,24 @@ class S2QueueOrchestrator:
                 except Exception as e:
                     logging.warning(f"Could not get current character: {e}")
             
+            # Get processing mode from metadata or default to s2_only
+            metadata = stimuli_data.get("metadata", {})
+            processing_mode = metadata.get("processing_mode", "s2_only")
+            
             # Create queue entry
             queue_entry = {
                 "prompt": stimuli_data.get("content", ""),
                 "timestamp": datetime.now().isoformat(),
                 "source": stimuli_data.get("source", "graphflow"),
-                "processing_mode": "s2_only",
+                "processing_mode": processing_mode,
                 "metadata": {
                     "stimuli_id": stimuli_data.get("stimuli_id", ""),
                     "priority": stimuli_data.get("priority", "medium"),
                     "category": stimuli_data.get("category"),
                     "confidence": stimuli_data.get("confidence"),
                     "character_id": character_id,
-                    **stimuli_data.get("metadata", {})
+                    "processing_mode": processing_mode,  # Preserve for downstream
+                    **metadata
                 }
             }
             
