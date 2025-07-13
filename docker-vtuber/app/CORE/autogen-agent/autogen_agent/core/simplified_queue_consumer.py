@@ -15,6 +15,8 @@ from typing import Dict, Any, Optional, List
 
 from .simplified_autogen_team import SimplifiedAutoGenTeam
 from ..services.character_state_manager import get_character_state_manager
+from ..config.processing_config import ProcessingConfig, TeamConfig, FileConfig
+from ..utils.error_handler import error_handler, with_error_handling
 
 
 class SimplifiedQueueConsumer:
@@ -26,12 +28,12 @@ class SimplifiedQueueConsumer:
         self,
         queue_file: str = None,
         processed_file: str = None,
-        poll_interval: float = 5.0
+        poll_interval: float = None
     ):
-        # Use environment variables or defaults
-        self.queue_file = Path(queue_file or os.getenv("S2_QUEUE_FILE", "/tmp/s2_queue/s2_processing_queue.json"))
-        self.processed_file = Path(processed_file or os.getenv("S2_PROCESSED_FILE", "/tmp/s2_queue/s2_processed_stimuli.json"))
-        self.poll_interval = poll_interval
+        # Use environment variables or defaults from config
+        self.queue_file = Path(queue_file or os.getenv("S2_QUEUE_FILE", FileConfig.DEFAULT_QUEUE_FILE))
+        self.processed_file = Path(processed_file or os.getenv("S2_PROCESSED_FILE", FileConfig.DEFAULT_PROCESSED_FILE))
+        self.poll_interval = poll_interval or ProcessingConfig.DEFAULT_POLL_INTERVAL
         
         # Team management
         self.teams: Dict[str, SimplifiedAutoGenTeam] = {}
@@ -150,37 +152,41 @@ class SimplifiedQueueConsumer:
         """Process loop with automatic recovery from errors."""
         
         retry_count = 0
-        max_retries = 5
+        max_retries = ProcessingConfig.MAX_RETRIES
         
         while self.running and retry_count < max_retries:
             try:
-                logging.info(f"🔄 [QUEUE] Starting process loop (attempt {retry_count + 1})")
+                error_handler.log_success("queue", f"starting_process_loop_attempt_{retry_count + 1}")
                 await self._process_loop()
                 
                 # If we reach here, the loop exited normally
                 if self.running:
-                    logging.warning("🔄 [QUEUE] Process loop exited while running=True, restarting...")
+                    error_handler.log_warning("queue", "Process loop exited while running=True, restarting")
                     retry_count += 1
-                    await asyncio.sleep(2.0)  # Brief pause before retry
+                    await asyncio.sleep(ProcessingConfig.BACKOFF_BASE_SECONDS)
                 
             except asyncio.CancelledError:
-                logging.warning("🛑 [QUEUE] Process loop was cancelled")
+                error_handler.log_warning("queue", "Process loop was cancelled")
                 raise  # Re-raise cancellation
                 
             except Exception as e:
                 retry_count += 1
-                logging.error(f"❌ [QUEUE] Process loop error (attempt {retry_count}/{max_retries}): {e}")
+                context = {"attempt": retry_count, "max_retries": max_retries}
+                error_handler.log_with_traceback("queue", "process_loop", e, context=context)
                 
                 if retry_count < max_retries:
-                    backoff_time = min(2.0 * retry_count, 10.0)  # Exponential backoff, max 10s
-                    logging.info(f"⏳ [QUEUE] Retrying in {backoff_time}s...")
+                    backoff_time = min(
+                        ProcessingConfig.BACKOFF_BASE_SECONDS * retry_count, 
+                        ProcessingConfig.BACKOFF_MAX_SECONDS
+                    )
+                    error_handler.log_success("queue", f"retrying_in_{backoff_time}s")
                     await asyncio.sleep(backoff_time)
                 else:
-                    logging.error("❌ [QUEUE] Max retries reached, giving up")
+                    error_handler.log_with_traceback("queue", "max_retries_reached", e)
                     self.running = False
                     raise
         
-        logging.info("🏁 [QUEUE] Process loop with recovery finished")
+        error_handler.log_success("queue", "process_loop_with_recovery_finished")
     
     async def stop(self):
         """Stop processing queue."""
@@ -267,85 +273,200 @@ class SimplifiedQueueConsumer:
             logging.error(f"❌ [QUEUE] Error writing queue: {e}")
     
     async def _process_item(self, item: Dict[str, Any]):
-        """Process a single queue item."""
+        """
+        Process a single queue item with comprehensive error handling.
         
+        Args:
+            item: Queue item containing prompt, metadata, and source information
+        """
         start_time = datetime.now()
         
         try:
-            # Get team type from multiple sources
-            metadata = item.get("metadata", {})
+            # Determine which team should handle this item
+            team_type = self._determine_team_type(item)
+            team = self._get_team_for_type(team_type)
             
-            # Check character_type first (direct team type)
-            team_type = metadata.get("character_type")
+            # Create properly formatted stimuli
+            stimuli = self._create_stimuli_payload(item)
             
-            # If not found, check character_id mapping
-            if not team_type:
-                character_id = metadata.get("character_id")
-                team_type = self.character_mapping.get(character_id)
+            # Process with the selected team
+            result = await self._execute_team_processing(team, team_type, stimuli)
             
-            # If still not found, analyze content for team selection
-            if not team_type:
-                content = item.get("prompt", "").lower()
-                if any(word in content for word in ["market", "trading", "bitcoin", "crypto", "stock", "invest"]):
-                    team_type = "trader"
-                elif any(word in content for word in ["teach", "learn", "explain", "education", "lesson"]):
-                    team_type = "educator"
-                elif any(word in content for word in ["stream", "content", "video", "audience", "engage"]):
-                    team_type = "streamer"
-                else:
-                    team_type = "educator"  # Default
+            # Handle the processing result
+            await self._handle_processing_result(item, start_time, team_type, result)
             
-            logging.info(f"🎯 [QUEUE] Selected team type: {team_type} for item with metadata: {metadata}")
-            
-            # Get appropriate team
-            team = self.teams.get(team_type)
-            if not team:
-                raise Exception(f"No team available for type: {team_type}")
-            
-            logging.info(f"🤖 [QUEUE] Processing with {team_type} team")
-            logging.info(f"   Content: {item.get('prompt', '')[:50]}...")
-            
-            # Create stimuli format
-            stimuli = {
-                "stimuli_id": f"queue_{item.get('timestamp', '')}",
-                "content": item.get("prompt", ""),
-                "source": item.get("source", "queue"),
-                "metadata": item.get("metadata", {})
-            }
-            
-            # Process with team
-            result = await team.process_stimuli(stimuli)
-            
-            # Save to processed file
-            processed_item = {
-                **item,
-                "processed_at": datetime.now().isoformat(),
-                "processing_time": (datetime.now() - start_time).total_seconds(),
-                "team_type": team_type,
-                "result": result
-            }
-            
-            await self._save_processed(processed_item)
-            
-            if result.get("success"):
-                self.stats["processed"] += 1
-                logging.info(f"✅ [QUEUE] Processed successfully in {processed_item['processing_time']:.2f}s")
-            else:
-                self.stats["failed"] += 1
-                logging.error(f"❌ [QUEUE] Processing failed: {result.get('error')}")
-                
         except Exception as e:
-            self.stats["failed"] += 1
-            logging.error(f"❌ [QUEUE] Error processing item: {e}")
+            await self._handle_processing_error(item, start_time, e)
+    
+    def _determine_team_type(self, item: Dict[str, Any]) -> str:
+        """
+        Determine the appropriate team type for processing this item.
+        
+        Args:
+            item: Queue item with metadata and content
             
-            # Save failed item
-            await self._save_processed({
-                **item,
-                "processed_at": datetime.now().isoformat(),
-                "processing_time": (datetime.now() - start_time).total_seconds(),
-                "error": str(e),
-                "success": False
-            })
+        Returns:
+            Team type string (trader, educator, or streamer)
+        """
+        metadata = item.get("metadata", {})
+        
+        # Priority 1: Direct character_type specification
+        team_type = metadata.get("character_type")
+        if team_type and team_type in TeamConfig.VALID_TEAM_TYPES:
+            return team_type
+        
+        # Priority 2: Character ID mapping
+        character_id = metadata.get("character_id")
+        if character_id and character_id in self.character_mapping:
+            return self.character_mapping[character_id]
+        
+        # Priority 3: Content analysis
+        return self._analyze_content_for_team(item.get("prompt", ""))
+    
+    def _analyze_content_for_team(self, content: str) -> str:
+        """
+        Analyze content to determine the most appropriate team type.
+        
+        Args:
+            content: Text content to analyze
+            
+        Returns:
+            Team type based on keyword analysis
+        """
+        content_lower = content.lower()
+        
+        # Check keywords for each team type
+        for team_type, keywords in TeamConfig.TEAM_KEYWORDS.items():
+            if any(keyword in content_lower for keyword in keywords):
+                return team_type
+        
+        # Default team if no keywords match
+        return TeamConfig.DEFAULT_TEAM
+    
+    def _get_team_for_type(self, team_type: str) -> SimplifiedAutoGenTeam:
+        """
+        Get the team instance for the specified type.
+        
+        Args:
+            team_type: Type of team needed
+            
+        Returns:
+            Team instance
+            
+        Raises:
+            Exception: If team is not available
+        """
+        team = self.teams.get(team_type)
+        if not team:
+            raise Exception(f"No team available for type: {team_type}")
+        return team
+    
+    def _create_stimuli_payload(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create properly formatted stimuli payload from queue item.
+        
+        Args:
+            item: Raw queue item
+            
+        Returns:
+            Formatted stimuli dictionary
+        """
+        return {
+            "stimuli_id": f"queue_{item.get('timestamp', datetime.now().isoformat())}",
+            "content": item.get("prompt", ""),
+            "source": item.get("source", "queue"),
+            "metadata": item.get("metadata", {})
+        }
+    
+    @with_error_handling("queue", "team_processing")
+    async def _execute_team_processing(
+        self, 
+        team: SimplifiedAutoGenTeam, 
+        team_type: str, 
+        stimuli: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Execute team processing with proper logging.
+        
+        Args:
+            team: Team instance to process with
+            team_type: Type of team for logging
+            stimuli: Formatted stimuli to process
+            
+        Returns:
+            Processing result from team
+        """
+        error_handler.log_success("queue", f"selected_team_{team_type}", 
+                                 context={"content_preview": stimuli["content"][:50]})
+        
+        result = await team.process_stimuli(stimuli)
+        return result
+    
+    async def _handle_processing_result(
+        self, 
+        item: Dict[str, Any], 
+        start_time: datetime, 
+        team_type: str, 
+        result: Dict[str, Any]
+    ):
+        """
+        Handle successful processing result and update statistics.
+        
+        Args:
+            item: Original queue item
+            start_time: When processing started
+            team_type: Type of team that processed
+            result: Processing result
+        """
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        processed_item = {
+            **item,
+            "processed_at": datetime.now().isoformat(),
+            "processing_time": processing_time,
+            "team_type": team_type,
+            "result": result
+        }
+        
+        await self._save_processed(processed_item)
+        
+        if result.get("success"):
+            self.stats["processed"] += 1
+            error_handler.log_success("queue", "process_item", processing_time)
+        else:
+            self.stats["failed"] += 1
+            error_handler.log_warning("queue", f"Team processing failed: {result.get('error')}")
+    
+    async def _handle_processing_error(
+        self, 
+        item: Dict[str, Any], 
+        start_time: datetime, 
+        error: Exception
+    ):
+        """
+        Handle processing errors and save failed item details.
+        
+        Args:
+            item: Original queue item
+            start_time: When processing started
+            error: Exception that occurred
+        """
+        self.stats["failed"] += 1
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        error_handler.log_with_traceback("queue", "process_item", error, 
+                                       context={"processing_time": f"{processing_time:.2f}s"})
+        
+        # Save failed item for debugging
+        failed_item = {
+            **item,
+            "processed_at": datetime.now().isoformat(),
+            "processing_time": processing_time,
+            "error": str(error),
+            "success": False
+        }
+        
+        await self._save_processed(failed_item)
     
     async def _save_processed(self, item: Dict[str, Any]):
         """Save processed item to history."""
