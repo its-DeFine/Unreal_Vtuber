@@ -12,6 +12,8 @@ import uuid
 from typing import Dict, Any, List, Type, Callable
 from datetime import datetime
 from functools import wraps
+import inspect
+import json
 
 from ..tools.base_tool import BaseTool, ToolExecutionContext, ToolResult
 from ..tools import get_team_tools, get_tool_catalog
@@ -30,6 +32,7 @@ class AutoGenToolBridge:
         self.registered_functions = {}
         self.tool_instances = {}
         self.tool_schemas = {}
+        self.autogen_functions = {}
         logger.info(f"🔧 [TOOL_BRIDGE] Initializing bridge for team: {team_type}")
         
     def register_tools(self) -> Dict[str, Callable]:
@@ -53,10 +56,11 @@ class AutoGenToolBridge:
                     self.tool_schemas[tool_instance.name] = schema
                     
                     # Create AutoGen-compatible function
-                    autogen_func = self._create_simple_wrapper(tool_instance)
+                    autogen_func = self._create_autogen_function(tool_instance)
                     
                     # Store registered function
                     self.registered_functions[tool_instance.name] = autogen_func
+                    self.autogen_functions[tool_instance.name] = autogen_func
                     
                     logger.info(f"✅ [TOOL_BRIDGE] Registered tool: {tool_instance.name} with schema")
                     
@@ -70,61 +74,43 @@ class AutoGenToolBridge:
             logger.error(f"❌ [TOOL_BRIDGE] Failed to register tools: {e}")
             return {}
     
-    def register_tools_with_agents(self, user_proxy, assistant_agents: List):
+    def _create_autogen_function(self, tool_instance: BaseTool) -> Callable:
         """
-        Register tools with AutoGen agents using proper decorators and schemas.
+        Create a synchronous function that AutoGen can call directly.
+        This follows the AutoGen pattern of using type annotations.
+        """
+        # Build parameter types (no Annotated, just plain types)
+        params = {}
+        param_docs = []
         
-        Args:
-            user_proxy: UserProxyAgent that will execute the tools
-            assistant_agents: List of AssistantAgent instances that can call the tools
-        """
-        logger.info(f"🔧 [TOOL_BRIDGE] Registering {len(self.registered_functions)} tools with agents")
+        for param in tool_instance.parameters:
+            # Map tool parameter types to Python types
+            if param.type == "string":
+                param_type = str
+            elif param.type == "number":
+                param_type = float
+            elif param.type == "integer":
+                param_type = int
+            elif param.type == "boolean":
+                param_type = bool
+            else:
+                param_type = str  # Default to string for safety
+            
+            # Store plain type (no Annotated)
+            params[param.name] = param_type
+            
+            # Build docstring
+            param_docs.append(f"    {param.name} ({param.type}): {param.description}")
+            if param.default is not None:
+                param_docs[-1] += f" (default: {param.default})"
         
-        for tool_name, tool_func in self.registered_functions.items():
-            try:
-                tool_instance = self.tool_instances[tool_name]
-                schema = self.tool_schemas[tool_name]
-                
-                # Register for execution with user proxy
-                user_proxy.register_for_execution(name=tool_name)(tool_func)
-                
-                # Register for LLM with all assistant agents with full schema
-                for agent in assistant_agents:
-                    # Create a description that includes parameter details
-                    param_descriptions = []
-                    for param_name, param_schema in schema["parameters"]["properties"].items():
-                        param_type = param_schema.get("type", "any")
-                        param_desc = param_schema.get("description", "")
-                        is_required = param_name in schema["parameters"].get("required", [])
-                        req_str = " (required)" if is_required else " (optional)"
-                        param_descriptions.append(f"  - {param_name} ({param_type}): {param_desc}{req_str}")
-                    
-                    full_description = f"{tool_instance.description}\n\nParameters:\n" + "\n".join(param_descriptions)
-                    
-                    # Register with LLM with full description
-                    agent.register_for_llm(
-                        name=tool_name,
-                        description=full_description
-                    )(tool_func)
-                
-                logger.info(f"✅ [TOOL_BRIDGE] Registered tool '{tool_name}' with all agents")
-                
-            except Exception as e:
-                logger.error(f"❌ [TOOL_BRIDGE] Failed to register tool {tool_name}: {e}")
-    
-    def _create_simple_wrapper(self, tool_instance: BaseTool) -> Callable:
-        """
-        Create a simple wrapper function for the tool that AutoGen can call.
-        """
-        async def tool_wrapper(**kwargs) -> str:
-            """AutoGen tool wrapper"""
-            
-            # Generate unique stimuli ID for logging
-            stimuli_id = kwargs.pop('stimuli_id', f"tool_{uuid.uuid4().hex[:8]}")
-            
+        # Create the function dynamically
+        def autogen_tool_function(**kwargs) -> Dict[str, Any]:
+            """Dynamic tool function for AutoGen"""
             # Log tool invocation
+            stimuli_id = f"tool_{uuid.uuid4().hex[:8]}"
             logger.info(f"🔧 [TOOL_BRIDGE] S2_TOOL_INVOKED: {tool_instance.name} ({stimuli_id})")
-            logger.debug(f"🔧 [TOOL_BRIDGE] Tool parameters: {kwargs}")
+            logger.debug(f"🔧 [TOOL_BRIDGE] Parameters: {kwargs}")
             
             try:
                 # Create execution context
@@ -134,129 +120,92 @@ class AutoGenToolBridge:
                     metadata={"autogen_call": True, "stimuli_id": stimuli_id}
                 )
                 
-                # Filter kwargs to only include tool parameters
-                tool_params = {}
-                for param in tool_instance.parameters:
-                    if param.name in kwargs:
-                        tool_params[param.name] = kwargs[param.name]
-                    elif param.required:
-                        # Provide default value for required parameters
-                        if param.type == "string":
-                            tool_params[param.name] = ""
-                        elif param.type == "number":
-                            tool_params[param.name] = 0
-                        elif param.type == "boolean":
-                            tool_params[param.name] = False
-                        else:
-                            tool_params[param.name] = None
-                
-                # Execute tool with timeout
-                result = await tool_instance.execute_with_timeout(context, **tool_params)
+                # Run async tool - handle existing event loop
+                try:
+                    # Check if we're already in an async context
+                    loop = asyncio.get_running_loop()
+                    # We're in an async context, need to use run_until_complete differently
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, tool_instance.execute_with_timeout(context, **kwargs))
+                        result = future.result()
+                except RuntimeError:
+                    # No running loop, create a new one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        result = loop.run_until_complete(
+                            tool_instance.execute_with_timeout(context, **kwargs)
+                        )
+                    finally:
+                        loop.close()
                 
                 # Log completion
                 logger.info(f"✅ [TOOL_BRIDGE] S2_TOOL_COMPLETED: {tool_instance.name} ({stimuli_id})")
                 
-                # Format result for AutoGen
+                # Return actual data, not formatted string
                 if isinstance(result, ToolResult):
-                    if result.success:
-                        # Return structured result as readable string
-                        if result.result:
-                            return f"✅ Tool '{tool_instance.name}' completed successfully:\n{self._format_result(result.result)}"
-                        else:
-                            return f"✅ Tool '{tool_instance.name}' completed successfully"
+                    if result.success and result.result:
+                        return result.result
                     else:
-                        return f"❌ Tool '{tool_instance.name}' failed: {result.error_message}"
+                        return {"error": result.error_message or "Tool execution failed"}
                 else:
-                    return str(result)
+                    return {"result": str(result)}
                     
             except Exception as e:
                 logger.error(f"❌ [TOOL_BRIDGE] Tool {tool_instance.name} failed: {e}")
-                return f"Tool execution failed: {str(e)}"
+                return {"error": str(e)}
         
-        # Set function metadata for AutoGen
-        tool_wrapper.__name__ = tool_instance.name
-        tool_wrapper.__doc__ = f"""
-{tool_instance.description}
-
-Example usage:
-#assistant to={tool_instance.name}
-{self._generate_example_params(tool_instance)}
-"""
+        # Set function metadata
+        autogen_tool_function.__name__ = tool_instance.name
+        autogen_tool_function.__doc__ = f"{tool_instance.description}\n\nParameters:\n" + "\n".join(param_docs)
         
-        # Add parameter annotations for AutoGen
-        import inspect
+        # Create simple signature with basic type annotations
         sig_params = []
-        
-        for param in tool_instance.parameters:
-            # Map our parameter types to Python types
-            if param.type == "string":
-                param_type = str
-            elif param.type == "number":
-                param_type = float
-            elif param.type == "boolean":
-                param_type = bool
-            else:
-                param_type = str
-            
-            # Create parameter with annotation
-            sig_params.append(
-                inspect.Parameter(
-                    param.name,
-                    inspect.Parameter.KEYWORD_ONLY,
-                    annotation=param_type,
-                    default=param.default if not param.required else inspect.Parameter.empty
-                )
+        for param_name, param_type in params.items():
+            param_obj = inspect.Parameter(
+                param_name,
+                inspect.Parameter.KEYWORD_ONLY,
+                annotation=param_type
             )
+            sig_params.append(param_obj)
         
-        # Create new signature
-        tool_wrapper.__signature__ = inspect.Signature(
+        # Add return annotation
+        autogen_tool_function.__signature__ = inspect.Signature(
             parameters=sig_params,
-            return_annotation=str
+            return_annotation=Dict[str, Any]
         )
         
-        return tool_wrapper
+        return autogen_tool_function
     
-    def _generate_example_params(self, tool_instance: BaseTool) -> str:
-        """Generate example parameters for tool usage"""
-        examples = {}
+    def get_llm_config_tools(self) -> List[Dict[str, Any]]:
+        """
+        Get tool configurations for LLM config in OpenAI function format.
+        This is what gets passed to the LLM to tell it about available functions.
+        """
+        tools = []
         
-        for param in tool_instance.parameters:
-            if param.name == "symbol":
-                examples[param.name] = "BTCUSDT"
-            elif param.name == "topic":
-                examples[param.name] = "Introduction to Machine Learning"
-            elif param.name == "content_type":
-                examples[param.name] = param.default or "general"
-            elif param.name == "timeframe":
-                examples[param.name] = "1d"
-            elif param.type == "string":
-                examples[param.name] = param.default or f"example_{param.name}"
-            elif param.type == "number":
-                examples[param.name] = param.default or 100
-            elif param.type == "boolean":
-                examples[param.name] = param.default or True
-            else:
-                examples[param.name] = param.default
+        for tool_name, tool_instance in self.tool_instances.items():
+            schema = self.tool_schemas[tool_name]
+            
+            # Convert to OpenAI function format
+            tool_config = {
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "description": tool_instance.description,
+                    "parameters": schema["parameters"]
+                }
+            }
+            tools.append(tool_config)
         
-        # Format as JSON for clarity
-        import json
-        return json.dumps(examples, indent=2)
+        return tools
     
-    def _format_result(self, result: Dict[str, Any]) -> str:
-        """Format tool result for AutoGen consumption."""
-        if isinstance(result, dict):
-            # Create a readable summary of the result
-            formatted = []
-            for key, value in result.items():
-                if isinstance(value, (dict, list)):
-                    formatted.append(f"{key}: {len(value)} items")
-                elif isinstance(value, str) and len(value) > 100:
-                    formatted.append(f"{key}: {value[:100]}...")
-                else:
-                    formatted.append(f"{key}: {value}")
-            return "\n".join(formatted)
-        else:
-            return str(result)
+    def get_function_map(self) -> Dict[str, Callable]:
+        """
+        Get a mapping of function names to callables for UserProxyAgent execution.
+        """
+        return self.autogen_functions
     
     def get_tool_count(self) -> int:
         """Get number of registered tools"""

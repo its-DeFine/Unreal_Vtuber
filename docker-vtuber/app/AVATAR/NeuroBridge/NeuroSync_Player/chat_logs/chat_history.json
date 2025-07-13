@@ -1,21 +1,5 @@
 [
     {
-        "input": "This is a comprehensive test of our speech interruption system. We want to generate a long audio stream that will take multiple seconds to complete. The system should create several audio chunks through the TTS process, queue them in the audio queue, and then the audio face worker should process them one by one through GStreamer to the RTMP stream. During this process, we will test the stop functionality to ensure it can properly interrupt active GStreamer pipelines and flush all queues. This is a critical test for the speech control system.",
-        "response": "Time for some trivia! Did you know that octopuses have three hearts? Two pump blood to the gills, while the third pumps it to the rest of the body. Talk about being heartful! \ud83d\udc19\u2764\ufe0f"
-    },
-    {
-        "input": "This is a very long message that will generate multiple audio chunks for testing the stop functionality. We need to test if we can interrupt active GStreamer pipelines that are currently streaming audio to the RTMP server. This should create enough audio content to allow us to catch an active stream and stop it mid-playback. The system should properly handle the interruption and clean up all resources correctly.",
-        "response": "What's a movie or series that you can watch over and over without getting bored? Share your favorites! \ud83c\udfac\ud83c\udf7f"
-    },
-    {
-        "input": "Final verification test. This message should play normally after the previous interruption.",
-        "response": "If you could invent a new holiday, what would it celebrate and how would we observe it? \ud83c\udf89\u2728"
-    },
-    {
-        "input": "This is a very long speech request that should take several seconds to process completely. We are testing the speech control functionality to ensure that we can properly interrupt, pause, and resume speech playback in the NeuroSync Player system. This text contains multiple sentences and should generate multiple audio chunks that we can control during playback. The system should be able to handle stop commands that flush all queues and interrupt active GStreamer pipelines streaming to the RTMP server.",
-        "response": "What's the most interesting place you've ever traveled to, and what made it so memorable? Share your stories with us! \ud83c\udf0d\u2708\ufe0f"
-    },
-    {
         "input": "This is a very long speech request that should take several seconds to  server.",
         "response": "Let's dive into a fun challenge: name a song that always gets you dancing, no matter where you are! \ud83c\udfb6\ud83d\udd7a\ud83d\udc83"
     },
@@ -42,5 +26,37 @@
     {
         "input": "This is a very long speech request that should take several seconds to  server.",
         "response": "Imagine you could have dinner with any historical figure\u2014who would you choose, and what would you ask them? \ud83c\udf7d\ufe0f\ud83d\udd70\ufe0f"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "If you could live in any fictional universe, which one would you choose and what role would you play in it? \ud83d\ude80\ud83d\udcd6"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "What's the most unusual or surprising fact you've recently learned? Share it with us\u2014we love a good surprise! \ud83e\udd14\ud83d\udcda"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "What's something you've done recently that you're proud of, big or small? Let's celebrate your achievements! \ud83c\udf89\ud83c\udf1f"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "Let's play a quick game! Type the first emoji that comes to your mind when you think of summer. Ready, set, go! \u2600\ufe0f\ud83c\udf34"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "If you could time travel, would you visit the past or the future? And what would you hope to see or learn? \u23f3\ud83d\udd0d"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "What's a hobby or activity you've always wanted to try but haven't yet? Maybe it's time to give it a go! \ud83c\udfa8\ud83c\udfb8"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "What's your favorite way to unwind after a long day? Everyone has their unique way to relax\u2014let's hear yours! \ud83c\udf19\u2728"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "If you could swap lives with any fictional character for a day, who would it be and why? Let your imagination run wild! \ud83c\udf1f\ud83d\udcd6"
     }
 ]

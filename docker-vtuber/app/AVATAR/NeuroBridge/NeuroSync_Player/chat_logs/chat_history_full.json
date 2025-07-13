@@ -2342,5 +2342,37 @@
     {
         "input": "This is a very long speech request that should take several seconds to  server.",
         "response": "Imagine you could have dinner with any historical figure\u2014who would you choose, and what would you ask them? \ud83c\udf7d\ufe0f\ud83d\udd70\ufe0f"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "If you could live in any fictional universe, which one would you choose and what role would you play in it? \ud83d\ude80\ud83d\udcd6"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "What's the most unusual or surprising fact you've recently learned? Share it with us\u2014we love a good surprise! \ud83e\udd14\ud83d\udcda"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "What's something you've done recently that you're proud of, big or small? Let's celebrate your achievements! \ud83c\udf89\ud83c\udf1f"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "Let's play a quick game! Type the first emoji that comes to your mind when you think of summer. Ready, set, go! \u2600\ufe0f\ud83c\udf34"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "If you could time travel, would you visit the past or the future? And what would you hope to see or learn? \u23f3\ud83d\udd0d"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "What's a hobby or activity you've always wanted to try but haven't yet? Maybe it's time to give it a go! \ud83c\udfa8\ud83c\udfb8"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "What's your favorite way to unwind after a long day? Everyone has their unique way to relax\u2014let's hear yours! \ud83c\udf19\u2728"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "If you could swap lives with any fictional character for a day, who would it be and why? Let your imagination run wild! \ud83c\udf1f\ud83d\udcd6"
     }
 ]

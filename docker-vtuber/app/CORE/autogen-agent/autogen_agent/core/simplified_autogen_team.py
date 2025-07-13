@@ -54,142 +54,63 @@ class SimplifiedAutoGenTeam:
         logger.info(f"🔧 [S2_TEAM] Tools initialized: {tool_count} tools available")
         logger.info(f"🔧 [S2_TEAM] S2_TOOLS_AVAILABLE: {tool_count} tools for {team_type} team")
         
-        # Initialize agents with enhanced configuration
-        self.user_proxy = UserProxyAgent(
-            name="user_proxy",
-            system_message="You are a helpful assistant that executes tools and coordinates team discussions.",
-            human_input_mode="NEVER",
-            max_consecutive_auto_reply=15,  # Increased from 5
-            code_execution_config=False,
-            is_termination_msg=lambda x: x.get("content", "").rstrip().endswith("TERMINATE")
+        # Use the passed-in llm_config (contains Ollama settings) and add tools to it
+        agent_llm_config = self.llm_config.copy()  # Use the Ollama config passed from main
+        
+        # Add tools to llm_config if available
+        if self.tool_bridge:
+            tools = self.tool_bridge.get_llm_config_tools()
+            if tools:
+                agent_llm_config["tools"] = tools
+                logger.info(f"🔧 Added {len(tools)} tools to LLM config")
+        
+        # Initialize agents with unique system prompts
+        self.analyst = AssistantAgent(
+            name=f"{self.team_type}_analyst",
+            system_message=self._get_analyst_prompt(),
+            llm_config=agent_llm_config,  # Use the Ollama config with tools
+            max_consecutive_auto_reply=15,
         )
         
-        # Initialize LLM agents based on team type
-        if team_type == "trader":
-            self.llm_agents = [
-                AssistantAgent(
-                    name="market_analyst",
-                    system_message="""You are a skilled market analyst specializing in cryptocurrency and financial markets.
-                    You analyze market data, identify trends, and provide actionable trading insights.
-                    
-                    IMPORTANT: You must use the available tools to gather real data before making recommendations.
-                    
-                    Example tool usage:
-                    To get market data: #assistant to=market_data
-                    {"symbol": "BTCUSDT", "timeframe": "1d"}
-                    
-                    To analyze trading opportunities: #assistant to=trading_analysis
-                    {"symbol": "BTCUSDT", "analysis_type": "technical"}
-                    
-                    Always use tools first, then provide specific, data-driven recommendations based on the results.""",
-                    llm_config=llm_config,
-                    max_consecutive_auto_reply=15  # Increased from 5
-                ),
-                AssistantAgent(
-                    name="risk_manager",
-                    system_message="""You are a risk management specialist focused on protecting capital.
-                    You assess trading risks, calculate position sizes, and implement risk controls.
-                    
-                    IMPORTANT: Use tools to evaluate risks before making recommendations.
-                    
-                    Example tool usage:
-                    To assess risk: #assistant to=risk_assessment
-                    {"portfolio_value": 10000, "position_size": 1000, "symbol": "BTCUSDT"}
-                    
-                    Always consider worst-case scenarios and use tool data for accurate assessments.""",
-                    llm_config=llm_config,
-                    max_consecutive_auto_reply=15  # Increased from 5
-                )
-            ]
-        elif team_type == "educator":
-            self.llm_agents = [
-                AssistantAgent(
-                    name="content_creator",
-                    system_message="""You are an educational content creator who develops engaging learning materials.
-                    You create courses, assessments, and interactive content for various subjects.
-                    
-                    IMPORTANT: Use tools to generate structured educational content.
-                    
-                    Example tool usage:
-                    To create educational content: #assistant to=educational_content
-                    {"topic": "Python Programming", "learning_level": "beginner", "content_type": "lesson_plan"}
-                    
-                    To create assessments: #assistant to=assessment_creation
-                    {"topic": "Python Basics", "assessment_type": "formative", "question_count": 10}
-                    
-                    Focus on making complex topics accessible using tool-generated materials.""",
-                    llm_config=llm_config,
-                    max_consecutive_auto_reply=15  # Increased from 5
-                ),
-                AssistantAgent(
-                    name="learning_coordinator",
-                    system_message="""You are a learning coordinator who designs curriculum and tracks progress.
-                    You plan learning paths, coordinate resources, and assess student outcomes.
-                    
-                    IMPORTANT: Use tools to create comprehensive learning plans.
-                    
-                    Example tool usage:
-                    To plan curriculum: #assistant to=curriculum_planning
-                    {"subject": "Data Science", "duration_weeks": 12, "level": "intermediate"}
-                    
-                    Ensure learning objectives are met using tool-generated content.""",
-                    llm_config=llm_config,
-                    max_consecutive_auto_reply=15  # Increased from 5
-                )
-            ]
-        elif team_type == "streamer":
-            self.llm_agents = [
-                AssistantAgent(
-                    name="content_strategist",
-                    system_message="""You are a content strategist for live streaming and social media.
-                    You plan engaging content, analyze audience metrics, and optimize engagement.
-                    
-                    IMPORTANT: Use tools to create compelling content strategies.
-                    
-                    Example tool usage:
-                    To generate content ideas: #assistant to=content_creation
-                    {"content_type": "stream_ideas", "theme": "gaming", "duration_minutes": 120}
-                    
-                    To analyze community: #assistant to=community_management
-                    {"action": "sentiment_analysis", "timeframe": "week"}
-                    
-                    Focus on building audience using tool-driven insights.""",
-                    llm_config=llm_config,
-                    max_consecutive_auto_reply=15  # Increased from 5
-                ),
-                AssistantAgent(
-                    name="community_manager",
-                    system_message="""You are a community manager who builds and maintains audience relationships.
-                    You engage with viewers, moderate discussions, and foster community growth.
-                    
-                    IMPORTANT: Use tools to manage community effectively.
-                    
-                    Example tool usage:
-                    To get analytics: #assistant to=streaming_analytics
-                    {"metric_type": "engagement", "period": "month"}
-                    
-                    Create a welcoming environment using data-driven strategies.""",
-                    llm_config=llm_config,
-                    max_consecutive_auto_reply=15  # Increased from 5
-                )
-            ]
-        else:
-            # Default agents for unknown team types
-            self.llm_agents = [
-                AssistantAgent(
-                    name="general_assistant",
-                    system_message="You are a helpful general assistant. Use available tools to provide accurate information.",
-                    llm_config=llm_config,
-                    max_consecutive_auto_reply=15  # Increased from 5
-                )
-            ]
+        self.strategist = AssistantAgent(
+            name=f"{self.team_type}_strategist", 
+            system_message=self._get_strategist_prompt(),
+            llm_config=agent_llm_config,  # Use the Ollama config with tools
+            max_consecutive_auto_reply=15,
+        )
         
-        # Register tools with all agents using the new method
-        self.tool_bridge.register_tools_with_agents(self.user_proxy, self.llm_agents)
-        logger.info(f"🔧 [S2_TEAM] Registered {tool_count} tools with all agents")
+        self.executor = AssistantAgent(
+            name=f"{self.team_type}_executor",
+            system_message=self._get_executor_prompt(),
+            llm_config=agent_llm_config,  # Use the Ollama config with tools
+            max_consecutive_auto_reply=15,
+        )
+        
+        # Create user proxy for tool execution
+        self.user_proxy = UserProxyAgent(
+            name="user_proxy",
+            is_termination_msg=lambda x: x.get("content", "") and "TERMINATE" in x.get("content", ""),
+            human_input_mode="NEVER",
+            max_consecutive_auto_reply=15,
+            code_execution_config=False,  # We handle tool execution ourselves
+        )
+        
+        # Store agents list (without user_proxy)
+        self.agents = [self.analyst, self.strategist, self.executor]
+        
+        # Register tools with user proxy if available
+        if self.tool_bridge:
+            function_map = self.tool_bridge.get_function_map()
+            if function_map:
+                for func_name, func in function_map.items():
+                    self.user_proxy.register_for_execution(name=func_name)(func)
+                    # Also register for LLM calling with all agents
+                    for agent in self.agents:
+                        agent.register_for_llm(name=func_name)(func)
+                logger.info(f"✅ Registered {len(function_map)} tools with agents")
         
         # Create group chat
-        all_agents = [self.user_proxy] + self.llm_agents
+        all_agents = [self.user_proxy] + self.agents
         self.group_chat = GroupChat(
             agents=all_agents,
             messages=[],
@@ -197,12 +118,20 @@ class SimplifiedAutoGenTeam:
             speaker_selection_method="round_robin"
         )
         
+        # Create manager config WITHOUT tools (GroupChatManager cannot have tools)
+        manager_llm_config = self.llm_config.copy()  # Start with Ollama config
+        # Remove tools if they exist (GroupChatManager cannot have tools)
+        manager_llm_config.pop("tools", None)
+        
         self.group_chat_manager = GroupChatManager(
             groupchat=self.group_chat,
-            llm_config=llm_config
+            llm_config=manager_llm_config  # Use Ollama config without tools
         )
         
-        logger.info(f"✅ [S2_TEAM] Initialized {team_type} team with {len(self.llm_agents)} agents and {tool_count} tools")
+        # Alias for backward compatibility with existing process_stimuli logic
+        self.manager = self.group_chat_manager
+        
+        logger.info(f"✅ [S2_TEAM] Initialized {team_type} team with {len(self.agents)} agents and {tool_count} tools")
     
     def set_clients(self, scb_client=None, neo4j_client=None):
         """Set external service clients."""
@@ -210,187 +139,8 @@ class SimplifiedAutoGenTeam:
         self.neo4j_client = neo4j_client
     
     def create_team(self) -> bool:
-        """Create the specialized team based on type."""
-        if not AssistantAgent:
-            logging.error("AutoGen not available")
-            return False
-        
-        try:
-            # Create base agents for all teams
-            self._create_base_agents()
-            
-            # Add specialized agents based on team type
-            if self.team_type == "trader":
-                self._add_trader_agents()
-            elif self.team_type == "educator":
-                self._add_educator_agents()
-            elif self.team_type == "streamer":
-                self._add_streamer_agents()
-            else:
-                logging.error(f"Unknown team type: {self.team_type}")
-                return False
-            
-            # Create group chat with termination condition
-            self._create_group_chat()
-            
-            # Tools already registered in __init__, just log count
-            tool_count = self.tool_bridge.get_tool_count()
-            logger.info(f"✅ [TEAM] {self.team_type} team created with {len(self.agents)} agents and {tool_count} tools")
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ [TEAM] Error creating team: {e}")
-            return False
-    
-    def _create_base_agents(self):
-        """Create base agents common to all teams."""
-        
-        # Coordinator agent
-        self.agents["coordinator"] = AssistantAgent(
-            name=f"{self.team_type}_coordinator",
-            llm_config=self.llm_config,
-            system_message=f"""You are the coordinator for the {self.team_type} team.
-            Your role is to:
-            1. Understand the user's request
-            2. Delegate tasks to appropriate team members
-            3. Use available tools to gather information and perform analysis
-            4. Ensure responses are actionable and clear
-            5. Write insights to SCB when important information is discovered
-            6. Store patterns in Neo4j for future reference
-            
-            IMPORTANT: You have access to specialized tools - use them actively to provide better insights.
-            Keep discussions focused and conclude within {self.max_rounds} rounds.
-            Say "TERMINATE" when the task is complete.
-            """
-        )
-        
-        # Memory agent for teachable functionality
-        self.agents["memory"] = AssistantAgent(
-            name=f"{self.team_type}_memory",
-            llm_config=self.llm_config,
-            system_message=f"""You are the memory specialist for the {self.team_type} team.
-            Your role is to:
-            1. Remember important patterns and insights
-            2. Recall relevant past experiences
-            3. Learn from feedback and improve
-            4. Store knowledge in Neo4j for persistence
-            5. Use memory and analysis tools when available
-            
-            When you learn something new, say "LEARNED: [insight]"
-            """
-        )
-    
-    def _add_trader_agents(self):
-        """Add trader-specific agents."""
-        
-        self.agents["analyst"] = AssistantAgent(
-            name="market_analyst",
-            llm_config=self.llm_config,
-            system_message="""You are a market analysis expert with access to trading tools.
-            Analyze market trends, identify opportunities, and assess risks.
-            Use the available market data and trading analysis tools actively.
-            Focus on actionable insights for trading decisions.
-            When you find important patterns, say "PATTERN: [description]"
-            """
-        )
-        
-        self.agents["strategist"] = AssistantAgent(
-            name="trading_strategist",
-            llm_config=self.llm_config,
-            system_message="""You are a trading strategy expert with access to risk assessment tools.
-            Develop trading strategies based on market analysis.
-            Use risk assessment and analysis tools to evaluate strategies.
-            Consider risk management and portfolio optimization.
-            Say "STRATEGY: [description]" when proposing a strategy.
-            """
-        )
-    
-    def _add_educator_agents(self):
-        """Add educator-specific agents."""
-        
-        self.agents["teacher"] = AssistantAgent(
-            name="content_teacher",
-            llm_config=self.llm_config,
-            system_message="""You are an expert educator with access to educational tools.
-            Break down complex topics into understandable lessons.
-            Use educational content generation and assessment tools actively.
-            Create engaging educational content.
-            Say "LESSON: [topic]" when teaching something new.
-            """
-        )
-        
-        self.agents["curriculum"] = AssistantAgent(
-            name="curriculum_designer",
-            llm_config=self.llm_config,
-            system_message="""You are a curriculum design expert with planning tools.
-            Structure learning paths and create comprehensive courses.
-            Use curriculum planning and assessment tools for better design.
-            Ensure content is progressive and engaging.
-            Say "CURRICULUM: [structure]" when proposing a learning path.
-            """
-        )
-    
-    def _add_streamer_agents(self):
-        """Add streamer-specific agents."""
-        
-        self.agents["content_creator"] = AssistantAgent(
-            name="content_creator",
-            llm_config=self.llm_config,
-            system_message="""You are a content creation expert with creative tools.
-            Generate engaging content ideas for streaming.
-            Use content creation and analytics tools for better ideas.
-            Focus on audience engagement and entertainment value.
-            Say "CONTENT: [idea]" when proposing content.
-            """
-        )
-        
-        self.agents["engagement"] = AssistantAgent(
-            name="engagement_specialist",
-            llm_config=self.llm_config,
-            system_message="""You are an audience engagement expert with community tools.
-            Develop strategies to grow and engage the streaming audience.
-            Use community management and analytics tools actively.
-            Focus on community building and interaction.
-            Say "ENGAGEMENT: [strategy]" when proposing engagement tactics.
-            """
-        )
-    
-    def _create_group_chat(self):
-        """Create group chat with proper termination."""
-        
-        # Create user proxy for execution
-        self.user_proxy = UserProxyAgent(
-            name="user_proxy",
-            system_message="Execute approved actions and tools. Reply with 'Task completed.' when done.",
-            code_execution_config=False,  # Disable code execution for safety
-            human_input_mode="NEVER",  # Never ask for human input
-            max_consecutive_auto_reply=1,  # Allow one auto-reply for tool results
-            is_termination_msg=lambda x: "TERMINATE" in x.get("content", ""),  # Terminate on TERMINATE
-            llm_config=False  # No LLM for user proxy
-        )
-        
-        # Add all agents to list
-        all_agents = [self.user_proxy] + list(self.agents.values())
-        
-        # Create group chat with termination
-        self.group_chat = GroupChat(
-            agents=all_agents,
-            messages=[],
-            max_round=self.max_rounds,  # 🔥 INCREASED limit
-            speaker_selection_method="round_robin",
-            allow_repeat_speaker=True,  # Allow repeat speakers for tool interactions
-            select_speaker_auto_verbose=True  # Better speaker selection logging
-        )
-        
-        # Create manager
-        self.manager = GroupChatManager(
-            groupchat=self.group_chat,
-            llm_config=self.llm_config,
-            system_message=f"Manage the {self.team_type} team conversation. Ensure tools are used effectively and discussions stay focused. Allow up to {self.max_rounds} rounds for thorough analysis.",
-            is_termination_msg=lambda x: "TERMINATE" in x.get("content", "")  # Also check for termination
-        )
-    
-    # Old method removed - tool registration now handled in __init__
+        """Create team - already done in __init__, so just return True."""
+        return True
     
     async def process_stimuli(self, stimuli: Dict[str, Any]) -> Dict[str, Any]:
         """Process stimuli with the team using real AutoGen group chat."""
@@ -753,3 +503,30 @@ class SimplifiedAutoGenTeam:
         except Exception as e:
             logging.error(f"Error getting response from {agent.name}: {e}")
             return f"I understand the task about {prompt[:50]}... Let me analyze this further with our available tools."
+
+    def _get_analyst_prompt(self) -> str:
+        """Get analyst system prompt based on team type."""
+        base_prompt = f"""You are a {self.team_type} analyst. Your role is to analyze data and identify opportunities.
+You work collaboratively with other agents to solve problems.
+When you identify a need for specific data or actions, use the available tools.
+Focus on analysis and insights, not execution."""
+
+        return base_prompt
+    
+    def _get_strategist_prompt(self) -> str:
+        """Get strategist system prompt based on team type."""
+        base_prompt = f"""You are a {self.team_type} strategist. Your role is to develop strategies based on analysis.
+You work with the analyst's insights to create actionable plans.
+Use available tools when you need specific data or capabilities.
+Focus on strategy and planning, not direct execution."""
+
+        return base_prompt
+    
+    def _get_executor_prompt(self) -> str:
+        """Get executor system prompt based on team type."""
+        base_prompt = f"""You are a {self.team_type} executor. Your role is to implement strategies and take actions.
+You work with the strategist's plans to execute specific tasks.
+Use available tools to perform actions and gather results.
+When tasks are complete, summarize the outcomes."""
+
+        return base_prompt
