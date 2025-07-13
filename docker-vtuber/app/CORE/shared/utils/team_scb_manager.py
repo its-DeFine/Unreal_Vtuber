@@ -14,8 +14,7 @@ from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Union
 from enum import Enum
 
-from docker_vtuber.app.AVATAR.NeuroBridge.NeuroSync_Player.utils.scb.scb_store import SCBStore
-from docker_vtuber.app.CORE.autogen_agent.autogen_agent.clients.scb_client import SCBClient
+from docker_vtuber.app.CORE.autogen_agent.autogen_agent.clients.scb_v2_client import SCBv2Client
 
 
 class TeamType(Enum):
@@ -55,8 +54,8 @@ class TeamSCBManager:
     
     def __init__(self):
         """Initialize TeamSCBManager with existing SCB infrastructure"""
-        self._scb_store = SCBStore()
-        self._scb_client = SCBClient()
+        # v2 Redis-backed client (required)
+        self._scb_client = SCBv2Client()
         self._lock = threading.RLock()
         
         # SCB key prefixes for organization
@@ -105,53 +104,25 @@ class TeamSCBManager:
     def _key_exists(self, key: str) -> bool:
         """Check if a key exists in SCB storage"""
         try:
-            # Try SCBClient first (Redis), then fallback to SCBStore
-            result = self._scb_client.get_state(key)
-            return result is not None
+            result = self._scb_client.get_slice(key)
+            return bool(result)
         except Exception:
-            # Fallback to checking SCBStore
-            try:
-                return key in self._scb_store._scb_data
-            except Exception:
-                return False
+            return False
     
     def _get_scb_data(self, key: str) -> Dict[str, Any]:
         """Retrieve SCB data from storage"""
         try:
-            # Try SCBClient first (Redis)
-            result = self._scb_client.get_state(key)
-            if result is not None:
-                if isinstance(result, str):
-                    return json.loads(result)
-                return result
+            return self._scb_client.get_slice(key) or {}
         except Exception:
-            pass
-        
-        # Fallback to SCBStore
-        try:
-            if key in self._scb_store._scb_data:
-                return self._scb_store._scb_data[key]
-        except Exception:
-            pass
-        
-        # Return empty dict if key doesn't exist
-        return {}
+            return {}
     
     def _set_scb_data(self, key: str, data: Dict[str, Any]) -> bool:
         """Store SCB data to storage"""
         try:
-            # Try SCBClient first (Redis)
-            serialized_data = json.dumps(data) if not isinstance(data, str) else data
-            self._scb_client.set_state(key, serialized_data, ttl=86400)  # 24 hour TTL
+            self._scb_client.set_slice(key, data)
             return True
-        except Exception:
-            pass
-        
-        # Fallback to SCBStore
-        try:
-            self._scb_store._scb_data[key] = data
-            return True
-        except Exception:
+        except Exception as e:
+            print(f"[TeamSCBManager] Failed to set SCB slice {key}: {e}")
             return False
     
     def get_team_scb(self, team_name: str, system_level: int) -> SCBState:

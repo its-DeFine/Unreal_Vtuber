@@ -15,7 +15,7 @@ from enum import Enum
 from pathlib import Path
 
 from docker_vtuber.app.CORE.shared.character.character_manager import CharacterManager
-from docker_vtuber.app.CORE.autogen_agent.autogen_agent.clients.scb_client import SCBClient
+from docker_vtuber.app.CORE.autogen_agent.autogen_agent.clients.scb_v2_client import SCBv2Client
 
 
 class S2TeamType(Enum):
@@ -61,7 +61,7 @@ class S2TeamCharacterMapper:
     def __init__(self):
         """Initialize S2TeamCharacterMapper"""
         self._lock = threading.RLock()
-        self._scb_client = SCBClient()
+        self._scb_client = SCBv2Client()
         self._character_manager = CharacterManager()
         
         # Storage key for persistent mappings
@@ -111,7 +111,7 @@ class S2TeamCharacterMapper:
         """Load existing mappings from persistent storage"""
         try:
             with self._lock:
-                stored_data = self._scb_client.get_state(self._mappings_key)
+                stored_data = self._scb_client.get_slice(self._mappings_key)
                 if stored_data:
                     if isinstance(stored_data, str):
                         mappings_data = json.loads(stored_data)
@@ -141,7 +141,7 @@ class S2TeamCharacterMapper:
                 }
                 
                 serialized_data = json.dumps(storage_data)
-                self._scb_client.set_state(self._mappings_key, serialized_data, ttl=86400*7)  # 7 day TTL
+                self._scb_client.set_slice(self._mappings_key, serialized_data)
                 
         except Exception:
             # If saving fails, continue with in-memory only

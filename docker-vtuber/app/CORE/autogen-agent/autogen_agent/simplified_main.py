@@ -25,7 +25,7 @@ from .core.s2_queue_orchestrator import S2QueueOrchestrator
 from .core.simplified_queue_consumer import initialize_queue_consumer, get_queue_consumer
 from .api.stimuli_api import setup_stimuli_api
 from .services.character_state_manager import initialize_character_state_manager
-from .clients.scb_client import SCBClient
+from .clients.scb_v2_client import SCBv2Client
 from .services.neo4j_semantic_storage import Neo4jSemanticStorage
 
 
@@ -270,9 +270,9 @@ async def startup_tasks():
         # Initialize clients
         logging.info("📡 [STARTUP] Initializing service clients...")
         
-        # SCB Client
+        # SCB v2 Client
         try:
-            global_scb_client = SCBClient()
+            global_scb_client = SCBv2Client()
             logging.info("✅ [STARTUP] SCB client initialized")
         except Exception as e:
             logging.warning(f"⚠️ [STARTUP] SCB client initialization failed: {e}")
