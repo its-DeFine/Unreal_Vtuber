@@ -341,33 +341,63 @@ def setup_stimuli_api(app: FastAPI, orchestrator: S2QueueOrchestrator):
         """
         Get list of available tools that can be triggered by stimuli.
         """
-        if not global_orchestrator:
-            raise HTTPException(
-                status_code=503, 
-                detail="Stimuli orchestrator not initialized"
-            )
-        
         try:
-            available_tools = list(global_orchestrator.tool_registry.tools.keys())
+            # Get tools from the queue consumer's teams
+            from ..core.simplified_queue_consumer import get_queue_consumer
+            
+            queue_consumer = get_queue_consumer()
+            if not queue_consumer:
+                return {
+                    "available_tools": [],
+                    "tool_count": 0,
+                    "tool_details": {},
+                    "status": "Queue consumer not initialized"
+                }
+            
+            # Aggregate tools from all teams
+            all_tools = {}
+            tools_by_team = {}
+            
+            for team_type, team in queue_consumer.teams.items():
+                if hasattr(team, 'tool_bridge'):
+                    team_tools = team.tool_bridge.get_tool_summary()
+                    tools_by_team[team_type] = {
+                        "count": team_tools["tools_count"],
+                        "tools": list(team_tools["tools"].keys())
+                    }
+                    
+                    # Merge tool details
+                    for tool_name, tool_info in team_tools["tools"].items():
+                        if tool_name not in all_tools:
+                            all_tools[tool_name] = {
+                                "description": tool_info["description"],
+                                "parameters": tool_info["parameters"],
+                                "required_params": tool_info["required_params"],
+                                "teams": [team_type]
+                            }
+                        else:
+                            # Tool exists in multiple teams
+                            if team_type not in all_tools[tool_name]["teams"]:
+                                all_tools[tool_name]["teams"].append(team_type)
+            
+            # Get unique tool names
+            unique_tools = list(all_tools.keys())
             
             return {
-                "available_tools": available_tools,
-                "tool_count": len(available_tools),
-                "tool_details": {
-                    tool_name: {
-                        "description": tool.description if hasattr(tool, 'description') else "No description",
-                        "category": getattr(tool, 'category', 'general')
-                    }
-                    for tool_name, tool in global_orchestrator.tool_registry.tools.items()
-                }
+                "available_tools": unique_tools,
+                "tool_count": len(unique_tools),
+                "tools_by_team": tools_by_team,
+                "tool_details": all_tools
             }
             
         except Exception as e:
             logging.error(f"❌ [STIMULI_API] Error getting available tools: {e}")
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Error getting tools: {str(e)}"
-            )
+            return {
+                "available_tools": [],
+                "tool_count": 0,
+                "tool_details": {},
+                "error": str(e)
+            }
     
     logging.info("🔗 [STIMULI_API] Stimuli API endpoints registered successfully")
 

@@ -9,6 +9,7 @@ import os
 import json
 import asyncio
 import logging
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -17,6 +18,8 @@ from .simplified_autogen_team import SimplifiedAutoGenTeam
 from ..services.character_state_manager import get_character_state_manager
 from ..config.processing_config import ProcessingConfig, TeamConfig, FileConfig
 from ..utils.error_handler import error_handler, with_error_handling
+
+logger = logging.getLogger(__name__)
 
 
 class SimplifiedQueueConsumer:
@@ -281,16 +284,38 @@ class SimplifiedQueueConsumer:
         """
         start_time = datetime.now()
         
+        # Generate or extract unique stimuli ID for tracking
+        stimuli_id = item.get("metadata", {}).get("stimuli_id")
+        if not stimuli_id:
+            stimuli_id = f"s2_{uuid.uuid4().hex[:8]}"
+            # Add to metadata for downstream processing
+            if "metadata" not in item:
+                item["metadata"] = {}
+            item["metadata"]["stimuli_id"] = stimuli_id
+        
+        # 🔥 ENHANCED: S2_RECEIVED timestamp with more context
+        logger.info(f"S2_RECEIVED {stimuli_id} {start_time.isoformat()}")
+        logger.info(f"📨 [QUEUE] Processing item: {stimuli_id} - {item.get('prompt', '')[:100]}...")
+        
         try:
             # Determine which team should handle this item
             team_type = self._determine_team_type(item)
             team = self._get_team_for_type(team_type)
             
-            # Create properly formatted stimuli
+            # Create properly formatted stimuli with stimuli_id
             stimuli = self._create_stimuli_payload(item)
+            stimuli["stimuli_id"] = stimuli_id  # 🔥 ENSURE stimuli_id is in stimuli
+            
+            # 🔥 ENHANCED: S2_PROCESSING_START timestamp
+            processing_start_time = datetime.now()
+            logger.info(f"S2_PROCESSING_START {stimuli_id} {processing_start_time.isoformat()}")
             
             # Process with the selected team
             result = await self._execute_team_processing(team, team_type, stimuli)
+            
+            # 🔥 ENHANCED: S2_PROCESSING_COMPLETE timestamp
+            processing_complete_time = datetime.now()
+            logger.info(f"S2_PROCESSING_COMPLETE {stimuli_id} {processing_complete_time.isoformat()}")
             
             # Handle the processing result
             await self._handle_processing_result(item, start_time, team_type, result)
@@ -371,11 +396,15 @@ class SimplifiedQueueConsumer:
         Returns:
             Formatted stimuli dictionary
         """
+        # Extract stimuli_id from metadata or generate one
+        metadata = item.get("metadata", {})
+        stimuli_id = metadata.get("stimuli_id") or f"queue_{int(datetime.now().timestamp())}"
+        
         return {
-            "stimuli_id": f"queue_{item.get('timestamp', datetime.now().isoformat())}",
+            "stimuli_id": stimuli_id,  # 🔥 ENSURE stimuli_id is properly set
             "content": item.get("prompt", ""),
             "source": item.get("source", "queue"),
-            "metadata": item.get("metadata", {})
+            "metadata": metadata
         }
     
     @with_error_handling("queue", "team_processing")
@@ -396,10 +425,21 @@ class SimplifiedQueueConsumer:
         Returns:
             Processing result from team
         """
+        stimuli_id = stimuli.get("stimuli_id", "unknown")
+        
+        # S2_PROCESSING_START timestamp
+        processing_start_time = datetime.now()
+        logger.info(f"S2_PROCESSING_START {stimuli_id} {processing_start_time.isoformat()}")
+        
         error_handler.log_success("queue", f"selected_team_{team_type}", 
                                  context={"content_preview": stimuli["content"][:50]})
         
         result = await team.process_stimuli(stimuli)
+        
+        # S2_PROCESSING_COMPLETE timestamp
+        processing_complete_time = datetime.now()
+        logger.info(f"S2_PROCESSING_COMPLETE {stimuli_id} {processing_complete_time.isoformat()}")
+        
         return result
     
     async def _handle_processing_result(

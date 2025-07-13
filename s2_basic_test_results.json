@@ -1,0 +1,99 @@
+{
+  "timestamp": "2025-07-13T15:46:58.389561",
+  "tests": [
+    {
+      "test": "api_health",
+      "success": true,
+      "response_time": 0.00397801399230957,
+      "data": {
+        "status": "healthy",
+        "timestamp": "2025-07-13T12:46:58.391954",
+        "s2_teams_enabled": true,
+        "s2_teams_status": {
+          "enabled": true,
+          "queue_consumer": true,
+          "orchestrator": true,
+          "queue_file": "/tmp/s2_queue/s2_processing_queue.json",
+          "queue_stats": {
+            "running": true,
+            "processed": 2,
+            "failed": 0,
+            "teams_available": [
+              "trader",
+              "educator",
+              "streamer"
+            ],
+            "start_time": "2025-07-13T12:45:32.385942",
+            "queue_file": "/tmp/s2_queue/s2_processing_queue.json",
+            "poll_interval": 5.0,
+            "task_status": "running",
+            "task_exception": null
+          }
+        },
+        "stimuli_processing": {
+          "stimuli_processing": true,
+          "ready_for_stimuli": true,
+          "autonomous_state": "running"
+        }
+      }
+    },
+    {
+      "test": "tools_endpoint",
+      "success": true,
+      "response_time": 0.0022220611572265625,
+      "data": {
+        "available_tools": [],
+        "tool_count": 0,
+        "tool_details": {}
+      }
+    },
+    {
+      "test": "trader_team_processing",
+      "success": true,
+      "api_response_time": 0.002605915069580078,
+      "stimuli_id": "test_74bf9299",
+      "data": {
+        "success": true,
+        "stimuli_id": "test_74bf9299",
+        "processing_time": 0.000237,
+        "tools_triggered": [],
+        "agent_decision": "queued_for_s2_processing",
+        "response_content": "Stimuli queued for S2 team processing (character: default)",
+        "error_message": null,
+        "timestamp": "2025-07-13T12:46:58.397997"
+      }
+    },
+    {
+      "test": "educator_team_processing",
+      "success": true,
+      "api_response_time": 0.00463557243347168,
+      "stimuli_id": "test_d600c785",
+      "data": {
+        "success": true,
+        "stimuli_id": "test_d600c785",
+        "processing_time": 0.000356,
+        "tools_triggered": [],
+        "agent_decision": "queued_for_s2_processing",
+        "response_content": "Stimuli queued for S2 team processing (character: default)",
+        "error_message": null,
+        "timestamp": "2025-07-13T12:47:13.415876"
+      }
+    },
+    {
+      "test": "streamer_team_processing",
+      "success": true,
+      "api_response_time": 0.0033042430877685547,
+      "stimuli_id": "test_d1ef24ae",
+      "data": {
+        "success": true,
+        "stimuli_id": "test_d1ef24ae",
+        "processing_time": 0.000261,
+        "tools_triggered": [],
+        "agent_decision": "queued_for_s2_processing",
+        "response_content": "Stimuli queued for S2 team processing (character: default)",
+        "error_message": null,
+        "timestamp": "2025-07-13T12:47:29.363840"
+      }
+    }
+  ]
+}

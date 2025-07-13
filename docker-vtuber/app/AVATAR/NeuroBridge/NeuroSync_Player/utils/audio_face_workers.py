@@ -8,6 +8,7 @@ import os
 from threading import Lock
 import tempfile
 import logging
+from datetime import datetime
 
 from utils.generated_runners import run_audio_animation
 from utils.files.file_utils import save_generated_data_from_wav
@@ -39,18 +40,23 @@ def get_global_completion_callback():
 def audio_face_queue_worker(audio_face_queue, py_face, socket_connection, default_animation_thread, enable_emote_calls=True, completion_callback=None):
     speaking = False
     while True:
-        item = audio_face_queue.get()
-        if item is None:
-            audio_face_queue.task_done()
-            break
-
-        temp_audio_file = None
         try:
+            item = audio_face_queue.get()
+            if item is None:
+                audio_face_queue.task_done()
+                break
+
+            temp_audio_file = None
             if not speaking and enable_emote_calls:
                 EmoteConnect.send_emote("startspeaking")
                 speaking = True
 
-            audio_bytes, facial_data = item
+            # Handle both old format (audio_bytes, facial_data) and new format (audio_bytes, facial_data, stimuli_id)
+            if len(item) == 3:
+                audio_bytes, facial_data, stimuli_id = item
+            else:
+                audio_bytes, facial_data = item
+                stimuli_id = "unknown"
 
             # Save audio bytes to a temporary WAV file
             # Create a temporary file that stays open
@@ -61,6 +67,11 @@ def audio_face_queue_worker(audio_face_queue, py_face, socket_connection, defaul
             try:
                 logger.info(f"Saving audio bytes to temporary file: {temp_audio_path}")
                 save_audio_file(audio_bytes, temp_audio_path)
+                
+                # Log S1_WAV_READY timestamp
+                wav_ready_timestamp = datetime.now().isoformat()
+                logger.info(f"«S1_WAV_READY» {stimuli_id} at {wav_ready_timestamp}")
+                
                 # Pass the path to the temporary file instead of bytes
                 logger.info(f"Running animation with audio path: {temp_audio_path}")
                 run_audio_animation(temp_audio_path, facial_data, py_face, socket_connection, default_animation_thread)
@@ -91,14 +102,18 @@ def audio_face_queue_worker(audio_face_queue, py_face, socket_connection, defaul
                         logger.info("🔊 Global speech completion callback invoked")
                     except Exception as e:
                         logger.error(f"Error in global speech completion callback: {e}")
+        except Exception as worker_err:
+            # Catch **all** errors so the worker thread never dies
+            logger.error(f"❌ Unhandled exception in audio_face_queue_worker: {worker_err}", exc_info=True)
+
         finally:
-             # Clean up the temporary file
-             if temp_audio_file and os.path.exists(temp_audio_path):
-                 try:
-                     logger.info(f"Deleting temporary audio file: {temp_audio_path}")
-                     os.remove(temp_audio_path)
-                 except OSError as e:
-                     logger.error(f"Error deleting temporary file {temp_audio_path}: {e}")
+            # Clean up the temporary file
+            if 'temp_audio_path' in locals() and os.path.exists(temp_audio_path):
+                try:
+                    logger.info(f"Deleting temporary audio file: {temp_audio_path}")
+                    os.remove(temp_audio_path)
+                except OSError as e:
+                    logger.error(f"Error deleting temporary file {temp_audio_path}: {e}")
 
 
 def log_timing_worker(log_queue):

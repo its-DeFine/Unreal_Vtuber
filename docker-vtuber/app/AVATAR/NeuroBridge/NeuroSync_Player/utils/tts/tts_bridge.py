@@ -10,7 +10,16 @@ from utils.tts.kokoro_tts import get_kokoro_audio
 from config import get_tts_config
 import string
 
-def tts_worker(chunk_queue, audio_queue, USE_LOCAL_AUDIO=None, VOICE_NAME=None, USE_COMBINED_ENDPOINT=False):
+# Import global stimuli_id for performance tracking
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+try:
+    from llm_to_face import current_stimuli_id
+except ImportError:
+    current_stimuli_id = None
+
+def tts_worker(chunk_queue, audio_queue, USE_LOCAL_AUDIO=None, VOICE_NAME=None, USE_COMBINED_ENDPOINT=False, stimuli_id=None):
     """
     Processes text chunks from chunk_queue.
     
@@ -60,7 +69,9 @@ def tts_worker(chunk_queue, audio_queue, USE_LOCAL_AUDIO=None, VOICE_NAME=None, 
             # Use the combined endpoint: one call returns both audio and blendshapes.
             audio_bytes, blendshapes = get_tts_with_blendshapes(chunk, VOICE_NAME)
             if audio_bytes and blendshapes:
-                audio_queue.put((audio_bytes, blendshapes))
+                # Use parameter stimuli_id first, then global, then default
+                active_stimuli_id = stimuli_id or (current_stimuli_id if current_stimuli_id else "unknown")
+                audio_queue.put((audio_bytes, blendshapes, active_stimuli_id))
             else:
                 print("❌ Failed to retrieve audio and blendshapes for chunk:", chunk)
         else:
@@ -85,7 +96,9 @@ def tts_worker(chunk_queue, audio_queue, USE_LOCAL_AUDIO=None, VOICE_NAME=None, 
                 # Retrieve facial/blendshape data using the separate API.
                 facial_data = send_audio_to_neurosync(audio_bytes)
                 if facial_data:
-                    audio_queue.put((audio_bytes, facial_data))
+                    # Use parameter stimuli_id first, then global, then default
+                    active_stimuli_id = stimuli_id or (current_stimuli_id if current_stimuli_id else "unknown")
+                    audio_queue.put((audio_bytes, facial_data, active_stimuli_id))
                     print("✅ Facial data retrieved and queued")
                 else:
                     print("❌ Failed to get facial data for chunk:", chunk)

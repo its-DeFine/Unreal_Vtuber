@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,15 @@ class BaseTool(ABC):
         """
         start_time = time.time()
         
+        # Extract stimuli_id from context if available
+        stimuli_id = getattr(context, 'stimuli_id', 'unknown')
+        if hasattr(context, 'metadata') and context.metadata:
+            stimuli_id = context.metadata.get('stimuli_id', stimuli_id)
+        
+        # S2_TOOL_INVOKED timestamp
+        tool_start_time = time.time()
+        logger.info(f"S2_TOOL_INVOKED {stimuli_id} {self.name} {datetime.fromtimestamp(tool_start_time).isoformat()}")
+        
         try:
             # Validate parameters
             validation_errors = self.validate_parameters(kwargs)
@@ -190,6 +200,10 @@ class BaseTool(ABC):
             
             # Add execution time
             result.execution_time_ms = (time.time() - start_time) * 1000
+            
+            # S2_TOOL_COMPLETED timestamp
+            tool_complete_time = time.time()
+            logger.info(f"S2_TOOL_COMPLETED {stimuli_id} {self.name} {datetime.fromtimestamp(tool_complete_time).isoformat()}")
             
             return result
             

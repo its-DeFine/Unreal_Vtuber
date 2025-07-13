@@ -1,22 +1,46 @@
 [
     {
-        "input": "Market analysis shows Tesla at 250 with bullish momentum. Our team SCB indicates momentum strategy with 30% risk level. This demonstrates team-specific state management.",
-        "response": "That's a strategic approach! Using the SCB to coordinate a momentum strategy with a defined risk level showcases the power of team-specific state management. By aligning on a 30% risk level, your team can capitalize on the bullish momentum while managing potential risks effectively. If you need further insights on optimizing these strategies or exploring other market scenarios, I'm here to help. Good luck with your trading decisions!"
+        "input": "This is a comprehensive test of our speech interruption system. We want to generate a long audio stream that will take multiple seconds to complete. The system should create several audio chunks through the TTS process, queue them in the audio queue, and then the audio face worker should process them one by one through GStreamer to the RTMP stream. During this process, we will test the stop functionality to ensure it can properly interrupt active GStreamer pipelines and flush all queues. This is a critical test for the speech control system.",
+        "response": "Time for some trivia! Did you know that octopuses have three hearts? Two pump blood to the gills, while the third pumps it to the rest of the body. Talk about being heartful! \ud83d\udc19\u2764\ufe0f"
     },
     {
-        "input": "Welcome to our lesson on Test-Driven Development! Our educator team SCB shows excellent student progress. This validates our character mapping utility.",
-        "response": "Welcome to the lesson on Test-Driven Development (TDD)! It's great to hear that the educator team SCB is reflecting excellent student progress. This not only validates the effectiveness of your character mapping utility but also highlights the positive impact of structured teaching methods like TDD. By focusing on writing tests before code, TDD encourages a deeper understanding of the requirements and helps ensure robust, reliable software. If you have any questions about TDD or need additional resources to enhance this lesson, feel free to ask. Let's continue to foster an engaging and productive learning environment!"
+        "input": "This is a very long message that will generate multiple audio chunks for testing the stop functionality. We need to test if we can interrupt active GStreamer pipelines that are currently streaming audio to the RTMP server. This should create enough audio content to allow us to catch an active stream and stop it mid-playback. The system should properly handle the interruption and clean up all resources correctly.",
+        "response": "What's a movie or series that you can watch over and over without getting bored? Share your favorites! \ud83c\udfac\ud83c\udf7f"
     },
     {
-        "input": "Hey everyone! Welcome to our tech stream! Our streamer team SCB shows 150 viewers with positive sentiment. Both utilities are working perfectly!",
-        "response": "Hey there! Welcome to the tech stream! That's fantastic news about having 150 viewers and receiving positive sentiment. It sounds like the SCB utilities are really shining in this live streaming environment. Having a responsive and engaging stream not only enhances the viewer experience but also helps build a strong community. If you need any tips on how to keep the momentum going or want to explore additional features for your streams, just let me know. Keep up the great work and enjoy the stream!"
+        "input": "Final verification test. This message should play normally after the previous interruption.",
+        "response": "If you could invent a new holiday, what would it celebrate and how would we observe it? \ud83c\udf89\u2728"
     },
     {
-        "input": "All teams, this is a collaboration test. The common SCB shows active collaboration between trader, educator, and streamer teams. Each team maintains their own state while sharing insights.",
-        "response": "This is an excellent demonstration of collaboration in action! By using the common SCB to show active collaboration between the trader, educator, and streamer teams, you're effectively harnessing the power of shared insights while allowing each team to maintain its unique focus and state. This setup not only promotes synergy across different domains but also enhances the overall effectiveness of your projects. If there's anything you need to fine-tune these interactions or explore further integration possibilities, feel free to reach out. Keep collaborating and sharing those insights!"
+        "input": "This is a very long speech request that should take several seconds to process completely. We are testing the speech control functionality to ensure that we can properly interrupt, pause, and resume speech playback in the NeuroSync Player system. This text contains multiple sentences and should generate multiple audio chunks that we can control during playback. The system should be able to handle stop commands that flush all queues and interrupt active GStreamer pipelines streaming to the RTMP server.",
+        "response": "What's the most interesting place you've ever traveled to, and what made it so memorable? Share your stories with us! \ud83c\udf0d\u2708\ufe0f"
     },
     {
-        "input": "This request simulates S2-only processing with no S1 character activation.",
-        "response": "Understood! In this simulation, focusing on S2-only processing allows you to test scenarios without activating the S1 character, which can be useful for isolating and understanding specific system behaviors or tasks. This kind of simulation can help ensure that the S2 processes are functioning independently and as expected. If you have any specific objectives for this simulation or need assistance with any related configurations, feel free to let me know. I'm here to help!"
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "Let's dive into a fun challenge: name a song that always gets you dancing, no matter where you are! \ud83c\udfb6\ud83d\udd7a\ud83d\udc83"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "Here's a curious thought: if animals could talk, which one do you think would be the funniest to converse with, and why? \ud83e\udd9c\ud83d\udc36\ud83d\udc31"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "Imagine you could teleport to any place in the world right now\u2014where would you go and what would you do first? \ud83c\udf0d\u2728"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "What\u2019s a tech breakthrough you're most excited about seeing in the next decade? Let's speculate about the future together! \ud83d\ude80\ud83d\udd2e"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "If you could master any new skill instantly, what would it be and how would you use it to impact the world? \ud83c\udf1f\ud83d\udcda"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "What\u2019s your go-to comfort food when you need a pick-me-up, and why does it hit the spot for you? \ud83c\udf55\ud83c\udf66"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to  server.",
+        "response": "Imagine you could have dinner with any historical figure\u2014who would you choose, and what would you ask them? \ud83c\udf7d\ufe0f\ud83d\udd70\ufe0f"
     }
 ]

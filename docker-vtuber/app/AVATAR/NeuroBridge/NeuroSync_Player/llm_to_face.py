@@ -9,6 +9,7 @@ import sys
 import os
 import threading
 import asyncio
+import uuid
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -45,6 +46,9 @@ full_history_global = None
 # Global character state for Flask app context
 current_character_id = None
 current_character_data = None
+
+# Global stimuli tracking for S1 performance testing
+current_stimuli_id = None
 
 # Game control system objects
 game_control_processor = None
@@ -249,8 +253,20 @@ def handle_process_text():
         app.logger.warning("/process_text: Input text cannot be empty")
         return jsonify({"error": "Input text cannot be empty"}), 400
 
+    # Generate unique stimuli ID and log S1_RECEIVED timestamp
+    stimuli_id = str(uuid.uuid4())
+    received_timestamp = datetime.now().isoformat()
+    app.logger.info(f"«S1_RECEIVED» {stimuli_id} at {received_timestamp}")
+    
+    # Store stimuli_id globally for TTS worker access
+    global current_stimuli_id
+    current_stimuli_id = stimuli_id
+
     autonomous_context = request.json.get('autonomous_context', None)
     direct_speech = request.json.get('direct_speech', False)
+    # New interaction mode handling – "interrupt" (default) clears current speech, "queue" waits until current speech completes
+    interaction_mode = request.json.get('interaction_mode', 'interrupt').lower()
+    flush_audio = interaction_mode == 'interrupt'
     
     provider = llm_config_global.get("LLM_PROVIDER", "openai")
     app.logger.info(f"📝 Processing text with {provider.upper()}: {user_input[:100]}{'...' if len(user_input) > 100 else ''}")
@@ -378,7 +394,8 @@ def handle_process_text():
             audio_queue, 
             vector_db, 
             base_system_message=current_system_message,
-            autonomous_context=autonomous_context
+            autonomous_context=autonomous_context,
+            flush=flush_audio
         )
         chat_history_global = updated_chat_history
 
@@ -391,6 +408,71 @@ def handle_process_text():
     
     app.logger.info(f"✅ Text processing completed with {provider}")
     return jsonify(response_data), 200
+
+@app.route("/speech/control", methods=['POST'])
+def handle_speech_control():
+    """Control speech playback via GStreamer pipeline management"""
+    if not system_objects:
+        return jsonify({"error": "System not initialized"}), 503
+
+    if not request.json or 'action' not in request.json:
+        return jsonify({"error": "Missing 'action' in JSON payload"}), 400
+
+    action = request.json['action'].lower()
+
+    from utils.llm.turn_processing import flush_queue, wait_until_idle
+    from utils.audio.gst_stream import stop_all_audio_streams, get_active_stream_count
+
+    chunk_queue = system_objects['chunk_queue']
+    audio_queue = system_objects['audio_queue']
+
+    if action == 'stop':
+        # 1. Flush processing queues to prevent new audio generation
+        flush_queue(chunk_queue)
+        flush_queue(audio_queue)
+        
+        # 2. Stop all active GStreamer audio streams
+        stopped_count = stop_all_audio_streams()
+        
+        app.logger.info(f"🛑 Speech control: Stopped {stopped_count} audio streams, flushed queues")
+        return jsonify({
+            "status": "stopped", 
+            "streams_stopped": stopped_count,
+            "queues_flushed": True
+        }), 200
+    elif action == 'pause':
+        # RTMP streaming doesn't support pause - it's a live stream
+        active_streams = get_active_stream_count()
+        app.logger.warning(f"⏸️ Pause not supported in RTMP mode ({active_streams} active streams)")
+        return jsonify({
+            "error": "Pause/resume not supported in RTMP streaming mode",
+            "active_streams": active_streams,
+            "suggestion": "Use 'stop' action to halt current speech"
+        }), 400
+    elif action == 'resume':
+        # RTMP streaming doesn't support resume - it's a live stream
+        active_streams = get_active_stream_count()
+        app.logger.warning(f"▶️ Resume not supported in RTMP mode ({active_streams} active streams)")
+        return jsonify({
+            "error": "Pause/resume not supported in RTMP streaming mode", 
+            "active_streams": active_streams,
+            "suggestion": "Send new /process_text request to start new speech"
+        }), 400
+    elif action == 'status':
+        # New action: get current speech status
+        active_streams = get_active_stream_count()
+        chunk_queue_size = chunk_queue.qsize() if hasattr(chunk_queue, 'qsize') else 'unknown'
+        audio_queue_size = audio_queue.qsize() if hasattr(audio_queue, 'qsize') else 'unknown'
+        
+        app.logger.info(f"📊 Speech status: {active_streams} streams, queues: {chunk_queue_size}/{audio_queue_size}")
+        return jsonify({
+            "status": "active" if active_streams > 0 else "idle",
+            "active_streams": active_streams,
+            "chunk_queue_size": chunk_queue_size,
+            "audio_queue_size": audio_queue_size
+        }), 200
+    else:
+        return jsonify({"error": f"Unsupported action: {action}"}), 400
 
 
 @app.route("/game_control", methods=['POST'])

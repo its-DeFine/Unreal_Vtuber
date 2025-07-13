@@ -2,10 +2,10 @@
 
 ## Overview
 
-The Autonomous VTuber System provides a comprehensive REST API through the Unified CORE System. All endpoints are accessible via the main API server running on port 8000.
+The Autonomous VTuber System provides a comprehensive REST API through the S2 AutoGen container. All endpoints are accessible via the S2 API server running on port 8200.
 
-**Base URL**: `http://localhost:8000`
-**API Documentation**: `http://localhost:8000/docs` (Swagger UI)
+**Base URL**: `http://localhost:8200`
+**API Documentation**: `http://localhost:8200/docs` (FastAPI Swagger UI)
 
 ## Authentication
 
@@ -14,7 +14,7 @@ Currently, the system uses basic authentication. For production deployments, API
 ```bash
 # Example authenticated request
 curl -H "Authorization: Bearer <api-key>" \
-     http://localhost:8000/api/stimuli/receive
+     http://localhost:8200/api/stimuli/receive
 ```
 
 ## Core System Endpoints
@@ -26,27 +26,31 @@ curl -H "Authorization: Bearer <api-key>" \
 **Response**: System health status with component details
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8200/health
 ```
 
 **Response Example**:
 ```json
 {
-  "healthy": true,
-  "timestamp": "2025-07-13T12:00:00Z",
-  "components": {
-    "unified_core": "healthy",
-    "stimuli_processor": "healthy", 
-    "queue_service": "healthy",
-    "character_manager": "healthy",
-    "s1_system": "healthy",
-    "s2_system": "healthy"
+  "status": "healthy",
+  "timestamp": "2025-07-13T10:52:04.014402",
+  "s2_teams_enabled": true,
+  "s2_teams_status": {
+    "enabled": true,
+    "queue_consumer": true,
+    "orchestrator": true,
+    "queue_file": "/tmp/s2_queue/s2_processing_queue.json",
+    "queue_stats": {
+      "running": true,
+      "processed": 0,
+      "failed": 0,
+      "teams_available": ["trader", "educator", "streamer"]
+    }
   },
-  "services": {
-    "redis": "connected",
-    "neo4j": "connected",
-    "autogen": "running",
-    "neurosync": "available"
+  "stimuli_processing": {
+    "stimuli_processing": true,
+    "ready_for_stimuli": true,
+    "autonomous_state": "running"
   }
 }
 ```
@@ -56,7 +60,7 @@ curl http://localhost:8000/health
 **Response**: Comprehensive system information
 
 ```bash
-curl http://localhost:8000/status
+curl http://localhost:8200/api/stimuli/status
 ```
 
 **Response Example**:
@@ -82,7 +86,7 @@ curl http://localhost:8000/status
 **Response**: Metrics in Prometheus format
 
 ```bash
-curl http://localhost:8000/metrics
+curl http://localhost:8200/metrics
 ```
 
 ## Stimuli Processing API
@@ -141,15 +145,17 @@ curl http://localhost:8000/metrics
 
 **Processing Modes**:
 - `auto`: Intelligent routing based on content analysis
-- `s1_only`: Direct to avatar/speech system only
-- `s2_only`: AutoGen team processing only
-- `s1_and_s2`: Process with both systems simultaneously
+- `s1_only`: Direct to avatar/speech system only (bypasses S2)
+- `s2_only`: AutoGen team processing only (no speech output)
+- `s1_and_s2`: Process with S2 first, then forward to S1 for speech
+
+**Important**: When using `s1_and_s2` mode, the S2 system processes the stimuli first, extracts insights, and then forwards the enhanced content to S1 for speech generation with the specified character.
 
 **Example Requests**:
 
 ```bash
 # Auto routing for market analysis
-curl -X POST http://localhost:8000/api/stimuli/receive \
+curl -X POST http://localhost:8200/api/stimuli/receive \
   -H "Content-Type: application/json" \
   -d '{
     "stimuli_id": "market-001",
@@ -159,7 +165,7 @@ curl -X POST http://localhost:8000/api/stimuli/receive \
   }'
 
 # Force S1 avatar response
-curl -X POST http://localhost:8000/api/stimuli/receive \
+curl -X POST http://localhost:8200/api/stimuli/receive \
   -H "Content-Type: application/json" \
   -d '{
     "stimuli_id": "speech-001", 
@@ -170,7 +176,7 @@ curl -X POST http://localhost:8000/api/stimuli/receive \
   }'
 
 # S2 team analysis
-curl -X POST http://localhost:8000/api/stimuli/receive \
+curl -X POST http://localhost:8200/api/stimuli/receive \
   -H "Content-Type: application/json" \
   -d '{
     "stimuli_id": "analysis-001",
@@ -180,6 +186,90 @@ curl -X POST http://localhost:8000/api/stimuli/receive \
     "team_preference": "trader",
     "priority": "high"
   }'
+```
+
+### Stimuli Control Endpoints
+
+#### GET /api/stimuli/status
+**Description**: Get current stimuli processing status and statistics
+
+```bash
+curl http://localhost:8200/api/stimuli/status
+```
+
+**Response Example**:
+```json
+{
+  "autonomous_state": "running",
+  "current_stimuli": null,
+  "statistics": {
+    "total_received": 4,
+    "total_queued": 4,
+    "total_errors": 0,
+    "start_time": "2025-07-13T10:51:26.399627"
+  },
+  "queue_size": 4,
+  "uptime": "N/A"
+}
+```
+
+#### POST /api/stimuli/control/pause
+**Description**: Pause autonomous stimuli processing
+
+```bash
+curl -X POST http://localhost:8200/api/stimuli/control/pause
+```
+
+#### POST /api/stimuli/control/resume
+**Description**: Resume autonomous stimuli processing
+
+```bash
+curl -X POST http://localhost:8200/api/stimuli/control/resume
+```
+
+#### POST /api/stimuli/control/clear
+**Description**: Clear the stimuli processing queue
+
+```bash
+curl -X POST http://localhost:8200/api/stimuli/control/clear
+```
+
+### Queue Management Endpoints
+
+#### GET /api/queue/health
+**Description**: Get queue consumer health status
+
+```bash
+curl http://localhost:8200/api/queue/health
+```
+
+**Response Example**:
+```json
+{
+  "consumer_running": true,
+  "task_exists": true,
+  "task_status": "running",
+  "teams_count": 3,
+  "queue_exists": true,
+  "restart_available": true,
+  "overall_health": "healthy"
+}
+```
+
+#### POST /api/queue/restart
+**Description**: Restart the queue consumer
+
+```bash
+curl -X POST http://localhost:8200/api/queue/restart
+```
+
+**Response Example**:
+```json
+{
+  "success": true,
+  "message": "Queue processing task restarted successfully",
+  "timestamp": "2025-07-13T10:53:02.055039"
+}
 ```
 
 ### Legacy Compatibility Endpoint
@@ -193,7 +283,7 @@ curl -X POST http://localhost:8000/api/stimuli/receive \
 - `priority` (string, optional): Processing priority
 
 ```bash
-curl -X POST "http://localhost:8000/api/stimuli/s2?content=Analyze%20market%20data&character_type=trader"
+curl -X POST "http://localhost:8200/api/stimuli/s2?content=Analyze%20market%20data&character_type=trader"
 ```
 
 ## Character Management API
@@ -204,7 +294,7 @@ curl -X POST "http://localhost:8000/api/stimuli/s2?content=Analyze%20market%20da
 **Description**: List all registered characters with current status
 
 ```bash
-curl http://localhost:8000/api/characters
+curl http://localhost:8200/api/characters
 ```
 
 **Response Example**:
@@ -250,13 +340,13 @@ curl http://localhost:8000/api/characters
 
 ```bash
 # Get all available characters
-curl http://localhost:8000/api/characters/available
+curl http://localhost:8200/api/characters/available
 
 # Get available traders
-curl "http://localhost:8000/api/characters/available?mission_type=trading"
+curl "http://localhost:8200/api/characters/available?mission_type=trading"
 
 # Get available S1 characters  
-curl "http://localhost:8000/api/characters/available?system=s1"
+curl "http://localhost:8200/api/characters/available?system=s1"
 ```
 
 **Response Example**:
@@ -281,7 +371,7 @@ curl "http://localhost:8000/api/characters/available?system=s1"
 **Description**: Get queue statistics and health
 
 ```bash
-curl http://localhost:8000/api/queues/stats
+curl http://localhost:8200/api/queues/stats
 ```
 
 **Response Example**:
@@ -317,10 +407,10 @@ curl http://localhost:8000/api/queues/stats
 
 ```bash
 # Purge trader queue
-curl -X POST http://localhost:8000/api/queues/s2_trader/purge
+curl -X POST http://localhost:8200/api/queues/s2_trader/purge
 
 # Purge educator queue  
-curl -X POST http://localhost:8000/api/queues/s2_educator/purge
+curl -X POST http://localhost:8200/api/queues/s2_educator/purge
 ```
 
 **Response Example**:
@@ -338,7 +428,7 @@ curl -X POST http://localhost:8000/api/queues/s2_educator/purge
 **Description**: Get comprehensive processing statistics
 
 ```bash
-curl http://localhost:8000/api/stats
+curl http://localhost:8200/api/stats
 ```
 
 **Response Example**:
@@ -393,7 +483,7 @@ curl http://localhost:8000/api/stats
 **Description**: Get current system configuration
 
 ```bash
-curl http://localhost:8000/api/config
+curl http://localhost:8200/api/config
 ```
 
 **Response Example**:
@@ -423,7 +513,7 @@ curl http://localhost:8000/api/config
 
 ```javascript
 // JavaScript WebSocket example
-const ws = new WebSocket('ws://localhost:8000/ws/stimuli/unique-id-123');
+const ws = new WebSocket('ws://localhost:8200/ws/stimuli/unique-id-123');
 
 ws.onmessage = function(event) {
   const update = JSON.parse(event.data);
@@ -474,7 +564,7 @@ All endpoints return errors in a consistent format:
 
 ```bash
 # Invalid request
-curl -X POST http://localhost:8000/api/stimuli/receive \
+curl -X POST http://localhost:8200/api/stimuli/receive \
   -H "Content-Type: application/json" \
   -d '{"content": ""}' # Empty content
 
@@ -512,7 +602,7 @@ import requests
 import json
 
 class VTuberAPI:
-    def __init__(self, base_url="http://localhost:8000"):
+    def __init__(self, base_url="http://localhost:8200"):
         self.base_url = base_url
     
     def process_stimuli(self, content, **kwargs):
@@ -546,7 +636,7 @@ result = api.process_stimuli(
 
 ```javascript
 class VTuberAPI {
-    constructor(baseURL = 'http://localhost:8000') {
+    constructor(baseURL = 'http://localhost:8200') {
         this.baseURL = baseURL;
     }
     
@@ -587,10 +677,10 @@ const result = await api.processStimuli('Create educational content', {
 
 ```bash
 # Health check
-curl http://localhost:8000/health
+curl http://localhost:8200/health
 
 # Process stimuli
-curl -X POST http://localhost:8000/api/stimuli/receive \
+curl -X POST http://localhost:8200/api/stimuli/receive \
   -H "Content-Type: application/json" \
   -d '{
     "stimuli_id": "test-001",
