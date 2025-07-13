@@ -162,11 +162,36 @@ class SimplifiedAutoGenTeam:
             content = stimuli.get("content", "")
             metadata = stimuli.get("metadata", {})
             
+            # ------------------------------------------------------------------
+            # Inject SCB context (team slice + global slice) into system prompt
+            # ------------------------------------------------------------------
+            scb_context_lines = []
+            if self.scb_client:
+                try:
+                    team_slice = self.scb_client.get_slice(f"scb:team:{self.team_type}")
+                    global_slice = self.scb_client.get_slice("scb:global")
+
+                    def _slice_to_text(slice_obj):
+                        lines = []
+                        for entry in slice_obj.get("window", [])[-3:]:  # last 3 events
+                            lines.append(f"[{entry.get('actor')}]: {entry.get('text')}")
+                        return "\n".join(lines)
+
+                    if team_slice:
+                        scb_context_lines.append("Team SCB Context:\n" + _slice_to_text(team_slice))
+                    if global_slice:
+                        scb_context_lines.append("Global SCB Context:\n" + _slice_to_text(global_slice))
+                except Exception as _se:
+                    logger.warning(f"[TEAM] Failed to load SCB context: {_se}")
+
+            scb_context_block = "\n\n".join(scb_context_lines)
+
             # Create enhanced task prompt that encourages tool usage
             task = f"""
             Task: {content}
             Context: {metadata}
             Stimuli ID: {stimuli_id}
+            {scb_context_block}
             
             Please analyze this task and provide actionable insights.
             Team members should collaborate to:
