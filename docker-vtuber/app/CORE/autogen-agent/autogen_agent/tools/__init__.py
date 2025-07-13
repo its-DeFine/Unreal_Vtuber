@@ -53,6 +53,9 @@ from .trader_tools import register_trader_tools
 from .teacher_tools import register_teacher_tools
 from .streamer_tools import register_streamer_tools
 
+# Import SCB operations tool (self-registers on import)
+from .scb_operations_tool import scb_operations_tool
+
 logger = logging.getLogger(__name__)
 
 
