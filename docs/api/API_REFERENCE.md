@@ -19,6 +19,90 @@ curl -H "Authorization: Bearer <api-key>" \
 
 ## Core System Endpoints
 
+### S1 Speech Control (NeuroSync Player)
+
+#### POST /process_text
+**Description**: Process text input and generate speech with facial animations
+**Target**: S1 NeuroSync Player (port 5001)
+**URL**: `http://localhost:5001/process_text`
+
+```bash
+curl -X POST http://localhost:5001/process_text \
+     -H "Content-Type: application/json" \
+     -d '{"text": "Hello, this is a test message", "interaction_mode": "interrupt"}'
+```
+
+**Request Body**:
+```json
+{
+  "text": "Text to be spoken by the avatar",
+  "interaction_mode": "interrupt"  // Optional: "interrupt" (default) or "queue"
+}
+```
+
+**Parameters**:
+- `text` (string, required): Text to be processed and spoken
+- `interaction_mode` (string, optional): 
+  - `"interrupt"` (default): New requests flush queues and stop current speech
+  - `"queue"`: Sequential processing, requests wait for completion
+
+**Response**: Processing confirmation with status
+
+#### POST /speech/control
+**Description**: Control active speech playback (stop, pause, resume, status)
+**Target**: S1 NeuroSync Player (port 5001)
+**URL**: `http://localhost:5001/speech/control`
+
+```bash
+# Stop current speech
+curl -X POST http://localhost:5001/speech/control \
+     -H "Content-Type: application/json" \
+     -d '{"action": "stop"}'
+
+# Check system status
+curl -X POST http://localhost:5001/speech/control \
+     -H "Content-Type: application/json" \
+     -d '{"action": "status"}'
+```
+
+**Request Body**:
+```json
+{
+  "action": "stop"  // "stop", "pause", "resume", or "status"
+}
+```
+
+**Actions**:
+- `"stop"`: Interrupts active speech, flushes all queues, stops GStreamer pipelines
+- `"pause"`: Not supported in RTMP mode (returns 400 error)
+- `"resume"`: Not supported in RTMP mode (returns 400 error)  
+- `"status"`: Returns current system status and queue information
+
+**Response Examples**:
+
+*Stop Response*:
+```json
+{
+  "status": "stopped",
+  "streams_stopped": 1,
+  "queues_flushed": true
+}
+```
+
+*Status Response*:
+```json
+{
+  "status": "idle",
+  "active_streams": 0,
+  "audio_queue_size": 0,
+  "chunk_queue_size": 0
+}
+```
+
+**Error Responses**:
+- `400`: Invalid action or unsupported operation (pause/resume in RTMP mode)
+- `500`: Internal server error
+
 ### Health and Status
 
 #### GET /health
