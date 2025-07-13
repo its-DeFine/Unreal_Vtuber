@@ -37,12 +37,9 @@ class SimplifiedQueueConsumer:
         self.teams: Dict[str, SimplifiedAutoGenTeam] = {}
         self.character_mapping = {
             # Trader characters
-            "dr._house_doctor_template": "trader",
             "gordon_trader_template": "trader", 
             "marcus_trader_template": "trader",
             # Educator characters
-            "emma_teacher_template": "educator",
-            "professor_smith_teacher_template": "educator",
             "sarah_educator_template": "educator",
             "diana_educator_template": "educator",
             # Streamer characters
