@@ -2438,5 +2438,77 @@
     {
         "input": "What learning approach should we use today?",
         "response": "Why not go for a project-based approach today? It lets you tackle real-world problems and apply what you learn in practical, meaningful ways. What's a project you've been curious to explore? \ud83d\ude80\ud83c\udfa8"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to process completely.\n        We are testing the speech control functionality to ensure that we can properly interrupt,\n        pause, and resume speech playback in the NeuroSync Player system. This text contains\n        multiple sentences and should generate multiple audio chunks that we can control during\n        playback. The system should be able to handle stop commands that flush all queues,\n        pause commands that temporarily halt playback, and resume commands that continue from\n        where we left off. This comprehensive test ensures that the speech control API works\n        as expected in real-world scenarios where users might want to interrupt or control\n        the avatar's speech output dynamically.",
+        "response": "Understood! Let me know if there's anything else you'd like to test or explore with the system. I'm here to keep things engaging and interactive! \ud83c\udf9b\ufe0f\ud83d\udd0d"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to process completely.\n        We are testing the speech control functionality to ensure that we can properly interrupt,\n        pause, and resume speech playback in the NeuroSync Player system. This text contains\n        multiple sentences and should generate multiple audio chunks that we can control during\n        playback. The system should be able to handle stop commands that flush all queues,\n        pause commands that temporarily halt playback, and resume commands that continue from\n        where we left off. This comprehensive test ensures that the speech control API works\n        as expected in real-world scenarios where users might want to interrupt or control\n        the avatar's speech output dynamically.",
+        "response": "Got it! If there's anything else you'd like to try out or any specific scenarios to explore, just let me know. I'm here to keep the momentum going! \ud83d\udd04\ud83d\udee0\ufe0f"
+    },
+    {
+        "input": "This is a very long speech request that should take several seconds to process completely.\n        We are testing the speech control functionality to ensure that we can properly interrupt,\n        pause, and resume speech playback in the NeuroSync Player system. This text contains\n        multiple sentences and should generate multiple audio chunks that we can control during\n        playback. The system should be able to handle stop commands that flush all queues,\n        pause commands that temporarily halt playback, and resume commands that continue from\n        where we left off. This comprehensive test ensures that the speech control API works\n        as expected in real-world scenarios where users might want to interrupt or control\n        the avatar's speech output dynamically.",
+        "response": "All set for testing! If you need to tweak anything or dive into another test, just give me a shout. Let's keep it smooth and seamless! \ud83c\udfaf\ud83d\udd27"
+    },
+    {
+        "input": "Hello world",
+        "response": "Hey there, digital explorer! \ud83c\udf0d\u2728 What's lighting up your curiosity today?"
+    },
+    {
+        "input": "Tell me the current BTC price and then analyze the market trend",
+        "response": "I'm here to keep things lively and interactive, but I recommend checking a reliable financial news website or a cryptocurrency app for the latest BTC price and market analysis. In the meantime, what's your prediction on where the crypto market is headed? \ud83d\udcc8\ud83d\udcac"
+    },
+    {
+        "input": "Tell me the current BTC price and then analyze the market trend",
+        "response": "While I can't provide real-time data, you can easily check the latest BTC price on your favorite cryptocurrency platform. As for market trends, what's your take on the future of cryptocurrencies\u2014bullish or bearish? Let's chat about it! \ud83d\ude80\ud83d\udcc9"
+    },
+    {
+        "input": "What learning approach should we use today?",
+        "response": "How about diving into some interactive learning with a project-based approach? It can be a fantastic way to solve real-world problems while getting hands-on experience. What kind of project has been sparking your interest lately? \ud83d\udee0\ufe0f\ud83c\udf1f"
+    },
+    {
+        "input": "Should I sell my Bitcoin?",
+        "response": "Decisions, decisions! Selling Bitcoin depends on your financial goals and risk tolerance. It might be worth considering market trends and consulting a financial advisor. What's your strategy with crypto investments? \ud83d\udcca\ud83e\udd14"
+    },
+    {
+        "input": "I bought Bitcoin at $70,000 and I'm concerned about the price drop",
+        "response": "It's understandable to feel concerned, especially with market fluctuations. Holding on or selling is a personal choice that depends on your long-term goals. Have you considered diversifying your investment or exploring other financial strategies? \ud83d\udca1\ud83d\udd0d"
+    },
+    {
+        "input": "What should I do now?",
+        "response": "It's all about weighing your options. Consider researching market trends, diversifying your investments, or consulting a financial advisor to align with your goals. What's your next financial goal or area of interest? \ud83d\udcc8\ud83d\udcbc"
+    },
+    {
+        "input": "Should I sell my Bitcoin?",
+        "response": "That's a big decision! It might be helpful to assess your financial goals, market research, and risk tolerance before deciding. What's your gut feeling telling you? \ud83e\udd14\ud83d\udcad"
+    },
+    {
+        "input": "What color scheme would you suggest for my room?",
+        "response": "Let's get creative! How about a calming ocean theme with shades of teal and sandy beige? Or maybe a bold and energizing mix of navy blue with bright yellow accents? What's the vibe you're aiming for? \ud83c\udfe1\ud83c\udfa8"
+    },
+    {
+        "input": "Should I sell my Bitcoin?",
+        "response": "It's a tough call! Consider your financial objectives and market outlook. Sometimes, holding on could be beneficial, but seeking advice from a financial expert might give you extra clarity. What's the most exciting part of your investment journey so far? \ud83d\udcc8\ud83d\udcac"
+    },
+    {
+        "input": "I bought Bitcoin at $70,000 and I'm concerned about the price drop",
+        "response": "It's completely natural to feel uneasy about price drops. Remember, the crypto market can be volatile. Reflecting on your investment goals and possibly seeking professional advice might help you navigate these waters. Have you explored other investment opportunities that intrigue you? \ud83d\udcca\ud83c\udf1f"
+    },
+    {
+        "input": "What should I do now?",
+        "response": "Exploring your options can be empowering! Perhaps start by setting clear financial goals, diversifying your investments, or even educating yourself further on market trends. What's something new you'd like to learn about investing? \ud83d\udcda\ud83d\udca1"
+    },
+    {
+        "input": "What color scheme would you suggest for my room?",
+        "response": "How about going for a serene nature-inspired palette with earthy greens and warm browns? Or, if you're feeling adventurous, a vibrant mix of coral and turquoise could energize the space. What's the mood you want to create? \ud83c\udf3f\ud83c\udfa8"
+    },
+    {
+        "input": "Should I sell my Bitcoin?",
+        "response": "Deciding to sell Bitcoin can be challenging. Reflect on your financial goals, current market conditions, and your risk tolerance. Consulting a financial advisor might also provide valuable insights. What are your thoughts on the future of cryptocurrency? \ud83e\udd14\ud83d\ude80"
+    },
+    {
+        "input": "What learning approach should we use today?",
+        "response": "How about we try an interactive quiz today? It's a fun and engaging way to test your knowledge while learning something new. Is there a subject or topic you're particularly interested in quizzing yourself on? \ud83e\udde0\u2728"
     }
 ]

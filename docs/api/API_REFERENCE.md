@@ -173,6 +173,149 @@ curl http://localhost:8200/api/stimuli/status
 curl http://localhost:8200/metrics
 ```
 
+## Orchestrator API
+
+The Orchestrator service provides intelligent routing between S1 (real-time) and S2 (analytical) systems.
+
+**Base URL**: `http://localhost:8082`
+
+### POST /route
+**Description**: Make routing decisions for incoming stimuli without executing
+**URL**: `http://localhost:8082/route`
+
+```bash
+curl -X POST http://localhost:8082/route \
+     -H "Content-Type: application/json" \
+     -d '{
+       "stimulus_id": "test_001",
+       "text": "Analyze the current market trends",
+       "priority": "normal"
+     }'
+```
+
+**Request Body**:
+```json
+{
+  "stimulus_id": "unique_id",
+  "text": "The stimulus text to route",
+  "priority": "normal",  // "low", "normal", or "high"
+  "metadata": {}        // Optional metadata
+}
+```
+
+**Response**:
+```json
+{
+  "stimulus_id": "test_001",
+  "stimulus_text": "Analyze the current market trends",
+  "system": "s2",  // "s1", "s2", or "both"
+  "config": {
+    "persona": "trader",
+    "team": "trader",
+    "coordination": "s1_then_s2"  // When system="both"
+  },
+  "confidence": 0.85,
+  "reasoning": "Complex analytical query requiring deep analysis...",
+  "latency_ms": 1250,
+  "timestamp": "2025-07-13T10:30:45.123456"
+}
+```
+
+### POST /execute
+**Description**: Execute a routing decision (forward stimulus to target systems)
+**URL**: `http://localhost:8082/execute`
+
+```bash
+curl -X POST http://localhost:8082/execute \
+     -H "Content-Type: application/json" \
+     -d '{
+       "stimulus_id": "test_001",
+       "stimulus_text": "Hello world",
+       "system": "s1",
+       "config": {"persona": "streamer"}
+     }'
+```
+
+### POST /process
+**Description**: Combined endpoint that routes and executes in one call
+**URL**: `http://localhost:8082/process`
+
+```bash
+curl -X POST http://localhost:8082/process \
+     -H "Content-Type: application/json" \
+     -d '{
+       "stimulus_id": "test_001",
+       "text": "What should I do with my Bitcoin investment?",
+       "priority": "high"
+     }'
+```
+
+**Response**:
+```json
+{
+  "routing_decision": {
+    "system": "both",
+    "config": {
+      "persona": "trader",
+      "team": "trader",
+      "coordination": "s1_then_s2"
+    },
+    "confidence": 0.9
+  },
+  "execution_results": {
+    "s1": {
+      "status": "processing",
+      "llm_provider": "openai"
+    },
+    "s2": {
+      "success": true,
+      "stimuli_id": "test_001",
+      "agent_decision": "queued_for_s2_processing"
+    }
+  },
+  "total_latency_ms": 3500,
+  "success": true
+}
+```
+
+### GET /health
+**Description**: Check orchestrator health status
+**URL**: `http://localhost:8082/health`
+
+```bash
+curl http://localhost:8082/health
+```
+
+**Response**:
+```json
+{
+  "status": "healthy",
+  "llm_available": true,
+  "api_registry": {
+    "s1": {"available": true, "endpoint": "http://s1_neurosync:5001"},
+    "s2": {"available": true, "endpoint": "http://s2_autogen_agent:8200"}
+  },
+  "metrics": {
+    "total_requests": 1523,
+    "routing_errors": 2
+  }
+}
+```
+
+### GET /metrics
+**Description**: Prometheus metrics endpoint
+**URL**: `http://localhost:8082/metrics`
+
+```bash
+curl http://localhost:8082/metrics
+```
+
+**Key Metrics**:
+- `orchestrator_requests_total` - Total routing requests
+- `orchestrator_routing_latency_seconds` - Routing decision latency
+- `orchestrator_execution_latency_seconds` - Execution latency
+- `orchestrator_errors_total` - Error count by type
+
 ## Stimuli Processing API
 
 ### Primary Stimuli Endpoint
