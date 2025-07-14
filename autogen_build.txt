@@ -1,3 +1,0 @@
-time="2025-07-13T16:08:13+03:00" level=warning msg="The \"OPENAI_API_KEY\" variable is not set. Defaulting to a blank string."
-time="2025-07-13T16:08:13+03:00" level=warning msg="/home/geo/directories/autonomy/docker-compose.all.yml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
-no such service: autogen-agent
