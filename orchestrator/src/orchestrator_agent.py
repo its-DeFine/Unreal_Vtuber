@@ -90,6 +90,31 @@ Respond with ONLY valid JSON. Be fast and decisive."""
         """Apply fast heuristics for common routing patterns"""
         text_lower = text.lower()
         
+        # Check for explicit S1 initialization commands
+        init_patterns = ["initialize", "init", "switch to", "use", "activate", "start"]
+        s1_indicators = ["system 1", "system one", "s1", "persona"]
+        
+        if any(pattern in text_lower for pattern in init_patterns):
+            if any(indicator in text_lower for indicator in s1_indicators):
+                # Detect which persona is requested
+                persona = "streamer"  # default
+                if "trader" in text_lower:
+                    persona = "trader"
+                elif "educator" in text_lower or "teacher" in text_lower:
+                    persona = "educator"
+                elif "streamer" in text_lower:
+                    persona = "streamer"
+                
+                return RoutingDecision(
+                    stimulus_id="",
+                    stimulus_text=text,
+                    system="s1",
+                    config={"persona": persona},
+                    confidence=1.0,
+                    reasoning=f"Explicit S1 initialization request for {persona}",
+                    latency_ms=0
+                )
+        
         # Simple greetings/quick responses -> S1
         simple_patterns = [
             "hello", "hi", "hey", "how are you", "good morning", "good evening",
@@ -248,9 +273,18 @@ Respond with ONLY valid JSON. Be fast and decisive."""
         endpoint = self.api_registry.apis['system1']['endpoint']
         persona = decision.config.get('persona', 'streamer')
         
+        # Map persona types to actual character IDs
+        character_mapping = {
+            'trader': 'sophia_trader_template',
+            'educator': 'diana_educator_template', 
+            'streamer': 'luna_streamer_template'
+        }
+        character_id = character_mapping.get(persona, 'luna_streamer_template')
+        
         logger.info("Forwarding to S1", 
                    stimulus_id=decision.stimulus_id,
-                   persona=persona)
+                   persona=persona,
+                   character_id=character_id)
         
         # Make API call
         import httpx
@@ -269,6 +303,20 @@ Respond with ONLY valid JSON. Be fast and decisive."""
                                    streams_stopped=stop_result.get('streams_stopped'))
             except Exception as e:
                 logger.warning("Could not stop speech", error=str(e))
+            
+            # Switch to the appropriate character
+            try:
+                char_response = await client.post(
+                    f"{endpoint}/character/activate",
+                    json={"character_id": character_id},
+                    timeout=5.0
+                )
+                if char_response.status_code == 200:
+                    logger.info(f"Activated character: {character_id}")
+                else:
+                    logger.warning(f"Failed to activate character: {char_response.status_code}")
+            except Exception as e:
+                logger.warning(f"Could not activate character: {e}")
             
             # Now send the new stimulus with error handling
             try:
@@ -317,9 +365,18 @@ Respond with ONLY valid JSON. Be fast and decisive."""
         endpoint = self.api_registry.apis['system2']['endpoint']
         team = decision.config.get('team', 'streamer')
         
+        # Map team types to actual character IDs
+        character_mapping = {
+            'trader': 'sophia_trader_template',
+            'educator': 'diana_educator_template', 
+            'streamer': 'luna_streamer_template'
+        }
+        character_id = character_mapping.get(team, 'luna_streamer_template')
+        
         logger.info("Forwarding to S2", 
                    stimulus_id=decision.stimulus_id,
-                   team=team)
+                   team=team,
+                   character_id=character_id)
         
         # Make API call
         import httpx
@@ -336,7 +393,8 @@ Respond with ONLY valid JSON. Be fast and decisive."""
                         "confidence": decision.confidence,
                         "metadata": {
                             "processing_mode": "s2_only" if decision.system == "s2" else "s1_and_s2",
-                            "character_type": f"{team}_template",
+                            "character_type": team,
+                            "character_id": character_id,
                             "orchestrator_reasoning": decision.reasoning
                         }
                     },
