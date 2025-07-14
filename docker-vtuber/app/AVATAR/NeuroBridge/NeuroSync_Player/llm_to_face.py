@@ -299,6 +299,20 @@ def handle_process_text():
                     from character_config import get_character_manager
                     character_manager = get_character_manager()
                     
+                    # Stop current speech before switching characters
+                    from utils.audio.gst_stream import stop_all_audio_streams
+                    from utils.llm.turn_processing import flush_queue
+                    
+                    if system_objects:
+                        # Flush audio queues
+                        flush_queue(system_objects.get('chunk_queue'))
+                        flush_queue(system_objects.get('audio_queue'))
+                        
+                        # Stop all active audio streams
+                        stopped_count = stop_all_audio_streams()
+                        if stopped_count > 0:
+                            app.logger.info(f"🛑 Stopped {stopped_count} audio streams before character switch")
+                    
                     if character_manager.switch_character(target_character):
                         app.logger.info(f"✅ Switched to character: {target_character} for persona: {persona}")
                     else:
