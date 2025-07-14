@@ -389,24 +389,29 @@ class CharacterManager:
                 
                 # Check if visual identity is different from current
                 new_preset = new_character.visual_identity.get('preset_name', 'default')
-                current_preset = visual_manager.get_current_identity()
+                try:
+                    current_preset = visual_manager.get_current_identity()
+                    if isinstance(current_preset, str) and new_preset == current_preset:
+                        logger.info(f"✅ Visual identity '{new_preset}' already active, skipping update")
+                        return True
+                except Exception as e:
+                    logger.warning(f"Could not get current preset: {e}")
+                    current_preset = None
                 
-                if new_preset == current_preset:
-                    logger.info(f"✅ Visual identity '{new_preset}' already active, skipping update")
+                # Always apply if we can't determine current preset or if different
+                # Run async function in sync context
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                success = loop.run_until_complete(
+                    visual_manager.apply_character_visual_identity(asdict(new_character))
+                )
+                
+                if success:
+                    logger.info(f"✅ Applied visual identity for {new_character.name}")
                 else:
-                    # Run async function in sync context
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    
-                    success = loop.run_until_complete(
-                        visual_manager.apply_character_visual_identity(asdict(new_character))
-                    )
-                    
-                    if success:
-                        logger.info(f"✅ Applied visual identity for {new_character.name}")
-                    else:
-                        logger.warning(f"⚠️ Failed to apply visual identity for {new_character.name}")
+                    logger.warning(f"⚠️ Failed to apply visual identity for {new_character.name}")
                     
             except Exception as e:
                 logger.error(f"❌ Error applying visual identity: {e}")
