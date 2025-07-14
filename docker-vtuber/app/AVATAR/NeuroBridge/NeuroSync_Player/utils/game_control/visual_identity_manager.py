@@ -45,8 +45,11 @@ class VisualIdentityManager:
         
         # If no controller provided, create one
         if not self.tcp_controller:
-            tcp_host = "host.docker.internal"  # Default for Docker
-            tcp_port = 7777
+            import os
+            # Allow environment variable override for TCP connection
+            tcp_host = os.getenv("UNREAL_TCP_HOST", "host.docker.internal")  # Default for Docker
+            tcp_port = int(os.getenv("UNREAL_TCP_PORT", "7777"))
+            logger.info(f"🎮 Creating TCP controller for {tcp_host}:{tcp_port}")
             config = TCPConnectionConfig(host=tcp_host, port=tcp_port)
             self.tcp_controller = UnrealTCPController(config)
             
@@ -73,38 +76,32 @@ class VisualIdentityManager:
             logger.error("🚫 Cannot connect to Unreal Engine - visual identity not applied")
             return False
         
-        # Send commands with optimized delay
-        # Group commands that can be sent quickly vs those that need processing time
-        critical_commands = ['PRS.', 'OF.']  # Preset and outfit changes need more time
-        
-        optimized_commands = []
+        logger.info(f"🎨 Applying {len(visual_identity.tcp_commands)} TCP commands for '{visual_identity.preset_name}':")
         for cmd in visual_identity.tcp_commands:
-            delay = 0.2 if any(cmd.startswith(prefix) for prefix in critical_commands) else 0.05
-            optimized_commands.append((cmd, delay))
+            logger.info(f"   📡 {cmd}")
         
-        # Send commands with dynamic delays
-        total = len(optimized_commands)
-        success = 0
-        failed = 0
+        # Send all commands using the batch method with optimized delays
+        result = await self.tcp_controller.send_commands_batch(
+            visual_identity.tcp_commands,
+            delay_between=0.1  # Reduced delay for faster switching
+        )
         
-        for i, (cmd, delay) in enumerate(optimized_commands):
-            result = await self.tcp_controller.send_command(cmd)
-            if result['success']:
-                success += 1
-            else:
-                failed += 1
-            
-            # Only delay if not the last command
-            if i < total - 1:
-                await asyncio.sleep(delay)
+        success = result['success'] == result['total']
         
-        if success == total:
+        if success:
             self.current_visual_identity = visual_identity.preset_name
             logger.info(f"✅ Visual identity '{visual_identity.preset_name}' applied successfully")
-            return True
+            logger.info(f"   Commands sent: {result['success']}/{result['total']}")
         else:
-            logger.error(f"❌ Failed to apply visual identity: {failed}/{total} commands failed")
-            return False
+            logger.error(f"❌ Failed to apply visual identity: {result['failed']}/{result['total']} commands failed")
+            logger.error(f"   Error: {result.get('error', 'Unknown error')}")
+            
+            # Log failed commands
+            for cmd_result in result.get('commands', []):
+                if cmd_result['status'] == 'failed':
+                    logger.error(f"   ❌ Failed: {cmd_result['command']}")
+        
+        return success
     
     async def apply_character_visual_identity(self, character_data: Dict[str, Any]) -> bool:
         """
