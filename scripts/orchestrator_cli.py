@@ -59,6 +59,20 @@ class OrchestratorCLI:
         """Detect persona from text"""
         text_lower = text.lower()
         
+        # Check for explicit initialization commands
+        init_patterns = [
+            "initialize", "init", "switch to", "use", "activate", "start"
+        ]
+        
+        if any(pattern in text_lower for pattern in init_patterns):
+            # Check for specific persona mentions
+            if "trader" in text_lower:
+                return "trader"
+            elif "educator" in text_lower or "teacher" in text_lower or "education" in text_lower:
+                return "educator"
+            elif "streamer" in text_lower or "entertainer" in text_lower:
+                return "streamer"
+        
         # Check for explicit persona mention
         for persona in self.personas:
             if persona in text_lower:
