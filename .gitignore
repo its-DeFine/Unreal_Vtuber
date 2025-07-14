@@ -121,3 +121,8 @@ yarn-error.log*
 archives/temp/
 
 ./logs/
+./docker-vtuber/app/AVATAR/NeuroBridge/NeuroSync_Player/chat_logs
+# Voice control virtual environment
+scripts/voice_control_env/
+scripts/vosk-model-*/
+

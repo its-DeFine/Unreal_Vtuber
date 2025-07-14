@@ -17,21 +17,26 @@ cd scripts
 ./setup_voice_control.sh
 ```
 
+This will:
+- Create a Python virtual environment
+- Install all dependencies (pyaudio, SpeechRecognition, etc.)
+- Download Vosk model if you choose offline mode
+
 Choose between:
 - **Option 1**: Google Speech Recognition (easier, needs internet)
 - **Option 2**: Vosk (offline, better performance, 40MB download)
 
 ### 2. Start Voice Control
 
-For Google version:
+Simply run:
 ```bash
-python3 voice_orchestrator_gateway.py
+./run_voice_control.sh
 ```
 
-For Vosk version:
-```bash
-python3 voice_orchestrator_vosk.py
-```
+This will:
+- Activate the virtual environment automatically
+- Let you choose between Google or Vosk mode
+- Start the voice control system
 
 ## Usage Examples
 
