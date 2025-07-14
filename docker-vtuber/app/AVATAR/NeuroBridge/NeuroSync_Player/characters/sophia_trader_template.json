@@ -53,5 +53,18 @@
     "guaranteed returns"
   ],
   "scb_context_lines": 50,
-  "formality_level": "formal"
+  "formality_level": "formal",
+  "visual_identity": {
+    "preset_name": "golden_goddess",
+    "tcp_commands": [
+      "PRS.Fem1",
+      "OF.Default",
+      "HCR.0.9",
+      "HCG.0.8",
+      "HCB.0.2",
+      "HS.Buzz",
+      "EC.0.12",
+      "ES.35000.0"
+    ]
+  }
 }

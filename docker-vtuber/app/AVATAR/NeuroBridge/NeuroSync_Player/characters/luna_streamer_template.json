@@ -53,5 +53,18 @@
     "negative drama"
   ],
   "scb_context_lines": 50,
-  "formality_level": "casual"
+  "formality_level": "casual",
+  "visual_identity": {
+    "preset_name": "ruby_sensation",
+    "tcp_commands": [
+      "PRS.Fem",
+      "OF.PopStar",
+      "HCR.0.95",
+      "HCG.0.1",
+      "HCB.0.15",
+      "HS.Buzz",
+      "EC.0.0",
+      "ES.40000.0"
+    ]
+  }
 }

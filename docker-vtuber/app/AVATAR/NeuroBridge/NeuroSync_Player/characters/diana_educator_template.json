@@ -53,5 +53,18 @@
     "plagiarism"
   ],
   "scb_context_lines": 50,
-  "formality_level": "neutral"
+  "formality_level": "neutral",
+  "visual_identity": {
+    "preset_name": "emerald_elegance",
+    "tcp_commands": [
+      "PRS.Fem",
+      "OF.MaidDress",
+      "HCR.0.1",
+      "HCG.0.9",
+      "HCB.0.2",
+      "HS.Default",
+      "EC.0.33",
+      "ES.35000.0"
+    ]
+  }
 }
