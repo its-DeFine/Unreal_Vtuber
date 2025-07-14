@@ -119,3 +119,5 @@ yarn-error.log*
 
 # Archives
 archives/temp/
+
+./logs/
