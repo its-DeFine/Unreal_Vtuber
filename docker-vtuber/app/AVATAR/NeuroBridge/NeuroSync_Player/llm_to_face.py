@@ -241,6 +241,13 @@ neurosync_player_service_status{{service="neurosync-player",endpoint="game_contr
     
     return Response(metrics_text, mimetype='text/plain')
 
+# Persona to Character Mapping
+PERSONA_TO_CHARACTER = {
+    "trader": "sophia_trader_template",
+    "educator": "diana_educator_template",
+    "streamer": "luna_streamer_template"
+}
+
 @app.route("/process_text", methods=['POST'])
 def handle_process_text():
     global chat_history_global, full_history_global, current_character_data
@@ -284,6 +291,28 @@ def handle_process_text():
     
     if autonomous_context:
         app.logger.info(f"🤖 Autonomous context detected: {autonomous_context}")
+        
+        # Check if orchestrator sent a persona selection
+        if isinstance(autonomous_context, str) and "persona:" in autonomous_context:
+            # Extract persona from context string like "Routed by orchestrator with persona: trader"
+            try:
+                persona = autonomous_context.split("persona:")[-1].strip()
+                app.logger.info(f"🎭 Orchestrator requested persona: {persona}")
+                
+                # Switch to corresponding character
+                if persona in PERSONA_TO_CHARACTER:
+                    target_character = PERSONA_TO_CHARACTER[persona]
+                    from character_config import get_character_manager
+                    character_manager = get_character_manager()
+                    
+                    if character_manager.switch_character(target_character):
+                        app.logger.info(f"✅ Switched to character: {target_character} for persona: {persona}")
+                    else:
+                        app.logger.warning(f"⚠️ Failed to switch to character: {target_character}")
+                else:
+                    app.logger.warning(f"⚠️ Unknown persona: {persona}")
+            except Exception as e:
+                app.logger.error(f"❌ Error parsing persona from context: {e}")
     
     if direct_speech:
         app.logger.info(f"🎯 Direct speech mode - bypassing LLM")
