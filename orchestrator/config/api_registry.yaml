@@ -32,6 +32,14 @@ apis:
           - name: persona
             type: string
             required: false
+      speech_control:
+        method: POST
+        path: "/speech/control"
+        params:
+          - name: action
+            type: string
+            required: true
+            enum: ["stop", "status"]
     
   system2:
     name: "AutoGen Multi-Agent System"

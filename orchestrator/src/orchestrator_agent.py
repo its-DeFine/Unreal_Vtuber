@@ -167,6 +167,22 @@ Respond with ONLY valid JSON. Be fast and decisive."""
         # Make API call
         import httpx
         async with httpx.AsyncClient() as client:
+            # First, stop any ongoing speech to ensure clean transition
+            try:
+                stop_response = await client.post(
+                    f"{endpoint}/speech/control",
+                    json={"action": "stop"},
+                    timeout=2.0
+                )
+                if stop_response.status_code == 200:
+                    stop_result = stop_response.json()
+                    if stop_result.get('streams_stopped', 0) > 0:
+                        logger.info("Stopped ongoing speech before routing",
+                                   streams_stopped=stop_result.get('streams_stopped'))
+            except Exception as e:
+                logger.warning("Could not stop speech", error=str(e))
+            
+            # Now send the new stimulus
             response = await client.post(
                 f"{endpoint}/process_text",
                 json={
