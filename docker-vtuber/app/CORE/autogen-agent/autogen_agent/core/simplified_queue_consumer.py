@@ -56,6 +56,11 @@ class SimplifiedQueueConsumer:
         # Service state
         self.running = False
         self.processing_task = None
+        self.is_processing = False  # Track if currently processing a stimuli
+        self.current_stimuli_id = None  # Track current stimuli being processed
+        self.processing_start_time = None  # Track when current processing started
+        self.stop_requested = False  # Flag to stop current processing
+        self.current_team = None  # Track current team being used
         
         # Clients
         self.scb_client = None
@@ -157,6 +162,8 @@ class SimplifiedQueueConsumer:
         retry_count = 0
         max_retries = ProcessingConfig.MAX_RETRIES
         
+        logging.info(f"🔄 [QUEUE] Starting process loop with recovery (max_retries={max_retries})")
+        
         while self.running and retry_count < max_retries:
             try:
                 error_handler.log_success("queue", f"starting_process_loop_attempt_{retry_count + 1}")
@@ -170,7 +177,16 @@ class SimplifiedQueueConsumer:
                 
             except asyncio.CancelledError:
                 error_handler.log_warning("queue", "Process loop was cancelled")
-                raise  # Re-raise cancellation
+                if not self.running:
+                    # If we're not running, cancellation is expected
+                    logging.info("🛑 [QUEUE] Process loop cancelled during shutdown")
+                    raise
+                else:
+                    # If we're still running, this is unexpected cancellation
+                    logging.warning("⚠️ [QUEUE] Unexpected cancellation while running, will retry")
+                    retry_count += 1
+                    await asyncio.sleep(ProcessingConfig.BACKOFF_BASE_SECONDS)
+                    continue
                 
             except Exception as e:
                 retry_count += 1
@@ -293,6 +309,12 @@ class SimplifiedQueueConsumer:
                 item["metadata"] = {}
             item["metadata"]["stimuli_id"] = stimuli_id
         
+        # Set processing state
+        self.is_processing = True
+        self.current_stimuli_id = stimuli_id
+        self.processing_start_time = start_time
+        self.stop_requested = False
+        
         # 🔥 ENHANCED: S2_RECEIVED timestamp with more context
         logger.info(f"S2_RECEIVED {stimuli_id} {start_time.isoformat()}")
         logger.info(f"📨 [QUEUE] Processing item: {stimuli_id} - {item.get('prompt', '')[:100]}...")
@@ -301,6 +323,7 @@ class SimplifiedQueueConsumer:
             # Determine which team should handle this item
             team_type = self._determine_team_type(item)
             team = self._get_team_for_type(team_type)
+            self.current_team = team
             
             # Create properly formatted stimuli with stimuli_id
             stimuli = self._create_stimuli_payload(item)
@@ -310,8 +333,22 @@ class SimplifiedQueueConsumer:
             processing_start_time = datetime.now()
             logger.info(f"S2_PROCESSING_START {stimuli_id} {processing_start_time.isoformat()}")
             
-            # Process with the selected team
-            result = await self._execute_team_processing(team, team_type, stimuli)
+            # Check if stop was requested before processing
+            if self.stop_requested:
+                logger.info(f"⏹️ [QUEUE] Stop requested, cancelling processing for {stimuli_id}")
+                result = {
+                    "success": False,
+                    "error": "Processing stopped by user request",
+                    "stopped": True
+                }
+            else:
+                # Process with the selected team
+                result = await self._execute_team_processing(team, team_type, stimuli)
+            
+            # Check again if stop was requested during processing
+            if self.stop_requested:
+                logger.info(f"⏹️ [QUEUE] Stop requested during processing, marking as stopped for {stimuli_id}")
+                result["stopped"] = True
             
             # 🔥 ENHANCED: S2_PROCESSING_COMPLETE timestamp
             processing_complete_time = datetime.now()
@@ -322,6 +359,14 @@ class SimplifiedQueueConsumer:
             
         except Exception as e:
             await self._handle_processing_error(item, start_time, e)
+        finally:
+            # Clear processing state - ALWAYS clear to prevent stuck states
+            self.is_processing = False
+            self.current_stimuli_id = None
+            self.processing_start_time = None
+            self.stop_requested = False
+            self.current_team = None
+            logger.info(f"✅ [QUEUE] Processing state cleared for {stimuli_id}")
     
     def _determine_team_type(self, item: Dict[str, Any]) -> str:
         """
@@ -639,6 +684,11 @@ class SimplifiedQueueConsumer:
                 task_status = "error"
                 task_exception = e
         
+        # Calculate processing duration if currently processing
+        processing_duration = None
+        if self.is_processing and self.processing_start_time:
+            processing_duration = (datetime.now() - self.processing_start_time).total_seconds()
+        
         return {
             "running": self.running,
             "processed": self.stats["processed"],
@@ -648,7 +698,10 @@ class SimplifiedQueueConsumer:
             "queue_file": str(self.queue_file),
             "poll_interval": self.poll_interval,
             "task_status": task_status,
-            "task_exception": str(task_exception) if task_exception else None
+            "task_exception": str(task_exception) if task_exception else None,
+            "is_processing": self.is_processing,
+            "current_stimuli_id": self.current_stimuli_id,
+            "processing_duration_seconds": processing_duration
         }
     
     def get_task_health(self) -> Dict[str, Any]:
@@ -716,6 +769,60 @@ class SimplifiedQueueConsumer:
         except Exception as e:
             logging.error(f"❌ [QUEUE] Failed to restart processing task: {e}")
             return False
+    
+    async def stop_current_processing(self):
+        """Stop the current processing immediately."""
+        
+        if not self.is_processing:
+            logging.info("ℹ️ [QUEUE] No processing currently active to stop")
+            return {
+                "success": False,
+                "message": "No processing currently active",
+                "was_processing": False
+            }
+        
+        # Capture current state before clearing
+        current_stimuli = self.current_stimuli_id
+        processing_duration = None
+        if self.processing_start_time:
+            processing_duration = (datetime.now() - self.processing_start_time).total_seconds()
+        
+        try:
+            logging.info(f"⏹️ [QUEUE] Stopping current processing: {current_stimuli}")
+            
+            # Set stop flag
+            self.stop_requested = True
+            
+            # Try to stop the current team processing if available
+            if self.current_team and hasattr(self.current_team, 'stop_processing'):
+                try:
+                    self.current_team.stop_processing()
+                    logging.info("🛑 [QUEUE] Team processing stop requested")
+                except Exception as e:
+                    logging.warning(f"⚠️ [QUEUE] Could not stop team processing: {e}")
+            
+            # Wait a moment for graceful stop
+            await asyncio.sleep(0.5)
+            
+        except Exception as e:
+            logging.error(f"❌ [QUEUE] Error during stop processing: {e}")
+        
+        finally:
+            # ALWAYS clear the state to prevent stuck processing
+            logging.info("🧹 [QUEUE] Clearing processing state")
+            self.is_processing = False
+            self.current_stimuli_id = None
+            self.processing_start_time = None
+            self.stop_requested = False
+            self.current_team = None
+            
+            return {
+                "success": True,
+                "message": f"Stopped processing of stimuli: {current_stimuli}",
+                "stopped_stimuli_id": current_stimuli,
+                "processing_duration_seconds": processing_duration,
+                "was_processing": True
+            }
 
 
 # Global instance

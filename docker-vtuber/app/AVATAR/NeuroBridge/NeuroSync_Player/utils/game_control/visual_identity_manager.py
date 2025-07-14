@@ -73,21 +73,38 @@ class VisualIdentityManager:
             logger.error("🚫 Cannot connect to Unreal Engine - visual identity not applied")
             return False
         
-        # Send commands with small delay between each
-        result = await self.tcp_controller.send_commands_batch(
-            visual_identity.tcp_commands,
-            delay_between=0.3  # Increased delay for better Unreal processing
-        )
+        # Send commands with optimized delay
+        # Group commands that can be sent quickly vs those that need processing time
+        critical_commands = ['PRS.', 'OF.']  # Preset and outfit changes need more time
         
-        success = result['success'] == result['total']
+        optimized_commands = []
+        for cmd in visual_identity.tcp_commands:
+            delay = 0.2 if any(cmd.startswith(prefix) for prefix in critical_commands) else 0.05
+            optimized_commands.append((cmd, delay))
         
-        if success:
+        # Send commands with dynamic delays
+        total = len(optimized_commands)
+        success = 0
+        failed = 0
+        
+        for i, (cmd, delay) in enumerate(optimized_commands):
+            result = await self.tcp_controller.send_command(cmd)
+            if result['success']:
+                success += 1
+            else:
+                failed += 1
+            
+            # Only delay if not the last command
+            if i < total - 1:
+                await asyncio.sleep(delay)
+        
+        if success == total:
             self.current_visual_identity = visual_identity.preset_name
             logger.info(f"✅ Visual identity '{visual_identity.preset_name}' applied successfully")
+            return True
         else:
-            logger.error(f"❌ Failed to apply visual identity: {result['failed']}/{result['total']} commands failed")
-        
-        return success
+            logger.error(f"❌ Failed to apply visual identity: {failed}/{total} commands failed")
+            return False
     
     async def apply_character_visual_identity(self, character_data: Dict[str, Any]) -> bool:
         """

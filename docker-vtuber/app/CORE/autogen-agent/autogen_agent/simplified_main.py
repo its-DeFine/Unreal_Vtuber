@@ -60,16 +60,11 @@ async def lifespan(app: FastAPI):
     
     # Startup
     try:
-        if not _manual_startup_done:
-            print("🚀 [LIFESPAN] Running startup tasks...")
-            logging.info("🚀 [LIFESPAN] Running startup tasks...")
-            await startup_tasks()
-            _manual_startup_done = True
-            print("✅ [LIFESPAN] Startup tasks completed")
-            logging.info("✅ [LIFESPAN] Startup tasks completed")
-        else:
-            print("⏭️ [LIFESPAN] Startup already done")
-            logging.info("⏭️ [LIFESPAN] Startup already done")
+        print("🚀 [LIFESPAN] Running startup tasks...")
+        logging.info("🚀 [LIFESPAN] Running startup tasks...")
+        await startup_tasks()
+        print("✅ [LIFESPAN] Startup tasks completed")
+        logging.info("✅ [LIFESPAN] Startup tasks completed")
     except Exception as e:
         print(f"❌ [LIFESPAN] Startup failed: {e}")
         logging.error(f"❌ [LIFESPAN] Startup failed: {e}")
@@ -296,16 +291,7 @@ async def startup_tasks():
         char_manager = initialize_character_state_manager(s1_endpoint)
         logging.info("🎭 [STARTUP] Character state manager initialized")
         
-        # Initialize S2 queue orchestrator
-        global_orchestrator = S2QueueOrchestrator(
-            character_state_manager=char_manager
-        )
-        
-        # Setup stimuli API endpoints
-        setup_stimuli_api(app, global_orchestrator)
-        logging.info("✅ [STARTUP] Stimuli API endpoints configured")
-        
-        # Initialize queue consumer with LLM config
+        # Initialize queue consumer with LLM config first
         llm_config = get_llm_config()
         
         global_queue_consumer = await initialize_queue_consumer(
@@ -314,10 +300,26 @@ async def startup_tasks():
             neo4j_client=global_neo4j_client
         )
         
+        # Initialize S2 queue orchestrator with queue consumer reference
+        global_orchestrator = S2QueueOrchestrator(
+            character_state_manager=char_manager,
+            queue_consumer=global_queue_consumer
+        )
+        
+        # Setup stimuli API endpoints
+        setup_stimuli_api(app, global_orchestrator)
+        logging.info("✅ [STARTUP] Stimuli API endpoints configured")
+        
         if global_queue_consumer:
             logging.info("✅ [STARTUP] Queue consumer initialized and started")
+            logging.info("✅ [STARTUP] S2 queue orchestrator configured with processing state management")
+            
+            # Start periodic health check task
+            asyncio.create_task(periodic_health_check())
+            logging.info("✅ [STARTUP] Periodic health check task started")
         else:
             logging.error("❌ [STARTUP] Failed to initialize queue consumer")
+            logging.warning("⚠️ [STARTUP] S2 queue orchestrator running without processing state management")
         
         logging.info("🎉 [STARTUP] Simplified S2 system ready!")
         
@@ -325,6 +327,40 @@ async def startup_tasks():
         logging.error(f"❌ [STARTUP] Initialization error: {e}")
         import traceback
         traceback.print_exc()
+
+
+async def periodic_health_check():
+    """Periodic health check to ensure queue consumer is running."""
+    
+    health_check_interval = 30  # Check every 30 seconds
+    
+    while True:
+        try:
+            await asyncio.sleep(health_check_interval)
+            
+            if global_queue_consumer and global_queue_consumer.running:
+                # Check if processing task is healthy
+                if global_queue_consumer.processing_task:
+                    if global_queue_consumer.processing_task.done() or global_queue_consumer.processing_task.cancelled():
+                        logging.warning("⚠️ [HEALTH_CHECK] Processing task is not healthy, restarting...")
+                        try:
+                            await global_queue_consumer.restart_processing_task()
+                            logging.info("✅ [HEALTH_CHECK] Processing task restarted successfully")
+                        except Exception as e:
+                            logging.error(f"❌ [HEALTH_CHECK] Failed to restart processing task: {e}")
+                else:
+                    logging.warning("⚠️ [HEALTH_CHECK] No processing task found, creating one...")
+                    try:
+                        await global_queue_consumer._ensure_processing_task()
+                        logging.info("✅ [HEALTH_CHECK] Processing task created successfully")
+                    except Exception as e:
+                        logging.error(f"❌ [HEALTH_CHECK] Failed to create processing task: {e}")
+            
+        except asyncio.CancelledError:
+            logging.info("🛑 [HEALTH_CHECK] Health check cancelled")
+            break
+        except Exception as e:
+            logging.error(f"❌ [HEALTH_CHECK] Health check error: {e}")
 
 
 async def shutdown_tasks():
@@ -409,19 +445,10 @@ if __name__ == "__main__":
             traceback.print_exc()
             return False
     
-    # Test startup manually first
-    try:
-        print("🧪 [MAIN] Running manual startup test...")
-        result = asyncio.run(manual_startup_test())
-        if result:
-            print("✅ [MAIN] Manual startup test passed")
-            logging.info("✅ [MAIN] Manual startup test passed")
-        else:
-            print("❌ [MAIN] Manual startup test failed")
-            logging.error("❌ [MAIN] Manual startup test failed")
-    except Exception as e:
-        print(f"❌ [MAIN] Could not run manual startup test: {e}")
-        logging.error(f"❌ [MAIN] Could not run manual startup test: {e}")
+    # Skip manual startup test to avoid dual event loop issue
+    # The lifespan function will handle startup tasks properly
+    print("⏭️ [MAIN] Skipping manual startup test (will be handled by lifespan)")
+    logging.info("⏭️ [MAIN] Skipping manual startup test (will be handled by lifespan)")
     
     # Run with proper lifespan support
     print("🌐 [MAIN] Starting uvicorn server...")

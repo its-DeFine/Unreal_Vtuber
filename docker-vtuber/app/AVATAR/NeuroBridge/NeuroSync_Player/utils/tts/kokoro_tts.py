@@ -111,7 +111,7 @@ def get_kokoro_voices() -> Dict[str, str]:
     """
     config = get_kokoro_config()
     try:
-        response = requests.get(f"{config['server_url']}/voices", timeout=5)
+        response = requests.get(f"{config['server_url']}/v1/audio/voices", timeout=5)
         if response.ok:
             data = response.json()
             voices = data.get("voices", [])
@@ -159,11 +159,13 @@ def get_kokoro_audio(text: str, voice_name: str) -> Optional[bytes]:
     logger.info(f"🎵 Kokoro TTS generating audio: {text[:50]}{'...' if len(text) > 50 else ''}")
     logger.debug(f"🎤 Using voice: {voice_name} -> {voice_id}")
     
-    # Prepare request payload
+    # Prepare request payload for Kokoro-FastAPI
     payload = {
-        "text": text,
+        "model": "kokoro",
+        "input": text,
         "voice": voice_id,
-        "language": config["language"]
+        "response_format": "wav",
+        "speed": 1.0
     }
     
     headers = {
@@ -171,9 +173,9 @@ def get_kokoro_audio(text: str, voice_name: str) -> Optional[bytes]:
     }
     
     try:
-        # Make request to Kokoro TTS server
+        # Make request to Kokoro TTS server (FastAPI format)
         response = requests.post(
-            f"{config['server_url']}/tts",
+            f"{config['server_url']}/v1/audio/speech",
             headers=headers,
             json=payload,
             timeout=config["timeout"]

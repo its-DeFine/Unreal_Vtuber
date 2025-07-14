@@ -35,9 +35,11 @@ class S2QueueOrchestrator:
     def __init__(
         self,
         queue_file: str = None,
-        character_state_manager=None
+        character_state_manager=None,
+        queue_consumer=None
     ):
         self.character_state_manager = character_state_manager
+        self.queue_consumer = queue_consumer
         
         # Try to use shared queue service first
         if SHARED_QUEUE_AVAILABLE:
@@ -75,10 +77,27 @@ class S2QueueOrchestrator:
     async def receive_stimuli(self, stimuli_data: Dict[str, Any]) -> StimuliResponse:
         """
         Receive stimuli from GraphFlow and write to queue file.
+        Only accepts new stimuli if not currently processing.
         """
         
         self.stats["total_received"] += 1
         start_time = datetime.now()
+        
+        # Check if currently processing - reject if busy
+        if self.queue_consumer and self.queue_consumer.is_processing:
+            processing_time = (datetime.now() - start_time).total_seconds()
+            current_stimuli = self.queue_consumer.current_stimuli_id or "unknown"
+            
+            logging.warning(f"⚠️ [S2_QUEUE_ORCHESTRATOR] Rejecting stimuli {stimuli_data.get('stimuli_id', 'unknown')} - currently processing {current_stimuli}")
+            
+            return StimuliResponse(
+                success=False,
+                stimuli_id=stimuli_data.get("stimuli_id", ""),
+                processing_time=processing_time,
+                tools_triggered=[],
+                error_message="System is currently processing another stimuli. Please try again later.",
+                agent_decision="rejected_busy"
+            )
         
         try:
             # Get current character if available

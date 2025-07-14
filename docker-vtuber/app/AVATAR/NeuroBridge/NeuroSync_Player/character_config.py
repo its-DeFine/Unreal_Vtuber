@@ -364,6 +364,11 @@ class CharacterManager:
             logger.error(f"Character not found: {character_id}")
             return False
         
+        # Check if we're already on this character
+        if character_id == self.current_character_id:
+            logger.info(f"Already on character: {character_id}, skipping visual identity update")
+            return True
+        
         # Record switch in history
         self.character_history.append({
             "from": self.current_character_id,
@@ -371,29 +376,37 @@ class CharacterManager:
             "timestamp": datetime.now().isoformat()
         })
         
+        previous_character_id = self.current_character_id
         self.current_character_id = character_id
         new_character = self.get_current_character()
         logger.info(f"Switched to character: {new_character.name}")
         
-        # Apply visual identity if available
+        # Apply visual identity if available and different from previous
         if new_character.visual_identity:
             try:
                 from utils.game_control.visual_identity_manager import get_visual_identity_manager
                 visual_manager = get_visual_identity_manager()
                 
-                # Run async function in sync context
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+                # Check if visual identity is different from current
+                new_preset = new_character.visual_identity.get('preset_name', 'default')
+                current_preset = visual_manager.get_current_identity()
                 
-                success = loop.run_until_complete(
-                    visual_manager.apply_character_visual_identity(asdict(new_character))
-                )
-                
-                if success:
-                    logger.info(f"✅ Applied visual identity for {new_character.name}")
+                if new_preset == current_preset:
+                    logger.info(f"✅ Visual identity '{new_preset}' already active, skipping update")
                 else:
-                    logger.warning(f"⚠️ Failed to apply visual identity for {new_character.name}")
+                    # Run async function in sync context
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    success = loop.run_until_complete(
+                        visual_manager.apply_character_visual_identity(asdict(new_character))
+                    )
+                    
+                    if success:
+                        logger.info(f"✅ Applied visual identity for {new_character.name}")
+                    else:
+                        logger.warning(f"⚠️ Failed to apply visual identity for {new_character.name}")
                     
             except Exception as e:
                 logger.error(f"❌ Error applying visual identity: {e}")

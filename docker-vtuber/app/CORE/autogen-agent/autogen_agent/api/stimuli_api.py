@@ -47,6 +47,8 @@ class OrchestratorStatusResponse(BaseModel):
     statistics: Dict[str, Any]
     queue_size: int
     uptime: str
+    is_processing: bool = False
+    processing_duration_seconds: Optional[float] = None
 
 
 # Global orchestrator instance (will be set by main.py)
@@ -197,12 +199,25 @@ def setup_stimuli_api(app: FastAPI, orchestrator: S2QueueOrchestrator):
         try:
             status = global_orchestrator.get_status()
             
+            # Get processing state from queue consumer if available
+            is_processing = False
+            processing_duration = None
+            current_stimuli_id = None
+            
+            if hasattr(global_orchestrator, 'queue_consumer') and global_orchestrator.queue_consumer:
+                consumer_stats = global_orchestrator.queue_consumer.get_stats()
+                is_processing = consumer_stats.get('is_processing', False)
+                processing_duration = consumer_stats.get('processing_duration_seconds')
+                current_stimuli_id = consumer_stats.get('current_stimuli_id')
+            
             return OrchestratorStatusResponse(
                 autonomous_state=status["autonomous_state"],
-                current_stimuli=status["current_stimuli"],
+                current_stimuli=current_stimuli_id or status["current_stimuli"],
                 statistics=status["statistics"],
                 queue_size=status["queue_size"],
-                uptime="N/A"  # TODO: Add uptime tracking
+                uptime="N/A",  # TODO: Add uptime tracking
+                is_processing=is_processing,
+                processing_duration_seconds=processing_duration
             )
             
         except Exception as e:
@@ -334,6 +349,94 @@ def setup_stimuli_api(app: FastAPI, orchestrator: S2QueueOrchestrator):
             raise HTTPException(
                 status_code=500,
                 detail=f"Error restarting queue: {str(e)}"
+            )
+    
+    @app.post("/api/stimuli/stop")
+    async def stop_conversation():
+        """
+        Stop the current System 2 conversation/processing immediately.
+        This can be used to interrupt long-running AutoGen team discussions.
+        """
+        from ..core.simplified_queue_consumer import get_queue_consumer
+        
+        queue_consumer = get_queue_consumer()
+        if not queue_consumer:
+            raise HTTPException(
+                status_code=503,
+                detail="Queue consumer not initialized"
+            )
+        
+        try:
+            logging.info("⏹️ [STIMULI_API] Stop conversation requested")
+            result = await queue_consumer.stop_current_processing()
+            
+            if result.get("success"):
+                return {
+                    "success": True,
+                    "message": result.get("message", "Processing stopped"),
+                    "stopped_stimuli_id": result.get("stopped_stimuli_id"),
+                    "processing_duration_seconds": result.get("processing_duration_seconds"),
+                    "was_processing": result.get("was_processing", False),
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": result.get("message", "No processing to stop"),
+                    "was_processing": result.get("was_processing", False),
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+        except Exception as e:
+            logging.error(f"❌ [STIMULI_API] Error stopping conversation: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error stopping conversation: {str(e)}"
+            )
+    
+    @app.get("/api/stimuli/processing-state")
+    async def get_processing_state():
+        """
+        Get detailed information about current processing state.
+        This endpoint provides real-time information about whether the system
+        is currently processing stimuli and can accept new requests.
+        """
+        from ..core.simplified_queue_consumer import get_queue_consumer
+        
+        queue_consumer = get_queue_consumer()
+        if not queue_consumer:
+            return {
+                "is_processing": False,
+                "current_stimuli_id": None,
+                "processing_duration_seconds": None,
+                "status": "queue_consumer_not_initialized",
+                "can_accept_new_stimuli": False,
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        try:
+            stats = queue_consumer.get_stats()
+            
+            return {
+                "is_processing": stats.get('is_processing', False),
+                "current_stimuli_id": stats.get('current_stimuli_id'),
+                "processing_duration_seconds": stats.get('processing_duration_seconds'),
+                "status": "running" if stats.get('running', False) else "stopped",
+                "can_accept_new_stimuli": not stats.get('is_processing', False),
+                "queue_consumer_stats": {
+                    "processed": stats.get('processed', 0),
+                    "failed": stats.get('failed', 0),
+                    "teams_available": stats.get('teams_available', []),
+                    "task_status": stats.get('task_status', 'unknown')
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logging.error(f"❌ [STIMULI_API] Error getting processing state: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error getting processing state: {str(e)}"
             )
     
     @app.get("/api/stimuli/tools")

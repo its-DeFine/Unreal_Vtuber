@@ -648,6 +648,13 @@ def handle_character_switch():
         return jsonify({"error": "Failed to switch character", "details": str(e)}), 500
 
 
+@app.route("/character/activate", methods=['POST'])
+def handle_character_activate():
+    """Activate a character (alias for switch) - for S2 compatibility"""
+    app.logger.info("🔄 /character/activate called - redirecting to switch")
+    return handle_character_switch()
+
+
 @app.route("/character/create", methods=['POST'])
 def handle_character_create():
     """Create a new character from template or custom data"""
@@ -753,6 +760,10 @@ if __name__ == "__main__":
         print("   /process_text - Process text input (stimuli-driven)")
         print("   /health - System health status")
         print("   /character/* - Character management endpoints")
+        print("     - /character/activate - Activate character (S2 compatibility)")
+        print("     - /character/switch - Switch character")
+        print("     - /character/list - List available characters")
+        print("     - /character/current - Get current character")
         print("=" * 70)
         
         app.run(host='0.0.0.0', port=flask_port, debug=False)

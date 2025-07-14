@@ -63,6 +63,67 @@ Output Format (JSON only):
 
 Respond with ONLY valid JSON. Be fast and decisive."""
 
+    def _is_stop_command(self, text: str) -> bool:
+        """Check if text is a stop command"""
+        text_lower = text.lower()
+        stop_phrases = [
+            "stop system 2",
+            "stop s2",
+            "stop the system 2",
+            "stop system two",
+            "stop conversation",
+            "stop processing",
+            "stop talking",
+            "stop the conversation",
+            "stop the processing",
+            "halt system 2",
+            "halt s2",
+            "interrupt system 2",
+            "interrupt s2",
+            "cancel system 2",
+            "cancel s2"
+        ]
+        
+        return any(phrase in text_lower for phrase in stop_phrases)
+    
+    def _quick_route_heuristic(self, text: str) -> Optional[RoutingDecision]:
+        """Apply fast heuristics for common routing patterns"""
+        text_lower = text.lower()
+        
+        # Simple greetings/quick responses -> S1
+        simple_patterns = [
+            "hello", "hi", "hey", "how are you", "good morning", "good evening",
+            "what time", "what's the weather", "thank you", "thanks", "bye"
+        ]
+        if any(pattern in text_lower for pattern in simple_patterns) or len(text.split()) < 5:
+            return RoutingDecision(
+                stimulus_id="",  # Will be filled by caller
+                stimulus_text=text,
+                system="s1",
+                config={"persona": "streamer"},
+                confidence=0.95,
+                reasoning="Simple query - fast S1 response",
+                latency_ms=0  # Will be filled by caller
+            )
+        
+        # Complex analysis keywords -> S2
+        complex_patterns = [
+            "analyze", "explain in detail", "comprehensive", "create a plan",
+            "compare and contrast", "deep dive", "research", "multiple steps"
+        ]
+        if any(pattern in text_lower for pattern in complex_patterns) or len(text.split()) > 30:
+            return RoutingDecision(
+                stimulus_id="",
+                stimulus_text=text,
+                system="s2",
+                config={"team": "educator"},
+                confidence=0.95,
+                reasoning="Complex query requiring deep analysis",
+                latency_ms=0
+            )
+        
+        return None  # No heuristic match, use LLM
+    
     async def route(self, request: StimulusRequest) -> RoutingDecision:
         """
         Make routing decision for incoming stimulus
@@ -70,8 +131,32 @@ Respond with ONLY valid JSON. Be fast and decisive."""
         """
         start_time = time.time()
         
+        # Check for stop commands first (immediate processing)
+        if self._is_stop_command(request.text):
+            logger.info("Stop command detected", stimulus_id=request.stimulus_id)
+            return RoutingDecision(
+                stimulus_id=request.stimulus_id,
+                stimulus_text=request.text,
+                system="stop",
+                config={"action": "stop_s2_processing"},
+                confidence=1.0,
+                reasoning="Stop command detected - immediate system action required",
+                latency_ms=int((time.time() - start_time) * 1000)
+            )
+        
+        # Try quick heuristic routing first
+        heuristic_decision = self._quick_route_heuristic(request.text)
+        if heuristic_decision:
+            heuristic_decision.stimulus_id = request.stimulus_id
+            heuristic_decision.latency_ms = int((time.time() - start_time) * 1000)
+            logger.info("Used heuristic routing", 
+                       stimulus_id=request.stimulus_id,
+                       system=heuristic_decision.system,
+                       latency_ms=heuristic_decision.latency_ms)
+            return heuristic_decision
+        
         try:
-            # Quick intent classification using Ollama
+            # Fall back to LLM for complex routing decisions
             response = await self.ollama_client.chat(
                 model='llama3.1:8b',
                 messages=[
@@ -139,6 +224,9 @@ Respond with ONLY valid JSON. Be fast and decisive."""
         elif decision.system == "s2":
             results['s2'] = await self._call_s2(decision)
             
+        elif decision.system == "stop":
+            results['stop'] = await self._execute_stop_command(decision)
+            
         elif decision.system == "both":
             coordination = decision.config.get('coordination', 's1_then_s2')
             
@@ -182,18 +270,47 @@ Respond with ONLY valid JSON. Be fast and decisive."""
             except Exception as e:
                 logger.warning("Could not stop speech", error=str(e))
             
-            # Now send the new stimulus
-            response = await client.post(
-                f"{endpoint}/process_text",
-                json={
-                    "text": decision.stimulus_text,
-                    "autonomous_context": f"Routed by orchestrator with persona: {persona}",
-                    "direct_speech": True,
-                    "interaction_mode": "interrupt"
-                },
-                timeout=10.0
-            )
-            return response.json()
+            # Now send the new stimulus with error handling
+            try:
+                response = await client.post(
+                    f"{endpoint}/process_text",
+                    json={
+                        "text": decision.stimulus_text,
+                        "autonomous_context": f"Routed by orchestrator with persona: {persona}",
+                        "direct_speech": True,
+                        "interaction_mode": "interrupt"
+                    },
+                    timeout=10.0
+                )
+                
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    # Handle non-200 responses gracefully
+                    error_text = await response.text()
+                    logger.error("S1 returned error", 
+                               status_code=response.status_code,
+                               error=error_text)
+                    return {
+                        "success": False,
+                        "error": f"S1 returned {response.status_code}: {error_text}",
+                        "status_code": response.status_code
+                    }
+                    
+            except httpx.TimeoutException:
+                logger.error("S1 request timed out")
+                return {
+                    "success": False,
+                    "error": "S1 request timed out after 10 seconds",
+                    "timeout": True
+                }
+            except Exception as e:
+                logger.error("S1 request failed", error=str(e))
+                return {
+                    "success": False,
+                    "error": f"S1 request failed: {str(e)}",
+                    "exception": str(type(e).__name__)
+                }
     
     async def _call_s2(self, decision: RoutingDecision) -> Dict[str, Any]:
         """Call System 2 API"""
@@ -207,21 +324,92 @@ Respond with ONLY valid JSON. Be fast and decisive."""
         # Make API call
         import httpx
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{endpoint}/api/stimuli/receive",
-                json={
-                    "stimuli_id": decision.stimulus_id,
-                    "content": decision.stimulus_text,
-                    "source": "orchestrator",
-                    "priority": "high",
-                    "category": team,
-                    "confidence": decision.confidence,
-                    "metadata": {
-                        "processing_mode": "s2_only" if decision.system == "s2" else "s1_and_s2",
-                        "character_type": f"{team}_template",
-                        "orchestrator_reasoning": decision.reasoning
+            try:
+                response = await client.post(
+                    f"{endpoint}/api/stimuli/receive",
+                    json={
+                        "stimuli_id": decision.stimulus_id,
+                        "content": decision.stimulus_text,
+                        "source": "orchestrator",
+                        "priority": "high",
+                        "category": team,
+                        "confidence": decision.confidence,
+                        "metadata": {
+                            "processing_mode": "s2_only" if decision.system == "s2" else "s1_and_s2",
+                            "character_type": f"{team}_template",
+                            "orchestrator_reasoning": decision.reasoning
+                        }
+                    },
+                    timeout=30.0  # Longer timeout for S2
+                )
+                
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    # Handle non-200 responses gracefully
+                    error_text = await response.text()
+                    logger.error("S2 returned error", 
+                               status_code=response.status_code,
+                               error=error_text)
+                    return {
+                        "success": False,
+                        "error": f"S2 returned {response.status_code}: {error_text}",
+                        "status_code": response.status_code,
+                        "agent_decision": "rejected_error"
                     }
-                },
-                timeout=30.0  # Longer timeout for S2
-            )
-            return response.json()
+                    
+            except httpx.TimeoutException:
+                logger.error("S2 request timed out")
+                return {
+                    "success": False,
+                    "error": "S2 request timed out after 30 seconds",
+                    "timeout": True,
+                    "agent_decision": "rejected_timeout"
+                }
+            except Exception as e:
+                logger.error("S2 request failed", error=str(e))
+                return {
+                    "success": False,
+                    "error": f"S2 request failed: {str(e)}",
+                    "exception": str(type(e).__name__),
+                    "agent_decision": "rejected_exception"
+                }
+    
+    async def _execute_stop_command(self, decision: RoutingDecision) -> Dict[str, Any]:
+        """Execute stop command for System 2"""
+        logger.info("Executing stop command", stimulus_id=decision.stimulus_id)
+        
+        # Call S2 stop API
+        endpoint = self.api_registry.apis['system2']['endpoint']
+        
+        import httpx
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    f"{endpoint}/api/stimuli/stop",
+                    timeout=10.0
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    logger.info("Stop command executed successfully",
+                               stopped_stimuli=result.get('stopped_stimuli_id'),
+                               was_processing=result.get('was_processing'))
+                    return result
+                else:
+                    logger.warning("Stop command failed",
+                                 status_code=response.status_code,
+                                 response=response.text)
+                    return {
+                        "success": False,
+                        "error": f"Stop API returned {response.status_code}",
+                        "message": "Failed to stop System 2 processing"
+                    }
+                    
+            except Exception as e:
+                logger.error("Stop command execution failed", error=str(e))
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "message": "Failed to execute stop command"
+                }
