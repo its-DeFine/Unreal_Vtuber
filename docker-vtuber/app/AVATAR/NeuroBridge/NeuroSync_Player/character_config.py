@@ -60,6 +60,14 @@ class CharacterProfile:
     speech_rate: float = 1.0
     pitch_adjustment: float = 0.0
     
+    # Visual Identity Settings
+    visual_identity: Dict[str, Any] = field(default_factory=dict)
+    # Expected structure:
+    # {
+    #   "preset_name": "emerald_elegance",
+    #   "tcp_commands": ["PRS.Fem", "OF.MaidDress", ...]
+    # }
+    
     # Autonomous Mode Configuration (DEPRECATED - pure stimuli-driven architecture)
     autonomous_enabled: bool = False  # Disabled for pure stimuli-driven architecture
     autonomous_behaviors: Dict[str, Any] = field(default_factory=dict)
@@ -351,7 +359,7 @@ class CharacterManager:
         logger.info(f"Saved character to: {file_path}")
     
     def switch_character(self, character_id: str) -> bool:
-        """Switch to a different character"""
+        """Switch to a different character and apply visual identity"""
         if character_id not in self.characters:
             logger.error(f"Character not found: {character_id}")
             return False
@@ -364,7 +372,33 @@ class CharacterManager:
         })
         
         self.current_character_id = character_id
-        logger.info(f"Switched to character: {self.get_current_character().name}")
+        new_character = self.get_current_character()
+        logger.info(f"Switched to character: {new_character.name}")
+        
+        # Apply visual identity if available
+        if new_character.visual_identity:
+            try:
+                from utils.game_control.visual_identity_manager import get_visual_identity_manager
+                visual_manager = get_visual_identity_manager()
+                
+                # Run async function in sync context
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                success = loop.run_until_complete(
+                    visual_manager.apply_character_visual_identity(asdict(new_character))
+                )
+                
+                if success:
+                    logger.info(f"✅ Applied visual identity for {new_character.name}")
+                else:
+                    logger.warning(f"⚠️ Failed to apply visual identity for {new_character.name}")
+                    
+            except Exception as e:
+                logger.error(f"❌ Error applying visual identity: {e}")
+                # Don't fail the character switch if visual identity fails
+        
         return True
     
     def get_current_character(self) -> Optional[CharacterProfile]:
