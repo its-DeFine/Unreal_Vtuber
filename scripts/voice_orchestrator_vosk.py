@@ -68,8 +68,24 @@ class VoskVoiceOrchestrator:
         self.recognizer = vosk.KaldiRecognizer(self.model, 16000)
         
         # Audio setup
-        self.audio = pyaudio.PyAudio()
+        self.audio = None
         self.stream = None
+        
+        # Try to initialize PyAudio
+        try:
+            self.audio = pyaudio.PyAudio()
+            # Check if we have any input devices
+            if self.audio.get_device_count() == 0:
+                print("❌ No audio input devices found!")
+                print("This might be a WSL/Docker environment without audio support.")
+                sys.exit(1)
+        except Exception as e:
+            print(f"❌ Failed to initialize audio: {e}")
+            print("\nPossible solutions:")
+            print("1. If using WSL, try running on native Windows/Linux")
+            print("2. Check if your microphone is connected")
+            print("3. Install PulseAudio: sudo apt-get install pulseaudio")
+            sys.exit(1)
         
         # Command processing
         self.command_queue = queue.Queue()
@@ -93,25 +109,25 @@ class VoskVoiceOrchestrator:
     def _build_grammar(self):
         """Build recognition grammar for better accuracy"""
         # Grammar helps Vosk focus on expected commands
-        grammar = {
-            "phrases": [
-                "trader analyze bitcoin",
-                "trader check the market",
-                "educator teach me about blockchain",
-                "educator explain smart contracts",
-                "streamer tell me a joke",
-                "streamer play a game",
-                "what is cryptocurrency",
-                "how does blockchain work",
-                "analyze the price",
-                "teach me about trading"
-            ]
-        }
+        # Note: Vosk expects a simple array of strings, not a dict
+        grammar = [
+            "trader analyze bitcoin",
+            "trader check the market",
+            "educator teach me about blockchain",
+            "educator explain smart contracts",
+            "streamer tell me a joke",
+            "streamer play a game",
+            "what is cryptocurrency",
+            "how does blockchain work",
+            "analyze the price",
+            "teach me about trading"
+        ]
         
         # Set grammar if recognizer supports it
         try:
             self.recognizer.SetGrammar(json.dumps(grammar))
-        except:
+        except Exception as e:
+            print(f"Grammar not supported by this model: {e}")
             pass  # Not all models support grammar
     
     def parse_command(self, text: str, confidence: float = 1.0) -> Optional[VoiceCommand]:

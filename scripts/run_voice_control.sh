@@ -21,6 +21,27 @@ source "$VENV_DIR/bin/activate"
 echo "🎤 Voice Control for VTuber Orchestrator"
 echo "========================================"
 echo
+
+# Detect WSL
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    echo "🖥️  WSL Environment Detected!"
+    echo
+    echo "Choose voice input method:"
+    echo "1) Text input (type commands)"
+    echo "2) Windows microphone (via helper script)"
+    echo "3) Try standard voice recognition anyway"
+    echo
+    read -p "Enter choice (1-3): " wsl_choice
+    
+    if [ "$wsl_choice" = "1" ] || [ "$wsl_choice" = "2" ]; then
+        echo
+        echo "🌐 Starting WSL-compatible voice control..."
+        python3 "$SCRIPT_DIR/voice_orchestrator_wsl.py"
+        deactivate
+        exit 0
+    fi
+fi
+
 echo "Choose voice recognition mode:"
 echo "1) Google Speech Recognition (online)"
 echo "2) Vosk (offline, low latency)"
