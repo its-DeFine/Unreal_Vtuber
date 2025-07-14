@@ -76,7 +76,7 @@ class VisualIdentityManager:
         # Send commands with small delay between each
         result = await self.tcp_controller.send_commands_batch(
             visual_identity.tcp_commands,
-            delay_between=0.1
+            delay_between=0.3  # Increased delay for better Unreal processing
         )
         
         success = result['success'] == result['total']
