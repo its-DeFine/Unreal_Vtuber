@@ -53,9 +53,5 @@
     "plagiarism"
   ],
   "scb_context_lines": 50,
-  "formality_level": "technical_friendly",
-  "use_emojis": false,
-  "response_length": "detailed",
-  "custom_instructions": "Focus on programming education and software development. Provide clear code examples and explanations.",
-  "team_category": "educator"
+  "formality_level": "neutral"
 }
