@@ -30,7 +30,7 @@ This is an innovative avatar application that enables real-time control of virtu
 1. **Download the Unreal Engine Game**
    - Navigate to the provided URL above
    - Download and extract the game files
-   - Ensure the game executable is accessible [unreal game](https://storage.bunnycdn.com/unreal-game-files/WindowsDemo.zip?accessKey=f2ea9c44-a562-4984-84ea87f30d31-5759-4a59&download)
+   - Ensure the game executable is accessible [unreal game](https://unreal-demo.b-cdn.net/WindowsDemo.zip)
 
 2. **Install Docker Desktop**
    - Download Docker Desktop for Windows from [https://www.docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop)
