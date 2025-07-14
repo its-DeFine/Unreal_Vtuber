@@ -44,13 +44,15 @@ class SimplifiedQueueConsumer:
             # Trader characters
             "gordon_trader_template": "trader", 
             "marcus_trader_template": "trader",
+            "sophia_trader_template": "trader",
             # Educator characters
             "sarah_educator_template": "educator",
             "diana_educator_template": "educator",
             # Streamer characters
             "weatherman_template": "streamer",
             "alex_streamer_template": "streamer",
-            "mike_streamer_template": "streamer"
+            "mike_streamer_template": "streamer",
+            "luna_streamer_template": "streamer"
         }
         
         # Service state
