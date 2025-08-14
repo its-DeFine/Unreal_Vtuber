@@ -1,7 +1,6 @@
 """
 Orchestrator Main Entry Point
 Lightweight, fast routing agent for VTuber system
-Version: 2.0.1 - Test Update
 """
 import asyncio
 import time
