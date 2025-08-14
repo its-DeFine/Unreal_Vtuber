@@ -1,0 +1,60 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  - "/etc/prometheus/alerts/*.yml"
+
+scrape_configs:
+  # System metrics
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node_exporter:9100']
+
+  # Container metrics
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  # Redis metrics
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis_exporter:9121']
+
+  # PostgreSQL metrics
+  - job_name: 'postgres-autogen'
+    static_configs:
+      - targets: ['postgres_exporter_autogen:9187']
+
+  # Ollama metrics
+  - job_name: 'ollama'
+    static_configs:
+      - targets: ['ollama_exporter:9122']
+
+  # NGINX metrics
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx_exporter:9113']
+
+  # Orchestrator health
+  - job_name: 'orchestrator'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['vtuber_orchestrator:8080']
+
+  # NeuroSync S1
+  - job_name: 'neurosync'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['neurosync_s1:5000']
+
+  # AutoGen Agent
+  - job_name: 'autogen'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['autogen_agent:8000']

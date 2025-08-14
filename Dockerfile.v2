@@ -1,0 +1,22 @@
+FROM localhost:5555/vtuber-orchestrator:v1
+
+# Clean version update - no sensitive data
+ENV ORCHESTRATOR_VERSION="v2-registry-update"
+ENV UPDATE_TIMESTAMP="2025-08-13T15:16:00Z"
+ENV UPDATE_SOURCE="local-registry"
+
+# Add version marker
+RUN echo "Version 2 - Registry Update Test" > /tmp/version.txt && \
+    echo "Updated from local registry at $(date)" >> /tmp/version.txt
+
+# Show version on startup
+RUN echo '#!/bin/sh' > /app/version.sh && \
+    echo 'echo "===================================="' >> /app/version.sh && \
+    echo 'echo "ORCHESTRATOR VERSION: ${ORCHESTRATOR_VERSION}"' >> /app/version.sh && \
+    echo 'echo "UPDATE SOURCE: ${UPDATE_SOURCE}"' >> /app/version.sh && \
+    echo 'cat /tmp/version.txt 2>/dev/null || true' >> /app/version.sh && \
+    echo 'echo "===================================="' >> /app/version.sh && \
+    echo 'exec python -m src.main' >> /app/version.sh && \
+    chmod +x /app/version.sh
+
+ENTRYPOINT ["/app/version.sh"]
