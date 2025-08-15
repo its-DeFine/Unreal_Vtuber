@@ -131,11 +131,29 @@ services:
       - LOG_LEVEL=INFO
     networks:
       - vtuber_network
-    # depends_on:
-      # - redis_scb (using external Redis)
+    depends_on:
+      - redis_scb
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for SCB (Semantic Communication Bus)
+  redis_scb:
+    image: redis:7-alpine
+    container_name: redis_scb
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -193,12 +211,16 @@ services:
 
   # Orchestrator - Lightweight routing agent
   orchestrator:
-    image: ghcr.io/its-define/autonomy-orchestrator:autonomy-latest
+    image: ghcr.io/its-define/autonomy-orchestrator:autonomy-v2.1.0
     container_name: vtuber_orchestrator
     environment:
       - OLLAMA_HOST=http://vtuber-ollama:11434
       - API_REGISTRY_PATH=/config/api_registry.yaml
       - LOG_LEVEL=INFO
+      - CENTRAL_MANAGER_URL=http://host.docker.internal:8010
+      - CENTRAL_MANAGER_TOKEN=${CENTRAL_MANAGER_TOKEN:-default-token}
+      - ORCHESTRATOR_NAME=vtuber_orchestrator
+      - ORCHESTRATOR_URL=http://host.docker.internal:8082
       - DECISION_TIMEOUT_MS=10
       - PYTHONUNBUFFERED=1
     volumes:
