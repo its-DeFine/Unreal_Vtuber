@@ -15,6 +15,7 @@ from .orchestrator_agent import OrchestratorAgent
 from .api_registry import APIRegistry
 from .models import StimulusRequest, RoutingDecision
 from .manager_client import ManagerClient
+from .docker_control import docker_controller, vtuber_controller
 
 # Setup structured logging
 logger = structlog.get_logger()
@@ -220,6 +221,19 @@ async def handle_control_command(command: dict):
             return await restart_agent(target)
         elif cmd == "status":
             return await get_agent_status(target)
+        elif cmd == "swap_character":
+            character = parameters.get("character", "default")
+            return await vtuber_controller.swap_character(character, parameters)
+        elif cmd == "generate_speech":
+            text = parameters.get("text", "")
+            voice = parameters.get("voice", None)
+            return await vtuber_controller.generate_speech(text, voice, parameters)
+        elif cmd == "trigger_animation":
+            animation = parameters.get("animation", "idle")
+            return await vtuber_controller.trigger_animation(animation, parameters)
+        elif cmd == "send_stimulus":
+            stimulus = parameters.get("stimulus", "")
+            return await vtuber_controller.send_stimulus_to_s2(stimulus, parameters)
         else:
             return {"status": "error", "message": f"Unknown command: {cmd}"}
             
@@ -230,51 +244,66 @@ async def handle_control_command(command: dict):
 
 async def stop_agent(agent_name: str):
     """Stop a specific agent"""
-    try:
-        # TODO: Implement actual agent control via Docker
-        logger.info(f"Stopping agent: {agent_name}")
-        return {"status": "success", "message": f"Agent {agent_name} stopped"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    # Map agent names to container names
+    container_map = {
+        "autogen_agent": "autogen_agent",
+        "s1": "neurosync_s1",
+        "s2": "autogen_agent",
+        "neurosync": "neurosync_s1",
+        "scb_gateway": "scb_gateway",
+        "ollama": "vtuber-ollama"
+    }
+    
+    container_name = container_map.get(agent_name, agent_name)
+    return await docker_controller.stop_container(container_name)
 
 
 async def start_agent(agent_name: str):
     """Start a specific agent"""
-    try:
-        # TODO: Implement actual agent control via Docker
-        logger.info(f"Starting agent: {agent_name}")
-        return {"status": "success", "message": f"Agent {agent_name} started"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    # Map agent names to container names
+    container_map = {
+        "autogen_agent": "autogen_agent",
+        "s1": "neurosync_s1",
+        "s2": "autogen_agent",
+        "neurosync": "neurosync_s1",
+        "scb_gateway": "scb_gateway",
+        "ollama": "vtuber-ollama"
+    }
+    
+    container_name = container_map.get(agent_name, agent_name)
+    return await docker_controller.start_container(container_name)
 
 
 async def restart_agent(agent_name: str):
     """Restart a specific agent"""
-    try:
-        # TODO: Implement actual agent control via Docker
-        logger.info(f"Restarting agent: {agent_name}")
-        await stop_agent(agent_name)
-        await asyncio.sleep(2)
-        await start_agent(agent_name)
-        return {"status": "success", "message": f"Agent {agent_name} restarted"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    # Map agent names to container names
+    container_map = {
+        "autogen_agent": "autogen_agent",
+        "s1": "neurosync_s1",
+        "s2": "autogen_agent",
+        "neurosync": "neurosync_s1",
+        "scb_gateway": "scb_gateway",
+        "ollama": "vtuber-ollama"
+    }
+    
+    container_name = container_map.get(agent_name, agent_name)
+    return await docker_controller.restart_container(container_name)
 
 
 async def get_agent_status(agent_name: str):
     """Get status of a specific agent"""
-    try:
-        # TODO: Implement actual status check via Docker
-        logger.info(f"Getting status for agent: {agent_name}")
-        return {
-            "status": "success",
-            "agent": agent_name,
-            "state": "running",
-            "health": "healthy",
-            "uptime": "2h 30m"
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    # Map agent names to container names
+    container_map = {
+        "autogen_agent": "autogen_agent",
+        "s1": "neurosync_s1",
+        "s2": "autogen_agent",
+        "neurosync": "neurosync_s1",
+        "scb_gateway": "scb_gateway",
+        "ollama": "vtuber-ollama"
+    }
+    
+    container_name = container_map.get(agent_name, agent_name)
+    return await docker_controller.get_container_status(container_name)
 
 
 if __name__ == "__main__":
