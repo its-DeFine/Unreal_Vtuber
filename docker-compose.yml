@@ -211,7 +211,7 @@ services:
 
   # Orchestrator - Lightweight routing agent
   orchestrator:
-    image: ghcr.io/its-define/autonomy-orchestrator:autonomy-v2.1.0
+    image: vtuber-orchestrator:custom
     container_name: vtuber_orchestrator
     environment:
       - OLLAMA_HOST=http://vtuber-ollama:11434
@@ -226,6 +226,8 @@ services:
     volumes:
       - ./api_registry.yaml:/config/api_registry.yaml:ro
       - ./logs/orchestrator:/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker socket for container control
+      - ./orchestrator/src:/app/src:ro  # Mount source code for updates
     ports:
       - "8082:8080"  # Using 8082 since 8080 is taken by nginx_rtmp
     networks:
@@ -267,6 +269,82 @@ services:
       - vtuber_network
     depends_on:
       - orchestrator
+
+  # ===========================================
+  # LIVEPEER BYOC SERVICES
+  # ===========================================
+  
+  # Livepeer Worker - Agent network capability
+  livepeer-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: livepeer-worker
+    ports:
+      - "9876:9876"
+    environment:
+      - ORCH_URL=${LIVEPEER_ORCH_URL:-https://livepeer-orchestrator:9995}
+      - ORCH_SECRET=${LIVEPEER_ORCH_SECRET:-orch-secret}
+      - CAPABILITY_NAME=agent-net
+      - CAPABILITY_DESCRIPTION=Agent network capability with connectivity monitoring
+      - CAPABILITY_URL=http://livepeer-worker:9876
+      - CAPABILITY_PRICE_PER_UNIT=${CAPABILITY_PRICE_PER_UNIT:-18087065745288}
+      - CAPABILITY_PRICE_SCALING=1
+      - CAPABILITY_CAPACITY=10
+      - PYTHONUNBUFFERED=1
+      - MANAGER_URL=http://host.docker.internal:8010
+      - CONNECTIVITY_PROOF_ENABLED=true
+    networks:
+      - vtuber_network
+    depends_on:
+      - livepeer-orchestrator
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9876/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Livepeer Orchestrator - BYOC orchestrator
+  livepeer-orchestrator:
+    image: livepeer/go-livepeer:${LIVEPEER_IMAGE_TAG:-sha-5627b90}
+    container_name: livepeer-orchestrator
+    volumes:
+      - ../data/orchestrator:/data
+    ports:
+      - "9995:9995"
+    command: [
+      "-orchestrator",
+      "-orchSecret=${LIVEPEER_ORCH_SECRET:-orch-secret}",
+      "-serviceAddr=livepeer-orchestrator:9995",
+      "-v=6",
+      "-network=${LIVEPEER_NETWORK:-arbitrum-one-mainnet}",
+      "-ethUrl=${ETH_RPC_URL:-https://arb1.arbitrum.io/rpc}",
+      "-ethPassword=${ETH_PASSWORD}",
+      "-dataDir=/data",
+      "-ethOrchAddr=${ETH_ORCH_ADDRESS}",
+      "-pricePerUnit=${PRICE_PER_UNIT:-65113436683036}",
+      "-ticketEV=${TICKET_EV:-18087065745288}",
+      "-maxFaceValue=${MAX_FACE_VALUE:-1000000000000000}",
+      "-autoAdjustPrice=${AUTO_ADJUST_PRICE:-false}",
+      "-maxGasPrice=${MAX_GAS_PRICE:-1000000000}"
+    ]
+    networks:
+      - vtuber_network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    runtime: nvidia
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9995/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # ===========================================
   # INFRASTRUCTURE SERVICES

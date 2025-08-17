@@ -121,12 +121,11 @@ class VTuberController:
         """Swap VTuber character"""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                # Send character swap command to S1
+                # Send character switch command to S1
                 response = await client.post(
-                    f"{self.s1_url}/api/character/swap",
+                    f"{self.s1_url}/character/switch",
                     json={
-                        "character": character_name,
-                        "parameters": parameters or {}
+                        "character_id": character_name
                     }
                 )
                 
@@ -151,13 +150,12 @@ class VTuberController:
         """Generate speech for VTuber"""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                # Send speech generation command to S1
+                # Send text to process for speech
                 response = await client.post(
-                    f"{self.s1_url}/api/speech/generate",
+                    f"{self.s1_url}/process_text",
                     json={
                         "text": text,
-                        "voice": voice,
-                        "parameters": parameters or {}
+                        "voice_settings": parameters or {}
                     }
                 )
                 
