@@ -282,18 +282,21 @@ services:
     container_name: livepeer-worker
     ports:
       - "9876:9876"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Read-only Docker socket access
     environment:
       - ORCH_URL=${LIVEPEER_ORCH_URL:-https://livepeer-orchestrator:9995}
       - ORCH_SECRET=${LIVEPEER_ORCH_SECRET:-orch-secret}
       - CAPABILITY_NAME=agent-net
       - CAPABILITY_DESCRIPTION=Agent network capability with connectivity monitoring
       - CAPABILITY_URL=http://livepeer-worker:9876
-      - CAPABILITY_PRICE_PER_UNIT=${CAPABILITY_PRICE_PER_UNIT:-18087065745288}
+      - CAPABILITY_PRICE_PER_UNIT=${CAPABILITY_PRICE_PER_UNIT:-18086000000000}  # 0.000018086 ETH per call
       - CAPABILITY_PRICE_SCALING=1
       - CAPABILITY_CAPACITY=10
       - PYTHONUNBUFFERED=1
       - MANAGER_URL=http://host.docker.internal:8010
       - CONNECTIVITY_PROOF_ENABLED=true
+      - MIN_SERVICE_UPTIME=80.0  # Require 80% uptime for payment eligibility
     networks:
       - vtuber_network
     depends_on:
@@ -307,7 +310,7 @@ services:
 
   # Livepeer Orchestrator - BYOC orchestrator
   livepeer-orchestrator:
-    image: livepeer/go-livepeer:${LIVEPEER_IMAGE_TAG:-sha-5627b90}
+    image: livepeer/go-livepeer:latest
     container_name: livepeer-orchestrator
     volumes:
       - ../data/orchestrator:/data
@@ -323,9 +326,9 @@ services:
       "-ethPassword=${ETH_PASSWORD}",
       "-dataDir=/data",
       "-ethOrchAddr=${ETH_ORCH_ADDRESS}",
-      "-pricePerUnit=${PRICE_PER_UNIT:-65113436683036}",
-      "-ticketEV=${TICKET_EV:-18087065745288}",
-      "-maxFaceValue=${MAX_FACE_VALUE:-1000000000000000}",
+      "-pricePerUnit=${PRICE_PER_UNIT:-65000000000000}",  # Price proportionally set
+      "-ticketEV=${TICKET_EV:-18086000000000}",  # Ticket expected value budget
+      "-maxFaceValue=${MAX_FACE_VALUE:-1000000000000000}",  # Max face value
       "-autoAdjustPrice=${AUTO_ADJUST_PRICE:-false}",
       "-maxGasPrice=${MAX_GAS_PRICE:-1000000000}"
     ]
