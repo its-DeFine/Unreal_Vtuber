@@ -1,8 +1,10 @@
-# Avatar Control System
+# Avatar Control System with BYOC Payment Integration
 
 ## What This Application Does
 
-This is an innovative avatar application that enables real-time control of virtual avatars through an intelligent orchestrator agent and teams of specialized sub-agents. The system seamlessly integrates advanced AI capabilities with interactive 3D avatars for natural, dynamic interactions.
+This is an innovative avatar application that enables real-time control of virtual avatars through an intelligent orchestrator agent and teams of specialized sub-agents. The system seamlessly integrates advanced AI capabilities with interactive 3D avatars for natural, dynamic interactions. 
+
+**NEW**: Integrated with Livepeer's Bring Your Own Container (BYOC) system for distributed compute and performance-based payments.
 
 ### Key Features:
 - **Dual-System Architecture**: 
@@ -15,6 +17,12 @@ This is an innovative avatar application that enables real-time control of virtu
   - Supports both team-specific and global cognitive spaces
 
 - **Flexible Configuration**: Each System 1 agent maps to a System 2 team, enabling customizable agent-avatar pairings
+
+- **BYOC Payment System**: 
+  - Livepeer orchestrators earn rewards based on VTuber service uptime
+  - Automatic monitoring of all avatar and AI services
+  - Performance-based payment distribution
+  - Real-time health tracking and metrics
 
 ## Prerequisites
 
