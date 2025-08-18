@@ -1,6 +1,7 @@
 """
 Orchestrator Main Entry Point
 Lightweight, fast routing agent for VTuber system
+Version: 2.1.0 - Testing Auto-Update
 """
 import asyncio
 import time
@@ -13,6 +14,8 @@ from prometheus_client import Counter, Histogram, generate_latest
 from .orchestrator_agent import OrchestratorAgent
 from .api_registry import APIRegistry
 from .models import StimulusRequest, RoutingDecision
+from .manager_client import ManagerClient
+from .docker_control import docker_controller, vtuber_controller
 
 # Setup structured logging
 logger = structlog.get_logger()
@@ -31,12 +34,13 @@ app = FastAPI(title="VTuber Orchestrator", version="1.0.0")
 # Global instances
 orchestrator: OrchestratorAgent = None
 api_registry: APIRegistry = None
+manager_client: ManagerClient = None
 
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize orchestrator and load API registry"""
-    global orchestrator, api_registry
+    global orchestrator, api_registry, manager_client
     
     logger.info("Starting VTuber Orchestrator...")
     
@@ -48,8 +52,31 @@ async def startup_event():
     orchestrator = OrchestratorAgent(api_registry)
     await orchestrator.initialize()
     
+    # Initialize manager client (optional - graceful degradation if not available)
+    try:
+        manager_client = ManagerClient()
+        connected = await manager_client.initialize()
+        if connected:
+            logger.info("Connected to central manager")
+        else:
+            logger.info("Running in standalone mode (no manager connection)")
+    except Exception as e:
+        logger.warning("Failed to initialize manager client", error=str(e))
+        manager_client = None
+    
     logger.info("Orchestrator started successfully", 
                 available_apis=list(api_registry.apis.keys()))
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    global manager_client
+    
+    if manager_client:
+        await manager_client.shutdown()
+    
+    logger.info("Orchestrator shutdown complete")
 
 
 @app.post("/route")
@@ -171,6 +198,112 @@ async def metrics():
 async def get_registry():
     """Return current API registry for debugging"""
     return api_registry.apis
+
+
+# Control endpoints for manager integration
+@app.post("/control")
+async def handle_control_command(command: dict):
+    """
+    Handle control commands from central manager
+    """
+    try:
+        cmd = command.get("command")
+        target = command.get("target")
+        parameters = command.get("parameters", {})
+        
+        logger.info("Received control command", command=cmd, target=target)
+        
+        if cmd == "stop":
+            return await stop_agent(target)
+        elif cmd == "start":
+            return await start_agent(target)
+        elif cmd == "restart":
+            return await restart_agent(target)
+        elif cmd == "status":
+            return await get_agent_status(target)
+        elif cmd == "swap_character":
+            character = parameters.get("character", "default")
+            return await vtuber_controller.swap_character(character, parameters)
+        elif cmd == "generate_speech":
+            text = parameters.get("text", "")
+            voice = parameters.get("voice", None)
+            return await vtuber_controller.generate_speech(text, voice, parameters)
+        elif cmd == "trigger_animation":
+            animation = parameters.get("animation", "idle")
+            return await vtuber_controller.trigger_animation(animation, parameters)
+        elif cmd == "send_stimulus":
+            stimulus = parameters.get("stimulus", "")
+            return await vtuber_controller.send_stimulus_to_s2(stimulus, parameters)
+        else:
+            return {"status": "error", "message": f"Unknown command: {cmd}"}
+            
+    except Exception as e:
+        logger.error("Control command failed", error=str(e))
+        return {"status": "error", "message": str(e)}
+
+
+async def stop_agent(agent_name: str):
+    """Stop a specific agent"""
+    # Map agent names to container names
+    container_map = {
+        "autogen_agent": "autogen_agent",
+        "s1": "neurosync_s1",
+        "s2": "autogen_agent",
+        "neurosync": "neurosync_s1",
+        "scb_gateway": "scb_gateway",
+        "ollama": "vtuber-ollama"
+    }
+    
+    container_name = container_map.get(agent_name, agent_name)
+    return await docker_controller.stop_container(container_name)
+
+
+async def start_agent(agent_name: str):
+    """Start a specific agent"""
+    # Map agent names to container names
+    container_map = {
+        "autogen_agent": "autogen_agent",
+        "s1": "neurosync_s1",
+        "s2": "autogen_agent",
+        "neurosync": "neurosync_s1",
+        "scb_gateway": "scb_gateway",
+        "ollama": "vtuber-ollama"
+    }
+    
+    container_name = container_map.get(agent_name, agent_name)
+    return await docker_controller.start_container(container_name)
+
+
+async def restart_agent(agent_name: str):
+    """Restart a specific agent"""
+    # Map agent names to container names
+    container_map = {
+        "autogen_agent": "autogen_agent",
+        "s1": "neurosync_s1",
+        "s2": "autogen_agent",
+        "neurosync": "neurosync_s1",
+        "scb_gateway": "scb_gateway",
+        "ollama": "vtuber-ollama"
+    }
+    
+    container_name = container_map.get(agent_name, agent_name)
+    return await docker_controller.restart_container(container_name)
+
+
+async def get_agent_status(agent_name: str):
+    """Get status of a specific agent"""
+    # Map agent names to container names
+    container_map = {
+        "autogen_agent": "autogen_agent",
+        "s1": "neurosync_s1",
+        "s2": "autogen_agent",
+        "neurosync": "neurosync_s1",
+        "scb_gateway": "scb_gateway",
+        "ollama": "vtuber-ollama"
+    }
+    
+    container_name = container_map.get(agent_name, agent_name)
+    return await docker_controller.get_container_status(container_name)
 
 
 if __name__ == "__main__":

@@ -131,11 +131,29 @@ services:
       - LOG_LEVEL=INFO
     networks:
       - vtuber_network
-    # depends_on:
-      # - redis_scb (using external Redis)
+    depends_on:
+      - redis_scb
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for SCB (Semantic Communication Bus)
+  redis_scb:
+    image: redis:7-alpine
+    container_name: redis_scb
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -193,17 +211,23 @@ services:
 
   # Orchestrator - Lightweight routing agent
   orchestrator:
-    image: ghcr.io/its-define/autonomy-orchestrator:autonomy-latest
+    image: vtuber-orchestrator:custom
     container_name: vtuber_orchestrator
     environment:
       - OLLAMA_HOST=http://vtuber-ollama:11434
       - API_REGISTRY_PATH=/config/api_registry.yaml
       - LOG_LEVEL=INFO
+      - CENTRAL_MANAGER_URL=http://host.docker.internal:8010
+      - CENTRAL_MANAGER_TOKEN=${CENTRAL_MANAGER_TOKEN:-default-token}
+      - ORCHESTRATOR_NAME=vtuber_orchestrator
+      - ORCHESTRATOR_URL=http://host.docker.internal:8082
       - DECISION_TIMEOUT_MS=10
       - PYTHONUNBUFFERED=1
     volumes:
       - ./api_registry.yaml:/config/api_registry.yaml:ro
       - ./logs/orchestrator:/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker socket for container control
+      - ./orchestrator/src:/app/src:ro  # Mount source code for updates
     ports:
       - "8082:8080"  # Using 8082 since 8080 is taken by nginx_rtmp
     networks:
@@ -245,6 +269,85 @@ services:
       - vtuber_network
     depends_on:
       - orchestrator
+
+  # ===========================================
+  # LIVEPEER BYOC SERVICES
+  # ===========================================
+  
+  # Livepeer Worker - Agent network capability
+  livepeer-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: livepeer-worker
+    ports:
+      - "9876:9876"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Read-only Docker socket access
+    environment:
+      - ORCH_URL=${LIVEPEER_ORCH_URL:-https://livepeer-orchestrator:9995}
+      - ORCH_SECRET=${LIVEPEER_ORCH_SECRET:-orch-secret}
+      - CAPABILITY_NAME=agent-net
+      - CAPABILITY_DESCRIPTION=Agent network capability with connectivity monitoring
+      - CAPABILITY_URL=http://livepeer-worker:9876
+      - CAPABILITY_PRICE_PER_UNIT=${CAPABILITY_PRICE_PER_UNIT:-18086000000000}  # 0.000018086 ETH per call
+      - CAPABILITY_PRICE_SCALING=1
+      - CAPABILITY_CAPACITY=10
+      - PYTHONUNBUFFERED=1
+      - MANAGER_URL=http://host.docker.internal:8010
+      - CONNECTIVITY_PROOF_ENABLED=true
+      - MIN_SERVICE_UPTIME=80.0  # Require 80% uptime for payment eligibility
+    networks:
+      - vtuber_network
+    depends_on:
+      - livepeer-orchestrator
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9876/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Livepeer Orchestrator - BYOC orchestrator
+  livepeer-orchestrator:
+    image: livepeer/go-livepeer:latest
+    container_name: livepeer-orchestrator
+    volumes:
+      - ../data/orchestrator:/data
+    ports:
+      - "9995:9995"
+    command: [
+      "-orchestrator",
+      "-orchSecret=${LIVEPEER_ORCH_SECRET:-orch-secret}",
+      "-serviceAddr=livepeer-orchestrator:9995",
+      "-v=6",
+      "-network=${LIVEPEER_NETWORK:-arbitrum-one-mainnet}",
+      "-ethUrl=${ETH_RPC_URL:-https://arb1.arbitrum.io/rpc}",
+      "-ethPassword=${ETH_PASSWORD}",
+      "-dataDir=/data",
+      "-ethOrchAddr=${ETH_ORCH_ADDRESS}",
+      "-pricePerUnit=${PRICE_PER_UNIT:-65000000000000}",  # Price proportionally set
+      "-ticketEV=${TICKET_EV:-18086000000000}",  # Ticket expected value budget
+      "-maxFaceValue=${MAX_FACE_VALUE:-1000000000000000}",  # Max face value
+      "-autoAdjustPrice=${AUTO_ADJUST_PRICE:-false}",
+      "-maxGasPrice=${MAX_GAS_PRICE:-1000000000}"
+    ]
+    networks:
+      - vtuber_network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    runtime: nvidia
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9995/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # ===========================================
   # INFRASTRUCTURE SERVICES

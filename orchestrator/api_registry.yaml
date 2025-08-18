@@ -1,0 +1,54 @@
+# API Registry Configuration for VTuber Orchestrator
+services:
+  neurosync:
+    name: "NeuroSync S1"
+    base_url: "http://neurosync_s1:5001"
+    health_endpoint: "/health"
+    timeout: 30
+    endpoints:
+      - path: "/process"
+        method: "POST"
+      - path: "/speak"
+        method: "POST"
+      - path: "/character/switch"
+        method: "POST"
+      - path: "/stop"
+        method: "POST"
+
+  autogen:
+    name: "AutoGen S2"
+    base_url: "http://autogen_agent:8000"
+    health_endpoint: "/health"
+    timeout: 60
+    endpoints:
+      - path: "/stimuli"
+        method: "POST"
+      - path: "/tools/execute"
+        method: "POST"
+
+  scb_gateway:
+    name: "SCB Gateway"
+    base_url: "http://scb_gateway:8300"
+    health_endpoint: "/health"
+    timeout: 10
+    endpoints:
+      - path: "/store"
+        method: "POST"
+      - path: "/retrieve"
+        method: "GET"
+
+routing_rules:
+  - pattern: "^/speak"
+    service: "neurosync"
+    priority: 1
+  - pattern: "^/character"
+    service: "neurosync"
+    priority: 1
+  - pattern: "^/stimuli"
+    service: "autogen"
+    priority: 2
+
+defaults:
+  timeout: 30
+  retry_count: 3
+  retry_delay: 1000
