@@ -7,7 +7,7 @@ services:
     container_name: update_orchestrator
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ../../:/workspace:ro
+      - ../../:/workspace
       - ./config:/config
       - ./state:/state
       - ~/.ssh:/root/.ssh:ro  # For git operations
@@ -23,24 +23,16 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     command: |
       sh -c "
-      # Install dependencies
-      apk add --no-cache git docker-cli docker-compose curl bash jq github-cli
-      pip install pyyaml requests
-      
-      # Main update loop
+      apk add --no-cache git docker-cli docker-compose curl bash jq github-cli &&
+      pip install pyyaml requests &&
+      git config --global --add safe.directory /workspace &&
+      git config --global --add safe.directory /workspace/autonomy &&
       while true; do
-        echo '[$(date)] Checking for updates...'
-        
-        # Run dual update manager
-        python /workspace/scripts/dual_update_manager.py \
-          --repo-path /workspace \
-          $([ \"\$$AUTO_APPROVE\" = \"true\" ] && echo \"--auto\")
-        
-        # Save state
-        echo '{\"last_check\": \"'$(date -Iseconds)'\"}' > /state/last_check.json
-        
-        echo '[$(date)] Sleeping for \$$CHECK_INTERVAL seconds...'
-        sleep \$$CHECK_INTERVAL
+        echo '[Update Check] '$(date);
+        python /workspace/scripts/dual_update_manager.py --repo-path /workspace $([ \"\$$AUTO_APPROVE\" = \"true\" ] && echo \"--auto\") || echo 'Update check failed';
+        echo '{\"last_check\": \"'$(date -Iseconds)'\"}' > /state/last_check.json;
+        echo '[Sleep] Waiting \$$CHECK_INTERVAL seconds...';
+        sleep \$$CHECK_INTERVAL;
       done
       "
     restart: unless-stopped
