@@ -270,6 +270,60 @@ services:
     depends_on:
       - orchestrator
 
+  # Dual-Mode Update Orchestrator - Monitors git repos and coordinates updates
+  update_orchestrator:
+    image: python:3.11-alpine
+    container_name: update_orchestrator
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../:/workspace  # Mount parent directory for git operations
+      - ./update-orchestrator/config:/config
+      - ./update-orchestrator/state:/state
+      - ~/.ssh:/root/.ssh:ro  # For git operations (read-only)
+    environment:
+      - UPDATE_MODE=${UPDATE_MODE:-dual}  # dual, watchtower_only, revamp_only
+      - CHECK_INTERVAL=${CHECK_INTERVAL:-3600}  # 1 hour
+      - AUTO_APPROVE=${AUTO_APPROVE:-false}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - REPO_PATH=/workspace
+      - SUBMODULE_PATH=/workspace/autonomy
+      - STATE_DIR=/state
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    command: |
+      sh -c "
+      apk add --no-cache git docker-cli docker-compose curl bash jq github-cli &&
+      pip install pyyaml requests &&
+      git config --global --add safe.directory /workspace &&
+      git config --global --add safe.directory /workspace/autonomy &&
+      while true; do
+        echo '[Update Check] '$(date);
+        python /workspace/scripts/dual_update_manager.py --repo-path /workspace $([ \"\$$AUTO_APPROVE\" = \"true\" ] && echo \"--auto\") || echo 'Update check failed';
+        echo '{\"last_check\": \"'$(date -Iseconds)'\"}' > /state/last_check.json;
+        echo '[Sleep] Waiting \$$CHECK_INTERVAL seconds...';
+        sleep \$$CHECK_INTERVAL;
+      done
+      "
+    restart: unless-stopped
+    networks:
+      - vtuber_network
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"  # Don't update the updater!
+
+  # Update Monitor - Web dashboard for monitoring updates
+  update_monitor:
+    image: nginx:alpine
+    container_name: update_monitor
+    volumes:
+      - ./update-orchestrator/dashboard:/usr/share/nginx/html:ro
+      - ./update-orchestrator/state:/state:ro  # Mount state separately
+    ports:
+      - "8092:80"
+    networks:
+      - vtuber_network
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
   # ===========================================
   # LIVEPEER BYOC SERVICES
   # ===========================================
@@ -316,6 +370,11 @@ services:
       - ../data/orchestrator:/data
     ports:
       - "9995:9995"
+    environment:
+      # Manager registration settings
+      - MANAGER_URL=http://host.docker.internal:8010
+      - ORCHESTRATOR_ID=internal-livepeer-001
+      - AUTO_REGISTER=true
     command: [
       "-orchestrator",
       "-orchSecret=${LIVEPEER_ORCH_SECRET:-orch-secret}",
