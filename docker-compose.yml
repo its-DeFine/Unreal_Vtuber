@@ -104,7 +104,7 @@ services:
       - CONVERSATION_STORAGE_ENABLED=true
       - REDIS_SCB_URL=redis://redis_scb:6379/0
       # Central Manager Integration
-      - CENTRAL_MANAGER_URL=http://host.docker.internal:8010
+      - CENTRAL_MANAGER_URL=${CENTRAL_MANAGER_URL:-http://86.106.138.188:8010}
       - CENTRAL_MANAGER_TOKEN=${CENTRAL_MANAGER_TOKEN}
       - AGENT_REGISTRATION_ENABLED=true
       - ORCHESTRATOR_NAME=vtuber-autonomy-main
@@ -217,7 +217,7 @@ services:
       - OLLAMA_HOST=http://vtuber-ollama:11434
       - API_REGISTRY_PATH=/config/api_registry.yaml
       - LOG_LEVEL=INFO
-      - CENTRAL_MANAGER_URL=http://host.docker.internal:8010
+      - CENTRAL_MANAGER_URL=${CENTRAL_MANAGER_URL:-http://86.106.138.188:8010}
       - CENTRAL_MANAGER_TOKEN=${CENTRAL_MANAGER_TOKEN:-default-token}
       - ORCHESTRATOR_NAME=vtuber_orchestrator
       - ORCHESTRATOR_URL=http://host.docker.internal:8082

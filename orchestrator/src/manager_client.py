@@ -52,9 +52,14 @@ class ManagerClient:
     async def register(self) -> str:
         """Register with central manager"""
         try:
+            # Get orchestrator_id from env or generate one
+            orchestrator_id = os.getenv("ORCHESTRATOR_ID", f"{self.orchestrator_name}_{os.getpid()}")
+            
             registration_data = {
+                "orchestrator_id": orchestrator_id,  # Added required field
                 "name": self.orchestrator_name,
                 "url": self.orchestrator_url,
+                "address": self.orchestrator_url,  # Some managers expect 'address'
                 "capabilities": [
                     "routing",
                     "agent_control",
