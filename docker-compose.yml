@@ -58,7 +58,9 @@ services:
 
   # AutoGen Multi-Agent System (S2)
   autogen_agent:
-    image: autogen_agent_with_neo4j:latest
+    build:
+      context: ./docker-vtuber/app/CORE/autogen-agent
+      dockerfile: Dockerfile
     container_name: autogen_agent
     command: sh -c "pip install 'neo4j>=5.0.0' 'fastembed>=0.4.0' && python -m autogen_agent.simplified_main"
     volumes:
