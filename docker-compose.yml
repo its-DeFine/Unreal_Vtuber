@@ -213,7 +213,9 @@ services:
 
   # Orchestrator - Lightweight routing agent
   orchestrator:
-    image: vtuber-orchestrator:custom
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile.custom
     container_name: vtuber_orchestrator
     environment:
       - OLLAMA_HOST=http://vtuber-ollama:11434
