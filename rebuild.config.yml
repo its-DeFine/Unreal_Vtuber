@@ -1,0 +1,89 @@
+# Force Rebuild Configuration for Unreal VTuber
+# This configuration controls when and how containers are rebuilt
+
+rebuild_triggers:
+  # Files that trigger a full rebuild when changed
+  critical_files:
+    - "**/Dockerfile*"
+    - "**/docker-compose*.yml"
+    - "**/requirements*.txt"
+    - "**/package*.json"
+    - "**/go.mod"
+    - "**/go.sum"
+    - "NeuroBridge/**"
+    
+  # Directories to watch for changes
+  watch_directories:
+    - NeuroBridge/
+    - neurosync-worker/
+    - webapp/
+    - files_docker_rtmp/
+    
+rebuild_settings:
+  # Always use --no-cache for production builds
+  force_no_cache: true
+  
+  # Clean old images before rebuild
+  clean_before_build: true
+  
+  # Run health checks after rebuild
+  health_check_enabled: true
+  health_check_timeout: 60
+  
+  # Services to rebuild (in order)
+  services:
+    - neurosync
+    - webapp
+    - rtmp
+    
+  # Build parallelization
+  parallel_builds: true
+  max_parallel: 3
+  
+notification:
+  # Notify on these events
+  events:
+    - rebuild_started
+    - rebuild_completed
+    - rebuild_failed
+    
+  # Notification channels
+  channels:
+    github_comment: true
+    slack_webhook: "${SLACK_WEBHOOK_URL}"
+    
+deployment:
+  # Auto-deploy after successful rebuild
+  auto_deploy: false
+  
+  # Deployment environments
+  environments:
+    development:
+      auto_deploy: true
+      branch: develop
+      
+    staging:
+      auto_deploy: true
+      branch: staging
+      
+    production:
+      auto_deploy: false
+      branch: main
+      requires_approval: true
+      
+# Health check endpoints
+health_checks:
+  - name: neurosync
+    url: "http://localhost:5000/health"
+    method: GET
+    expected_status: 200
+    
+  - name: worker
+    url: "http://localhost:9876/health"
+    method: GET
+    expected_status: 200
+    
+  - name: webapp
+    url: "http://localhost:3000"
+    method: GET
+    expected_status: 200
