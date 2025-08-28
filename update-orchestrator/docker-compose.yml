@@ -21,6 +21,7 @@ services:
       - SUBMODULE_PATH=/workspace/autonomy
       - STATE_DIR=/state
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - FORCE_REBUILD_ON_VTUBER_UPDATE=${FORCE_REBUILD_ON_VTUBER_UPDATE:-true}  # Force fresh rebuild on VTuber updates
     command: |
       sh -c "
       apk add --no-cache git docker-cli docker-compose curl bash jq github-cli &&
@@ -29,7 +30,7 @@ services:
       git config --global --add safe.directory /workspace/autonomy &&
       while true; do
         echo '[Update Check] '$(date);
-        python /workspace/scripts/dual_update_manager.py --repo-path /workspace $([ \"\$$AUTO_APPROVE\" = \"true\" ] && echo \"--auto\") || echo 'Update check failed';
+        python /workspace/scripts/dual_update_manager.py --repo-path /workspace $([ \"\$$AUTO_APPROVE\" = \"true\" ] && echo \"--auto\") $([ \"\$$FORCE_REBUILD_ON_VTUBER_UPDATE\" = \"true\" ] && echo \"--force-rebuild-on-vtuber-update\") || echo 'Update check failed';
         echo '{\"last_check\": \"'$(date -Iseconds)'\"}' > /state/last_check.json;
         echo '[Sleep] Waiting \$$CHECK_INTERVAL seconds...';
         sleep \$$CHECK_INTERVAL;

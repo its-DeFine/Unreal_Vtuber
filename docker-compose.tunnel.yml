@@ -1,0 +1,15 @@
+# Cloudflare Tunnel Configuration Override
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d
+
+services:
+  cloudflared-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    restart: unless-stopped
+    command: tunnel run Embody-Network
+    volumes:
+      - ~/.cloudflared:/home/nonroot/.cloudflared:ro
+    networks:
+      - vtuber_network
+    depends_on:
+      - orchestrator

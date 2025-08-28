@@ -23,8 +23,10 @@ services:
       - PLAYER_PORT=5001
       - USE_REDIS_SCB=true
       - REDIS_URL=redis://redis_scb:6379/0
-      - LLM_PROVIDER=openai
+      - LLM_PROVIDER=ollama
+      - USE_OLLAMA_TEXT_MODELS=true
       - OLLAMA_HOST=http://vtuber-ollama:11434
+      - OLLAMA_API_ENDPOINT=http://vtuber-ollama:11434
       - OLLAMA_MODEL=llama3.2:3b
       - OPENAI_MODEL=gpt-4o
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -228,7 +230,7 @@ services:
       - DECISION_TIMEOUT_MS=10
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./api_registry.yaml:/config/api_registry.yaml:ro
+      # - ./api_registry.yaml:/config/api_registry.yaml:ro  # Now included in Docker image
       - ./logs/orchestrator:/logs
       - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker socket for container control
       - ./orchestrator/src:/app/src:ro  # Mount source code for updates
@@ -281,7 +283,7 @@ services:
   # Livepeer Worker - Agent network capability
   livepeer-worker:
     build:
-      context: ..
+      context: ./livepeer-worker
       dockerfile: Dockerfile
     container_name: livepeer-worker
     ports:
