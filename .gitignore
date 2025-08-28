@@ -126,3 +126,6 @@ archives/temp/
 scripts/voice_control_env/
 scripts/vosk-model-*/
 
+# Update orchestrator state
+update-orchestrator/state/
+
