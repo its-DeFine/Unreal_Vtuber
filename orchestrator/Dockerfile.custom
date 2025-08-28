@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
 COPY src/ /app/src/
-COPY api_registry.yaml /config/api_registry.yaml
+COPY config/api_registry.yaml /config/api_registry.yaml
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
