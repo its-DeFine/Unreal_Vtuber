@@ -282,7 +282,7 @@ services:
     container_name: update_orchestrator
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ../:/workspace  # Mount parent directory to access the repo
+      - ./:/Unreal_Vtuber  # Mount as Unreal_Vtuber for consistency
       - ./update-orchestrator/state:/state
       - ~/.ssh:/root/.ssh:ro
     environment:
@@ -291,22 +291,33 @@ services:
       - AUTO_APPROVE=${AUTO_APPROVE:-true}  # Auto-rebuild on changes
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - WEBHOOK_URL=${WEBHOOK_URL:-}
-      - REPO_PATH=/workspace
-      - SUBMODULE_PATH=/workspace/autonomy
+      - REPO_PATH=/Unreal_Vtuber
       - STATE_DIR=/state
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     command: |
       sh -c "
       apk add --no-cache git docker-cli docker-compose curl bash jq &&
       pip install pyyaml requests &&
-      git config --global --add safe.directory /workspace &&
-      git config --global --add safe.directory /workspace/autonomy &&
+      git config --global --add safe.directory /Unreal_Vtuber &&
       while true; do
         echo '[Update Check] '$(date);
-        python /workspace/scripts/dual_update_manager.py --repo-path /workspace $([ \"\$$AUTO_APPROVE\" = \"true\" ] && echo \"--auto\") || echo 'Update check failed';
+        cd /Unreal_Vtuber;
+        git fetch origin main;
+        LOCAL=\$$(git rev-parse HEAD);
+        REMOTE=\$$(git rev-parse origin/main);
+        echo \"Local: \$$LOCAL, Remote: \$$REMOTE\";
+        if [ \"\$$LOCAL\" != \"\$$REMOTE\" ]; then
+          echo '[UPDATE] New version detected! Pulling changes...';
+          git pull origin main;
+          echo '[UPDATE] Rebuilding containers with --no-cache...';
+          docker-compose up -d --build --force-recreate;
+          echo '[UPDATE] Complete!';
+        else
+          echo '[UPDATE] No changes detected';
+        fi;
         echo '{\"last_check\": \"'$(date -Iseconds)'\"}' > /state/last_check.json;
-        echo '[Sleep] Waiting \$$CHECK_INTERVAL seconds...';
-        sleep \$$CHECK_INTERVAL;
+        echo '[Sleep] Waiting 60 seconds...';
+        sleep 60;
       done
       "
     restart: unless-stopped
