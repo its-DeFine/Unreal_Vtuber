@@ -341,12 +341,13 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # Read-only Docker socket access
     environment:
-      - ORCH_URL=${LIVEPEER_ORCH_URL:-https://livepeer-orchestrator:9995}
+      # Use host port for orchestrator connection (works whether orchestrator is internal or external)
+      - ORCH_URL=${LIVEPEER_ORCH_URL:-http://host.docker.internal:9995}
       - ORCH_SECRET=${LIVEPEER_ORCH_SECRET:-orch-secret}
       - CAPABILITY_NAME=agent-net
       - CAPABILITY_DESCRIPTION=Agent network capability with connectivity monitoring
       - CAPABILITY_URL=http://livepeer-worker:9876
-      - CAPABILITY_PRICE_PER_UNIT=${CAPABILITY_PRICE_PER_UNIT:-18086000000000}  # 0.000018086 ETH per call
+      - CAPABILITY_PRICE_PER_UNIT=${CAPABILITY_PRICE_PER_UNIT:-0}  # Set to 0 for testing
       - CAPABILITY_PRICE_SCALING=1
       - CAPABILITY_CAPACITY=10
       - PYTHONUNBUFFERED=1
@@ -355,16 +356,20 @@ services:
       - MIN_SERVICE_UPTIME=80.0  # Require 80% uptime for payment eligibility
     networks:
       - vtuber_network
-    depends_on:
-      - livepeer-orchestrator
+      # Note: livepeer-orchestrator dependency removed - can work with external orchestrator
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # For accessing orchestrator via host
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9876/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=autonomy-cluster"
 
-  # Livepeer Orchestrator - BYOC orchestrator
+  # Livepeer Orchestrator - BYOC orchestrator (isolated network)
   livepeer-orchestrator:
     image: livepeer/go-livepeer:latest
     container_name: livepeer-orchestrator
@@ -375,21 +380,21 @@ services:
     command: [
       "-orchestrator",
       "-orchSecret=${LIVEPEER_ORCH_SECRET:-orch-secret}",
-      "-serviceAddr=livepeer-orchestrator:9995",
+      "-serviceAddr=0.0.0.0:9995",  # Bind to all interfaces for cross-network access
       "-v=6",
       "-network=${LIVEPEER_NETWORK:-arbitrum-one-mainnet}",
       "-ethUrl=${ETH_RPC_URL:-https://arb1.arbitrum.io/rpc}",
       "-ethPassword=${ETH_PASSWORD}",
       "-dataDir=/data",
       "-ethOrchAddr=${ETH_ORCH_ADDRESS}",
-      "-pricePerUnit=${PRICE_PER_UNIT:-65000000000000}",  # Price proportionally set
-      "-ticketEV=${TICKET_EV:-18086000000000}",  # Ticket expected value budget
-      "-maxFaceValue=${MAX_FACE_VALUE:-1000000000000000}",  # Max face value
+      "-pricePerUnit=${PRICE_PER_UNIT:-0}",  # Set to 0 for testing
+      "-ticketEV=${TICKET_EV:-0}",
+      "-maxFaceValue=${MAX_FACE_VALUE:-0}",
       "-autoAdjustPrice=${AUTO_ADJUST_PRICE:-false}",
       "-maxGasPrice=${MAX_GAS_PRICE:-1000000000}"
     ]
     networks:
-      - vtuber_network
+      - livepeer_network  # Isolated network for security
     deploy:
       resources:
         reservations:
@@ -404,6 +409,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=autonomy-cluster"
 
   # ===========================================
   # INFRASTRUCTURE SERVICES
@@ -680,3 +688,9 @@ networks:
     name: vtuber_network
     driver_opts:
       com.docker.network.bridge.host_binding_ipv4: "172.17.0.1"
+  
+  livepeer_network:
+    driver: bridge
+    name: livepeer_network
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "172.18.0.1"

@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # Livepeer Orchestrator - Can run in isolated network
+  livepeer-orchestrator:
+    image: livepeer/go-livepeer:latest
+    container_name: livepeer-orchestrator
+    volumes:
+      - ./data/orchestrator:/data
+    ports:
+      - "9995:9995"  # Exposed for external access
+    command: [
+      "-orchestrator",
+      "-orchSecret=${LIVEPEER_ORCH_SECRET:-orch-secret}",
+      "-serviceAddr=0.0.0.0:9995",  # Bind to all interfaces
+      "-v=6",
+      "-network=${LIVEPEER_NETWORK:-arbitrum-one-mainnet}",
+      "-ethUrl=${ETH_RPC_URL:-https://arb1.arbitrum.io/rpc}",
+      "-ethPassword=${ETH_PASSWORD}",
+      "-dataDir=/data",
+      "-ethOrchAddr=${ETH_ORCH_ADDRESS}",
+      "-pricePerUnit=${PRICE_PER_UNIT:-0}",
+      "-ticketEV=${TICKET_EV:-0}",
+      "-maxFaceValue=${MAX_FACE_VALUE:-0}",
+      "-autoAdjustPrice=${AUTO_ADJUST_PRICE:-false}",
+      "-maxGasPrice=${MAX_GAS_PRICE:-1000000000}"
+    ]
+    networks:
+      - livepeer_network  # Separate network for orchestrator
+      - vtuber_network    # Also connect to vtuber network for worker communication
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    runtime: nvidia
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9995/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=autonomy-cluster"
+
+networks:
+  # Create a separate network for livepeer services
+  livepeer_network:
+    driver: bridge
+    name: livepeer_network
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "172.18.0.1"
+  
+  # Reference the main vtuber network for worker communication
+  vtuber_network:
+    external: true
+    name: vtuber_network
