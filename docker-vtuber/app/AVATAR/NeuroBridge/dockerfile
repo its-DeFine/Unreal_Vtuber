@@ -46,6 +46,10 @@ RUN apt-get update --fix-missing && \
 COPY ./app/AVATAR/NeuroBridge /app/NeuroBridge
 # COPY ./decide/BYOC_OLD/neurosync-worker /app/neurosync-worker  # Not needed for current implementation
 
+# Copy entrypoint script and make it executable
+COPY ./app/AVATAR/NeuroBridge/entrypoint_bridge.sh /app/entrypoint_bridge.sh
+RUN chmod +x /app/entrypoint_bridge.sh
+
 # ---------- Python deps ----------
 RUN pip install --no-cache-dir "numpy>=1.24.0,<2.0.0" && \
     pip install --no-cache-dir flask flask-cors jsonschema && \
