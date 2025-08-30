@@ -309,11 +309,19 @@ services:
         if [ \"\$$LOCAL\" != \"\$$REMOTE\" ]; then
           echo '[UPDATE] New version detected! Pulling changes...';
           git pull origin main;
-          echo '[UPDATE] Rebuilding containers with --no-cache...';
-          docker-compose up -d --build --force-recreate;
+          echo '[UPDATE] Stopping old containers...';
+          docker-compose down;
+          echo '[UPDATE] Rebuilding all containers with --no-cache...';
+          docker-compose build --no-cache;
+          echo '[UPDATE] Starting entire cluster...';
+          docker-compose up -d;
+          echo '[UPDATE] Verifying all services are running...';
+          docker-compose ps;
           echo '[UPDATE] Complete!';
         else
           echo '[UPDATE] No changes detected';
+          echo '[UPDATE] Ensuring all services are running...';
+          docker-compose up -d;
         fi;
         echo '{\"last_check\": \"'$(date -Iseconds)'\"}' > /state/last_check.json;
         echo '[Sleep] Waiting 60 seconds...';
