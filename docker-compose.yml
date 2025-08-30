@@ -337,9 +337,9 @@ services:
   # ===========================================
   # LIVEPEER BYOC SERVICES
   # ===========================================
-  # Note: The livepeer-worker connects to both vtuber_network and 
-  # livepeer_network to bridge communication between the orchestrator
-  # and the rest of the system. This fixes connectivity issues.
+  # Note: Both livepeer-orchestrator and livepeer-worker are on the
+  # same vtuber_network for direct communication. This simplifies
+  # the network configuration and resolves connectivity issues.
   # ===========================================
   
   # Livepeer Worker - Agent network capability
@@ -353,7 +353,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # Read-only Docker socket access
     environment:
-      # Direct connection to orchestrator container
+      # Direct connection to orchestrator container on same network
       - ORCH_URL=${LIVEPEER_ORCH_URL:-http://livepeer-orchestrator:9995}
       - ORCH_SECRET=${LIVEPEER_ORCH_SECRET:-orch-secret}
       - CAPABILITY_NAME=${CAPABILITY_NAME:-agent-net}  # Can be overridden in .env
@@ -368,7 +368,6 @@ services:
       - MIN_SERVICE_UPTIME=80.0  # Require 80% uptime for payment eligibility
     networks:
       - vtuber_network
-      - livepeer_network  # Connect to both networks for orchestrator access
     depends_on:
       - livepeer-orchestrator  # Ensure orchestrator starts first
     extra_hosts:
@@ -383,7 +382,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=autonomy-cluster"
 
-  # Livepeer Orchestrator - BYOC orchestrator (isolated network)
+  # Livepeer Orchestrator - BYOC orchestrator
   livepeer-orchestrator:
     image: livepeer/go-livepeer:latest
     container_name: livepeer-orchestrator
@@ -394,7 +393,7 @@ services:
     command: [
       "-orchestrator",
       "-orchSecret=${LIVEPEER_ORCH_SECRET:-orch-secret}",
-      "-serviceAddr=0.0.0.0:9995",  # Bind to all interfaces for cross-network access
+      "-serviceAddr=0.0.0.0:9995",  # Bind to all interfaces
       "-v=6",
       "-network=${LIVEPEER_NETWORK:-arbitrum-one-mainnet}",
       "-ethUrl=${ETH_RPC_URL:-https://arb1.arbitrum.io/rpc}",
@@ -408,7 +407,7 @@ services:
       "-maxGasPrice=${MAX_GAS_PRICE:-1000000000}"
     ]
     networks:
-      - livepeer_network  # Isolated network for security
+      - vtuber_network  # Same network as all other services
     deploy:
       resources:
         reservations:
@@ -702,9 +701,3 @@ networks:
     name: vtuber_network
     driver_opts:
       com.docker.network.bridge.host_binding_ipv4: "172.17.0.1"
-  
-  livepeer_network:
-    driver: bridge
-    name: livepeer_network
-    driver_opts:
-      com.docker.network.bridge.host_binding_ipv4: "172.18.0.1"
