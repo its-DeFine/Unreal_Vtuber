@@ -1,4 +1,6 @@
-FROM nvcr.io/nvidia/pytorch:23.04-py3
+# Use official PyTorch image from Docker Hub instead of NVIDIA registry
+# This avoids TLS certificate issues with nvcr.io
+FROM pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime
 
 # ---------- Paths & environment ----------
 WORKDIR /app
@@ -6,8 +8,9 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH="/app/NeuroBridge:/app/NeuroBridge/NeuroSync_Local_API:/app/NeuroBridge/NeuroSync_Player:${PYTHONPATH}"
 
 # ---------- System deps (Install these first for better caching) ----------
-# Fix Ubuntu repository issues and add proper error handling
-RUN apt-get update --fix-missing && \
+# Update package lists and install system dependencies
+# The pytorch image is based on Ubuntu, so apt-get should work
+RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --fix-missing \
         # GStreamer stack - install core components first
         gstreamer1.0-tools \
