@@ -352,7 +352,7 @@ services:
       # Use host port for orchestrator connection (works whether orchestrator is internal or external)
       - ORCH_URL=${LIVEPEER_ORCH_URL:-http://host.docker.internal:9995}
       - ORCH_SECRET=${LIVEPEER_ORCH_SECRET:-orch-secret}
-      - CAPABILITY_NAME=agent-net
+      - CAPABILITY_NAME=${CAPABILITY_NAME:-agent-net}  # Can be overridden in .env
       - CAPABILITY_DESCRIPTION=Agent network capability with connectivity monitoring
       - CAPABILITY_URL=http://livepeer-worker:9876
       - CAPABILITY_PRICE_PER_UNIT=${CAPABILITY_PRICE_PER_UNIT:-0}  # Set to 0 for testing
