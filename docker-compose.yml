@@ -337,6 +337,10 @@ services:
   # ===========================================
   # LIVEPEER BYOC SERVICES
   # ===========================================
+  # Note: The livepeer-worker connects to both vtuber_network and 
+  # livepeer_network to bridge communication between the orchestrator
+  # and the rest of the system. This fixes connectivity issues.
+  # ===========================================
   
   # Livepeer Worker - Agent network capability
   livepeer-worker:
@@ -349,8 +353,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # Read-only Docker socket access
     environment:
-      # Use host port for orchestrator connection (works whether orchestrator is internal or external)
-      - ORCH_URL=${LIVEPEER_ORCH_URL:-http://host.docker.internal:9995}
+      # Direct connection to orchestrator container
+      - ORCH_URL=${LIVEPEER_ORCH_URL:-http://livepeer-orchestrator:9995}
       - ORCH_SECRET=${LIVEPEER_ORCH_SECRET:-orch-secret}
       - CAPABILITY_NAME=${CAPABILITY_NAME:-agent-net}  # Can be overridden in .env
       - CAPABILITY_DESCRIPTION=Agent network capability with connectivity monitoring
@@ -359,14 +363,16 @@ services:
       - CAPABILITY_PRICE_SCALING=1
       - CAPABILITY_CAPACITY=10
       - PYTHONUNBUFFERED=1
-      - MANAGER_URL=http://host.docker.internal:8010
+      - MANAGER_URL=${CENTRAL_MANAGER_URL:-http://86.106.138.188:8010}
       - CONNECTIVITY_PROOF_ENABLED=true
       - MIN_SERVICE_UPTIME=80.0  # Require 80% uptime for payment eligibility
     networks:
       - vtuber_network
-      # Note: livepeer-orchestrator dependency removed - can work with external orchestrator
+      - livepeer_network  # Connect to both networks for orchestrator access
+    depends_on:
+      - livepeer-orchestrator  # Ensure orchestrator starts first
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # For accessing orchestrator via host
+      - "host.docker.internal:host-gateway"  # For accessing host services
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9876/health"]
