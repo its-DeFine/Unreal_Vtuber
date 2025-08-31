@@ -164,7 +164,9 @@ services:
 
   # Kokoro TTS - Local Neural TTS Server
   kokoro_tts:
-    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    build:
+      context: ./kokoro_tts
+      dockerfile: Dockerfile
     container_name: kokoro_tts
     ports:
       - "8880:8880"
