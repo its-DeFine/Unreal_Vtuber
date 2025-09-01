@@ -546,6 +546,35 @@ services:
       retries: 5
 
   # ===========================================
+  # CLUSTER MANAGEMENT
+  # ===========================================
+  
+  # Management Agent - Full cluster control
+  management-agent:
+    build:
+      context: ./management-agent
+      dockerfile: Dockerfile
+    container_name: management_agent
+    ports:
+      - "8090:8090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw  # Full Docker access for management
+      - ./:/Unreal_Vtuber:rw  # Access to compose files
+      - ./backups:/backups  # Backup storage
+    environment:
+      - COMPOSE_FILE=/Unreal_Vtuber/docker-compose.yml
+      - BACKUP_DIR=/backups
+      - CLUSTER_NAME=${CLUSTER_NAME:-vtuber-cluster}
+      - MANAGER_URL=${CENTRAL_MANAGER_URL:-http://86.106.138.188:8010}
+      - LOG_LEVEL=INFO
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=autonomy-cluster"
+
+  # ===========================================
   # MONITORING STACK
   # ===========================================
 
