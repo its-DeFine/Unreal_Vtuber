@@ -1,0 +1,120 @@
+# Unreal Engine Pixel Streaming Integration for VTuber
+# This compose file extends the main docker-compose.yml
+# Use: docker-compose -f docker-compose.yml -f docker-compose.unreal.yml up
+
+services:
+  # ===========================================
+  # UNREAL ENGINE PIXEL STREAMING SERVICES
+  # ===========================================
+  
+  # Signaling Server - WebRTC signaling and web interface
+  unreal-signaling:
+    build:
+      context: /home/geo/embody/unreal-pixel-streaming/docker/signaling
+      dockerfile: Dockerfile.signaling
+    container_name: vtuber-unreal-signaling
+    restart: unless-stopped
+    ports:
+      - "8080:8080"     # HTTP Web Interface
+      - "8888:8888"     # Streamer Port
+      - "8889:8889"     # SFU Port
+    environment:
+      - PUBLIC_IP=${PUBLIC_IP:-localhost}
+      - HTTP_PORT=8080
+      - STREAMER_PORT=8888
+      - SFU_PORT=8889
+      - STUN_SERVER=stun.l.google.com:19302
+      - TURN_SERVER=${TURN_SERVER}
+      - TURN_USER=${TURN_USER}
+      - TURN_PASS=${TURN_PASS}
+      - ICE_SERVERS=[{"urls":["stun:stun.l.google.com:19302"]}]
+    command: >
+      node /app/dist/index.js
+      --serve
+      --public_ip=${PUBLIC_IP:-localhost}
+      --http_port=8080
+      --peer_options='{"iceServers":[{"urls":["stun:stun.l.google.com:19302"]}]}'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - vtuber_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Embody Game - Headless Unreal Engine with Pixel Streaming
+  unreal-game:
+    build:
+      context: /home/geo/embody/unreal-pixel-streaming/docker/game
+      dockerfile: Dockerfile.embody
+    container_name: vtuber-unreal-game
+    restart: unless-stopped
+    privileged: true    # Required for Xvfb
+    depends_on:
+      unreal-signaling:
+        condition: service_healthy
+    ports:
+      - "7777:7777"     # TCP Control Port for VTuber commands
+    volumes:
+      # Mount game files (read-only for security)
+      - ${GAME_PATH:-/home/geo/embody/Embody}:/home/gameuser/Embody:ro
+      - ${ENGINE_PATH:-/home/geo/embody/Engine}:/home/gameuser/Engine:ro
+      # Mount system libraries (required for OpenCV and other deps)
+      - /usr/lib:/usr/lib:ro
+      - /lib:/lib:ro
+      - /lib64:/lib64:ro
+      # Shared memory for Xvfb
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    environment:
+      - DISPLAY=:99
+      - SIGNALING_HOST=unreal-signaling
+      - SIGNALING_PORT=8888
+      - LD_LIBRARY_PATH=/home/gameuser/Engine/Plugins/Runtime/OpenCV/Binaries/ThirdParty/Linux:/usr/lib/x86_64-linux-gnu
+      # TCP Server for VTuber commands
+      - TCP_SERVER_ENABLED=true
+      - TCP_SERVER_PORT=7777
+      # Vulkan/Mesa settings for software rendering
+      - MESA_GL_VERSION_OVERRIDE=4.6
+      - __GLX_VENDOR_LIBRARY_NAME=mesa
+      - GALLIUM_DRIVER=llvmpipe
+      # Performance settings
+      - FPS=60
+      - RESOLUTION=1920x1080
+      # NVIDIA GPU (if available)
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4'
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - vtuber_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Update neurosync_s1 environment to connect to Unreal game
+  neurosync_s1:
+    environment:
+      # Override TCP connection to use container network
+      - UNREAL_TCP_HOST=unreal-game
+      - UNREAL_TCP_PORT=7777
+
+networks:
+  vtuber_network:
+    external: true
+    name: vtuber_network
