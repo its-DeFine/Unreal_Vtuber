@@ -1,0 +1,92 @@
+# Unreal Engine Game Container with Pixel Streaming
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install required packages
+RUN apt-get update && apt-get install -y \
+    # X11 and virtual display
+    xvfb \
+    x11vnc \
+    xauth \
+    x11-xserver-utils \
+    # Graphics libraries
+    libgl1-mesa-glx \
+    libgl1-mesa-dri \
+    libglu1-mesa \
+    libxrandr2 \
+    libxss1 \
+    libxcursor1 \
+    libxcomposite1 \
+    libasound2 \
+    libxi6 \
+    libxtst6 \
+    libxdamage1 \
+    libxfixes3 \
+    libxinerama1 \
+    libxkbcommon0 \
+    libxkbcommon-x11-0 \
+    # Vulkan for software rendering
+    mesa-vulkan-drivers \
+    libvulkan1 \
+    # Network tools
+    netcat-openbsd \
+    curl \
+    # Process management
+    supervisor \
+    # Clean up
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install NVIDIA drivers (optional, for GPU support)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nvidia-driver-535 \
+    nvidia-utils-535 \
+    || true \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create game user
+RUN useradd -m -s /bin/bash gameuser && \
+    usermod -aG video,audio gameuser
+
+# Create required directories
+RUN mkdir -p /home/gameuser/.config/Epic \
+    /home/gameuser/Embody \
+    /home/gameuser/Engine \
+    /var/log/supervisor \
+    && chown -R gameuser:gameuser /home/gameuser \
+    && chown -R gameuser:gameuser /var/log/supervisor
+
+# Copy supervisor configuration
+COPY --chown=gameuser:gameuser supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Copy startup script
+COPY --chown=gameuser:gameuser start_game.sh /home/gameuser/start_game.sh
+RUN chmod +x /home/gameuser/start_game.sh
+
+# Copy TCP server script for VTuber commands
+COPY --chown=gameuser:gameuser tcp_server.sh /home/gameuser/tcp_server.sh
+RUN chmod +x /home/gameuser/tcp_server.sh
+
+# Switch to game user
+USER gameuser
+WORKDIR /home/gameuser
+
+# Environment variables
+ENV DISPLAY=:99
+ENV XDG_RUNTIME_DIR=/tmp/runtime-gameuser
+ENV MESA_GL_VERSION_OVERRIDE=4.6
+ENV __GLX_VENDOR_LIBRARY_NAME=mesa
+ENV GALLIUM_DRIVER=llvmpipe
+
+# Expose ports
+EXPOSE 7777 8888
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
+    CMD nc -z localhost 7777 || exit 1
+
+# Start supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

@@ -1,0 +1,39 @@
+# Signaling Server for Unreal Engine Pixel Streaming
+FROM node:18-alpine
+
+# Install build dependencies
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    git \
+    curl
+
+# Create app directory
+WORKDIR /app
+
+# Clone the official Pixel Streaming Infrastructure
+RUN git clone --depth 1 https://github.com/EpicGames/PixelStreamingInfrastructure.git /tmp/psi && \
+    cp -r /tmp/psi/Signalling/. /app/ && \
+    rm -rf /tmp/psi
+
+# Install dependencies
+RUN npm install && \
+    npm run build
+
+# Create non-root user
+RUN addgroup -g 1000 signaling && \
+    adduser -D -u 1000 -G signaling signaling && \
+    chown -R signaling:signaling /app
+
+USER signaling
+
+# Expose ports
+EXPOSE 8080 8888 8889
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:8080', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
+
+# Start the signaling server
+CMD ["node", "/app/dist/index.js"]
