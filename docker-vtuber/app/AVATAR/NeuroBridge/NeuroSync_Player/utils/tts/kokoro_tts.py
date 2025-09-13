@@ -14,6 +14,7 @@ import json
 import requests
 import logging
 import os
+import base64
 from typing import Optional, Dict
 
 # Configure logging
@@ -111,7 +112,7 @@ def get_kokoro_voices() -> Dict[str, str]:
     """
     config = get_kokoro_config()
     try:
-        response = requests.get(f"{config['server_url']}/v1/audio/voices", timeout=5)
+        response = requests.get(f"{config['server_url']}/voices", timeout=5)
         if response.ok:
             data = response.json()
             voices = data.get("voices", [])
@@ -159,13 +160,13 @@ def get_kokoro_audio(text: str, voice_name: str) -> Optional[bytes]:
     logger.info(f"🎵 Kokoro TTS generating audio: {text[:50]}{'...' if len(text) > 50 else ''}")
     logger.debug(f"🎤 Using voice: {voice_name} -> {voice_id}")
     
-    # Prepare request payload for Kokoro-FastAPI
+    # Prepare request payload for Kokoro TTS server
     payload = {
-        "model": "kokoro",
-        "input": text,
+        "text": text,
         "voice": voice_id,
-        "response_format": "wav",
-        "speed": 1.0
+        "rate": "+0%",
+        "pitch": "+0Hz",
+        "volume": "+0%"
     }
     
     headers = {
@@ -175,16 +176,25 @@ def get_kokoro_audio(text: str, voice_name: str) -> Optional[bytes]:
     try:
         # Make request to Kokoro TTS server (FastAPI format)
         response = requests.post(
-            f"{config['server_url']}/v1/audio/speech",
+            f"{config['server_url']}/tts",
             headers=headers,
             json=payload,
             timeout=config["timeout"]
         )
         
         if response.status_code == 200:
-            audio_data = response.content
-            logger.info(f"✅ Kokoro TTS: Generated {len(audio_data)} bytes of audio")
-            return audio_data
+            # The response is JSON with base64 encoded audio
+            response_data = response.json()
+            audio_base64 = response_data.get("audio")
+            
+            if audio_base64:
+                # Decode base64 to get raw audio bytes
+                audio_data = base64.b64decode(audio_base64)
+                logger.info(f"✅ Kokoro TTS: Generated {len(audio_data)} bytes of audio")
+                return audio_data
+            else:
+                logger.error("❌ Kokoro TTS: No audio data in response")
+                return None
         else:
             logger.error(f"❌ Kokoro TTS API error: HTTP {response.status_code}")
             try:

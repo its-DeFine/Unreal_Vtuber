@@ -13,6 +13,10 @@ import logging
 import pygame
 from utils.audio.convert_audio import convert_to_wav
 from utils.audio.gst_stream import stream_wav_to_rtmp
+try:
+    from utils.audio.webrtc_stream import stream_audio_webrtc_sync
+except ImportError:
+    stream_audio_webrtc_sync = None
 
 # Configure module-level logger
 logger = logging.getLogger(__name__)
@@ -62,6 +66,7 @@ def _audio_mode() -> str:
     """Return the requested audio mode.
 
     • "rtmp"  → stream with GStreamer (default)
+    • "webrtc" → stream via WebRTC for lower latency
     • "pygame" → local playback via SDL/ALSA
     """
     return os.getenv("AUDIO_MODE", "rtmp").lower()
@@ -144,9 +149,25 @@ def play_audio_from_path(audio_path, start_event, sync=True):
     mode = _audio_mode()
 
     # -------------------------------------------------------------
-    # Primary path: GStreamer streaming (default)
+    # Primary path: Streaming (RTMP or WebRTC)
     # -------------------------------------------------------------
-    if mode != "pygame":
+    if mode == "webrtc":
+        # WebRTC streaming for lower latency
+        if stream_audio_webrtc_sync:
+            logger.info(f"[Audio] Streaming {audio_path} via WebRTC (low latency)")
+            start_event.wait()
+            try:
+                stream_audio_webrtc_sync(audio_path)
+            except Exception as webrtc_error:
+                logger.error(f"[Audio] WebRTC streaming failed: {webrtc_error}")
+                # Fall back to RTMP
+                logger.info("[Audio] Falling back to RTMP streaming")
+                mode = "rtmp"
+        else:
+            logger.warning("[Audio] WebRTC not available, falling back to RTMP")
+            mode = "rtmp"
+    
+    if mode == "rtmp":
         rtmp_url = _rtmp_url()
         logger.info(f"[Audio] Streaming {audio_path} to {rtmp_url} (mode={mode})")
         start_event.wait()
@@ -154,6 +175,9 @@ def play_audio_from_path(audio_path, start_event, sync=True):
             stream_wav_to_rtmp(audio_path, rtmp_url, blocking=True)
         except Exception as stream_error:
             logger.error(f"[Audio] GStreamer streaming failed: {stream_error}")
+        return
+    
+    if mode != "pygame":
         return
 
     # -------------------------------------------------------------

@@ -1,0 +1,103 @@
+version: '3.8'
+
+# LiveKit Integration for VTuber Platform
+# This extends the main docker-compose.yml with LiveKit capabilities
+
+services:
+  # ==========================================
+  # LIVEKIT INFRASTRUCTURE
+  # ==========================================
+  
+  # LiveKit Server - WebRTC media server
+  livekit-server:
+    image: livekit/livekit-server:latest
+    container_name: livekit_server
+    ports:
+      - "7880:7880"  # WebRTC
+      - "7881:7881"  # HTTP API
+      - "7882:7882"  # WebRTC ICE/UDP
+    environment:
+      LIVEKIT_LOG_LEVEL: "info"
+    command: >
+      --node-ip=127.0.0.1
+      --bind=0.0.0.0
+      --port=7880
+      --dev
+      --disable-strict-config
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7881/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # LiveKit Agent - Replaces autogen_agent with unified real-time agent
+  livekit-agent:
+    build:
+      context: ./livekit-agent
+      dockerfile: docker/Dockerfile
+    image: embody/livekit-agent:latest
+    container_name: livekit_agent
+    ports:
+      - "8201:8201"  # WebSocket port for testing
+    environment:
+      # Agent Configuration
+      AGENT_NAME: "${AGENT_NAME:-Luna}"
+      PERSONALITY: "${PERSONALITY:-friendly energetic streamer}"
+      
+      # LiveKit Configuration (Local Mode - No API Keys)
+      LIVEKIT_URL: "ws://livekit-server:7880"
+      LIVEKIT_INSECURE: "true"  # Allow connection without API keys in dev mode
+      
+      # Service Connections (TCP disabled by default - Unreal may not be running)
+      ENABLE_TCP: "false"
+      TCP_HOST: "host.docker.internal"
+      TCP_PORT: "7777"
+      REDIS_URL: "redis://redis_scb:6379"
+      
+      # LLM Configuration (LOCAL OLLAMA ONLY)
+      LLM_TYPE: "ollama"
+      OLLAMA_URL: "http://vtuber-ollama:11434"
+      LLM_MODEL: "${LLM_MODEL:-llama3.2:3b}"
+      USE_LOCAL_MODELS_ONLY: "true"
+      
+      # TTS Configuration (Local)
+      TTS_TYPE: "local"
+      TTS_SERVICE: "kokoro"  # Use local Kokoro TTS
+      KOKORO_URL: "http://kokoro_tts:8003"
+      
+      # Platform Integration (Disabled for local-only)
+      ENABLE_PLATFORMS: "false"
+      
+      # Behavior Settings
+      CHAT_RESPONSE_RATE: "${CHAT_RESPONSE_RATE:-0.3}"
+      MEMORY_CONSOLIDATION_INTERVAL: "${MEMORY_CONSOLIDATION_INTERVAL:-3600}"
+      
+      LOG_LEVEL: "INFO"
+    volumes:
+      - ./livekit-agent/config:/app/config:ro
+      - agent-data:/data
+    depends_on:
+      - livekit-server
+      - neurosync_s1
+      - vtuber-ollama
+      - redis_scb
+      - kokoro_tts
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Note: This configuration assumes neurosync_s1, vtuber-ollama, redis_scb, 
+  # and other services are defined in the main docker-compose.yml
+
+volumes:
+  agent-data:
+    driver: local
+
+networks:
+  vtuber_network:
+    external: true

@@ -1,0 +1,290 @@
+version: '3.8'
+
+# LiveKit-based VTuber Platform
+# Simplified architecture with real-time audio/video processing
+
+services:
+  # ==========================================
+  # LIVEKIT INFRASTRUCTURE
+  # ==========================================
+  
+  # LiveKit Server - WebRTC media server
+  livekit-server:
+    image: livekit/livekit-server:latest
+    container_name: livekit_server
+    ports:
+      - "7880:7880"  # WebRTC
+      - "7881:7881"  # HTTP API
+      - "7882:7882"  # WebRTC ICE/UDP
+    environment:
+      - LIVEKIT_KEYS=devkey:secret
+      - LIVEKIT_WEBHOOK_URLS=http://livekit-vtuber-agent:8080/webhook
+      - LIVEKIT_LOG_LEVEL=info
+    command: >
+      --node-ip=127.0.0.1
+      --bind=0.0.0.0
+      --port=7880
+      --dev
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7881/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # LiveKit VTuber Agent - Main intelligence
+  livekit-vtuber-agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: embody/livekit-vtuber-agent:latest
+    container_name: livekit_vtuber_agent
+    environment:
+      # Agent Configuration
+      - AGENT_NAME=${AGENT_NAME:-Luna}
+      - PERSONALITY=${PERSONALITY:-friendly energetic streamer}
+      
+      # LiveKit Configuration
+      - LIVEKIT_URL=ws://livekit-server:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secret
+      
+      # Service Connections
+      - TCP_HOST=neurosync_s1
+      - TCP_PORT=5001
+      - REDIS_URL=redis://redis:6379
+      - MANAGER_URL=${MANAGER_URL:-http://central-manager:8000}
+      
+      # LLM Configuration (using local Ollama)
+      - LLM_TYPE=ollama
+      - OLLAMA_URL=http://ollama:11434
+      - LLM_MODEL=${LLM_MODEL:-llama3.2}
+      
+      # Platform Integration
+      - ENABLE_PLATFORMS=true
+      - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID}
+      - TWITCH_ACCESS_TOKEN=${TWITCH_ACCESS_TOKEN}
+      - TWITCH_CHANNEL=${TWITCH_CHANNEL}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+      - YOUTUBE_CHANNEL_ID=${YOUTUBE_CHANNEL_ID}
+      
+      # Behavior Settings
+      - CHAT_RESPONSE_RATE=${CHAT_RESPONSE_RATE:-0.3}
+      - MEMORY_CONSOLIDATION_INTERVAL=${MEMORY_CONSOLIDATION_INTERVAL:-3600}
+      
+      - LOG_LEVEL=INFO
+    volumes:
+      - ../config:/app/config:ro
+      - agent-data:/data
+    depends_on:
+      - livekit-server
+      - neurosync_s1
+      - ollama
+      - redis
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+
+  # ==========================================
+  # VTUBER RENDERING
+  # ==========================================
+
+  # NeuroSync S1 - VTuber Renderer (simplified)
+  neurosync_s1:
+    build:
+      context: ${AUTONOMY_PATH:-../../autonomy}
+      dockerfile: NeuroBridge.Dockerfile
+    image: embody/neurosync:s1-livekit
+    container_name: neurosync_s1
+    ports:
+      - "5001:5001"  # TCP control port
+    environment:
+      - MODE=render_only
+      - TCP_PORT=5001
+      - LIVEKIT_ENABLED=true
+      - LIVEKIT_URL=ws://livekit-server:7880
+      - LIVEKIT_ROOM=vtuber_stream
+    volumes:
+      - ${AUTONOMY_PATH:-../../autonomy}/neurosync:/app
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+
+  # ==========================================
+  # LIVEPEER ORCHESTRATOR (kept for compatibility)
+  # ==========================================
+
+  # Livepeer Worker
+  livepeer-worker:
+    build:
+      context: ${AUTONOMY_PATH:-../../autonomy}/livepeer-byoc-worker
+      dockerfile: Dockerfile
+    image: embody/livepeer-worker:latest
+    container_name: livepeer_worker
+    ports:
+      - "9876:9876"
+    environment:
+      - NODE_ENV=production
+      - API_KEY=${LIVEPEER_API_KEY}
+      - API_SECRET=${LIVEPEER_API_SECRET}
+      - MANAGER_URL=${MANAGER_URL:-http://central-manager:8000}
+      - CAPABILITY=agent-net
+      - ORCHESTRATOR_ID=${ORCHESTRATOR_ID}
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+
+  # Livepeer Orchestrator
+  livepeer-orchestrator:
+    image: livepeer/go-livepeer:latest
+    container_name: livepeer_orchestrator
+    ports:
+      - "9995:9995"
+      - "1935:1935"
+    environment:
+      - LP_TYPE=orchestrator
+      - LP_ORCHESTRATOR=true
+      - LP_SERVICEADDR=0.0.0.0:9995
+      - LP_RTMPADDR=0.0.0.0:1935
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+
+  # Orchestrator Router
+  orchestrator:
+    build:
+      context: ${AUTONOMY_PATH:-../../autonomy}/orchestrator
+      dockerfile: Dockerfile
+    image: embody/orchestrator:latest
+    container_name: orchestrator
+    ports:
+      - "8082:8082"
+    environment:
+      - ORCHESTRATOR_ID=${ORCHESTRATOR_ID}
+      - MANAGER_URL=${MANAGER_URL:-http://central-manager:8000}
+      - AGENT_URL=http://livekit-vtuber-agent:8080
+      - AUTH_TOKEN=${ORCHESTRATOR_AUTH_TOKEN}
+      - REGISTER_WITH_MANAGER=true
+    depends_on:
+      - livekit-vtuber-agent
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+
+  # ==========================================
+  # INFRASTRUCTURE SERVICES
+  # ==========================================
+
+  # Ollama - Local LLM
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_MODELS=llama3.2,mistral
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # Redis - State Management
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 1gb
+      --maxmemory-policy allkeys-lru
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+
+  # ==========================================
+  # OPTIONAL: Traditional streaming (if needed)
+  # ==========================================
+  
+  # NGINX RTMP (optional, for traditional streaming)
+  nginx_rtmp:
+    image: tiangolo/nginx-rtmp
+    container_name: nginx_rtmp
+    ports:
+      - "1936:1935"  # RTMP
+      - "8085:8080"  # HTTP stats
+    volumes:
+      - ${AUTONOMY_PATH:-../../autonomy}/nginx.conf:/etc/nginx/nginx.conf:ro
+    profiles:
+      - rtmp  # Only start if rtmp profile is enabled
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+
+  # ==========================================
+  # GAME EXECUTION (if using Unreal)
+  # ==========================================
+
+  # Unreal Signaling Server
+  unreal-signaling:
+    image: embody/unreal-signaling:latest
+    container_name: unreal_signaling
+    ports:
+      - "8080:8080"
+      - "8888:8888"
+      - "8889:8889"
+    profiles:
+      - unreal  # Only start if unreal profile is enabled
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+
+  # Unreal Game
+  unreal-game:
+    image: embody/unreal-game:latest
+    container_name: unreal_game
+    ports:
+      - "7777:7777"  # TCP control
+    environment:
+      - HEADLESS=true
+      - PIXEL_STREAMING=true
+    profiles:
+      - unreal  # Only start if unreal profile is enabled
+    networks:
+      - vtuber_network
+    restart: unless-stopped
+
+# ==========================================
+# NETWORKS
+# ==========================================
+networks:
+  vtuber_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16
+
+# ==========================================
+# VOLUMES
+# ==========================================
+volumes:
+  agent-data:
+    driver: local
+  ollama-models:
+    driver: local
+  redis-data:
+    driver: local

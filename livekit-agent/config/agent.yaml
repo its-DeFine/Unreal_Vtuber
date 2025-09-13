@@ -1,0 +1,172 @@
+# LiveKit VTuber Agent Configuration
+
+agent:
+  name: Luna
+  personality: friendly, energetic, engaging streamer who loves gaming and technology
+  voice_model: nova  # TTS voice model
+  language: en-US
+
+behavior:
+  # Response rates (0.0 - 1.0)
+  chat_response_rate: 0.3
+  mention_response_rate: 0.9
+  donation_threshold: 5.00
+  
+  # Interaction settings
+  allow_interruptions: true
+  interrupt_speech_duration: 0.5
+  interaction_cooldown: 5  # seconds
+  
+  # Command settings
+  command_prefix: "!"
+  allowed_commands:
+    - wave
+    - dance
+    - pose
+    - joke
+    - fact
+    - outfit
+    - character
+
+emotion:
+  # Emotion detection keywords
+  happy_keywords:
+    - happy
+    - joy
+    - great
+    - awesome
+    - amazing
+    - wonderful
+  
+  sad_keywords:
+    - sad
+    - sorry
+    - unfortunately
+    - miss
+  
+  excited_keywords:
+    - excited
+    - incredible
+    - fantastic
+    - woohoo
+  
+  # Emotion blendshape intensity (0.0 - 1.0)
+  emotion_intensity: 0.7
+  
+  # Emotion transition speed
+  transition_speed: 0.3
+
+speech:
+  # LLM settings
+  llm_model: gpt-4o-mini  # or llama3.2 for local
+  temperature: 0.8
+  max_tokens: 150
+  
+  # TTS settings
+  tts_provider: elevenlabs  # or custom
+  voice_speed: 1.0
+  voice_pitch: 1.0
+  
+  # Response generation
+  context_window: 10  # Number of previous messages to include
+  generate_if_silent: true  # Generate speech during silence
+  silence_threshold: 30  # seconds
+
+memory:
+  # Session memory settings
+  consolidation_interval: 3600  # 1 hour in seconds
+  max_interactions_before_consolidate: 50
+  session_ttl: 7200  # 2 hours in seconds
+  
+  # Context settings
+  recent_context_size: 10
+  important_user_tracking: true
+
+platforms:
+  twitch:
+    enabled: true
+    response_in_chat: true
+    emote_responses: true
+    bits_thanks_threshold: 100
+  
+  youtube:
+    enabled: true
+    response_in_chat: true
+    super_chat_thanks: true
+    member_recognition: true
+
+tcp_commands:
+  # TCP command mappings
+  emotions:
+    happy: FACE.Happy
+    sad: FACE.Sad
+    angry: FACE.Angry
+    surprised: FACE.Surprised
+    love: FACE.Love
+    thinking: FACE.Thinking
+    excited: FACE.Excited
+    neutral: FACE.Neutral
+  
+  emotes:
+    wave: EMOTE.Wave
+    dance: EMOTE.Dance2
+    bow: EMOTE.Bow
+    celebrate: EMOTE.Celebrate
+    thumbsup: EMOTE.ThumbsUp
+    heart: EMOTE.Heart
+  
+  animations:
+    idle: ANIM.Mannequin
+    speaking: startspeaking
+    stop_speaking: stopspeaking
+
+blendshapes:
+  # Phoneme to blendshape mappings
+  phoneme_map:
+    # Bilabial
+    p: {mouthClose: 0.8, mouthPucker: 0.3}
+    b: {mouthClose: 0.8, mouthPucker: 0.3}
+    m: {mouthClose: 0.9, mouthPucker: 0.2}
+    
+    # Vowels
+    a: {mouthOpen: 0.7, jawOpen: 0.6}
+    e: {mouthOpen: 0.4, mouthSmile: 0.3}
+    i: {mouthOpen: 0.2, mouthSmile: 0.5}
+    o: {mouthOpen: 0.5, mouthPucker: 0.6}
+    u: {mouthOpen: 0.3, mouthPucker: 0.8}
+  
+  # Smoothing settings
+  blend_speed: 0.1
+  interpolation: true
+
+schedule:
+  # Scheduled behaviors (cron format)
+  greetings:
+    - cron: "0 * * * *"  # Every hour
+      action: speak
+      text: "Hey everyone! How's the stream going? Let me know what you're up to!"
+      emotion: happy
+  
+  engagement:
+    - cron: "*/15 * * * *"  # Every 15 minutes
+      action: speak
+      text: "generate"  # Generate contextual message
+      emotion: auto
+  
+  animations:
+    - cron: "*/30 * * * *"  # Every 30 minutes
+      action: emote
+      emote: random
+      duration: 3
+
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # Component-specific levels
+  components:
+    livekit: INFO
+    tcp_client: DEBUG
+    blendshape: DEBUG
+    platforms: INFO
+    memory: INFO

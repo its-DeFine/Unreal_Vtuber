@@ -1,0 +1,28 @@
+# LiveKit VTuber Agent Requirements
+
+# Core Dependencies (install these first)
+python-dotenv==1.0.0
+pydantic==2.5.2
+pydantic-settings==2.1.0
+httpx==0.25.2
+websockets==12.0
+redis==5.0.1
+pyyaml==6.0.1
+python-json-logger==2.0.7
+aiofiles==23.2.1
+
+# Audio Processing
+numpy==1.24.3
+scipy==1.11.4
+
+# Platform Integrations (optional)
+# twitchio==2.8.2
+# google-api-python-client==2.108.0
+
+# LiveKit SDK (install without version pins to avoid conflicts)
+# These will be installed if available, skipped if not
+# livekit
+# livekit-agents
+
+# For now, we'll test without full LiveKit SDK
+# and use basic WebSocket/HTTP for real-time communication
