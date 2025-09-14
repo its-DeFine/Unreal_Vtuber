@@ -16,6 +16,8 @@ services:
     ports:
       - "5000:5000"
       - "5001:5001"
+      - "8765:8765"
+      - "5004:5004/udp"  # RTP audio streaming port
     environment:
       - FLASK_HOST=0.0.0.0
       - PYTHONUNBUFFERED=1
@@ -36,9 +38,17 @@ services:
       - AUTONOMOUS_ORCHESTRATION_ENABLED=false
       - AUTONOMOUS_SPEECH_ENABLED=false
       - AUTONOMOUS_CONTENT_ENABLED=false
+      # LiveKit Integration
+      - USE_LIVEKIT_AGENT=true  # LiveKit enabled for real-time processing
+      - LIVEKIT_WS_URL=ws://livekit-agent:8201
+      - ENABLE_LIVEKIT_BLENDSHAPES=true
       - AUTONOMOUS_ENVIRONMENT_ENABLED=false
       - AUTO_INTERRUPT_ENABLED=false
       - SIMPLE_SPEECH_ENABLED=false
+      # PulseAudio for ultra-low latency
+      - AUDIO_MODE=pulse
+      - PULSE_SERVER=tcp:host.docker.internal:4713
+      - BLENDSHAPE_DELAY=0
     deploy:
       resources:
         reservations:
@@ -55,7 +65,7 @@ services:
     depends_on:
       # - redis_scb (using external Redis)
       - vtuber-ollama
-      - kokoro_tts
+      - kokoro_tts  # Now built locally
     restart: unless-stopped
 
   # AutoGen Multi-Agent System (S2)
@@ -162,7 +172,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # Kokoro TTS - Local Neural TTS Server
+  # Kokoro TTS - Local Neural TTS Server (Built locally)
   kokoro_tts:
     build:
       context: ./kokoro_tts
@@ -311,19 +321,11 @@ services:
         if [ \"\$$LOCAL\" != \"\$$REMOTE\" ]; then
           echo '[UPDATE] New version detected! Pulling changes...';
           git pull origin main;
-          echo '[UPDATE] Stopping old containers...';
-          docker-compose down;
-          echo '[UPDATE] Rebuilding all containers with --no-cache...';
-          docker-compose build --no-cache;
-          echo '[UPDATE] Starting entire cluster...';
-          docker-compose up -d;
-          echo '[UPDATE] Verifying all services are running...';
-          docker-compose ps;
+          echo '[UPDATE] Rebuilding containers with --no-cache...';
+          docker-compose up -d --build --force-recreate;
           echo '[UPDATE] Complete!';
         else
           echo '[UPDATE] No changes detected';
-          echo '[UPDATE] Ensuring all services are running...';
-          docker-compose up -d;
         fi;
         echo '{\"last_check\": \"'$(date -Iseconds)'\"}' > /state/last_check.json;
         echo '[Sleep] Waiting 60 seconds...';
@@ -339,10 +341,6 @@ services:
   # ===========================================
   # LIVEPEER BYOC SERVICES
   # ===========================================
-  # Note: Both livepeer-orchestrator and livepeer-worker are on the
-  # same vtuber_network for direct communication. This simplifies
-  # the network configuration and resolves connectivity issues.
-  # ===========================================
   
   # Livepeer Worker - Agent network capability
   livepeer-worker:
@@ -355,25 +353,24 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # Read-only Docker socket access
     environment:
-      # Direct connection to orchestrator container on same network
-      - ORCH_URL=${LIVEPEER_ORCH_URL:-http://livepeer-orchestrator:9995}
+      # Use host port for orchestrator connection (works whether orchestrator is internal or external)
+      - ORCH_URL=${LIVEPEER_ORCH_URL:-http://host.docker.internal:9995}
       - ORCH_SECRET=${LIVEPEER_ORCH_SECRET:-orch-secret}
-      - CAPABILITY_NAME=${CAPABILITY_NAME:-agent-net}  # Can be overridden in .env
+      - CAPABILITY_NAME=agent-net
       - CAPABILITY_DESCRIPTION=Agent network capability with connectivity monitoring
       - CAPABILITY_URL=http://livepeer-worker:9876
       - CAPABILITY_PRICE_PER_UNIT=${CAPABILITY_PRICE_PER_UNIT:-0}  # Set to 0 for testing
       - CAPABILITY_PRICE_SCALING=1
       - CAPABILITY_CAPACITY=10
       - PYTHONUNBUFFERED=1
-      - MANAGER_URL=${CENTRAL_MANAGER_URL:-http://86.106.138.188:8010}
+      - MANAGER_URL=http://host.docker.internal:8010
       - CONNECTIVITY_PROOF_ENABLED=true
       - MIN_SERVICE_UPTIME=80.0  # Require 80% uptime for payment eligibility
     networks:
       - vtuber_network
-    depends_on:
-      - livepeer-orchestrator  # Ensure orchestrator starts first
+      # Note: livepeer-orchestrator dependency removed - can work with external orchestrator
     extra_hosts:
-      - "host.docker.internal:host-gateway"  # For accessing host services
+      - "host.docker.internal:host-gateway"  # For accessing orchestrator via host
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9876/health"]
@@ -384,7 +381,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=autonomy-cluster"
 
-  # Livepeer Orchestrator - BYOC orchestrator
+  # Livepeer Orchestrator - BYOC orchestrator (isolated network)
   livepeer-orchestrator:
     image: livepeer/go-livepeer:latest
     container_name: livepeer-orchestrator
@@ -395,7 +392,7 @@ services:
     command: [
       "-orchestrator",
       "-orchSecret=${LIVEPEER_ORCH_SECRET:-orch-secret}",
-      "-serviceAddr=0.0.0.0:9995",  # Bind to all interfaces
+      "-serviceAddr=0.0.0.0:9995",  # Bind to all interfaces for cross-network access
       "-v=6",
       "-network=${LIVEPEER_NETWORK:-arbitrum-one-mainnet}",
       "-ethUrl=${ETH_RPC_URL:-https://arb1.arbitrum.io/rpc}",
@@ -409,7 +406,7 @@ services:
       "-maxGasPrice=${MAX_GAS_PRICE:-1000000000}"
     ]
     networks:
-      - vtuber_network  # Same network as all other services
+      - livepeer_network  # Isolated network for security
     deploy:
       resources:
         reservations:
@@ -546,35 +543,6 @@ services:
       retries: 5
 
   # ===========================================
-  # CLUSTER MANAGEMENT
-  # ===========================================
-  
-  # Management Agent - Full cluster control
-  management-agent:
-    build:
-      context: ./management-agent
-      dockerfile: Dockerfile
-    container_name: management_agent
-    ports:
-      - "8090:8090"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:rw  # Full Docker access for management
-      - ./:/Unreal_Vtuber:rw  # Access to compose files
-      - ./backups:/backups  # Backup storage
-    environment:
-      - COMPOSE_FILE=/Unreal_Vtuber/docker-compose.yml
-      - BACKUP_DIR=/backups
-      - CLUSTER_NAME=${CLUSTER_NAME:-vtuber-cluster}
-      - MANAGER_URL=${CENTRAL_MANAGER_URL:-http://86.106.138.188:8010}
-      - LOG_LEVEL=INFO
-    networks:
-      - vtuber_network
-    restart: unless-stopped
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "com.centurylinklabs.watchtower.scope=autonomy-cluster"
-
-  # ===========================================
   # MONITORING STACK
   # ===========================================
 
@@ -686,7 +654,7 @@ services:
   # Ollama Exporter
   ollama_exporter:
     build:
-      context: ./monitoring/exporters
+      context: /home/geo/monitoring_exporters_temp
       dockerfile: Dockerfile.ollama
       no_cache: true
     container_name: ollama_exporter
@@ -732,3 +700,9 @@ networks:
     name: vtuber_network
     driver_opts:
       com.docker.network.bridge.host_binding_ipv4: "172.17.0.1"
+  
+  livepeer_network:
+    driver: bridge
+    name: livepeer_network
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "172.18.0.1"
