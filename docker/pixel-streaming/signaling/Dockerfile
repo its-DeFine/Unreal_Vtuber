@@ -1,20 +1,23 @@
-FROM node:18-bullseye
+FROM embody-pixel-streaming:latest
 
-ARG PS_BRANCH=UE5.5
-ENV PIXEL_STREAMING_BRANCH=${PS_BRANCH}
+USER root
 
+# Utilities required by Epic's packaged scripts at runtime
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates curl build-essential python3 xz-utils protobuf-compiler \
+    && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 --branch "${PIXEL_STREAMING_BRANCH}" https://github.com/EpicGames/PixelStreamingInfrastructure.git /opt/pixel-streaming
+ENV SIGNALING_ROOT=/opt/embody/Embody/Samples/PixelStreaming/WebServers \
+    SIGNALING_SCRIPTS=/opt/embody/Embody/Samples/PixelStreaming/WebServers/SignallingWebServer/platform_scripts/bash
 
-WORKDIR /opt/pixel-streaming/SignallingWebServer/platform_scripts/bash
-RUN ./setup.sh --nosudo --build --default-stun
+WORKDIR ${SIGNALING_SCRIPTS}
+RUN chmod +x *.sh \
+    && echo "v18.16.1" > ${SIGNALING_ROOT}/NODE_VERSION \
+    && ./setup.sh --nosudo --build --deps \
+    && PATH="${SIGNALING_SCRIPTS}/node/bin:$PATH" npm install --prefix ${SIGNALING_ROOT}/SignallingWebServer
 
-WORKDIR /opt/pixel-streaming/SignallingWebServer
-COPY start-signaling.sh /usr/local/bin/start-signaling.sh
-RUN chmod +x /usr/local/bin/start-signaling.sh
+COPY docker/unreal-streaming/signaling/run-packaged-signaling.sh /usr/local/bin/run-packaged-signaling.sh
+RUN chmod +x /usr/local/bin/run-packaged-signaling.sh
 
 EXPOSE 8080 8888 8889
 
@@ -26,6 +29,7 @@ ENV PUBLIC_IP=auto \
     TURN_SERVER= \
     TURN_USER= \
     TURN_PASS= \
-    ENABLE_REST_API=0
+    ENABLE_REST_API=0 \
+    SIGNALING_EXTRA_ARGS=
 
-CMD ["/usr/local/bin/start-signaling.sh"]
+ENTRYPOINT ["/usr/local/bin/run-packaged-signaling.sh"]

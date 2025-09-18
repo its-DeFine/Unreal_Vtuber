@@ -37,7 +37,10 @@ services:
 
   # Signaling Server - WebRTC signaling and web interface
   unreal-signaling:
-    image: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest
+    build:
+      context: .
+      dockerfile: docker/pixel-streaming/signaling/Dockerfile
+    image: embody-signaling:latest
     container_name: vtuber-unreal-signaling
     restart: unless-stopped
     depends_on:
@@ -64,18 +67,11 @@ services:
       start_period: 40s
     networks:
       - vtuber_network
-    ulimits:
-      nofile:
-        soft: ${HOST_ULIMIT_NOFILE:-1048576}
-        hard: ${HOST_ULIMIT_NOFILE:-1048576}
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-    entrypoint: ["/usr/local/bin/run-packaged-signaling.sh"]
-    volumes:
-      - ./docker/unreal-streaming/signaling/run-packaged-signaling.sh:/usr/local/bin/run-packaged-signaling.sh:ro
 
   # Embody Game - Headless Unreal Engine with Pixel Streaming
   unreal-game:

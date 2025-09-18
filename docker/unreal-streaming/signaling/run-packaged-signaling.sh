@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="/opt/embody/Embody/Samples/PixelStreaming/WebServers/SignallingWebServer/platform_scripts/bash"
+export PATH="${SCRIPT_DIR}/node/bin:${PATH}"
 START_SCRIPT="${SCRIPT_DIR}/start.sh"
 
 if [[ ! -x "${START_SCRIPT}" ]]; then
@@ -29,10 +30,7 @@ if [[ -n "${TURN_PASS:-}" ]]; then
   args+=("--turn-pass" "${TURN_PASS}")
 fi
 
-STUN_VALUE="${STUN_SERVER:-stun.l.google.com:19302}"
-if [[ -n "${STUN_VALUE}" ]]; then
-  args+=("--stun" "${STUN_VALUE}")
-fi
+args+=("--stun" "${STUN_SERVER:-stun.l.google.com:19302}")
 
 HTTP_PORT_VALUE="${HTTP_PORT:-8080}"
 STREAMER_PORT_VALUE="${STREAMER_PORT:-8888}"
@@ -41,6 +39,10 @@ SFU_PORT_VALUE="${SFU_PORT:-8889}"
 args+=("--player_port" "${HTTP_PORT_VALUE}")
 args+=("--streamer_port" "${STREAMER_PORT_VALUE}")
 args+=("--sfu_port" "${SFU_PORT_VALUE}")
+
+if [[ -z "${TURN_SERVER:-}" ]]; then
+  args+=("--turn" "turn-server:3478")
+fi
 
 if [[ -n "${SIGNALING_EXTRA_ARGS:-}" ]]; then
   # shellcheck disable=SC2206
