@@ -85,12 +85,14 @@ services:
         hard: ${HOST_ULIMIT_NOFILE:-1040}
     ports:
       - "7777:7777"
+      - "1111:1111"
     depends_on:
       unreal-signaling:
         condition: service_healthy
     environment:
       - PIXEL_STREAMING_URL=ws://unreal-signaling:8888
-      - HOST_ULIMIT_NOFILE=${HOST_ULIMIT_NOFILE:-1040}
+      - HOST_ULIMIT_NOFILE=1040
+      - ULIMIT_NOFILE=1040
       - HOST_LIB_PATHS=/host-libs/usr/lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:/host-libs/lib64:/host-libs/usr/lib64:/host-libs/usr/lib/nvidia
       - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
