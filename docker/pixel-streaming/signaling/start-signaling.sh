@@ -11,6 +11,17 @@ TURN_USER="${TURN_USER:-}"
 TURN_PASS="${TURN_PASS:-}"
 EXTRA_ARGS="${SIGNALING_EXTRA_ARGS:-}"
 
+# Resolve auto public IP if requested
+if [[ "${PUBLIC_IP}" == "auto" ]]; then
+  detected_ip=$(curl -fsS --max-time 3 https://api.ipify.org || true)
+  if [[ -n "${detected_ip}" ]]; then
+    PUBLIC_IP="${detected_ip}"
+  else
+    PUBLIC_IP="127.0.0.1"
+    echo "[signaling] Warning: unable to autodetect public IP, defaulting to ${PUBLIC_IP}" >&2
+  fi
+fi
+
 # Build ICE server JSON if STUN/TURN provided
 ICE_JSON=""
 PS_NODE_DIR=/opt/pixel-streaming/SignallingWebServer/platform_scripts/node/bin
