@@ -34,7 +34,7 @@ Web Browser Client
 1. Unreal Engine Linux build of the Embody game at `/home/geo/embody/Embody`
 2. Unreal Engine installation at `/home/geo/embody/Engine`
 3. Docker and Docker Compose installed
-4. (Optional) NVIDIA GPU with drivers for hardware acceleration
+4. (Optional) NVIDIA GPU with drivers for hardware acceleration (Compose exposes GPUs via `NVIDIA_VISIBLE_DEVICES=all`)
 5. Firewall open for Pixel Streaming ports (TCP 8080/8888/8889, UDP 3478 and relay range 49160-49200)
 
 ### Configuration

@@ -91,6 +91,7 @@ services:
       - HOST_ULIMIT_NOFILE=${HOST_ULIMIT_NOFILE:-1048576}
       - HOST_LIB_PATHS=/host-libs/usr/lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:/host-libs/lib64:/host-libs/usr/lib64:/host-libs/usr/lib/nvidia
       - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
     volumes:
       - /usr/lib/x86_64-linux-gnu:/host-libs/usr/lib/x86_64-linux-gnu:ro
       - /lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:ro
@@ -107,6 +108,13 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   # Override neurosync service to communicate with in-network Unreal game
   neurosync_s1:
