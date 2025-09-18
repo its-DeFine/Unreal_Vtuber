@@ -92,6 +92,10 @@ services:
       - HOST_LIB_PATHS=/host-libs/usr/lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:/host-libs/lib64:/host-libs/usr/lib64:/host-libs/usr/lib/nvidia
       - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - UNREAL_RES_X=${UNREAL_RES_X:-1920}
+      - UNREAL_RES_Y=${UNREAL_RES_Y:-1080}
+      - UNREAL_FPS=${UNREAL_FPS:-60}
+      - EMBODY_EXTRA_ARGS=-PixelStreamingIP=unreal-signaling -PixelStreamingPort=8888 -Windowed -ResX=${UNREAL_RES_X:-1920} -ResY=${UNREAL_RES_Y:-1080} -ForceRes -AllowPixelStreamingCommands -PixelStreamingEncoderRateControl=VBR -PixelStreamingEncoderTargetBitrate=5000000 -PixelStreamingEncoderMaxBitrate=10000000 -PixelStreamingWebRTCFps=${UNREAL_FPS:-60} -PixelStreamingWebRTCDisableReceiveAudio -PixelStreamingWebRTCDisableTransmitAudio -TCPServerEnabled=true -TCPServerPort=7777 -TCPServerBindAddress=0.0.0.0 -dx12 -sm6 -NoAudio -NoSound -NullRHI -game
     volumes:
       - /usr/lib/x86_64-linux-gnu:/host-libs/usr/lib/x86_64-linux-gnu:ro
       - /lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:ro

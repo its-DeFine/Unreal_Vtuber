@@ -34,7 +34,7 @@ Web Browser Client
 1. Unreal Engine Linux build of the Embody game at `/home/geo/embody/Embody`
 2. Unreal Engine installation at `/home/geo/embody/Engine`
 3. Docker and Docker Compose installed
-4. (Optional) NVIDIA GPU with drivers for hardware acceleration (Compose exposes GPUs via `NVIDIA_VISIBLE_DEVICES=all`)
+4. (Optional) NVIDIA GPU with drivers for hardware acceleration (Compose exposes GPUs via `NVIDIA_VISIBLE_DEVICES=all` and reserves one device)
 5. Firewall open for Pixel Streaming ports (TCP 8080/8888/8889, UDP 3478 and relay range 49160-49200)
 
 ### Configuration
@@ -56,10 +56,10 @@ This writes `.env.turn`, which docker-compose uses for both the TURN server and 
    ```
 
 2. **Edit `.env.unreal` with your settings:**
-   - Set `GAME_PATH` to your Embody game location
-   - Set `ENGINE_PATH` to your Unreal Engine location
-   - Configure `PUBLIC_IP` for external access (or use `localhost` for local testing)
-   - Adjust performance settings (`FPS`, `RESOLUTION`) as needed
+      - Set `GAME_PATH` to your Embody game location
+      - Set `ENGINE_PATH` to your Unreal Engine location
+      - Configure `PUBLIC_IP` for external access (or use `localhost` for local testing)
+      - Optional overrides: `UNREAL_RES_X`, `UNREAL_RES_Y`, `UNREAL_FPS`, or append extra flags via `EMBODY_EXTRA_ARGS`
 
 3. **Update main `.env` file:**
    ```bash
