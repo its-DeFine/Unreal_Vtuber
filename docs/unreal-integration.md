@@ -59,7 +59,7 @@ This writes `.env.turn`, which docker-compose uses for both the TURN server and 
       - Set `GAME_PATH` to your Embody game location
       - Set `ENGINE_PATH` to your Unreal Engine location
       - Configure `PUBLIC_IP` for external access (or use `localhost` for local testing)
-      - Optional overrides: `UNREAL_RES_X`, `UNREAL_RES_Y`, `UNREAL_FPS`, or append extra flags via `EMBODY_EXTRA_ARGS`
+      - Optional overrides: set `SIGNALING_EXTRA_ARGS` to append flags passed to Epic's `start.sh`
 
 3. **Update main `.env` file:**
    ```bash
@@ -121,8 +121,7 @@ autonomy/
 ├── docker/
 │   └── unreal-streaming/
 │       ├── signaling/
-│       │   ├── Dockerfile
-│       │   └── start-signaling.sh
+│       │   └── run-packaged-signaling.sh
 │       └── game/
 │           ├── Dockerfile.embody
 │           └── start-embody-stack.sh

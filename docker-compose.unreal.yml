@@ -37,9 +37,7 @@ services:
 
   # Signaling Server - WebRTC signaling and web interface
   unreal-signaling:
-    build:
-      context: ./docker/pixel-streaming/signaling
-    image: its-define/unreal-signaling:local
+    image: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest
     container_name: vtuber-unreal-signaling
     restart: unless-stopped
     depends_on:
@@ -57,6 +55,7 @@ services:
       - SFU_PORT=8889
       - STUN_SERVER=${STUN_SERVER:-stun.l.google.com:19302}
       - ENABLE_REST_API=${ENABLE_REST_API:-0}
+      - SIGNALING_EXTRA_ARGS=${SIGNALING_EXTRA_ARGS:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080"]
       interval: 30s
@@ -74,6 +73,9 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    entrypoint: ["/usr/local/bin/run-packaged-signaling.sh"]
+    volumes:
+      - ./docker/unreal-streaming/signaling/run-packaged-signaling.sh:/usr/local/bin/run-packaged-signaling.sh:ro
 
   # Embody Game - Headless Unreal Engine with Pixel Streaming
   unreal-game:
@@ -95,7 +97,7 @@ services:
       - UNREAL_RES_X=${UNREAL_RES_X:-1920}
       - UNREAL_RES_Y=${UNREAL_RES_Y:-1080}
       - UNREAL_FPS=${UNREAL_FPS:-60}
-      - EMBODY_EXTRA_ARGS=-Windowed -ResX=${UNREAL_RES_X:-1920} -ResY=${UNREAL_RES_Y:-1080} -ForceRes -AllowPixelStreamingCommands -PixelStreamingEncoderRateControl=VBR -PixelStreamingEncoderTargetBitrate=5000000 -PixelStreamingEncoderMaxBitrate=10000000 -PixelStreamingWebRTCFps=${UNREAL_FPS:-60} -PixelStreamingWebRTCDisableReceiveAudio -PixelStreamingWebRTCDisableTransmitAudio -TCPServerEnabled=true -TCPServerPort=7777 -TCPServerBindAddress=0.0.0.0 -dx12 -sm6 -NoAudio -NoSound -NullRHI -game
+      - EMBODY_EXTRA_ARGS=
     volumes:
       - /usr/lib/x86_64-linux-gnu:/host-libs/usr/lib/x86_64-linux-gnu:ro
       - /lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:ro
