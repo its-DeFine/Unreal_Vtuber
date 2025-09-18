@@ -47,7 +47,7 @@ Before launching the stack, generate a fresh TURN username/password (the script 
 ./scripts/generate_turn_credentials.sh
 ```
 
-This writes `.env.turn`, which docker-compose uses for both the TURN server and the signaling service.
+This writes `.env.turn`, which docker-compose uses for both the TURN server and the signaling service (credentials, public IP, and exposed port).
 
 
 1. **Copy the environment file template:**
