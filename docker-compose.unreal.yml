@@ -83,6 +83,10 @@ services:
     container_name: vtuber-unreal-game
     restart: unless-stopped
     runtime: nvidia
+    ulimits:
+      nofile:
+        soft: ${HOST_ULIMIT_NOFILE:-1040}
+        hard: ${HOST_ULIMIT_NOFILE:-1040}
     ports:
       - "7777:7777"
     depends_on:
@@ -90,14 +94,10 @@ services:
         condition: service_healthy
     environment:
       - PIXEL_STREAMING_URL=ws://unreal-signaling:8888
-      - HOST_ULIMIT_NOFILE=${HOST_ULIMIT_NOFILE:-1048576}
+      - HOST_ULIMIT_NOFILE=${HOST_ULIMIT_NOFILE:-1040}
       - HOST_LIB_PATHS=/host-libs/usr/lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:/host-libs/lib64:/host-libs/usr/lib64:/host-libs/usr/lib/nvidia
       - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
-      - UNREAL_RES_X=${UNREAL_RES_X:-1920}
-      - UNREAL_RES_Y=${UNREAL_RES_Y:-1080}
-      - UNREAL_FPS=${UNREAL_FPS:-60}
-      - EMBODY_EXTRA_ARGS=
     volumes:
       - /usr/lib/x86_64-linux-gnu:/host-libs/usr/lib/x86_64-linux-gnu:ro
       - /lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:ro
