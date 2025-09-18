@@ -9,10 +9,11 @@ This document describes the integration of Unreal Engine with Pixel Streaming ca
 
 ## Architecture
 
-The integration adds two new services to the VTuber stack:
+The integration adds three services to the VTuber stack:
 
-1. **Signaling Server** (`unreal-signaling`): Handles WebRTC signaling and provides web interface
-2. **Unreal Game** (`unreal-game`): Runs the Embody game in headless mode with Pixel Streaming
+1. **TURN Server** (`turn-server`): Relays WebRTC media when direct peer connections fail
+2. **Signaling Server** (`unreal-signaling`): Handles WebRTC signaling and provides web interface
+3. **Unreal Game** (`unreal-game`): Runs the Embody game in headless mode with Pixel Streaming
 
 ### Network Communication
 
@@ -34,8 +35,20 @@ Web Browser Client
 2. Unreal Engine installation at `/home/geo/embody/Engine`
 3. Docker and Docker Compose installed
 4. (Optional) NVIDIA GPU with drivers for hardware acceleration
+5. Firewall open for Pixel Streaming ports (TCP 8080/8888/8889, UDP 3478 and relay range 49160-49200)
 
 ### Configuration
+
+### Generate TURN credentials
+
+Before launching the stack, generate a fresh TURN username/password (the script also records the detected public IP):
+
+```bash
+./scripts/generate_turn_credentials.sh
+```
+
+This writes `.env.turn`, which docker-compose uses for both the TURN server and the signaling service.
+
 
 1. **Copy the environment file template:**
    ```bash
@@ -108,12 +121,11 @@ autonomy/
 ├── docker/
 │   └── unreal-streaming/
 │       ├── signaling/
-│       │   └── Dockerfile.signaling
+│       │   ├── Dockerfile
+│       │   └── start-signaling.sh
 │       └── game/
 │           ├── Dockerfile.embody
-│           ├── supervisord.conf
-│           ├── start_game.sh
-│           └── tcp_server.sh
+│           └── start-embody-stack.sh
 └── docs/
     └── unreal-integration.md      # This file
 ```
@@ -129,7 +141,7 @@ autonomy/
 
 2. **No video stream:**
    - Ensure signaling server is healthy
-   - Check firewall rules for ports 8080, 8888, 8889
+   - Check firewall rules for ports 8080, 8888, 8889, 3478
    - Verify WebRTC STUN/TURN configuration
 
 3. **TCP commands not working:**
