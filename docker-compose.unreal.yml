@@ -6,7 +6,7 @@ services:
 
   # TURN server to relay WebRTC traffic when direct peer connections fail
   turn-server:
-    image: instrumentisto/coturn
+    image: ghcr.io/its-define/unreal_vtuber/embody-turn-server:latest
     container_name: vtuber-turn-server
     restart: unless-stopped
     env_file:
@@ -39,7 +39,7 @@ services:
     build:
       context: .
       dockerfile: docker/pixel-streaming/signaling/Dockerfile
-    image: embody-signaling:latest
+    image: ghcr.io/its-define/unreal_vtuber/embody-signaling:latest
     container_name: vtuber-unreal-signaling
     restart: unless-stopped
     depends_on:
