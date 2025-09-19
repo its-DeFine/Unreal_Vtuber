@@ -2,28 +2,24 @@ services:
   livepeer-orchestrator:
     image: livepeer/go-livepeer:latest
     container_name: livepeer-orchestrator
-    volumes:
-      - ./data/orchestrator:/data
-    ports:
-      - "9995:9995"
-    command: [
-      "-orchestrator",
-      "-orchSecret=${LIVEPEER_ORCH_SECRET:-orch-secret}",
-      "-serviceAddr=0.0.0.0:9995",
-      "-v=6",
-      "-network=${LIVEPEER_NETWORK:-arbitrum-one-mainnet}",
-      "-ethUrl=${ETH_RPC_URL:-https://arb1.arbitrum.io/rpc}",
-      "-ethPassword=${ETH_PASSWORD}",
-      "-dataDir=/data",
-      "-ethOrchAddr=${ETH_ORCH_ADDRESS}",
-      "-pricePerUnit=${PRICE_PER_UNIT:-0}",
-      "-ticketEV=${TICKET_EV:-0}",
-      "-maxFaceValue=${MAX_FACE_VALUE:-0}",
-      "-autoAdjustPrice=${AUTO_ADJUST_PRICE:-false}",
-      "-maxGasPrice=${MAX_GAS_PRICE:-1000000000}"
-    ]
+    runtime: nvidia
+    restart: unless-stopped
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
     networks:
       - vtuber_network
+    ports:
+      - 9995:9995
+      - 127.0.0.1:7935:7935
+    volumes:
+      - vtuber_orch_data:/root/.lpData
+      - livepeer_models:/models
+      - ./config/vtuber.conf:/root/.lpData/vtuber.conf:ro
+      - ./config/ethpass:/root/.lpData/.ethpass:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    command: [-config, /root/.lpData/vtuber.conf]
     deploy:
       resources:
         reservations:
@@ -31,18 +27,12 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    runtime: nvidia
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9995/status"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "com.centurylinklabs.watchtower.scope=autonomy-cluster"
 
 networks:
   vtuber_network:
     external: true
     name: vtuber_network
+
+volumes:
+  vtuber_orch_data:
+  livepeer_models:

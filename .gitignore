@@ -129,3 +129,11 @@ scripts/vosk-model-*/
 # Update orchestrator state
 update-orchestrator/state/
 
+
+# Local orchestrator secrets
+config/vtuber.conf
+config/ethpass
+
+# Local orchestrator secrets
+config/vtuber.conf
+config/ethpass
