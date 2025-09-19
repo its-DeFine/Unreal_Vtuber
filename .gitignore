@@ -137,3 +137,8 @@ config/ethpass
 # Local orchestrator secrets
 config/vtuber.conf
 config/ethpass
+
+# Local Livepeer secrets
+config/vtuber.conf
+config/ethpass
+config/keystore/

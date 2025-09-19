@@ -14,6 +14,7 @@ services:
     volumes:
       - vtuber_orch_data:/root/.lpData
       - livepeer_models:/models
+      - ./config/keystore:/root/.lpData/keystore:ro
       - ./config/vtuber.conf:/root/.lpData/vtuber.conf:ro
       - ./config/ethpass:/root/.lpData/.ethpass:ro
       - /var/run/docker.sock:/var/run/docker.sock
