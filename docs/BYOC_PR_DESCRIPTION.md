@@ -1,138 +1,69 @@
 # BYOC Integration for VTuber Autonomy System
 
 ## Overview
-This PR integrates the Bring Your Own Container (BYOC) capability with the VTuber autonomy system, enabling Livepeer orchestrators to process agent network monitoring jobs and receive performance-based payments.
+Livepeer's Bring Your Own Container (BYOC) utility lets us pay external orchestrators to host the Embody VTuber stack. The orchestrator exposes the `agent-net` capability, while the BYOC worker living inside our main compose monitors the health of the Unreal streaming services.
 
-## Key Changes
+## Current Layout
 
-### 1. Livepeer Service Updates
-- **Updated to Latest Images**: All Livepeer services now use `livepeer/go-livepeer:latest` which includes BYOC support
-- **Zero-Price Configuration**: Set `CAPABILITY_PRICE_PER_UNIT=0` for testing phase
-- **Agent-Net Capability**: Worker registers the `agent-net` capability for service monitoring
+| Compose file | Purpose |
+| --- | --- |
+| `docker-compose.yml` | Core Pixel Streaming stack (TURN/signaling via companion file), Livepeer BYOC worker, Ollama helper, management + observability |
+| `docker-compose.unreal.yml` | TURN server, signaling server, packaged `vtuber-unreal-game` container |
+| `docker-compose.livepeer.yml` | Livepeer orchestrator attached to the shared `vtuber_network` bridge |
 
-### 2. Service Monitoring Integration
-The BYOC worker now monitors all VTuber services:
-- **NeuroSync S1**: Avatar system health and performance
-- **AutoGen Agent**: Multi-agent system status
-- **SCB Gateway**: Semantic communication bus connectivity
-- **Redis SCB**: Message queue health
-- **Kokoro TTS**: Text-to-speech service availability
-- **Ollama**: Local LLM model status
+The worker and orchestrator live on the same Docker network so capability calls can be routed with zero proxy hops.
 
-### 3. Docker Compose Configuration
+## Worker Monitoring Surface
+
+The worker aggregates metrics and health probes for the following services:
+
+- `vtuber-unreal-game` – headless Unreal container that now handles audio + blendshape playback internally
+- `vtuber-unreal-signaling` – Pixel Streaming WebRTC signaling layer
+- `vtuber-turn-server` – TURN relay for NAT traversal
+- `livepeer-worker` itself for capability health
+- `vtuber-ollama` – local model runtime (LLM prompts, embeddings)
+- Optional broadcast relays such as `nginx_rtmp`
+
+This trimmed scope keeps the BYOB jobs focused on the runtime required for live streaming rather than the deprecated NeuroSync/AutoGen stack.
+
+## Livepeer Service Configuration
+
 ```yaml
 livepeer-worker:
   environment:
     - CAPABILITY_NAME=agent-net
-    - CAPABILITY_PRICE_PER_UNIT=0  # Free during testing
+    - CAPABILITY_PRICE_PER_UNIT=0
     - CONNECTIVITY_PROOF_ENABLED=true
     - MIN_SERVICE_UPTIME=80.0
+    - ORCH_URL=http://livepeer-orchestrator:9995
 
 livepeer-orchestrator:
-  image: livepeer/go-livepeer:latest  # Latest with BYOC
-  command: [
-    "-orchestrator",
-    "-orchSecret=${LIVEPEER_ORCH_SECRET}",
-    "-pricePerUnit=0",  # Free tier for testing
-    ...
-  ]
+  image: livepeer/go-livepeer:latest
+  networks:
+    - vtuber_network  # shared with worker/unreal stack
 ```
 
-## Integration Points
+## Payment Flow
 
-### With Central Manager
-The worker communicates with the central manager for:
-- Service registration
-- Uptime reporting
-- Payment eligibility verification
+1. A gateway call (from the central manager or scripted tooling) requests the `agent-net` capability.
+2. Livepeer routes the request to the orchestrator associated with that capability.
+3. The orchestrator forwards the job to the BYOC worker running in our stack.
+4. When the worker reports success, the orchestrator cashes the spectator ticket and the agent earns rewards.
 
-### With VTuber Services
-Direct monitoring of:
-- Container health via Docker API
-- Service-specific health endpoints
-- Resource utilization metrics
-- Network connectivity status
+## Testing Checklist
 
-## Benefits for VTuber System
-
-1. **Incentivized Reliability**: Orchestrators earn based on VTuber service uptime
-2. **Automated Monitoring**: No manual health checks required
-3. **Performance Metrics**: Real-time visibility into system health
-4. **Scalability**: Supports multiple VTuber instances
-5. **Fault Detection**: Immediate alerts on service failures
-
-## Testing
-
-### Service Health Check
 ```bash
-# Check worker monitoring
-curl http://localhost:9876/service-uptime
+# Verify worker is broadcasting health
+curl http://localhost:9876/health
 
-# Verify BYOC registration
-docker logs livepeer-orchestrator | grep agent-net
+# Confirm orchestrator registration
+sudo docker logs livepeer-orchestrator | grep agent-net
+
+# Spot-check worker access to Unreal stack
+sudo docker exec livepeer-worker curl -sf http://vtuber-unreal-signaling:8080 >/dev/null
 ```
 
-### Payment Flow
-```bash
-# Monitor payments from central manager
-docker logs payment-distributor
+## Next Steps
 
-# Check orchestrator earnings
-curl http://localhost:8010/api/v1/livepeer/orchestrators
-```
-
-## Environment Variables
-
-### Required Configuration
-```env
-# Livepeer BYOC Settings
-CAPABILITY_NAME=agent-net
-CAPABILITY_PRICE_PER_UNIT=0
-CAPABILITY_CAPACITY=10
-MIN_SERVICE_UPTIME=80.0
-
-# Orchestrator Settings
-LIVEPEER_ORCH_SECRET=orch-secret
-ETH_RPC_URL=https://arb1.arbitrum.io/rpc
-PRICE_PER_UNIT=0  # Free tier
-```
-
-## Monitoring Dashboard
-
-The system provides real-time monitoring of:
-- VTuber service uptime percentages
-- Individual container health status
-- Payment processing for orchestrators
-- BYOC job success rates
-- Network connectivity metrics
-
-## Future Enhancements
-
-- [ ] Dynamic pricing based on compute requirements
-- [ ] GPU utilization tracking for AI workloads
-- [ ] Automated service restart on failures
-- [ ] Performance optimization recommendations
-- [ ] Multi-region orchestrator support
-
-## Breaking Changes
-
-None - the BYOC integration is additive and doesn't affect existing VTuber functionality.
-
-## Migration Notes
-
-For existing deployments:
-1. Update `.env` with new BYOC configuration
-2. Pull latest Livepeer images
-3. Restart docker-compose services
-4. Verify worker registration in logs
-5. Monitor initial payment cycles
-
-## Related PRs
-
-- Agent-Net Repository: [#11 - BYOC Payment System](https://github.com/its-DeFine/agent-net/pull/11)
-
-## Documentation
-
-- [BYOC Integration Guide](docs/byoc-integration.md)
-- [Service Monitoring](docs/service-monitoring.md)
-- [Payment Configuration](docs/payment-config.md)
+- Reinstate the gateway payment routines once the new compose split is validated.
+- Feed worker metrics into Prometheus (exporter integration pending).

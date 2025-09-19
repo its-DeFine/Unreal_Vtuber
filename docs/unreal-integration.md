@@ -1,216 +1,64 @@
-# Unreal Engine Pixel Streaming Integration for VTuber
+# Unreal Integration (BYOB Pipeline)
 
-*Created: 2025-09-08*
-*Last Updated: 2025-09-08*
+This document captures the current Pixel Streaming pipeline after retiring the NeuroSync (S1) stack and local Kokoro TTS services. All facial blendshapes and audio playback are now generated directly inside the packaged Unreal container.
 
-## Overview
+## Stack Overview
 
-This document describes the integration of Unreal Engine with Pixel Streaming capabilities into the VTuber system, enabling high-quality 3D avatar rendering with WebRTC streaming.
+The runtime stack is split across two compose files:
 
-## Architecture
+* `docker-compose.yml` – livepeer BYOC worker, Ollama helper services, management tooling and monitoring.
+* `docker-compose.unreal.yml` – TURN, signaling, and the packaged `vtuber-unreal-game` container.
 
-The integration adds three services to the VTuber stack:
+No additional application containers are required for S1/TTS processing.
 
-1. **TURN Server** (`turn-server`): Relays WebRTC media when direct peer connections fail
-2. **Signaling Server** (`unreal-signaling`): Handles WebRTC signaling and provides web interface
-3. **Unreal Game** (`unreal-game`): Runs the Embody game in headless mode with Pixel Streaming
-
-### Network Communication
-
-```
-VTuber System (neurosync_s1)
-    ↓ TCP Commands (port 7777)
-Unreal Game Container
-    ↓ Pixel Streaming (WebRTC)
-Signaling Server
-    ↓ WebSocket/HTTP
-Web Browser Client
-```
-
-## Setup Instructions
-
-### Prerequisites
-
-1. Unreal Engine Linux build of the Embody game at `/home/geo/embody/Embody`
-2. Unreal Engine installation at `/home/geo/embody/Engine`
-3. Docker and Docker Compose installed
-4. (Optional) NVIDIA GPU with drivers for hardware acceleration (Compose exposes GPUs via `NVIDIA_VISIBLE_DEVICES=all` and reserves one device)
-5. Firewall open for Pixel Streaming ports (TCP 8080/8888/8889, UDP 3478 and relay range 49160-49200)
-
-### Configuration
-
-### Generate TURN credentials
-
-Before launching the stack, generate a fresh TURN username/password (the script also records the detected public IP):
+## Launching the stack
 
 ```bash
-./scripts/generate_turn_credentials.sh
+./scripts/start_vtuber_unreal.sh start -d
 ```
 
-This writes `.env.turn`, which docker-compose uses for both the TURN server and the signaling service (credentials, public IP/port, and the fully-qualified TURN URL).
+The helper script will:
 
+1. Ensure `vtuber_network` exists.
+2. Load values from `.env` and `.env.unreal` (create them from the provided examples if missing).
+3. Start both compose files.
 
-1. **Copy the environment file template:**
-   ```bash
-   cp .env.unreal.example .env.unreal
-   ```
+After the services come up in detached mode you should see:
 
-2. **Edit `.env.unreal` with your settings:**
-      - Set `GAME_PATH` to your Embody game location
-      - Set `ENGINE_PATH` to your Unreal Engine location
-      - Configure `PUBLIC_IP` for external access (or use `localhost` for local testing)
-      - Optional overrides: set `SIGNALING_EXTRA_ARGS` to append flags passed to Epic's `start.sh`
+* Pixel Streaming UI – `http://localhost:8080`
+* Unreal TCP loopback interface – reachable **inside** `vtuber-unreal-game` on `127.0.0.1:7777`
 
-3. **Update main `.env` file:**
-   ```bash
-   # Add to your main .env file:
-   UNREAL_TCP_HOST=unreal-game
-   UNREAL_TCP_PORT=7777
-   ```
+Use `./scripts/start_vtuber_unreal.sh ps` to confirm container status or `./scripts/start_vtuber_unreal.sh logs unreal-game` for tailing output.
 
-### Running the Integration
+## Sending speech commands
 
-1. **Start all services with Unreal integration:**
-   ```bash
-   docker-compose -f docker-compose.yml -f docker-compose.unreal.yml up -d
-   ```
+The Unreal build only accepts BYOB (`bring your own bytes`) playback requests from inside the container. Use the helper script’s `test` command or issue your own payloads:
 
-2. **Check service health:**
-   ```bash
-   docker-compose -f docker-compose.yml -f docker-compose.unreal.yml ps
-   ```
-
-3. **View logs:**
-   ```bash
-   # Signaling server logs
-   docker logs vtuber-unreal-signaling
-
-   # Game logs
-   docker logs vtuber-unreal-game
-
-   # VTuber logs
-   docker logs neurosync_s1
-   ```
-
-### Accessing the Stream
-
-1. **Web Interface:** Open browser to `http://localhost:8080`
-2. **Direct WebRTC:** Connect to signaling server at `ws://localhost:8888`
-
-## TCP Command Protocol
-
-The Unreal game listens on port 7777 for VTuber commands. The existing TCP protocol is maintained:
-
-### Visual Identity Commands
-- `HCR.<index>.<duration>` - Hair color/style change
-- `OCR.<index>.<duration>` - Outfit change
-- `ECR.<index>.<duration>` - Eye color change
-- `SCR.<index>.<duration>` - Skin tone change
-
-### Animation Commands
-- `ANIM.<animation_name>` - Trigger animation
-- `BLEND.<shape>.<value>` - Set blend shape value
-- `POSE.<pose_name>` - Set character pose
-
-## File Structure
-
+```bash
+./scripts/start_vtuber_unreal.sh test
+# or manually
+sudo docker exec vtuber-unreal-game bash -lc \
+  'printf "TTS_BYOB_/opt/embody/sample-15s.mp3\r\n" | nc -q 1 127.0.0.1 7777'
 ```
-autonomy/
-├── docker-compose.unreal.yml       # Unreal services definition
-├── .env.unreal                     # Unreal-specific environment variables
-├── docker/
-│   └── unreal-streaming/
-│       ├── signaling/
-│       │   └── run-packaged-signaling.sh
-│       └── game/
-│           ├── Dockerfile.embody
-│           └── start-embody-stack.sh
-└── docs/
-    └── unreal-integration.md      # This file
-```
+
+A carriage-return/line-feed terminator (`\r\n`) is required. Replace the path with any MP3 that exists inside the container. The default image ships with `/opt/embody/sample-15s.mp3` for quick validation.
+
+## Updating audio assets
+
+1. Copy the new file onto the EC2 host: `scp local.mp3 ubuntu@<host>:/home/ubuntu/`.
+2. Inject it into the container: `sudo docker cp local.mp3 vtuber-unreal-game:/opt/embody/`.
+3. Trigger playback with `TTS_BYOB_/opt/embody/local.mp3\r\n`.
 
 ## Troubleshooting
 
-### Common Issues
+| Symptom | Check |
+| --- | --- |
+| No audio despite command | Exec **inside** `vtuber-unreal-game`; host-level `nc` will be ignored.
+| Command hangs | Ensure `nc` is available in the container (`sudo docker exec vtuber-unreal-game which nc`).
+| Pixel Streaming page offline | Confirm `vtuber-unreal-signaling` is healthy (`docker ps`) and ports 8080/8888/8889 are not blocked.
+| TURN handshakes failing | Validate TURN credentials in `.env.turn` and that `vtuber-turn-server` is running.
 
-1. **Game not starting:**
-   - Check that game files are properly mounted
-   - Verify paths in `.env.unreal`
-   - Check container logs: `docker logs vtuber-unreal-game`
+## Legacy components
 
-2. **No video stream:**
-   - Ensure signaling server is healthy
-   - Check firewall rules for ports 8080, 8888, 8889, 3478
-   - Verify WebRTC STUN/TURN configuration
-
-3. **TCP commands not working:**
-   - Verify port 7777 is exposed
-   - Check network connectivity between containers
-   - Test with: `docker exec neurosync_s1 nc -zv unreal-game 7777`
-
-4. **Performance issues:**
-   - Reduce resolution in `.env.unreal`
-   - Lower FPS setting
-   - Enable GPU acceleration if available
-
-### Debug Commands
-
-```bash
-# Test TCP connection
-docker exec neurosync_s1 python -c "
-import socket
-s = socket.socket()
-s.connect(('unreal-game', 7777))
-s.send(b'HCR.1.2.0\n')
-print(s.recv(1024))
-s.close()
-"
-
-# Check Xvfb display
-docker exec vtuber-unreal-game bash -c "DISPLAY=:99 xdpyinfo"
-
-# Monitor resource usage
-docker stats vtuber-unreal-game vtuber-unreal-signaling
-```
-
-## Performance Optimization
-
-### CPU-only (Software Rendering)
-- Uses Mesa/LLVMpipe for software rendering
-- Suitable for development and testing
-- Lower quality but works on any Linux system
-
-### GPU-accelerated (NVIDIA)
-- Requires NVIDIA GPU and drivers
-- Significantly better performance and quality
-- Enable in docker-compose with GPU reservation
-
-### Network Optimization
-- Use local TURN server for production
-- Configure appropriate bitrates based on bandwidth
-- Consider using VP9 or H.265 for better compression
-
-## Security Considerations
-
-1. **Network Isolation:** Services communicate on internal Docker network
-2. **Read-only Game Files:** Game directory mounted as read-only
-3. **Non-root Execution:** Game runs as unprivileged user
-4. **Port Restrictions:** Only necessary ports exposed
-
-## Integration Points
-
-The Unreal integration connects with:
-
-- **NeuroSync S1:** Receives avatar commands via TCP
-- **SCB (Redis):** Shares state for coordinated actions
-- **AutoGen S2:** Can trigger visual changes based on context
-- **Monitoring:** Prometheus metrics available
-
-## Future Enhancements
-
-- [ ] Multi-user support with SFU
-- [ ] Dynamic quality adjustment based on bandwidth
-- [ ] Recording and replay functionality
-- [ ] Cloud deployment with auto-scaling
-- [ ] Mobile client support
-- [ ] VR/AR integration
+* All NeuroSync S1, SCB, Kokoro TTS, and AutoGen containers have been removed from the deployment.
+* Historical troubleshooting docs have been archived in git history. Pull an older commit if you need reference material for the deprecated stack.
