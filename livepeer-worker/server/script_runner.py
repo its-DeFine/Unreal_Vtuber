@@ -91,7 +91,6 @@ class ScriptSessionManager:
                     await asset.download_into(http, audio_dir)
 
     async def _execute(self, payload: ScriptRequest, status: ScriptStatus) -> None:
-        reader, writer = await asyncio.open_connection(self._tcp_host, self._tcp_port)
         audio_map = payload.audio_index()
         session_dir = SESSION_ROOT / payload.session_id
         audio_dir = session_dir / "audio"
@@ -102,15 +101,20 @@ class ScriptSessionManager:
                 status.current_step = idx
                 message = self._render_command(command, payload.session_id, audio_map, audio_dir)
                 logger.debug("sending TCP command: %s", message)
-                writer.write((message + "\r\n").encode("utf-8"))
-                await writer.drain()
-            await writer.drain()
-        finally:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:  # noqa: BLE001
-                pass
+                reader, writer = await asyncio.open_connection(self._tcp_host, self._tcp_port)
+                try:
+                    writer.write((message + "\r\n").encode("utf-8"))
+                    await writer.drain()
+                    await reader.read(1)
+                except Exception:  # noqa: BLE001
+                    logger.exception("TCP command failed")
+                    raise
+                finally:
+                    writer.close()
+                    try:
+                        await writer.wait_closed()
+                    except Exception:  # noqa: BLE001
+                        pass
 
     def _render_command(
         self,
