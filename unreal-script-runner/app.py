@@ -20,6 +20,7 @@ SESSION_ROOT = Path(os.getenv("VTUBER_SESSION_ROOT", "/opt/embody/sessions"))
 TCP_HOST = os.getenv("VTUBER_TCP_HOST", "127.0.0.1")
 TCP_PORT = int(os.getenv("VTUBER_TCP_PORT", "7777"))
 ALLOWED_ADDRESSES = [addr.strip() for addr in os.getenv("VTUBER_ALLOWED_ADDRESSES", "").split(",") if addr.strip()]
+DEFAULT_AUDIO_HOLD_MS = int(os.getenv("VTUBER_AUDIO_HOLD_MS", "15000"))
 
 
 class AudioAsset(BaseModel):
@@ -143,6 +144,10 @@ async def _execute_script(payload: ScriptRequest, status: ScriptStatus) -> None:
                 writer.write((message + "\r\n").encode("utf-8"))
                 await writer.drain()
                 await asyncio.sleep(0.05)
+                if command.type == "audio":
+                    asset = audio_map.get(command.id or "")
+                    hold_ms = asset.duration_ms if asset and asset.duration_ms else DEFAULT_AUDIO_HOLD_MS
+                    await asyncio.sleep(hold_ms / 1000)
             finally:
                 writer.close()
                 try:
