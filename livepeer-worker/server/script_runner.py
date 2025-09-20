@@ -95,26 +95,25 @@ class ScriptSessionManager:
         session_dir = SESSION_ROOT / payload.session_id
         audio_dir = session_dir / "audio"
 
-        try:
-            for idx, command in enumerate(payload.commands, start=1):
-                await asyncio.sleep(command.delay_ms / 1000)
-                status.current_step = idx
-                message = self._render_command(command, payload.session_id, audio_map, audio_dir)
-                logger.debug("sending TCP command: %s", message)
-                reader, writer = await asyncio.open_connection(self._tcp_host, self._tcp_port)
+        for idx, command in enumerate(payload.commands, start=1):
+            await asyncio.sleep(command.delay_ms / 1000)
+            status.current_step = idx
+            message = self._render_command(command, payload.session_id, audio_map, audio_dir)
+            logger.debug("sending TCP command: %s", message)
+            reader, writer = await asyncio.open_connection(self._tcp_host, self._tcp_port)
+            try:
+                writer.write((message + "\r\n").encode("utf-8"))
+                await writer.drain()
+                await reader.read(1)
+            except Exception:  # noqa: BLE001
+                logger.exception("TCP command failed")
+                raise
+            finally:
+                writer.close()
                 try:
-                    writer.write((message + "\r\n").encode("utf-8"))
-                    await writer.drain()
-                    await reader.read(1)
+                    await writer.wait_closed()
                 except Exception:  # noqa: BLE001
-                    logger.exception("TCP command failed")
-                    raise
-                finally:
-                    writer.close()
-                    try:
-                        await writer.wait_closed()
-                    except Exception:  # noqa: BLE001
-                        pass
+                    pass
 
     def _render_command(
         self,
