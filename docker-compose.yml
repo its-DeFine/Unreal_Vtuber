@@ -237,4 +237,4 @@ networks:
     driver: bridge
     name: vtuber_network
     driver_opts:
-      com.docker.network.bridge.host_binding_ipv4: "172.17.0.1"
+      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0"
