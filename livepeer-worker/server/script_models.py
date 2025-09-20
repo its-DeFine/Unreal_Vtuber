@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Literal, Optional
 
 import aiohttp
-from pydantic import AnyHttpUrl, BaseModel, Field, root_validator, validator
+from pydantic import AnyHttpUrl, BaseModel, Field, field_validator, model_validator
 
 
 class AudioAsset(BaseModel):
@@ -19,12 +19,13 @@ class AudioAsset(BaseModel):
     download_url: Optional[AnyHttpUrl] = None
     duration_ms: Optional[int] = Field(None, ge=0)
 
-    @root_validator
-    def _payload_source(cls, values: Dict[str, Optional[str]]) -> Dict[str, Optional[str]]:
-        payload, url = values.get("payload_b64"), values.get("download_url")
-        if not payload and not url:
+    @model_validator(mode="after")
+    def _payload_source(cls, values: "AudioAsset") -> "AudioAsset":
+        has_payload = bool(values.payload_b64)
+        has_url = bool(values.download_url)
+        if not has_payload and not has_url:
             raise ValueError("audio asset requires payload_b64 or download_url")
-        if payload and url:
+        if has_payload and has_url:
             raise ValueError("provide only one of payload_b64 or download_url")
         return values
 
@@ -63,17 +64,13 @@ class CommandStep(BaseModel):
     value: Optional[str] = None
     id: Optional[str] = Field(None, min_length=1)
 
-    @validator("value", always=True)
-    def _require_value(cls, value: Optional[str], values: Dict[str, object]) -> Optional[str]:
-        if values.get("type") == "tcp" and not value:
+    @model_validator(mode="after")
+    def _validate_fields(cls, values: "CommandStep") -> "CommandStep":
+        if values.type == "tcp" and not values.value:
             raise ValueError("tcp command requires value")
-        return value
-
-    @validator("id", always=True)
-    def _require_audio_id(cls, value: Optional[str], values: Dict[str, object]) -> Optional[str]:
-        if values.get("type") == "audio" and not value:
+        if values.type == "audio" and not values.id:
             raise ValueError("audio command requires id")
-        return value
+        return values
 
 
 class ScriptRequest(BaseModel):
@@ -83,13 +80,13 @@ class ScriptRequest(BaseModel):
     audio: list[AudioAsset] = Field(default_factory=list)
     callback_url: Optional[AnyHttpUrl] = None
 
-    @validator("commands")
+    @field_validator("commands")
     def _ensure_commands(cls, value: list[CommandStep]) -> list[CommandStep]:
         if not value:
             raise ValueError("commands list cannot be empty")
         return value
 
-    @validator("audio")
+    @field_validator("audio")
     def _unique_audio_ids(cls, value: list[AudioAsset]) -> list[AudioAsset]:
         seen = set()
         for asset in value:
