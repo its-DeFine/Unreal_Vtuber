@@ -124,8 +124,7 @@ services:
   vtuber-script-runner:
     build:
       context: ./unreal-script-runner
-    container_name: vtuber-script-runner
-    network_mode: "service:vtuber-unreal-game"
+    network_mode: "service:unreal-game"
     environment:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
       - VTUBER_TCP_HOST=127.0.0.1
@@ -134,7 +133,7 @@ services:
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     restart: unless-stopped
     depends_on:
-      - vtuber-unreal-game
+      - unreal-game
 
 networks:
   vtuber_network:
