@@ -24,22 +24,19 @@ class ServiceMonitor:
         except Exception:
             self.docker_client = docker.DockerClient(base_url="unix://var/run/docker.sock")
 
-        # Containers that must remain available for BYOB payouts
-        self.monitored_services = [
-            "vtuber-unreal-game",
-            "vtuber-unreal-signaling",
-            "vtuber-turn-server",
-            "livepeer-worker",
-            "vtuber-ollama",
-            "nginx_rtmp",
-            "management_agent",
-            "prometheus",
-            "grafana",
-            "node_exporter",
-            "cadvisor",
-            "ollama_exporter",
-            "nginx_exporter",
-        ]
+        # Allow overrides so we can adapt as the stack changes without code edits
+        env_services = os.environ.get("MONITORED_SERVICES")
+        if env_services:
+            self.monitored_services = [svc.strip() for svc in env_services.split(",") if svc.strip()]
+        else:
+            # Default to the core containers defined in docker-compose.unreal.yml
+            self.monitored_services = [
+                "vtuber-unreal-game",
+                "vtuber-unreal-signaling",
+                "vtuber-turn-server",
+            ]
+
+        self._last_missing = set()
 
         self.service_stats: Dict[str, Dict[str, Any]] = {}
         self.check_interval = 10
@@ -130,24 +127,47 @@ class ServiceMonitor:
                 "min_uptime_required": float(os.environ.get("MIN_SERVICE_UPTIME", "80.0")),
             }
 
-        total_uptime = sum(self.service_stats.get(name, {}).get("uptime_percentage", 0.0) for name in self.monitored_services)
-        overall_uptime = total_uptime / total_services if total_services else 0.0
-
-        services_up = sum(
-            1 for name in self.monitored_services if self.service_stats.get(name, {}).get("last_status") == "running"
+        total_uptime = sum(
+            self.service_stats.get(name, {}).get("uptime_percentage", 0.0)
+            for name in self.monitored_services
         )
-        services_down = total_services - services_up
+        window_average = total_uptime / total_services if total_services else 0.0
 
+        services_up = []
+        services_down = []
+        for name in self.monitored_services:
+            if self.service_stats.get(name, {}).get("last_status") == "running":
+                services_up.append(name)
+            else:
+                services_down.append(name)
+
+        missing_set = set(services_down)
+        status_message = "All required services online"
+        if missing_set:
+            missing_list = ", ".join(sorted(missing_set))
+            status_message = f"Offline services detected: {missing_list}"
+            if missing_set != self._last_missing:
+                logger.warning(status_message)
+        elif self._last_missing:
+            logger.info("All required services restored")
+
+        self._last_missing = missing_set
+
+        overall_uptime = 100.0 if not missing_set else 0.0
         min_uptime_threshold = float(os.environ.get("MIN_SERVICE_UPTIME", "80.0"))
-        eligible = overall_uptime >= min_uptime_threshold
+        eligible = not missing_set
 
         return {
             "overall_uptime": overall_uptime,
-            "services_up": services_up,
-            "services_down": services_down,
+            "calculated_uptime": window_average,
+            "services_up": len(services_up),
+            "services_down": len(services_down),
             "total_services": total_services,
             "eligible_for_payment": eligible,
             "min_uptime_required": min_uptime_threshold,
+            "missing_services": services_down,
+            "running_services": services_up,
+            "status_message": status_message,
         }
 
     async def start_monitoring(self):

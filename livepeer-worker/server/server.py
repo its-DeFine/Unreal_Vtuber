@@ -210,8 +210,12 @@ async def agent_net(request: Request):
             "total": summary["total_services"],
             "up": summary["services_up"],
             "down": summary["services_down"],
+            "missing": summary["missing_services"],
+            "running": summary["running_services"],
             "uptime_percentage": summary["overall_uptime"],
-            "eligible_for_payment": summary["eligible_for_payment"]
+            "calculated_window_uptime": summary["calculated_uptime"],
+            "eligible_for_payment": summary["eligible_for_payment"],
+            "status_message": summary["status_message"],
         },
         # Keep some GPU fields for compatibility but with service data
         "model_name": f"Services: {summary['services_up']}/{summary['total_services']} up",
@@ -219,7 +223,7 @@ async def agent_net(request: Request):
         "total_models": summary["services_up"],  # Use services up as model count
         "gpu_count": 1 if summary["eligible_for_payment"] else 0
     }
-    
+
     return Response(
         content=json.dumps(response_data), 
         media_type="application/json",
@@ -229,7 +233,9 @@ async def agent_net(request: Request):
                 "agent_id": agent_id,
                 "timestamp": time.time(),
                 "uptime": summary["overall_uptime"],
-                "eligible": summary["eligible_for_payment"]
+                "eligible": summary["eligible_for_payment"],
+                "missing_services": summary["missing_services"],
+                "status_message": summary["status_message"]
             })
         }
     )
