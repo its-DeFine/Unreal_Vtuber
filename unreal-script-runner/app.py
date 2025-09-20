@@ -185,7 +185,7 @@ def _render_command(
     file_path = audio_dir / asset.filename
     if not file_path.exists():
         raise ValueError(f"audio file missing: {asset.filename}")
-    return f"TTSBYOB /opt/embody/sessions/{session_id}/audio/{asset.filename}"
+    return f"TTS_BYOB_/opt/embody/sessions/{session_id}/audio/{asset.filename}"
 
 
 @app.get("/health")
