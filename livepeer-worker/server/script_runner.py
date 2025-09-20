@@ -142,6 +142,6 @@ class ScriptSessionManager:
 
 
 def create_session_manager() -> ScriptSessionManager:
-    tcp_host = os.getenv("VTUBER_TCP_HOST", "vtuber-unreal-game")
+    tcp_host = os.getenv("VTUBER_TCP_HOST", "host.docker.internal")
     tcp_port = int(os.getenv("VTUBER_TCP_PORT", "7777"))
     return ScriptSessionManager(tcp_host, tcp_port)

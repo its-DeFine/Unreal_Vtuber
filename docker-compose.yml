@@ -16,7 +16,7 @@ services:
     environment:
       - ORCH_URL=${LIVEPEER_ORCH_URL:-http://livepeer-orchestrator:9995}
       - ORCH_SECRET=${LIVEPEER_ORCH_SECRET:-orch-secret}
-      - VTUBER_TCP_HOST=${VTUBER_TCP_HOST:-vtuber-command-proxy}
+      - VTUBER_TCP_HOST=${VTUBER_TCP_HOST:-host.docker.internal}
       - VTUBER_TCP_PORT=${VTUBER_TCP_PORT:-7777}
       - CAPABILITY_NAME=${CAPABILITY_NAME:-agent-net}
       - CAPABILITY_DESCRIPTION=Agent network capability with connectivity monitoring
@@ -42,13 +42,6 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=autonomy-cluster"
 
-  vtuber-command-proxy:
-    image: alpine/socat
-    container_name: vtuber-command-proxy
-    command: ["-d", "-d", "TCP-LISTEN:7777,fork,reuseaddr", "TCP:vtuber-unreal-game:7777"]
-    networks:
-      - vtuber_network
-    restart: unless-stopped
 
 
 
