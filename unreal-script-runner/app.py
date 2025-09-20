@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, Literal, Optional
 
 import aiohttp
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import AnyHttpUrl, BaseModel, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,7 @@ logging.basicConfig(level=logging.INFO)
 SESSION_ROOT = Path(os.getenv("VTUBER_SESSION_ROOT", "/opt/embody/sessions"))
 TCP_HOST = os.getenv("VTUBER_TCP_HOST", "127.0.0.1")
 TCP_PORT = int(os.getenv("VTUBER_TCP_PORT", "7777"))
+ALLOWED_ADDRESSES = [addr.strip() for addr in os.getenv("VTUBER_ALLOWED_ADDRESSES", "").split(",") if addr.strip()]
 
 
 class AudioAsset(BaseModel):
@@ -188,7 +189,10 @@ async def health() -> dict:
 
 
 @app.post("/scripts/execute")
-async def execute_script(payload: ScriptRequest) -> ScriptStatus:
+async def execute_script(payload: ScriptRequest, request: Request) -> ScriptStatus:
+    client_ip = request.client.host if request.client else None
+    if ALLOWED_ADDRESSES and (client_ip not in ALLOWED_ADDRESSES):
+        raise HTTPException(status_code=403, detail="client address not allowed")
     global _active_session
     async with _session_lock:
         if _active_session is not None:

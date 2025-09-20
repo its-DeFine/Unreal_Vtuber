@@ -129,6 +129,7 @@ services:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
       - VTUBER_TCP_HOST=127.0.0.1
       - VTUBER_TCP_PORT=7777
+      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-}
     volumes:
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     restart: unless-stopped
