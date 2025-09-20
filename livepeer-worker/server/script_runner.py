@@ -100,14 +100,14 @@ class ScriptSessionManager:
             status.current_step = idx
             message = self._render_command(command, payload.session_id, audio_map, audio_dir)
             logger.debug("sending TCP command: %s", message)
-            reader, writer = await asyncio.open_connection(self._tcp_host, self._tcp_port)
+            _, writer = await asyncio.open_connection(self._tcp_host, self._tcp_port)
             try:
                 writer.write((message + "\r\n").encode("utf-8"))
                 await writer.drain()
-                await reader.read(1)
-            except Exception:  # noqa: BLE001
+                await asyncio.sleep(0.05)
+            except Exception as exc:  # noqa: BLE001
                 logger.exception("TCP command failed")
-                raise
+                raise ScriptExecutionError(str(exc))
             finally:
                 writer.close()
                 try:
