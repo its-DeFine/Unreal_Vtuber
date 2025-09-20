@@ -12,6 +12,7 @@ services:
       - "9876:9876"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     environment:
       - ORCH_URL=${LIVEPEER_ORCH_URL:-http://livepeer-orchestrator:9995}
       - ORCH_SECRET=${LIVEPEER_ORCH_SECRET:-orch-secret}
@@ -40,7 +41,6 @@ services:
       - "com.centurylinklabs.watchtower.scope=autonomy-cluster"
 
 
-volumes: {}
 
 networks:
   vtuber_network:

@@ -2,9 +2,11 @@ import os, time, logging, json
 import aiohttp
 from datetime import datetime
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from server.register import register_to_orchestrator
 from server.service_monitor import service_monitor
+from server.script_models import ScriptRequest
+from server.script_runner import ScriptExecutionError, create_session_manager
 
 # Logger setup
 logger = logging.getLogger(__name__)
@@ -90,6 +92,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down server")
 
 app = FastAPI(lifespan=lifespan)
+script_manager = create_session_manager()
 
 @app.get("/health")
 async def health():
@@ -239,3 +242,50 @@ async def agent_net(request: Request):
             })
         }
     )
+
+
+async def _send_callback(callback_url: str, payload: dict) -> None:
+    async with aiohttp.ClientSession() as session:
+        try:
+            await session.post(callback_url, json=payload, timeout=10)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to send script callback")
+
+
+@app.post("/scripts/execute")
+async def execute_script(request: ScriptRequest):
+    """Accept and execute a scripted sequence of TCP commands."""
+
+    async def callback(final_status):
+        if request.callback_url:
+            await _send_callback(
+                str(request.callback_url),
+                {
+                    "session_id": request.session_id,
+                    "state": final_status.state,
+                    "started_at": final_status.started_at,
+                    "ended_at": final_status.ended_at,
+                    "current_step": final_status.current_step,
+                    "total_steps": final_status.total_steps,
+                    "error": final_status.error,
+                },
+            )
+
+    try:
+        status = await script_manager.schedule(request, callback=callback)
+    except ScriptExecutionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {
+        "session_id": status.session_id,
+        "state": status.state,
+        "total_steps": status.total_steps,
+    }
+
+
+@app.get("/scripts/{session_id}")
+async def script_status(session_id: str):
+    status = script_manager.status(session_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return status.dict()

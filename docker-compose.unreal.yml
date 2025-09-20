@@ -104,6 +104,7 @@ services:
       - /usr/share/vulkan:/host-libs/usr/share/vulkan:ro
       - /etc/vulkan:/host-libs/etc/vulkan:ro
       - /usr/share/glvnd:/host-libs/usr/share/glvnd:ro
+      - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     networks:
       - vtuber_network
     logging:
