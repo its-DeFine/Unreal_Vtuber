@@ -28,7 +28,7 @@ services:
       - "-ethUrl"
       - "${ETH_RPC_URL:-https://arb1.arbitrum.io/rpc}"
       - "-serviceAddr"
-      - "${ORCHESTRATOR_HOST:-0.0.0.0}:${ORCHESTRATOR_PORT:-9995}"
+      - "0.0.0.0:${ORCHESTRATOR_PORT:-9995}"
       - "-cliAddr"
       - "0.0.0.0:7935"
       - "-orchSecret"

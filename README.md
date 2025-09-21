@@ -8,7 +8,7 @@ Lightweight Pixel Streaming stack for the Embody build, coupled with Livepeer BY
    ```bash
    git clone https://github.com/its-DeFine/Unreal_Vtuber.git
    cd Unreal_Vtuber
-   cp .env.example .env
+   cp .example.env .env
    cp .env.unreal.example .env.unreal
    ```
    Populate the `.env` file with Livepeer/manager credentials as needed. Update `.env.unreal` with your packaged game location details.

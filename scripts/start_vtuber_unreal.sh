@@ -26,8 +26,8 @@ fi
 echo -e "${YELLOW}Checking environment configuration...${NC}"
 
 if [ ! -f ".env" ]; then
-    echo -e "${YELLOW}Warning: .env file not found, copying from .env.example${NC}"
-    cp .env.example .env
+    echo -e "${YELLOW}Warning: .env file not found, copying from .example.env${NC}"
+    cp .example.env .env
 fi
 
 if [ ! -f ".env.unreal" ]; then
