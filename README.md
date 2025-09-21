@@ -3,7 +3,6 @@
 > **Disclaimer**
 > By deploying the orchestrator and associated services described in this repository, you acknowledge that the services are provided by Atumera LLC and agree to the Terms & Conditions and Privacy Policy located in `legal/`.
 
-Lightweight Pixel Streaming stack for the Embody build, coupled with Livepeer BYOC infrastructure and observability tooling. The legacy NeuroSync (S1) and Kokoro TTS containers have been fully removed – audio and blendshapes are now generated inside the packaged Unreal runtime.
 
 ## Quick Start
 
