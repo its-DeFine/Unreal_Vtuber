@@ -3,6 +3,11 @@
 > **Disclaimer**
 > By deploying the orchestrator and associated services described in this repository, you acknowledge that the services are provided by Atumera LLC and agree to the Terms & Conditions and Privacy Policy located in `legal/`.
 
+> **Docker network tip**
+> The compose files expect a bridge called `vtuber_network` with the label `com.docker.compose.network=vtuber_network`. Let Compose create it automatically, or run:
+> `docker network create --label com.docker.compose.network=vtuber_network vtuber_network`
+> If you already created `vtuber_network` without that label, remove it first with `docker network rm vtuber_network` before launching the stack.
+
 
 ## Orchestrator Onboarding
 
