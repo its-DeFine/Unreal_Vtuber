@@ -20,11 +20,29 @@ This guide captures the steps we follow to bring up the Livepeer BYOC (Bring You
    A `400 Must have eth address...` response means the socket is reachable and TLS works.
 
 ## 3. Configure the orchestrator
-1. On the EC2 host, edit `Unreal_Vtuber/config/vtuber.conf`:
-   - `serviceAddr` **must** match the public address: `serviceAddr <public-ip>:9995`.
-   - Keep `cliAddr` bound to the local interface (e.g. `0.0.0.0:7935`).
-   - Leave `orchSecret` aligned with the worker (`orch-secret` unless changed).
-2. Place the keystore and password files under `Unreal_Vtuber/config/` (`keystore`, `ethpass`).
+1. Update `Unreal_Vtuber/.env` with the orchestrator settings:
+   ```ini
+   # Public URL and secret used by workers
+   LIVEPEER_ORCH_URL=https://<public-ip>:9995
+   LIVEPEER_ORCH_SECRET=orch-secret
+
+   # Ethereum configuration
+   ETH_RPC_URL=https://arb1.arbitrum.io/rpc
+   ETH_PASSWORD=<keystore-password>
+   ETH_ADDRESS=<orchestrator-eth-address>
+   ETH_ORCH_ADDRESS=<orchestrator-eth-address>
+
+   # Pricing / gas controls
+   PRICE_PER_UNIT=0
+   TICKET_EV=0
+   MAX_GAS_PRICE=1000000000
+   AUTO_ADJUST_PRICE=false
+
+   # Ports
+   ORCHESTRATOR_PORT=9995
+   ```
+   Any value omitted falls back to the defaults baked into `docker-compose.livepeer.yml`.
+2. Place the keystore JSON(s) under `Unreal_Vtuber/config/keystore/` and create `Unreal_Vtuber/config/ethpass` containing the keystore password. The compose file mounts these into `/root/.lpData/keystore` and `/root/.lpData/.ethpass` respectively.
 3. Start or restart the orchestrator stack:
    ```bash
    cd ~/Unreal_Vtuber
@@ -71,7 +89,7 @@ This guide captures the steps we follow to bring up the Livepeer BYOC (Bring You
 - [ ] Gateway logs show job tokens retrieved and requests posted to `https://<public-ip>:9995`.
 
 ## 7. Troubleshooting reference
-- **`connect: connection refused` to `https://0.0.0.0:9995`** – Update `serviceAddr` in `vtuber.conf` and recreate the orchestrator container.
+- **`connect: connection refused` to `https://0.0.0.0:9995`** – Double-check `LIVEPEER_ORCH_URL` / `ORCHESTRATOR_PORT` in `.env` and recreate the orchestrator container.
 - **`Failed to get token ... err=<nil>`** – The request reached the orchestrator, but Livepeer auth headers are missing. Provide the broadcaster ETH signature or align `orchSecret`.
 - **Worker warns about unverified HTTPS** – Either install a valid cert chain or set `LIVEPEER_ORCH_SKIP_VERIFY=true` until a proper certificate is issued.
 - **Gateway still times out** – Double-check the security group, and ensure no intermediate firewall blocks TCP `9995`.

@@ -15,12 +15,56 @@ services:
       - vtuber_orch_data:/root/.lpData
       - livepeer_models:/models
       - ./config/keystore:/root/.lpData/keystore:ro
-      - ./config/vtuber.conf:/root/.lpData/vtuber.conf:ro
       - ./config/ethpass:/root/.lpData/.ethpass:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
-    command: [-config, /root/.lpData/vtuber.conf]
+    command:
+      - "-orchestrator"
+      - "-transcoder"
+      - "-aiWorker"
+      - "-network"
+      - "${LIVEPEER_NETWORK:-arbitrum-one-mainnet}"
+      - "-ethUrl"
+      - "${ETH_RPC_URL:-https://arb1.arbitrum.io/rpc}"
+      - "-serviceAddr"
+      - "${ORCHESTRATOR_HOST:-0.0.0.0}:${ORCHESTRATOR_PORT:-9995}"
+      - "-cliAddr"
+      - "0.0.0.0:7935"
+      - "-orchSecret"
+      - "${LIVEPEER_ORCH_SECRET:-orch-secret}"
+      - "-blockPollingInterval"
+      - "20"
+      - "-pricePerUnit"
+      - "${PRICE_PER_UNIT:-0}"
+      - "-ticketEV"
+      - "${TICKET_EV:-0}"
+      - "-maxGasPrice"
+      - "${MAX_GAS_PRICE:-1000000000}"
+      - "-autoAdjustPrice"
+      - "${AUTO_ADJUST_PRICE:-false}"
+      - "-reward"
+      - "false"
+      - "-ethPassword"
+      - "@${ETH_PASSWORD_FILE:-/root/.lpData/.ethpass}"
+      - "-ethAcctAddr"
+      - "${ETH_ADDRESS:-}"
+      - "-ethOrchAddr"
+      - "${ETH_ORCH_ADDRESS:-}"
+      - "-ethKeystoreDir"
+      - "/root/.lpData/keystore"
+      - "-datadir"
+      - "/root/.lpData"
+      - "-monitor"
+      - "true"
+      - "-aiVerboseLogs"
+      - "true"
+      - "-testTranscoder"
+      - "false"
+      - "-startupAvailabilityCheck"
+      - "false"
+      - "-v"
+      - "6"
     deploy:
       resources:
         reservations:
