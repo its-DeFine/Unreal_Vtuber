@@ -48,6 +48,7 @@ This guide captures the steps we follow to bring up the Livepeer BYOC (Bring You
    ```
    Any value omitted falls back to the defaults baked into `docker-compose.livepeer.yml`.
 2. Place your Livepeer keystore JSON under `Unreal_Vtuber/config/keystore/` and create `Unreal_Vtuber/config/ethpass` containing **only** the keystore password. The compose file mounts these into `/root/.lpData/keystore` and `/root/.lpData/.ethpass` respectively, so the container automatically unlocks the account at start.
+   - Need a fresh throwaway wallet? Run `scripts/generate_livepeer_wallet.sh` (from the repo root) to create a new keystore + password pair, then fund the produced address with a small amount of Arbitrum ETH so the orchestrator can redeem tickets.
 3. Start or restart the orchestrator stack:
    ```bash
    cd ~/Unreal_Vtuber
