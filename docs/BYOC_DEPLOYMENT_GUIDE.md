@@ -20,7 +20,12 @@ This guide captures the steps we follow to bring up the Livepeer BYOC (Bring You
    A `400 Must have eth address...` response means the socket is reachable and TLS works.
 
 ## 3. Configure the orchestrator
-1. Update `Unreal_Vtuber/.env` with the orchestrator settings:
+1. Copy the template env if needed:
+   ```bash
+   cd ~/Unreal_Vtuber
+   [ -f .env ] || cp .example.env .env
+   ```
+   Then update `.env` (or the values you export in your automation) with the orchestrator settings:
    ```ini
    # Public URL and secret used by workers
    LIVEPEER_ORCH_URL=https://<public-ip>:9995
@@ -42,7 +47,7 @@ This guide captures the steps we follow to bring up the Livepeer BYOC (Bring You
    ORCHESTRATOR_PORT=9995
    ```
    Any value omitted falls back to the defaults baked into `docker-compose.livepeer.yml`.
-2. Place the keystore JSON(s) under `Unreal_Vtuber/config/keystore/` and create `Unreal_Vtuber/config/ethpass` containing the keystore password. The compose file mounts these into `/root/.lpData/keystore` and `/root/.lpData/.ethpass` respectively.
+2. Place your Livepeer keystore JSON under `Unreal_Vtuber/config/keystore/` and create `Unreal_Vtuber/config/ethpass` containing **only** the keystore password. The compose file mounts these into `/root/.lpData/keystore` and `/root/.lpData/.ethpass` respectively, so the container automatically unlocks the account at start.
 3. Start or restart the orchestrator stack:
    ```bash
    cd ~/Unreal_Vtuber
