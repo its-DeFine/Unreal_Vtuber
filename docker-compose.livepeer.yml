@@ -16,10 +16,13 @@ services:
       - livepeer_models:/models
       - ./config/keystore:/root/.lpData/keystore:ro
       - ./config/ethpass:/root/.lpData/.ethpass:ro
+      - ./config/vtuber.conf:/root/.lpData/vtuber.conf:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     command:
+      - "-config"
+      - "/root/.lpData/vtuber.conf"
       - "-orchestrator"
       - "-transcoder"
       - "-aiWorker"
@@ -45,16 +48,6 @@ services:
       - "${AUTO_ADJUST_PRICE:-false}"
       - "-reward"
       - "false"
-      - "-ethPassword"
-      - "@${ETH_PASSWORD_FILE:-/root/.lpData/.ethpass}"
-      - "-ethAcctAddr"
-      - "${ETH_ADDRESS:-}"
-      - "-ethOrchAddr"
-      - "${ETH_ORCH_ADDRESS:-}"
-      - "-ethKeystoreDir"
-      - "/root/.lpData/keystore"
-      - "-datadir"
-      - "/root/.lpData"
       - "-monitor"
       - "true"
       - "-aiVerboseLogs"
