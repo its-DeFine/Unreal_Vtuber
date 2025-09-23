@@ -84,7 +84,6 @@ services:
         hard: ${HOST_ULIMIT_NOFILE:-1040}
     ports:
       - "7777:7777"
-      - "1111:1111"
       - "9877:9877"
     depends_on:
       unreal-signaling:
