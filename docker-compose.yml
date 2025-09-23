@@ -1,49 +1,19 @@
 services:
-  # ===========================================
-  # LIVEPEER BYOC SERVICES
-  # ===========================================
-
-  livepeer-worker:
+  payments-backend:
     build:
-      context: ./livepeer-worker
-      dockerfile: Dockerfile
-    container_name: livepeer-worker
-    ports:
-      - "9876:9876"
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: payments-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
-    environment:
-      - ORCH_URL=${LIVEPEER_ORCH_URL:-http://livepeer-orchestrator:9995}
-      - ORCH_SECRET=${LIVEPEER_ORCH_SECRET:-orch-secret}
-      - VTUBER_TCP_HOST=${VTUBER_TCP_HOST:-host.docker.internal}
-      - VTUBER_TCP_PORT=${VTUBER_TCP_PORT:-7777}
-      - CAPABILITY_NAME=${CAPABILITY_NAME:-agent-net}
-      - CAPABILITY_DESCRIPTION=Agent network capability with connectivity monitoring
-      - CAPABILITY_URL=http://livepeer-worker:9876
-      - CAPABILITY_PRICE_PER_UNIT=${CAPABILITY_PRICE_PER_UNIT:-0}
-      - CAPABILITY_PRICE_SCALING=1
-      - CAPABILITY_CAPACITY=10
-      - PYTHONUNBUFFERED=1
-      - MANAGER_URL=${CENTRAL_MANAGER_URL:-http://86.106.138.188:8010}
-      - CONNECTIVITY_PROOF_ENABLED=true
-      - MIN_SERVICE_UPTIME=80.0
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - ./backend/data:/app/data
     networks:
       - vtuber_network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9876/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "com.centurylinklabs.watchtower.scope=autonomy-cluster"
-
-
-
 
 networks:
   vtuber_network:

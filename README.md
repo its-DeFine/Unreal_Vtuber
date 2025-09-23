@@ -1,39 +1,61 @@
-# Unreal VTuber
+# Unreal VTuber Payments Backend
 
-> **Disclaimer**
-> By deploying the orchestrator and associated services described in this repository, you acknowledge that the services are provided by Atumera LLC and agree to the Terms & Conditions and Privacy Policy located in `legal/`.
+The Embody Unreal VTuber stack now ships with a lightweight payments backend that
+monitors the Pixel Streaming containers and automatically accrues payouts for the
+host orchestrator. Once the tracked balance reaches a configurable threshold, the
+backend issues an on-chain transfer using the configured wallet.
 
-> **Docker network tip**
-> The compose files expect a bridge called `vtuber_network` with the label `com.docker.compose.network=vtuber_network`. Let Compose create it automatically, or run:
-> `docker network create --label com.docker.compose.network=vtuber_network vtuber_network`
-> If you already created `vtuber_network` without that label, remove it first with `docker network rm vtuber_network` before launching the stack.
+## What this contains
+- `docker-compose.unreal.yml` – TURN, signaling and packaged Unreal Engine build.
+- `docker-compose.yml` – payments backend container that monitors the Unreal services.
+- `backend/payments` – Python package with the monitoring + payout logic.
 
-
-## Orchestrator Onboarding
-
- **Prep the machine**
-   - Install NVIDIA drivers, Docker Engine, and Docker Compose.
-   - Open TCP `9995` to the internet for the Livepeer orchestrator, also open `8080`, `8888`, `8889`, and TURN ports `3478` plus `49160-49200/udp`.
-   - Whitelist `86.106.133.188` on TCP `8080` so that we can access the pixel streamed game instance.
-
-2. **Configure secrets**
-   - Copy `cp .example.env .env` and set `ORCHESTRATOR_HOST`, `LIVEPEER_ORCH_SECRET`, and Ethereum addresses.
-   - Place your keystore JSON in `config/keystore/` and write the passphrase to `config/ethpass`.
-   - (Optional) Generate a throwaway wallet with `scripts/generate_livepeer_wallet.sh` and fund it with Arbitrum ETH.
-   - Use the capability name you filled in the onboarding form(CAPABILITY_NAME).
-
-3. **Launch orchestrator, worker, and Unreal stack**
+## Quick start
+1. Copy the sample env: `cp .example.env .env` and update the following values:
+   - `ORCHESTRATOR_ADDRESS` – wallet that should receive rewards.
+   - `PAYMENT_INCREMENT_ETH` – ETH credited for each successful health check.
+   - `PAYMENT_PAYOUT_THRESHOLD_ETH` – when reached, a transfer is triggered.
+   - Optional signing material: set either `PAYMENT_PRIVATE_KEY` **or** the
+     keystore path/password variables. Leave them unset to run in dry-run mode.
+2. Launch the services:
    ```bash
-   sudo docker compose -f docker-compose.livepeer.yml up -d && \
-   sudo docker compose up -d && \
-   sudo docker compose -f docker-compose.yml -f docker-compose.unreal.yml up -d
+   docker network create vtuber_network 2>/dev/null || true
+   docker compose -f docker-compose.unreal.yml up -d
+   docker compose up -d
+   ```
+3. Tail the backend logs to confirm balance accrual:
+   ```bash
+   docker compose logs -f payments-backend
    ```
 
-4. **Verify**
-   - `curl -k https://<public-ip>:9995/process/token` should return HTTP `400`.
-   - `sudo docker compose -f docker-compose.livepeer.yml logs livepeer-orchestrator --tail=50` should show `Unlocked ETH account` and `Listening for RPC`.
-   - `sudo docker compose logs livepeer-worker --tail=50` should report the capability registered at `http://livepeer-worker:9876`.
+## Adding signing credentials
+The backend supports two mutually exclusive signing modes:
+- `PAYMENT_PRIVATE_KEY` – raw hex private key (never commit this).
+- `PAYMENT_KEYSTORE_PATH` + `PAYMENT_KEYSTORE_PASSWORD` – decrypts a standard
+  Web3 keystore file before submitting transactions.
 
-## Legacy Notes
+If neither set, the backend runs in dry-run mode and simply logs the transfers
+it *would* submit once the threshold is met.
 
-Historical documentation, NeuroSync assets, Kokoro TTS Dockerfiles, and AutoGen stacks have been removed. Pull an older commit if you need to reference the superseded pipeline.
+## Monitoring configuration
+`MONITORED_SERVICES` defaults to the three Unreal containers that constitute a
+healthy deployment: `vtuber-unreal-game`, `vtuber-unreal-signaling`, and
+`vtuber-turn-server`. Override the variable in `.env` if you add or rename
+services in `docker-compose.unreal.yml`.
+
+## Data storage
+Ledger state is persisted under `backend/data/balances.json`. Mount this path to
+external storage if you need the payment history to survive container recreation.
+
+## Registry & top-100 checks
+On startup the backend records orchestrator metadata under
+`backend/data/registry.json`. When `TOP_CONTRACT_*` variables are configured, it
+pulls the on-chain top 100 list and only enables automatic payments if the
+registered wallet appears in that set. The registration outcome (first-time
+flag, outstanding balance status, and top-100 membership) is logged during
+boot.
+
+## Development
+Install dependencies with `pip install -r backend/requirements.txt` and run the
+loop locally via `python -m payments.main`. Set `PAYMENT_DRY_RUN=false` only on
+trusted machines with access to the signing key.

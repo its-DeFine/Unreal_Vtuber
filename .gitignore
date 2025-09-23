@@ -128,10 +128,6 @@ archives/temp/
 scripts/voice_control_env/
 scripts/vosk-model-*/
 
-# Update orchestrator state
-update-orchestrator/state/
+# Local AWS credentials
+.aws.env
 
-
-# Local Livepeer secrets
-config/keystore/*
-!config/keystore/.gitkeep
