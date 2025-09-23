@@ -1,8 +1,8 @@
 services:
   payments-backend:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: payments-backend
     restart: unless-stopped
     env_file:
