@@ -131,3 +131,5 @@ scripts/vosk-model-*/
 # Local AWS credentials
 .aws.env
 
+# SSH keys
+*.pem
