@@ -1,88 +1,135 @@
-import json
 import tempfile
-import unittest
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from payments.ledger import Ledger
-from payments.registry import Registry
+from payments.registry import Registry, RegistryError
 
 
-class RegistryTests(unittest.TestCase):
-    def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        balances_path = Path(self.temp_dir.name) / "balances.json"
-        registry_path = Path(self.temp_dir.name) / "registry.json"
-        self.ledger = Ledger(balances_path)
-        self.registry_path = registry_path
+@pytest.fixture()
+def temp_paths():
+    tmp = tempfile.TemporaryDirectory()
+    balances_path = Path(tmp.name) / "balances.json"
+    registry_path = Path(tmp.name) / "registry.json"
+    yield balances_path, registry_path
+    tmp.cleanup()
 
-        self.settings = SimpleNamespace(
-            top_contract_address="0x0000000000000000000000000000000000000000",
-            top_contract_function="getTop",
-            top_contract_abi_json=None,
-            top_contract_abi_path=None,
+
+@pytest.fixture()
+def settings():
+    return SimpleNamespace(
+        top_contract_address="0x0000000000000000000000000000000000000000",
+        top_contract_function="getTop",
+        top_contract_abi_json=None,
+        top_contract_abi_path=None,
+        registration_rate_limit_per_minute=5,
+        registration_rate_limit_burst=5,
+    )
+
+
+def create_registry(registry_path, balances_path, settings):
+    ledger = Ledger(balances_path)
+    return Registry(
+        path=registry_path,
+        settings=settings,
+        ledger=ledger,
+        web3=None,
+    )
+
+
+def test_registration_enforces_top_membership(temp_paths, settings):
+    balances_path, registry_path = temp_paths
+    registry = create_registry(registry_path, balances_path, settings)
+
+    with patch.object(Registry, "_resolve_top_set", return_value={"0xaaaa"}):
+        result = registry.register(
+            orchestrator_id="orch-1",
+            address="0xAAAA",
         )
 
-    def tearDown(self):
-        self.temp_dir.cleanup()
+    assert result.first_registration is True
+    assert result.is_top_100 is True
+    assert registry.is_eligible("orch-1") is True
 
-    def test_first_registration_without_top_contract_defaults_to_eligible(self):
-        self.settings.top_contract_address = None
-        with patch("payments.registry.fetch_orchestrator_addresses", return_value=[
-            "0x1111111111111111111111111111111111111111"
-        ]):
-            registry = Registry(
-                path=self.registry_path,
-                settings=self.settings,
-                ledger=self.ledger,
-                web3=None,
-            )
-
-            result = registry.register(
-                orchestrator_id="orch-1",
-                address="0x1111111111111111111111111111111111111111",
-            )
-
-        self.assertTrue(result.first_registration)
-        self.assertTrue(result.is_top_100)
-        self.assertTrue(registry.is_eligible("orch-1"))
-
-    def test_registration_marks_top_membership(self):
-        registry = Registry(
-            path=self.registry_path,
-            settings=self.settings,
-            ledger=self.ledger,
-            web3=None,
+    with patch.object(Registry, "_resolve_top_set", return_value={"0xaaaa"}):
+        result_second = registry.register(
+            orchestrator_id="orch-1",
+            address="0xAAAA",
         )
 
-        with patch.object(Registry, "_fetch_top_addresses", return_value=[
-            "0xaaaa", "0xbbbb",
-        ]), patch("payments.registry.fetch_orchestrator_addresses", return_value=[
-            "0xaaaa", "0xbbbb"
-        ]):
-            result = registry.register(
+    assert result_second.first_registration is False
+    assert result_second.registration_count == 2
+
+
+def test_registration_rejects_out_of_top(temp_paths, settings):
+    balances_path, registry_path = temp_paths
+    registry = create_registry(registry_path, balances_path, settings)
+
+    with patch.object(Registry, "_resolve_top_set", return_value={"0xaaaa"}):
+        with pytest.raises(RegistryError) as exc:
+            registry.register(
+                orchestrator_id="orch-2",
+                address="0xBBBB",
+            )
+    assert exc.value.status_code == 403
+
+
+def test_skip_rank_validation_allows_local_registration(temp_paths, settings):
+    balances_path, registry_path = temp_paths
+    registry = create_registry(registry_path, balances_path, settings)
+
+    result = registry.register(
+        orchestrator_id="orch-local",
+        address="0xCCCC",
+        skip_rank_validation=True,
+    )
+
+    assert result.is_top_100 is True
+    assert registry.is_eligible("orch-local") is True
+
+
+def test_cooldown_controls_eligibility(temp_paths, settings):
+    balances_path, registry_path = temp_paths
+    ledger = Ledger(balances_path)
+    registry = Registry(
+        path=registry_path,
+        settings=settings,
+        ledger=ledger,
+        web3=None,
+    )
+
+    with patch.object(Registry, "_resolve_top_set", return_value={"0xaaaa"}):
+        registry.register(
+            orchestrator_id="orch-penalty",
+            address="0xAAAA",
+        )
+
+    assert registry.is_eligible("orch-penalty") is True
+    registry.set_cooldown("orch-penalty", seconds=10)
+    assert registry.is_in_cooldown("orch-penalty") is True
+    assert registry.is_eligible("orch-penalty") is False
+    registry.clear_cooldown("orch-penalty")
+    assert registry.is_eligible("orch-penalty") is True
+
+
+def test_address_uniqueness(temp_paths, settings):
+    balances_path, registry_path = temp_paths
+    registry = create_registry(registry_path, balances_path, settings)
+
+    with patch.object(Registry, "_resolve_top_set", return_value={"0xaaaa"}):
+        registry.register(
+            orchestrator_id="orch-1",
+            address="0xAAAA",
+        )
+
+    with patch.object(Registry, "_resolve_top_set", return_value={"0xaaaa"}):
+        with pytest.raises(RegistryError) as exc:
+            registry.register(
                 orchestrator_id="orch-2",
                 address="0xAAAA",
             )
-
-        self.assertTrue(result.is_top_100)
-        self.assertTrue(registry.is_eligible("orch-2"))
-
-        with patch.object(Registry, "_fetch_top_addresses", return_value=[
-            "0xcccc",
-        ]), patch("payments.registry.fetch_orchestrator_addresses", return_value=[
-            "0xcccc"
-        ]):
-            result_second = registry.register(
-                orchestrator_id="orch-2",
-                address="0xaaaa",
-            )
-
-        self.assertFalse(result_second.first_registration)
-        self.assertFalse(result_second.is_top_100)
-        self.assertFalse(registry.is_eligible("orch-2"))
-
-
-if __name__ == "__main__":
-    unittest.main()
+    assert exc.value.status_code == 409

@@ -1,25 +1,28 @@
 """Container health monitor reused by the payments backend."""
 from __future__ import annotations
 
+import logging
 import os
 import time
-import logging
 from datetime import datetime
-from typing import Dict, Any, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
 import docker
+import requests
 
 logger = logging.getLogger(__name__)
 
 
 class ServiceMonitor:
-    """Tracks a fixed list of Docker containers and computes uptime metrics."""
+    """Tracks Docker containers or remote health endpoints and computes uptime."""
 
     def __init__(
         self,
         services: Iterable[str] | None = None,
         check_interval: int = 10,
         uptime_window: int = 60,
+        remote_health_url: Optional[str] = None,
+        remote_health_timeout: float = 5.0,
     ) -> None:
         try:
             self.docker_client = docker.from_env()
@@ -30,11 +33,14 @@ class ServiceMonitor:
         if env_services:
             services = [svc.strip() for svc in env_services.split(",") if svc.strip()]
 
-        self.monitored_services: List[str] = list(services or [
-            "vtuber-unreal-game",
-            "vtuber-unreal-signaling",
-            "vtuber-turn-server",
-        ])
+        self.monitored_services: List[str] = list(
+            services
+            or [
+                "vtuber-unreal-game",
+                "vtuber-unreal-signaling",
+                "vtuber-turn-server",
+            ]
+        )
 
         self.check_interval = check_interval
         self.uptime_window = uptime_window
@@ -42,8 +48,22 @@ class ServiceMonitor:
         self._last_missing: set[str] = set()
         self.last_check: float | None = None
 
+        self.remote_health_url = remote_health_url or os.environ.get("ORCHESTRATOR_HEALTH_URL")
+        try:
+            env_timeout = float(os.environ.get("ORCHESTRATOR_HEALTH_TIMEOUT", "5"))
+        except ValueError:
+            env_timeout = 5.0
+        self.remote_health_timeout = (
+            remote_health_timeout if remote_health_url else env_timeout
+        )
+
     def check_services(self) -> Dict[str, Any]:
         """Return health information for monitored services."""
+        if self.remote_health_url:
+            remote = self._fetch_remote_health()
+            if remote is not None:
+                return remote
+
         containers = {c.name: c for c in self.docker_client.containers.list(all=True)}
         current_time = time.time()
         services_status: Dict[str, Dict[str, Any]] = {}
@@ -133,7 +153,11 @@ class ServiceMonitor:
         status_message = "All required services online"
         if missing_set:
             missing_list = ", ".join(sorted(missing_set))
-            status_message = f"Offline services detected: {missing_list}" if missing_list else "Offline services detected"
+            status_message = (
+                f"Offline services detected: {missing_list}"
+                if missing_list
+                else "Offline services detected"
+            )
             if missing_set != self._last_missing:
                 logger.warning(status_message)
         elif self._last_missing:
@@ -161,6 +185,26 @@ class ServiceMonitor:
         """True if every monitored container is running."""
         summary = self.get_summary()
         return summary["eligible_for_payment"] and not summary["missing_services"]
+
+    def _fetch_remote_health(self) -> Optional[Dict[str, Any]]:
+        url = self.remote_health_url
+        if not url:
+            return None
+        try:
+            response = requests.get(
+                url,
+                timeout=self.remote_health_timeout,
+                headers={"Accept": "application/json"},
+            )
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict) or "summary" not in data:
+                logger.warning("Remote health response malformed: %s", data)
+                return None
+            return data
+        except requests.RequestException as exc:
+            logger.warning("Remote health check failed (%s): %s", url, exc)
+            return None
 
 
 __all__ = ["ServiceMonitor"]

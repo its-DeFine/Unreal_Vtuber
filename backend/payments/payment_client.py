@@ -10,7 +10,7 @@ from typing import Optional
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
 from web3 import Web3
-from web3.middleware import geth_poa_middleware
+from web3.middleware.proof_of_authority import ExtraDataToPOAMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class PaymentClient:
     ) -> None:
         self.web3 = Web3(Web3.HTTPProvider(rpc_url))
         # Ensure compatibility with Arbitrum / rollups that use Clique-like consensus
-        self.web3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        self.web3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
         self.chain_id = chain_id
         self.dry_run = dry_run
         self._account: Optional[LocalAccount] = None
@@ -68,18 +68,49 @@ class PaymentClient:
             )
             return None
 
+        sender = self.sender
         gas_price = self.web3.eth.gas_price
-        nonce = self.web3.eth.get_transaction_count(self.sender)
+        nonce = self.web3.eth.get_transaction_count(sender)
+        estimate_payload = {
+            "from": sender,
+            "to": recipient,
+            "value": wei_amount,
+        }
+        try:
+            gas_limit = int(self.web3.eth.estimate_gas(estimate_payload))
+        except Exception:  # pragma: no cover - estimation failures fall back to base gas
+            gas_limit = 21_000
+        gas_limit = max(21_000, gas_limit)
         tx = {
             "chainId": self.chain_id,
             "nonce": nonce,
             "to": recipient,
             "value": wei_amount,
-            "gas": 21_000,
-            "gasPrice": gas_price,
+            "gas": gas_limit,
         }
 
+        max_priority_fee = getattr(self.web3.eth, "max_priority_fee", None)
+        if callable(max_priority_fee):
+            try:
+                priority_fee = max_priority_fee()
+            except Exception:  # pragma: no cover - fallback to gas price
+                priority_fee = gas_price
+            max_fee = max(gas_price, priority_fee) * 2
+            tx.update(
+                {
+                    "maxPriorityFeePerGas": priority_fee,
+                    "maxFeePerGas": max_fee,
+                }
+            )
+        else:
+            tx["gasPrice"] = gas_price * 2
+
         signed = self._account.sign_transaction(tx)
-        tx_hash = self.web3.eth.send_raw_transaction(signed.rawTransaction)
+        raw_tx = getattr(signed, "rawTransaction", None) or getattr(
+            signed, "raw_transaction", None
+        )
+        if raw_tx is None:  # pragma: no cover - defensive, should not happen
+            raise RuntimeError("Signed transaction missing raw data")
+        tx_hash = self.web3.eth.send_raw_transaction(raw_tx)
         logger.info("Submitted payment tx %s to %s (%s eth)", tx_hash.hex(), recipient, amount_eth)
         return tx_hash.hex()

@@ -12,6 +12,23 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./backend/data:/app/data
+    ports:
+      - "8081:8081"
+    networks:
+      - vtuber_network
+
+  payments-log-collector:
+    image: fluent/fluent-bit:2.2
+    container_name: payments-log-collector
+    restart: unless-stopped
+    depends_on:
+      - payments-backend
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./backend/data:/var/embody/data:ro
+      - ./backend/data/audit:/var/embody/audit
+      - ./logging/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+    command: ["fluent-bit", "-c", "/fluent-bit/etc/fluent-bit.conf"]
     networks:
       - vtuber_network
 

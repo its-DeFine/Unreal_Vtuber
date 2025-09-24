@@ -1,11 +1,12 @@
 """Settings loader for the payments backend."""
 from __future__ import annotations
 
+import os
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,15 +18,43 @@ class RegistryPaths(BaseModel):
     registry: Path = Field(default=Path("/app/data/registry.json"))
 
 
+class BootstrapOrchestrator(BaseModel):
+    orchestrator_id: str = Field(min_length=1, max_length=128)
+    address: str = Field(pattern=r"^0x[a-fA-F0-9]{40}$")
+    capability: Optional[str] = Field(default=None, max_length=128)
+    contact_email: Optional[str] = Field(default=None, max_length=255)
+    host_public_ip: Optional[str] = Field(default=None, max_length=64)
+    host_name: Optional[str] = Field(default=None, max_length=128)
+    services_healthy: Optional[bool] = Field(default=None)
+    health_url: Optional[str] = Field(default=None, max_length=512)
+    health_timeout: Optional[float] = Field(default=None, ge=0.1, le=60.0)
+    monitored_services: Optional[List[str]] = Field(default=None)
+    min_service_uptime: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+
+    @field_validator("contact_email")
+    @classmethod
+    def validate_contact_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        candidate = value.strip()
+        if not candidate:
+            return None
+        if "@" not in candidate or candidate.startswith("@") or candidate.endswith("@"):
+            raise ValueError("contact_email must include '@'")
+        return candidate
+
+
 class PaymentSettings(BaseSettings):
-    orchestrator_id: str = Field(default="local-orchestrator", env="ORCHESTRATOR_ID")
-    orchestrator_address: str = Field(..., env="ORCHESTRATOR_ADDRESS")
+    orchestrator_id: Optional[str] = Field(default=None, env="ORCHESTRATOR_ID")
+    orchestrator_address: Optional[str] = Field(default=None, env="ORCHESTRATOR_ADDRESS")
+    orchestrator_health_url: Optional[str] = Field(default=None, env="ORCHESTRATOR_HEALTH_URL")
+    orchestrator_health_timeout: Optional[float] = Field(default=None, env="ORCHESTRATOR_HEALTH_TIMEOUT")
 
     payment_interval_seconds: int = Field(default=60, env="PAYMENT_INTERVAL_SECONDS")
     payment_increment_eth: Decimal = Field(default=Decimal("0.00001"), env="PAYMENT_INCREMENT_ETH")
     payout_threshold_eth: Decimal = Field(default=Decimal("0.001"), env="PAYMENT_PAYOUT_THRESHOLD_ETH")
 
-    eth_rpc_url: str = Field(..., env="ETH_RPC_URL")
+    eth_rpc_url: str = Field(default="http://localhost:8545", env="ETH_RPC_URL")
     chain_id: int = Field(default=42161, env="ETH_CHAIN_ID")
 
     payment_private_key: Optional[str] = Field(default=None, env="PAYMENT_PRIVATE_KEY")
@@ -37,10 +66,46 @@ class PaymentSettings(BaseSettings):
     ledger: LedgerPaths = Field(default_factory=LedgerPaths)
     registry_paths: RegistryPaths = Field(default_factory=RegistryPaths)
 
+    bootstrap_orchestrators_path: Optional[Path] = Field(
+        default=Path("/app/data/orchestrators.json"),
+        env="PAYMENTS_BOOTSTRAP_ORCHESTRATORS_PATH",
+    )
+    bootstrap_orchestrators_inline: Optional[str] = Field(
+        default=None,
+        env="PAYMENTS_BOOTSTRAP_ORCHESTRATORS",
+    )
+    bootstrap_skip_rank_validation: bool = Field(
+        default=True,
+        env="PAYMENTS_BOOTSTRAP_SKIP_RANK_VALIDATION",
+    )
+
     top_contract_address: Optional[str] = Field(default=None, env="TOP_CONTRACT_ADDRESS")
     top_contract_function: str = Field(default="getTop", env="TOP_CONTRACT_FUNCTION")
     top_contract_abi_path: Optional[Path] = Field(default=None, env="TOP_CONTRACT_ABI_PATH")
     top_contract_abi_json: Optional[str] = Field(default=None, env="TOP_CONTRACT_ABI_JSON")
+    top_cache_ttl_seconds: int = Field(default=300, env="TOP_CACHE_TTL_SECONDS")
+
+    api_host: str = Field(default="0.0.0.0", env="PAYMENTS_API_HOST")
+    api_port: int = Field(default=8081, env="PAYMENTS_API_PORT")
+    api_root_path: str = Field(default="", env="PAYMENTS_API_ROOT_PATH")
+    api_admin_token: Optional[str] = Field(default=None, env="PAYMENTS_API_ADMIN_TOKEN")
+
+    registration_rate_limit_per_minute: int = Field(
+        default=5, env="PAYMENTS_REGISTRATION_PER_MINUTE"
+    )
+    registration_rate_limit_burst: int = Field(
+        default=5, env="PAYMENTS_REGISTRATION_BURST"
+    )
+
+    single_orchestrator_mode: bool = Field(
+        default=True, env="PAYMENTS_SINGLE_ORCHESTRATOR_MODE"
+    )
+    payment_miss_threshold: int = Field(default=3, env="PAYMENTS_MISS_THRESHOLD")
+    payment_cooldown_seconds: int = Field(default=3600, env="PAYMENTS_COOLDOWN_SECONDS")
+
+    default_health_timeout: float = Field(default=5.0, env="PAYMENTS_DEFAULT_HEALTH_TIMEOUT")
+    default_min_service_uptime: float = Field(default=80.0, env="PAYMENTS_DEFAULT_MIN_SERVICE_UPTIME")
+    audit_log_path: Path = Field(default=Path("/app/data/audit/registry.log"), env="PAYMENTS_AUDIT_LOG_PATH")
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -49,9 +114,9 @@ class PaymentSettings(BaseSettings):
     )
 
     @field_validator("orchestrator_address")
-    def validate_orchestrator_address(cls, value: str) -> str:
-        if not value:
-            raise ValueError("ORCHESTRATOR_ADDRESS must be set")
+    def validate_orchestrator_address(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
         if not value.startswith("0x") or len(value) != 42:
             raise ValueError("ORCHESTRATOR_ADDRESS must be a 42-character hex string")
         return value
@@ -65,11 +130,50 @@ class PaymentSettings(BaseSettings):
         except Exception as exc:  # pragma: no cover - defensive
             raise ValueError(f"Invalid decimal value: {value}") from exc
 
-    @field_validator("payment_interval_seconds")
-    def validate_interval(cls, value: int) -> int:
+    @field_validator(
+        "payment_interval_seconds",
+        "api_port",
+        "registration_rate_limit_per_minute",
+        "registration_rate_limit_burst",
+        "payment_miss_threshold",
+        "payment_cooldown_seconds",
+        "top_cache_ttl_seconds",
+    )
+    def validate_positive_int(cls, value: int) -> int:
         if value <= 0:
-            raise ValueError("PAYMENT_INTERVAL_SECONDS must be positive")
+            raise ValueError("Value must be positive")
         return value
+
+    @field_validator(
+        "default_health_timeout",
+        "default_min_service_uptime",
+        "orchestrator_health_timeout",
+    )
+    def validate_positive_float(cls, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return value
+        if value <= 0:
+            raise ValueError("Value must be positive")
+        return value
+
+    @model_validator(mode="after")
+    def validate_single_orchestrator_mode(self) -> "PaymentSettings":
+        if self.single_orchestrator_mode:
+            if not self.orchestrator_id:
+                raise ValueError(
+                    "ORCHESTRATOR_ID must be set when PAYMENTS_SINGLE_ORCHESTRATOR_MODE is enabled"
+                )
+            if not self.orchestrator_address:
+                raise ValueError(
+                    "ORCHESTRATOR_ADDRESS must be set when PAYMENTS_SINGLE_ORCHESTRATOR_MODE is enabled"
+                )
+        return self
 
 
 settings = PaymentSettings()
+payout_override = os.environ.get("PAYMENT_PAYOUT_THRESHOLD_ETH")
+if payout_override is not None:
+    try:
+        settings.payout_threshold_eth = Decimal(str(payout_override))
+    except Exception:  # pragma: no cover - defensive
+        pass
