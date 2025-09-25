@@ -82,6 +82,8 @@ characters/templates/*.json
 *.mp4
 *.avi
 *.mov
+# Private creator workspace
+private_creator/
 
 # Database files
 *.db

@@ -95,6 +95,10 @@ Install dependencies with `pip install -r backend/requirements.txt` and run the
 loop locally via `python -m payments.main`. Set `PAYMENT_DRY_RUN=false` only on
 trusted machines with access to the signing key.
 
+## Further Reading
+
+- [Payments + Orchestrator Deployment Guide](docs/payments-deployment.md) – network topology, required ports, and configuration checklist for multi-host deployments.
+
 ## Audit logging
 `payments-log-collector` (Fluent Bit) tails the backend container logs and the
 registry state, writing JSON lines to `backend/data/audit/payments-audit.log` for
