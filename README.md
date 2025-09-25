@@ -52,25 +52,6 @@ backend issues an on-chain transfer using the configured wallet.
 
 Prefer AWS automation? See [docs/aws-onboarding.md](docs/aws-onboarding.md) for the EC2 provisioning workflow.
 
-## Adding signing credentials
-The backend supports two mutually exclusive signing modes:
-- `PAYMENT_PRIVATE_KEY` – raw hex private key (never commit this).
-- `PAYMENT_KEYSTORE_PATH` + `PAYMENT_KEYSTORE_PASSWORD` – decrypts a standard
-  Web3 keystore file before submitting transactions.
-
-If neither set, the backend runs in dry-run mode and simply logs the transfers
-it *would* submit once the threshold is met.
-
-## Monitoring configuration
-`MONITORED_SERVICES` defaults to the three Unreal containers that constitute a
-healthy deployment: `vtuber-unreal-game`, `vtuber-unreal-signaling`, and
-`vtuber-turn-server`. Override the variable in `.env` if you add or rename
-services in `docker-compose.unreal.yml`.
-
-## Data storage
-Ledger state is persisted under `backend/data/balances.json`. Mount this path to
-external storage if you need the payment history to survive container recreation.
-
 ## Registry & top-100 checks
 On startup the backend records orchestrator metadata under
 `backend/data/registry.json`. When `TOP_CONTRACT_*` variables are configured, it
