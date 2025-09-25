@@ -43,7 +43,7 @@ coverage.xml
 .env
 .env.*
 !.env.turn
-!.example.env
+!backend/.env.example
 .venv
 env/
 venv/
@@ -82,6 +82,8 @@ characters/templates/*.json
 *.mp4
 *.avi
 *.mov
+# Private creator workspace
+private_creator/
 
 # Database files
 *.db
@@ -128,10 +130,8 @@ archives/temp/
 scripts/voice_control_env/
 scripts/vosk-model-*/
 
-# Update orchestrator state
-update-orchestrator/state/
+# Local AWS credentials
+.aws.env
 
-
-# Local Livepeer secrets
-config/keystore/*
-!config/keystore/.gitkeep
+# SSH keys
+*.pem

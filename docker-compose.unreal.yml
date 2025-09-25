@@ -84,7 +84,6 @@ services:
         hard: ${HOST_ULIMIT_NOFILE:-1040}
     ports:
       - "7777:7777"
-      - "1111:1111"
       - "9877:9877"
     depends_on:
       unreal-signaling:
@@ -135,6 +134,41 @@ services:
     restart: unless-stopped
     depends_on:
       - unreal-game
+
+  orchestrator-registration:
+    image: python:3.11-slim
+    container_name: vtuber-orchestrator-registration
+    depends_on:
+      - unreal-game
+    env_file:
+      - .env
+    environment:
+      - PAYMENTS_API_URL=${PAYMENTS_API_URL:-http://payments-backend:8081}
+      - ORCHESTRATOR_REGISTRATION_DELAY=${ORCHESTRATOR_REGISTRATION_DELAY:-10}
+    volumes:
+      - .:/workspace:ro
+    working_dir: /workspace
+    entrypoint:
+      - bash
+      - -lc
+      - "sleep ${ORCHESTRATOR_REGISTRATION_DELAY:-10} && python3 scripts/register_orchestrator.py"
+    restart: "no"
+    networks:
+      - vtuber_network
+
+  orchestrator-health:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["python", "-m", "payments.remote_health_service"]
+    environment:
+      - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server}
+      - ORCHESTRATOR_HEALTH_PORT=9090
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
 
 networks:
   vtuber_network:

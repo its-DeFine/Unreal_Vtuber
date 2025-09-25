@@ -6,7 +6,7 @@ This document captures the current Pixel Streaming pipeline after retiring the N
 
 The runtime stack is split across two compose files:
 
-* `docker-compose.yml` – livepeer BYOC worker, Ollama helper services, management tooling and monitoring.
+* `backend/docker-compose.yml` – payments backend that monitors the Unreal services and schedules orchestrator payouts.
 * `docker-compose.unreal.yml` – TURN, signaling, and the packaged `vtuber-unreal-game` container.
 
 No additional application containers are required for S1/TTS processing.
@@ -16,6 +16,8 @@ No additional application containers are required for S1/TTS processing.
 ```bash
 ./scripts/start_vtuber_unreal.sh start -d
 ```
+
+An orchestrator registration helper (`orchestrator-registration` service) now runs alongside the Unreal compose file. Configure `PAYMENTS_API_URL` plus the `ORCHESTRATOR_*` variables in `.env` so the helper can post to the payments backend when the stack boots. The helper retries with backoff for up to five minutes but exits cleanly even if the backend is unreachable.
 
 The helper script will:
 

@@ -57,8 +57,8 @@ All services share the external Docker network `vtuber_network`, so the streamer
 1. `git pull --rebase origin feature/vtuber-elevenlabs`
 2. `./scripts/generate_turn_credentials.sh`
 3. (Optional) `docker/aws-pixel-streaming/package-embody.sh /path/to/Embody/Linux`
-4. `docker compose -f docker-compose.yml -f docker-compose.unreal.yml build unreal-signaling`
-5. `docker compose -f docker-compose.yml -f docker-compose.unreal.yml up -d turn-server unreal-signaling unreal-game`
+4. `docker compose -f backend/docker-compose.yml -f docker-compose.unreal.yml build unreal-signaling`
+5. `docker compose -f backend/docker-compose.yml -f docker-compose.unreal.yml up -d turn-server unreal-signaling unreal-game`
 6. Verify logs and ulimit: `docker logs vtuber-unreal-signaling --tail 20`, `docker exec vtuber-unreal-game bash -lc 'ulimit -n'`
 7. Connect via browser at `http://<public-ip>:8080`
 
