@@ -25,43 +25,31 @@ backend issues an on-chain transfer using the configured wallet.
    cp orchestrator.env.example .env
    # edit .env with PAYMENTS_API_URL, ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP, etc.
    ```
-4. Launch the Pixel Streaming stack:
+4. Open the firewall for your dedicated client IP (e.g. 86.106.138.188) and the payments backend (3.141.111.200). Allow:
+   - TCP 8080, 8888, 8889, 9876, 9877 from the client IP.
+   - UDP 3478 and 49160‑49200 from the client IP.
+   - TCP 9090 from the payments backend IP.
+
+   ![Firewall rules](docs/images/firewall-rules.png)
+
+5. Launch the Pixel Streaming stack:
    ```bash
    docker network create vtuber_network 2>/dev/null || true
    docker compose -f docker-compose.unreal.yml up -d
    ```
-5. Register with the payments backend (retries until it succeeds):
+6. Register with the payments backend (retries until it succeeds):
    ```bash
    PAYMENTS_API_URL=http://<payments-ip>:8081 \
    ORCHESTRATOR_ID=<your-id> \
    ORCHESTRATOR_ADDRESS=<your-wallet> \
    python3 scripts/register_orchestrator.py
    ```
-6. Verify:
+7. Verify:
    - Pixel Streaming UI: `http://<PUBLIC_IP>:8080`
    - Runner health: `curl http://<PUBLIC_IP>:9877/health`
    - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
 
 Prefer AWS automation? See [docs/aws-onboarding.md](docs/aws-onboarding.md) for the EC2 provisioning workflow.
-
-## Adding signing credentials
-The backend supports two mutually exclusive signing modes:
-- `PAYMENT_PRIVATE_KEY` – raw hex private key (never commit this).
-- `PAYMENT_KEYSTORE_PATH` + `PAYMENT_KEYSTORE_PASSWORD` – decrypts a standard
-  Web3 keystore file before submitting transactions.
-
-If neither set, the backend runs in dry-run mode and simply logs the transfers
-it *would* submit once the threshold is met.
-
-## Monitoring configuration
-`MONITORED_SERVICES` defaults to the three Unreal containers that constitute a
-healthy deployment: `vtuber-unreal-game`, `vtuber-unreal-signaling`, and
-`vtuber-turn-server`. Override the variable in `.env` if you add or rename
-services in `docker-compose.unreal.yml`.
-
-## Data storage
-Ledger state is persisted under `backend/data/balances.json`. Mount this path to
-external storage if you need the payment history to survive container recreation.
 
 ## Registry & top-100 checks
 On startup the backend records orchestrator metadata under
@@ -70,59 +58,6 @@ pulls the on-chain top 100 list and only enables automatic payments if the
 registered wallet appears in that set. The registration outcome (first-time
 flag, outstanding balance status, and top-100 membership) is logged during
 boot.
-
-## Bootstrap multiple orchestrators
-Environments that manage several Unreal hosts can preload their metadata so the
-backend automatically refreshes every registry entry on startup:
-
-- Create `backend/data/orchestrators.json` (or point `PAYMENTS_BOOTSTRAP_ORCHESTRATORS_PATH`
-  at another location) with an array of objects containing
-  `orchestrator_id`/`address` pairs. Optional fields such as
-  `capability`, `contact_email`, `host_public_ip`, `host_name`,
-  `services_healthy`, `health_url`, `health_timeout`,
-  `monitored_services`, and `min_service_uptime` map directly to the
-  registration API payload.
-- A ready-to-edit template lives at `backend/data/orchestrators.sample.json`.
-  Copy it to `orchestrators.json` and extend the array with the rest of your
-  fleet.
-- Alternatively, set `PAYMENTS_BOOTSTRAP_ORCHESTRATORS` to a JSON string (the
-  same shape as the file) inside `.env` when you prefer environment-only
-  configuration.
-
-Each orchestrator should expose the standard `/health` endpoint (served by
-`payments.remote_health_service`) so the backend can evaluate remote uptime.
-Set `PAYMENTS_DEFAULT_HEALTH_TIMEOUT` and `PAYMENTS_DEFAULT_MIN_SERVICE_UPTIME`
-to control global fallbacks; per-orchestrator overrides can be provided in the
-bootstrap file or registration payload. By default the bootstrap flow skips the
-top-100 contract check to avoid blocking non-public wallets; set
-`PAYMENTS_BOOTSTRAP_SKIP_RANK_VALIDATION=false` if you want the stricter
-behaviour. The legacy single orchestrator mode remains available via
-`PAYMENTS_SINGLE_ORCHESTRATOR_MODE=true` alongside the bootstrap list.
-
-## Multi-orchestrator payouts
-During every cycle the backend now iterates over every registered orchestrator,
-pulls its latest `/health` payload (or falls back to a local Docker monitor),
-updates the ledger, and triggers payouts to the address stored for that
-orchestrator. Cooldowns, balances, and eligibility flags are isolated per ID, so
-an outage on one host no longer blocks rewards for the rest of the fleet.
-
-## Development
-Install dependencies with `pip install -r backend/requirements.txt` and run the
-loop locally via `python -m payments.main`. Set `PAYMENT_DRY_RUN=false` only on
-trusted machines with access to the signing key.
-
-## Further Reading
-
-- [Payments + Orchestrator Deployment Guide](docs/payments-deployment.md) – network topology, required ports, and configuration checklist for multi-host deployments.
-
-## Audit logging
-`payments-log-collector` (Fluent Bit) tails the backend container logs and the
-registry state, writing JSON lines to `backend/data/audit/payments-audit.log` for
-long-term retention. Set `PAYMENTS_AUDIT_LOG_PATH` if you need the registry
-audit trail to land somewhere else (the payments backend appends every
-registration and cooldown transition to that file). Mount the `backend/data`
-directory to durable storage in production so audit artefacts survive
-redeployments.
 
 ## Self-registration API
 The payments service now ships with a FastAPI server bound to `PAYMENTS_API_HOST:PAYMENTS_API_PORT`.
