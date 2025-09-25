@@ -144,12 +144,14 @@ services:
       - .env
     environment:
       - PAYMENTS_API_URL=${PAYMENTS_API_URL:-http://payments-backend:8081}
+      - ORCHESTRATOR_REGISTRATION_DELAY=${ORCHESTRATOR_REGISTRATION_DELAY:-10}
     volumes:
       - .:/workspace:ro
     working_dir: /workspace
     entrypoint:
-      - python3
-      - scripts/register_orchestrator.py
+      - bash
+      - -lc
+      - "sleep ${ORCHESTRATOR_REGISTRATION_DELAY:-10} && python3 scripts/register_orchestrator.py"
     restart: "no"
     networks:
       - vtuber_network

@@ -533,8 +533,10 @@ def orchestrator_registration_command(config: Dict[str, str]) -> str:
         f"ORCHESTRATOR_ADDRESS={config['ORCHESTRATOR_ADDRESS']}",
         "MONITORED_SERVICES=vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server",
         "ORCHESTRATOR_HEALTH_TIMEOUT=5",
+        "PAYMENTS_REGISTRATION_RETRY_SECONDS=10",
+        "PAYMENTS_REGISTRATION_MAX_SECONDS=600",
     ]
-    return " ".join(pieces) + " python3 scripts/register_orchestrator.py --once"
+    return " ".join(pieces) + " python3 scripts/register_orchestrator.py"
 
 
 def main() -> None:

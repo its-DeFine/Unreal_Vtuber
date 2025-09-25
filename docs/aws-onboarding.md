@@ -54,6 +54,9 @@ ALLOCATE_ELASTIC_IP=false          # Set true to allocate and attach a fresh Ela
 ```
 
 Notes:
+- The **dedicated client IP** is the public IPv4 of the workstation(s) that will
+  reach the Pixel Streaming UI. Only this address (plus the payments backend IP)
+  is opened in the security group.
 - The script defaults to subnet `subnet-0aad8738d8ac9fc25`, AMI `ami-0f09ef696435ff61a` (Ubuntu 22.04 + NVIDIA), and a 200 GB gp3 root volume. Override `AWS_SUBNET_ID`, `AWS_AMI_ID`, or `AWS_ROOT_VOLUME_GB` only if you know you need a different environment.
 - Set `ALLOCATE_ELASTIC_IP=true` to automatically allocate a new Elastic IP and attach it to the orchestrator. Alternatively, provide `ELASTIC_IP_ALLOCATION_ID` to reuse an existing allocation.
 - `ORCHESTRATOR_KEY_NAME` is the EC2 key pair label. If it doesn’t exist, the script creates it and writes the private key under `autonomy/scripts/<name>.pem`.
@@ -75,7 +78,7 @@ What happens:
 2. Security group: creates/updates the group `vtuber-orchestrator-autoprovision` with the correct ingress rules (8080/8888-8889/9876-9877/3478/19302-19303/40000-49999 to the dedicated client IP, 9090 to the payments backend IP, 22 to the admin IP ± dedicated IP if toggled).
 3. Instance: launches a `g5.xlarge` instance in `us-east-2`, subnet `subnet-0aad8738d8ac9fc25`, AMI `ami-0f09ef696435ff61a`, with a 200 GB gp3 root volume (override via `AWS_ROOT_VOLUME_GB`). If Elastic IP allocation is enabled it attaches the existing or newly created address automatically.
 4. Bootstrapping: installs OS updates, Docker, NVIDIA driver + container toolkit, reboot, rsyncs `Unreal_Vtuber`, generates TURN credentials, pulls images, starts `docker-compose.unreal.yml`.
-5. Registration: runs `scripts/register_orchestrator.py --once` to register the orchestrator against `PAYMENTS_API_URL` with your ID/address (and contact email if set).
+5. Registration: runs `scripts/register_orchestrator.py` (with built-in retries) to register the orchestrator against `PAYMENTS_API_URL` with your ID/address (and contact email if set).
 6. Output: prints the instance ID, public IP, security group ID, and key path.
 
 Once the command finishes, you can SSH with:

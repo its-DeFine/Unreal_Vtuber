@@ -67,6 +67,7 @@ Set these in `.env` on the orchestrator host before launching:
 ORCHESTRATOR_ID=orch-001
 ORCHESTRATOR_ADDRESS=0xYourPayoutWallet
 PAYMENTS_API_URL=http://<payments-elastic-ip>:8081
+ORCHESTRATOR_REGISTRATION_DELAY=10
 
 # Optional metadata
 ORCHESTRATOR_CAPABILITY=vtuber
@@ -81,6 +82,7 @@ TURN_REALM=your.domain
 ```
 
 - `ORCHESTRATOR_HOST_PUBLIC_IP` is optional; if omitted, the registration helper auto-detects the public IPv4 via the EC2 metadata service.
+- The helper waits `ORCHESTRATOR_REGISTRATION_DELAY` seconds (default 10) before contacting the payments API so the network path is ready.
 - The helper synthesises `health_url` as `http://<public-ip>:9090/health` unless you set `ORCHESTRATOR_HEALTH_URL` explicitly.
 
 Generate `.env.turn` with `./scripts/generate_turn_credentials.sh` whenever you redeploy.
@@ -89,8 +91,9 @@ Generate `.env.turn` with `./scripts/generate_turn_credentials.sh` whenever you 
 
 ```
 PAYMENT_INTERVAL_SECONDS=60
-PAYMENT_INCREMENT_ETH=0.00001
-PAYMENT_PAYOUT_THRESHOLD_ETH=0.00001
+PAYMENT_INCREMENT_ETH=0.00001606079
+PAYMENT_PAYOUT_THRESHOLD_ETH=0.001
+TOP_CONTRACT_ADDRESS=0x35Bcf3c30594191d53231E4FF333E8A770453e40
 ETH_RPC_URL=https://arb1.arbitrum.io/rpc
 ETH_CHAIN_ID=42161
 PAYMENT_PRIVATE_KEY=<hex signer key>
@@ -101,7 +104,7 @@ PAYMENTS_BOOTSTRAP_ORCHESTRATORS_PATH=/app/data/orchestrators.json
 PAYMENTS_BOOTSTRAP_SKIP_RANK_VALIDATION=true
 ```
 
-Legacy single-orchestrator mode still reads `ORCHESTRATOR_ID`, `ORCHESTRATOR_ADDRESS`, and `ORCHESTRATOR_HEALTH_URL` from `.env`, but the recommended approach is to let each orchestrator POST to the API.
+`PAYMENTS_SINGLE_ORCHESTRATOR_MODE` now defaults to `false`; if you turn it back on, also populate `ORCHESTRATOR_ID`, `ORCHESTRATOR_ADDRESS`, and (optionally) `ORCHESTRATOR_HEALTH_URL` so the backend can auto-register that single node. The recommended approach remains letting each orchestrator POST to the API.
 
 ---
 
@@ -136,7 +139,7 @@ If an orchestrator’s public IP changes (e.g., instance restart without Elastic
 
 1. Launch t3.small (or similar) in the correct VPC/subnet.
 2. Allocate and associate an Elastic IP.
-3. Open security group ports: `tcp/8081` (from orchestrator IPs + management), `tcp/22` if SSH is needed.
+3. Open security group ports: `tcp/8081` (from orchestrator IPs, or `0.0.0.0/0` if you expect rotating hosts), `tcp/22` if SSH is needed.
 4. Copy the `backend` compose folder, set `backend/.env`, run `docker compose -f backend/docker-compose.yml up -d`.
 
 ### Orchestrator EC2
