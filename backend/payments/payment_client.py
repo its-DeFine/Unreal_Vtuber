@@ -69,11 +69,16 @@ class PaymentClient:
             return None
 
         sender = self.sender
+        try:
+            recipient_checksum = Web3.to_checksum_address(recipient)
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid recipient address {recipient}") from exc
+
         gas_price = self.web3.eth.gas_price
-        nonce = self.web3.eth.get_transaction_count(sender)
+        nonce = self.web3.eth.get_transaction_count(sender, block_identifier="pending")
         estimate_payload = {
             "from": sender,
-            "to": recipient,
+            "to": recipient_checksum,
             "value": wei_amount,
         }
         try:
@@ -84,7 +89,7 @@ class PaymentClient:
         tx = {
             "chainId": self.chain_id,
             "nonce": nonce,
-            "to": recipient,
+            "to": recipient_checksum,
             "value": wei_amount,
             "gas": gas_limit,
         }
@@ -105,12 +110,12 @@ class PaymentClient:
         else:
             tx["gasPrice"] = gas_price * 2
 
-        signed = self._account.sign_transaction(tx)
+        signed = self.web3.eth.account.sign_transaction(tx, self._account.key)
         raw_tx = getattr(signed, "rawTransaction", None) or getattr(
             signed, "raw_transaction", None
         )
         if raw_tx is None:  # pragma: no cover - defensive, should not happen
             raise RuntimeError("Signed transaction missing raw data")
         tx_hash = self.web3.eth.send_raw_transaction(raw_tx)
-        logger.info("Submitted payment tx %s to %s (%s eth)", tx_hash.hex(), recipient, amount_eth)
+        logger.info("Submitted payment tx %s to %s (%s eth)", tx_hash.hex(), recipient_checksum, amount_eth)
         return tx_hash.hex()
