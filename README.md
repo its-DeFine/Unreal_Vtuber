@@ -10,23 +10,39 @@ backend issues an on-chain transfer using the configured wallet.
 - `backend/docker-compose.yml` – payments backend container that monitors the Unreal services.
 - `backend/payments` – Python package with the monitoring + payout logic.
 
-## Quick start
-1. Copy the sample env: `cp backend/.env.example backend/.env` and update the following values:
-   - `ORCHESTRATOR_ADDRESS` – wallet that should receive rewards.
-   - `PAYMENT_INCREMENT_ETH` – ETH credited for each successful health check.
-   - `PAYMENT_PAYOUT_THRESHOLD_ETH` – when reached, a transfer is triggered.
-   - Optional signing material: set either `PAYMENT_PRIVATE_KEY` **or** the
-     keystore path/password variables. Leave them unset to run in dry-run mode.
-2. Launch the services:
+## Quick start (local GPU host)
+1. Clone the repo and enter it:
+   ```bash
+   git clone https://github.com/its-DeFine/Unreal_Vtuber.git
+   cd Unreal_Vtuber
+   ```
+2. Generate TURN credentials (writes `.env.turn`):
+   ```bash
+   ./scripts/generate_turn_credentials.sh
+   ```
+3. Copy and edit the orchestrator env:
+   ```bash
+   cp orchestrator.env.example .env
+   # edit .env with PAYMENTS_API_URL, ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP, etc.
+   ```
+4. Launch the Pixel Streaming stack:
    ```bash
    docker network create vtuber_network 2>/dev/null || true
    docker compose -f docker-compose.unreal.yml up -d
-   docker compose -f backend/docker-compose.yml up -d
    ```
-3. Tail the backend logs to confirm balance accrual:
+5. Register with the payments backend (retries until it succeeds):
    ```bash
-   docker compose -f backend/docker-compose.yml logs -f payments-backend
+   PAYMENTS_API_URL=http://<payments-ip>:8081 \
+   ORCHESTRATOR_ID=<your-id> \
+   ORCHESTRATOR_ADDRESS=<your-wallet> \
+   python3 scripts/register_orchestrator.py
    ```
+6. Verify:
+   - Pixel Streaming UI: `http://<PUBLIC_IP>:8080`
+   - Runner health: `curl http://<PUBLIC_IP>:9877/health`
+   - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
+
+Prefer AWS automation? See [docs/aws-onboarding.md](docs/aws-onboarding.md) for the EC2 provisioning workflow.
 
 ## Adding signing credentials
 The backend supports two mutually exclusive signing modes:
