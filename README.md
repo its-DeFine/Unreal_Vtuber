@@ -7,11 +7,11 @@ backend issues an on-chain transfer using the configured wallet.
 
 ## What this contains
 - `docker-compose.unreal.yml` – TURN, signaling and packaged Unreal Engine build.
-- `docker-compose.yml` – payments backend container that monitors the Unreal services.
+- `backend/docker-compose.yml` – payments backend container that monitors the Unreal services.
 - `backend/payments` – Python package with the monitoring + payout logic.
 
 ## Quick start
-1. Copy the sample env: `cp .example.env .env` and update the following values:
+1. Copy the sample env: `cp backend/.env.example backend/.env` and update the following values:
    - `ORCHESTRATOR_ADDRESS` – wallet that should receive rewards.
    - `PAYMENT_INCREMENT_ETH` – ETH credited for each successful health check.
    - `PAYMENT_PAYOUT_THRESHOLD_ETH` – when reached, a transfer is triggered.
@@ -21,11 +21,11 @@ backend issues an on-chain transfer using the configured wallet.
    ```bash
    docker network create vtuber_network 2>/dev/null || true
    docker compose -f docker-compose.unreal.yml up -d
-   docker compose up -d
+   docker compose -f backend/docker-compose.yml up -d
    ```
 3. Tail the backend logs to confirm balance accrual:
    ```bash
-   docker compose logs -f payments-backend
+   docker compose -f backend/docker-compose.yml logs -f payments-backend
    ```
 
 ## Adding signing credentials

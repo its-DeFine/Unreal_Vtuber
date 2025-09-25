@@ -49,10 +49,13 @@ ORCHESTRATOR_ID=orch-alpha-test
 ORCHESTRATOR_ADDRESS=0x...         # Payout wallet (checksummed Ethereum address)
 ALLOW_DEDICATED_IP_SSH=false       # Set true if you want the client IP to reach SSH as well
 ORCHESTRATOR_CONTACT_EMAIL=ops@example.com
+ALLOCATE_ELASTIC_IP=false          # Set true to allocate and attach a fresh Elastic IP
+#ELASTIC_IP_ALLOCATION_ID=eipalloc-xxxxxxxxxxxxxxxxx
 ```
 
 Notes:
 - The script defaults to subnet `subnet-0aad8738d8ac9fc25`, AMI `ami-0f09ef696435ff61a` (Ubuntu 22.04 + NVIDIA), and a 200 GB gp3 root volume. Override `AWS_SUBNET_ID`, `AWS_AMI_ID`, or `AWS_ROOT_VOLUME_GB` only if you know you need a different environment.
+- Set `ALLOCATE_ELASTIC_IP=true` to automatically allocate a new Elastic IP and attach it to the orchestrator. Alternatively, provide `ELASTIC_IP_ALLOCATION_ID` to reuse an existing allocation.
 - `ORCHESTRATOR_KEY_NAME` is the EC2 key pair label. If it doesn’t exist, the script creates it and writes the private key under `autonomy/scripts/<name>.pem`.
 - `ALLOW_DEDICATED_IP_SSH=true` opens port 22 to the same client IP that accesses Pixel Streaming. Leave it false if you want SSH restricted solely to the admin IP.
 
@@ -70,7 +73,7 @@ python3 scripts/provision_orchestrator.py
 What happens:
 1. Key pair: creates or reuses the key pair named in `ORCHESTRATOR_KEY_NAME`.
 2. Security group: creates/updates the group `vtuber-orchestrator-autoprovision` with the correct ingress rules (8080/8888-8889/9876-9877/3478/19302-19303/40000-49999 to the dedicated client IP, 9090 to the payments backend IP, 22 to the admin IP ± dedicated IP if toggled).
-3. Instance: launches a `g5.xlarge` instance in `us-east-2`, subnet `subnet-0aad8738d8ac9fc25`, AMI `ami-0f09ef696435ff61a`, with a 200 GB gp3 root volume (override via `AWS_ROOT_VOLUME_GB`).
+3. Instance: launches a `g5.xlarge` instance in `us-east-2`, subnet `subnet-0aad8738d8ac9fc25`, AMI `ami-0f09ef696435ff61a`, with a 200 GB gp3 root volume (override via `AWS_ROOT_VOLUME_GB`). If Elastic IP allocation is enabled it attaches the existing or newly created address automatically.
 4. Bootstrapping: installs OS updates, Docker, NVIDIA driver + container toolkit, reboot, rsyncs `Unreal_Vtuber`, generates TURN credentials, pulls images, starts `docker-compose.unreal.yml`.
 5. Registration: runs `scripts/register_orchestrator.py --once` to register the orchestrator against `PAYMENTS_API_URL` with your ID/address (and contact email if set).
 6. Output: prints the instance ID, public IP, security group ID, and key path.
@@ -92,7 +95,7 @@ ssh -i scripts/<key-name>.pem ubuntu@<public-ip>
   aws ec2 terminate-instances --instance-ids <id> --region us-east-2
   ```
 
-Remember to resume the payments backend container (`docker compose -f payments/docker-compose.yml unpause payments-backend`) once you need payouts to flow again.
+Remember to resume the payments backend container (`docker compose -f backend/docker-compose.yml unpause payments-backend`) once you need payouts to flow again.
 
 ---
 
@@ -104,7 +107,7 @@ Remember to resume the payments backend container (`docker compose -f payments/d
 | Launch fails: “g5.xlarge not available” | Account/region lacks G5 quota | File a limit-increase request for G5 instances in `us-east-2` |
 | SSH times out | Security group doesn’t allow your IP | Re-run the script with correct `ADMIN_SOURCE_IP` (or enable `ALLOW_DEDICATED_IP_SSH`) |
 | Pixel Streaming not accessible from client | `DEDICATED_CLIENT_IP` incorrect | Update the env file and rerun provisioning or adjust the security group manually |
-| Payments API still paused | Payments backend left paused after earlier tests | `ssh ubuntu@3.141.111.200` then `docker compose -f payments/docker-compose.yml unpause payments-backend` |
+| Payments API still paused | Payments backend left paused after earlier tests | `ssh ubuntu@3.141.111.200` then `docker compose -f backend/docker-compose.yml unpause payments-backend` |
 
 When in doubt, check CloudWatch or EC2 console logs for the instance, and tail the orchestrator containers:
 ```bash

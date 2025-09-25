@@ -11,7 +11,7 @@ This document reflects the current production layout where the payments backend 
 | Payments EC2         |<---health----|  Unreal Orchestrator |
 | (t3.small or similar)|              |  (g4/g5 instance)     |
 |                      |----payouts-->|                      |
-| docker-compose.yml   |              | docker-compose.unreal|
+| backend/docker-compose.yml |        | docker-compose.unreal|
 +----------------------+              +----------------------+
                  ^                                  ^
                  |                                  |
@@ -19,7 +19,7 @@ This document reflects the current production layout where the payments backend 
          (SSH/API access)                   Livepeer traffic
 ```
 
-- **Payments EC2**: runs `payments-backend` and the Fluent Bit collector (from `docker-compose.yml`). In production we deploy this compose stack on a **separate EC2 instance** (no GPU required) so the payment loop is isolated from the Unreal workloads.
+- **Payments EC2**: runs `payments-backend` and the Fluent Bit collector (from `backend/docker-compose.yml`). In production we deploy this compose stack on a **separate EC2 instance** (no GPU required) so the payment loop is isolated from the Unreal workloads.
 - **Orchestrator EC2**: runs TURN, signaling, packaged Unreal, script runner, and the registration helper (from `docker-compose.unreal.yml`).
 - Multiple orchestrators can report to the same payments backend—the backend monitors each via the `health_url` they register.
 
@@ -85,7 +85,7 @@ TURN_REALM=your.domain
 
 Generate `.env.turn` with `./scripts/generate_turn_credentials.sh` whenever you redeploy.
 
-### Payments backend (`docker-compose.yml`)
+### Payments backend (`backend/docker-compose.yml`)
 
 ```
 PAYMENT_INTERVAL_SECONDS=60
@@ -137,7 +137,7 @@ If an orchestrator’s public IP changes (e.g., instance restart without Elastic
 1. Launch t3.small (or similar) in the correct VPC/subnet.
 2. Allocate and associate an Elastic IP.
 3. Open security group ports: `tcp/8081` (from orchestrator IPs + management), `tcp/22` if SSH is needed.
-4. Copy the `payments` compose folder, set `.env`, run `docker compose up -d`.
+4. Copy the `backend` compose folder, set `backend/.env`, run `docker compose -f backend/docker-compose.yml up -d`.
 
 ### Orchestrator EC2
 

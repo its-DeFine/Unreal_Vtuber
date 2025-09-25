@@ -6,7 +6,7 @@ This document captures the current Pixel Streaming pipeline after retiring the N
 
 The runtime stack is split across two compose files:
 
-* `docker-compose.yml` – payments backend that monitors the Unreal services and schedules orchestrator payouts.
+* `backend/docker-compose.yml` – payments backend that monitors the Unreal services and schedules orchestrator payouts.
 * `docker-compose.unreal.yml` – TURN, signaling, and the packaged `vtuber-unreal-game` container.
 
 No additional application containers are required for S1/TTS processing.

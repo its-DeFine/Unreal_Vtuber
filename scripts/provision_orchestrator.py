@@ -348,6 +348,73 @@ def wait_for_instance(instance_id: str, region: str) -> Dict[str, str]:
     return json.loads(desc.stdout)
 
 
+def maybe_allocate_elastic_ip(
+    config: Dict[str, str],
+    instance_id: str,
+    region: str,
+) -> Optional[Dict[str, str]]:
+    allocation_id = config.get("ELASTIC_IP_ALLOCATION_ID")
+    allocate_new = parse_bool(config.get("ALLOCATE_ELASTIC_IP"))
+
+    if not allocation_id and not allocate_new:
+        return None
+
+    if allocation_id:
+        info(f"Associating existing Elastic IP allocation {allocation_id}")
+    else:
+        info("Allocating new Elastic IP")
+        allocate = run(
+            [
+                "aws",
+                "ec2",
+                "allocate-address",
+                "--domain",
+                "vpc",
+                "--region",
+                region,
+            ],
+            capture_output=True,
+        )
+        data = json.loads(allocate.stdout)
+        allocation_id = data["AllocationId"]
+        info(f"Allocated Elastic IP {data['PublicIp']} ({allocation_id})")
+
+    run(
+        [
+            "aws",
+            "ec2",
+            "associate-address",
+            "--instance-id",
+            instance_id,
+            "--allocation-id",
+            allocation_id,
+            "--region",
+            region,
+        ]
+    )
+
+    desc = run(
+        [
+            "aws",
+            "ec2",
+            "describe-instances",
+            "--instance-ids",
+            instance_id,
+            "--query",
+            "Reservations[0].Instances[0].{PublicIp:PublicIpAddress,PrivateIp:PrivateIpAddress,AvailabilityZone:Placement.AvailabilityZone}",
+            "--output",
+            "json",
+            "--region",
+            region,
+        ],
+        capture_output=True,
+    )
+
+    details = json.loads(desc.stdout)
+    details["AllocationId"] = allocation_id
+    return details
+
+
 def wait_for_ssh(ip: str, key_path: Path) -> None:
     info("Waiting for SSH to become available...")
     deadline = time.time() + 900  # 15 minutes
@@ -494,6 +561,13 @@ def main() -> None:
     public_ip = details["PublicIp"]
     info(f"Instance {instance_id} reachable at {public_ip}")
 
+    elastic_details = maybe_allocate_elastic_ip(config, instance_id, config["AWS_REGION"])
+    allocation_id = None
+    if elastic_details:
+        public_ip = elastic_details.get("PublicIp", public_ip)
+        allocation_id = elastic_details.get("AllocationId")
+        info(f"Elastic IP associated; updated public IP: {public_ip}")
+
     wait_for_ssh(public_ip, key_path)
     reboot_and_wait(public_ip, key_path)
 
@@ -560,6 +634,7 @@ def main() -> None:
             --------------------------------------------------------
             Instance ID     : {instance_id}
             Public IP       : {public_ip}
+            Elastic IP ID   : {allocation_id or 'n/a'}
             Security Group  : {sg_id}
             SSH Key         : {key_path}
 
