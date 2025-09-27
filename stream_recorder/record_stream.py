@@ -21,7 +21,13 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import aiohttp
-from aiortc import RTCIceCandidate, RTCPeerConnection, RTCSessionDescription
+from aiortc import (
+    RTCIceCandidate,
+    RTCIceServer,
+    RTCPeerConnection,
+    RTCSessionDescription,
+    RTCConfiguration,
+)
 from aiortc.contrib.media import MediaRecorder
 
 logger = logging.getLogger("pixelstream.recorder")
@@ -141,7 +147,17 @@ class PixelStreamingRecorder:
     async def _create_pc(self) -> RTCPeerConnection:
         if self.pc:
             return self.pc
-        configuration = self.peer_connection_options or {}
+        ice_servers: list[RTCIceServer] = []
+        if self.peer_connection_options:
+            for entry in self.peer_connection_options.get("iceServers", []):
+                if isinstance(entry, dict):
+                    ice_servers.append(RTCIceServer(**entry))
+                else:
+                    ice_servers.append(entry)
+        configuration = RTCConfiguration(iceServers=ice_servers)
+        for attr in ("bundlePolicy", "rtcpMuxPolicy", "iceTransportPolicy"):
+            if self.peer_connection_options and attr in self.peer_connection_options:
+                setattr(configuration, attr, self.peer_connection_options[attr])
         pc = RTCPeerConnection(configuration=configuration)
         pc.on("track", self._on_track)
 
