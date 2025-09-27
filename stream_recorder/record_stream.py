@@ -185,7 +185,13 @@ class PixelStreamingRecorder:
         if not self.recorder:
             output_dir = self.cfg.output_path.parent
             output_dir.mkdir(parents=True, exist_ok=True)
-            self.recorder = MediaRecorder(str(self.cfg.output_path))
+            recording_kwargs: Dict[str, Any] = {}
+            suffix = self.cfg.output_path.suffix.lower()
+            if suffix == ".webm":
+                recording_kwargs.update({"format": "webm", "video_encoder": "vp8"})
+            elif suffix in {".mp4", ".m4v", ".mov"}:
+                recording_kwargs.update({"format": "mp4", "video_encoder": "libx264"})
+            self.recorder = MediaRecorder(str(self.cfg.output_path), **recording_kwargs)
         return self.recorder
 
     def _on_track(self, track) -> None:
