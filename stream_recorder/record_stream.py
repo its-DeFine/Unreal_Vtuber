@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import sys
+import types
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -28,7 +29,7 @@ from aiortc import (
     RTCSessionDescription,
     RTCConfiguration,
 )
-from aiortc.contrib.media import MediaRecorder
+from aiortc.contrib.media import MediaRecorder, MediaRecorderContext
 
 logger = logging.getLogger("pixelstream.recorder")
 
@@ -193,17 +194,41 @@ class PixelStreamingRecorder:
                 recording_kwargs["format"] = "mp4"
             self.recorder = MediaRecorder(str(self.cfg.output_path), **recording_kwargs)
             if suffix == ".webm":
-                container = getattr(self.recorder, "_MediaRecorder__container", None)
-                if container is not None:
-                    original_add_stream = container.add_stream
-
-                    def _patched_add_stream(codec_name, *args, **kwargs):
-                        if codec_name == "libx264":
-                            codec_name = "libvpx"
-                        return original_add_stream(codec_name, *args, **kwargs)
-
-                    container.add_stream = _patched_add_stream  # type: ignore[attr-defined]
+                self._patch_recorder_for_webm()
         return self.recorder
+
+    def _patch_recorder_for_webm(self) -> None:
+        recorder = self.recorder
+        if recorder is None:
+            return
+
+        def _webm_add_track(self_recorder, track) -> None:
+            container = getattr(self_recorder, "_MediaRecorder__container", None)
+            tracks = getattr(self_recorder, "_MediaRecorder__tracks", None)
+            if container is None or tracks is None:
+                raise RuntimeError("Recorder container unavailable")
+
+            if track.kind == "audio":
+                if container.format.name in ("wav", "alsa", "pulse"):
+                    codec_name = "pcm_s16le"
+                elif container.format.name == "mp3":
+                    codec_name = "mp3"
+                elif container.format.name == "ogg":
+                    codec_name = "libopus"
+                else:
+                    codec_name = "aac"
+                stream = container.add_stream(codec_name)
+            else:
+                if container.format.name == "image2":
+                    stream = container.add_stream("png", rate=30)
+                    stream.pix_fmt = "rgb24"
+                else:
+                    stream = container.add_stream("libvpx", rate=30)
+                    stream.pix_fmt = "yuv420p"
+
+            tracks[track] = MediaRecorderContext(stream)
+
+        recorder.addTrack = types.MethodType(_webm_add_track, recorder)  # type: ignore[assignment]
 
     def _on_track(self, track) -> None:
         logger.info("Track received: %s", track.kind)
