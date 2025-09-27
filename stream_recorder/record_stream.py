@@ -188,10 +188,21 @@ class PixelStreamingRecorder:
             recording_kwargs: Dict[str, Any] = {}
             suffix = self.cfg.output_path.suffix.lower()
             if suffix == ".webm":
-                recording_kwargs.update({"format": "webm", "video_encoder": "vp8"})
+                recording_kwargs["format"] = "webm"
             elif suffix in {".mp4", ".m4v", ".mov"}:
-                recording_kwargs.update({"format": "mp4", "video_encoder": "libx264"})
+                recording_kwargs["format"] = "mp4"
             self.recorder = MediaRecorder(str(self.cfg.output_path), **recording_kwargs)
+            if suffix == ".webm":
+                container = getattr(self.recorder, "_MediaRecorder__container", None)
+                if container is not None:
+                    original_add_stream = container.add_stream
+
+                    def _patched_add_stream(codec_name, *args, **kwargs):
+                        if codec_name == "libx264":
+                            codec_name = "libvpx"
+                        return original_add_stream(codec_name, *args, **kwargs)
+
+                    container.add_stream = _patched_add_stream  # type: ignore[attr-defined]
         return self.recorder
 
     def _on_track(self, track) -> None:
