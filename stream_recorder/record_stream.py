@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -50,7 +51,7 @@ class PixelStreamingRecorder:
         self.close_event = asyncio.Event()
         self.shutting_down = False
 
-    async def run(self) -> None:
+    async def run(self) -> bool:
         logger.info("Connecting to signalling server %s", self.cfg.signalling_url)
         async with aiohttp.ClientSession() as session:
             self.session = session
@@ -70,6 +71,7 @@ class PixelStreamingRecorder:
                         raise exc
 
         await self._shutdown()
+        return self.recorder_started
 
     async def _consume(self) -> None:
         assert self.ws is not None
@@ -201,6 +203,13 @@ class PixelStreamingRecorder:
         await self._send_message(response)
         logger.info("Sent SDP answer")
 
+        # Epic's player requests quality control immediately so frames flow to us.
+        try:
+            await self._send_message({"type": "requestQualityControl"})
+            logger.debug("Requested quality control ownership")
+        except Exception as exc:
+            logger.warning("Failed to request quality control: %s", exc)
+
         if self.cfg.duration is not None:
             self.active.set()
 
@@ -247,7 +256,7 @@ class PixelStreamingRecorder:
         await self._close_pc()
 
 
-async def async_main(args: argparse.Namespace) -> None:
+async def async_main(args: argparse.Namespace) -> bool:
     cfg = RecorderConfig(
         signalling_url=args.signalling_url,
         output_path=Path(args.output).resolve(),
@@ -256,7 +265,51 @@ async def async_main(args: argparse.Namespace) -> None:
         inactivity_timeout=args.inactivity_timeout,
     )
     recorder = PixelStreamingRecorder(cfg)
-    await recorder.run()
+    return await recorder.run()
+
+
+def _maybe_upload(args: argparse.Namespace, recorded: bool) -> None:
+    if not args.storage_url:
+        if any((args.session_id, args.upload_orchestrator_id, args.storage_token)):
+            logger.warning(
+                "Upload parameters provided without --storage-url; skipping upload"
+            )
+        return
+
+    if not args.session_id:
+        raise ValueError("--storage-url requires --session-id for automatic upload")
+
+    output_path = Path(args.output).resolve()
+    if not recorded:
+        logger.warning("No media tracks were recorded; skipping upload to %s", args.storage_url)
+        return
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        logger.warning(
+            "Output %s is missing or empty; skipping upload to %s",
+            output_path,
+            args.storage_url,
+        )
+        return
+
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.append(str(repo_root))
+    from scripts.upload_capture import upload as upload_capture  # type: ignore
+
+    logger.info(
+        "Uploading %s to %s (session %s)",
+        output_path,
+        args.storage_url,
+        args.session_id,
+    )
+    upload_capture(
+        output_path,
+        args.storage_url,
+        args.session_id,
+        orchestrator_id=args.upload_orchestrator_id,
+        token=args.storage_token,
+    )
+    logger.info("Upload completed successfully")
 
 
 def parse_args() -> argparse.Namespace:
@@ -294,9 +347,31 @@ def parse_args() -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging verbosity"
     )
+    parser.add_argument(
+        "--storage-url",
+        default=None,
+        help="Optional storage service base URL; when provided alongside --session-id the recording is uploaded automatically"
+    )
+    parser.add_argument(
+        "--session-id",
+        default=None,
+        help="Capture session identifier used when uploading"
+    )
+    parser.add_argument(
+        "--upload-orchestrator-id",
+        default=None,
+        help="Optional orchestrator id passed through to the storage service during upload"
+    )
+    parser.add_argument(
+        "--storage-token",
+        default=None,
+        help="Optional token supplied as X-Storage-Token when uploading"
+    )
     args = parser.parse_args()
     if args.duration and args.duration <= 0:
         args.duration = None
+    if bool(args.storage_url) ^ bool(args.session_id):
+        parser.error("--storage-url and --session-id must be provided together for automatic upload")
     logging.basicConfig(level=getattr(logging, args.log_level))
     return args
 
@@ -304,7 +379,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     try:
-        asyncio.run(async_main(args))
+        recorded = asyncio.run(async_main(args))
+        if not recorded:
+            logger.warning("Recorder stopped without receiving any media tracks")
+        _maybe_upload(args, recorded)
     except KeyboardInterrupt:
         logger.info("Interrupted")
 

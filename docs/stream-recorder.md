@@ -25,6 +25,17 @@ python stream_recorder/record_stream.py \
   --output captures/session-001.webm \
   --duration 120 \
   --streamer orch-alpha
+
+# Automatically upload to the storage service when complete:
+
+python stream_recorder/record_stream.py \
+  --signalling-url ws://86.106.138.188:8888 \
+  --output captures/session-001.webm \
+  --duration 120 \
+  --session-id session-001 \
+  --storage-url http://storage-unit:9000 \
+  --upload-orchestrator-id orch-alpha \
+  --storage-token supersecret
 ```
 
 Arguments:
@@ -33,12 +44,10 @@ Arguments:
 - `--output` – Destination file (extension determines container format).
 - `--duration` – Seconds to record (omit or set 0 to run until the stream ends).
 - `--streamer` – Optional explicit streamer id (otherwise the first available stream is chosen).
+- `--storage-url` + `--session-id` – When supplied together, the recorder automatically uploads the capture via `scripts/upload_capture.py`.
+- `--upload-orchestrator-id` – Optional orchestrator identifier forwarded to the storage API during upload.
+- `--storage-token` – Optional bearer token passed as `X-Storage-Token` when uploading.
 
 The recorder automatically responds to signalling pings, exchanges SDP offer/answer, forwards ICE candidates, and writes the resulting media stream via `aiortc.MediaRecorder`.
 
-Once the file is written, reuse `scripts/upload_capture.py` to push the recording to the storage service:
-
-```bash
-python scripts/upload_capture.py captures/session-001.webm session-001 \
-  http://storage-unit:9000 --orchestrator-id orch-alpha --token supersecret
-```
+If upload arguments are omitted you can still call `scripts/upload_capture.py` manually after recording.
