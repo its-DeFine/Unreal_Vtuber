@@ -23,12 +23,12 @@ from typing import Any, Dict, Optional
 
 import aiohttp
 from aiortc import (
-    RTCIceCandidate,
     RTCIceServer,
     RTCPeerConnection,
     RTCSessionDescription,
     RTCConfiguration,
 )
+from aiortc.sdp import candidate_from_sdp
 from aiortc.contrib.media import MediaRecorder, MediaRecorderContext
 
 logger = logging.getLogger("pixelstream.recorder")
@@ -279,11 +279,12 @@ class PixelStreamingRecorder:
         candidate_info = message.get("candidate")
         if not candidate_info:
             return
-        candidate = RTCIceCandidate(
-            sdpMid=candidate_info.get("sdpMid"),
-            sdpMLineIndex=candidate_info.get("sdpMLineIndex"),
-            candidate=candidate_info.get("candidate"),
-        )
+        candidate_sdp = candidate_info.get("candidate")
+        if not candidate_sdp:
+            return
+        candidate = candidate_from_sdp(candidate_sdp)
+        candidate.sdpMid = candidate_info.get("sdpMid")
+        candidate.sdpMLineIndex = candidate_info.get("sdpMLineIndex")
         pc = await self._create_pc()
         await pc.addIceCandidate(candidate)
 
