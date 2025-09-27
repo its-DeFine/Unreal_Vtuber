@@ -28,6 +28,8 @@ def settings():
         top_contract_abi_path=None,
         registration_rate_limit_per_minute=5,
         registration_rate_limit_burst=5,
+        capture_proof_ttl_seconds=300,
+        require_trusted_capture=False,
     )
 
 
@@ -133,3 +135,33 @@ def test_address_uniqueness(temp_paths, settings):
                 address="0xAAAA",
             )
     assert exc.value.status_code == 409
+
+
+def test_record_capture_proof_updates_state(temp_paths, settings):
+    balances_path, registry_path = temp_paths
+    registry = create_registry(registry_path, balances_path, settings)
+
+    registry.register(
+        orchestrator_id="orch-proof",
+        address="0xCCCC",
+        skip_rank_validation=True,
+    )
+
+    registry.record_capture_proof(
+        "orch-proof",
+        nonce="nonce-123",
+        frame_root="frame-root",
+        command_root="command-root",
+        script_root="script-root",
+        asset_root="asset-root",
+        proof_hash="hash",
+        attestation={"nonce": "nonce-123"},
+        gpu_uuid="GPU-123",
+        trust_level="trusted",
+    )
+
+    assert registry.has_fresh_proof(
+        "orch-proof",
+        ttl_seconds=60,
+        require_trusted=True,
+    )

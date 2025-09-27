@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -102,10 +102,23 @@ class PaymentSettings(BaseSettings):
     )
     payment_miss_threshold: int = Field(default=3, env="PAYMENTS_MISS_THRESHOLD")
     payment_cooldown_seconds: int = Field(default=3600, env="PAYMENTS_COOLDOWN_SECONDS")
+    capture_proof_ttl_seconds: int = Field(
+        default=300,
+        env="PAYMENTS_CAPTURE_PROOF_TTL_SECONDS",
+    )
+    require_trusted_capture: bool = Field(
+        default=False,
+        env="PAYMENTS_REQUIRE_TRUSTED_CAPTURE",
+    )
 
     default_health_timeout: float = Field(default=5.0, env="PAYMENTS_DEFAULT_HEALTH_TIMEOUT")
     default_min_service_uptime: float = Field(default=80.0, env="PAYMENTS_DEFAULT_MIN_SERVICE_UPTIME")
     audit_log_path: Path = Field(default=Path("/app/data/audit/registry.log"), env="PAYMENTS_AUDIT_LOG_PATH")
+
+    # Static list configured via env parsing in .env (not required)
+    denylist_addresses: List[str] = Field(default_factory=list)
+    # Raw env-driven denylist (comma/space separated)
+    denylist_addresses_env: Optional[str] = Field(default=None, env="PAYMENTS_DENYLIST_ADDRESSES")
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -137,6 +150,7 @@ class PaymentSettings(BaseSettings):
         "registration_rate_limit_burst",
         "payment_miss_threshold",
         "payment_cooldown_seconds",
+        "capture_proof_ttl_seconds",
         "top_cache_ttl_seconds",
     )
     def validate_positive_int(cls, value: int) -> int:
@@ -155,6 +169,23 @@ class PaymentSettings(BaseSettings):
         if value <= 0:
             raise ValueError("Value must be positive")
         return value
+
+    def denylist_set(self) -> set[str]:
+        pool: set[str] = set(a.lower() for a in (self.denylist_addresses or []))
+        raw = (self.denylist_addresses_env or os.environ.get("PAYMENTS_DENYLIST_ADDRESSES") or "").strip()
+        if raw:
+            for part in raw.replace("\n", ",").replace("\t", ",").split(","):
+                part = part.strip()
+                if part:
+                    pool.add(part.lower())
+        return pool
+
+    def is_denylisted(self, address: str) -> bool:
+        try:
+            addr = address.lower()
+        except Exception:
+            return False
+        return addr in self.denylist_set()
 
     @model_validator(mode="after")
     def validate_single_orchestrator_mode(self) -> "PaymentSettings":

@@ -92,6 +92,18 @@ class PaymentProcessor:
         )
 
         if eligible and services_up == total_services and total_services > 0:
+            proof_ttl = max(1, self.settings.capture_proof_ttl_seconds)
+            if not self.registry.has_fresh_proof(
+                orchestrator_id,
+                ttl_seconds=proof_ttl,
+                require_trusted=self.settings.require_trusted_capture,
+            ):
+                logger.info(
+                    "[%s] Skipping credit: fresh capture proof missing",
+                    orchestrator_id,
+                )
+                return
+
             increment = self.settings.payment_increment_eth
             new_balance = self.ledger.credit(orchestrator_id, increment)
             logger.info(

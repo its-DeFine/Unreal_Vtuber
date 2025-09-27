@@ -18,6 +18,10 @@ from .orchestrators import fetch_orchestrator_addresses, fetch_top_orchestrators
 
 logger = logging.getLogger(__name__)
 
+TRUSTED_LEVEL = "trusted"
+UNTRUSTED_LEVEL = "untrusted"
+VALID_TRUST_LEVELS = {TRUSTED_LEVEL, UNTRUSTED_LEVEL}
+
 
 class RegistryError(Exception):
     """Raised when a registration request cannot be completed."""
@@ -37,6 +41,7 @@ class RegistrationResult:
     eligible_for_payments: bool
     has_active_payments: bool
     cooldown_expires_at: Optional[str]
+    capture_trust_level: str
     message: str
 
 
@@ -153,6 +158,17 @@ class Registry:
         normalized.setdefault("last_cooldown_started_at", record.get("last_cooldown_started_at"))
         normalized.setdefault("last_cooldown_cleared_at", record.get("last_cooldown_cleared_at"))
         normalized.setdefault("last_healthy_at", record.get("last_healthy_at"))
+        normalized.setdefault("capture_trust_level", record.get("capture_trust_level") or UNTRUSTED_LEVEL)
+        normalized.setdefault("tee_quote", record.get("tee_quote"))
+        normalized.setdefault("gpu_uuid", record.get("gpu_uuid"))
+        normalized.setdefault("last_attested_at", record.get("last_attested_at"))
+        normalized.setdefault("last_attested_nonce", record.get("last_attested_nonce"))
+        normalized.setdefault("frame_root", record.get("frame_root"))
+        normalized.setdefault("command_root", record.get("command_root"))
+        normalized.setdefault("script_root", record.get("script_root"))
+        normalized.setdefault("asset_root", record.get("asset_root"))
+        normalized.setdefault("last_proof_at", record.get("last_proof_at"))
+        normalized.setdefault("proof_hash", record.get("proof_hash"))
         return normalized
 
     # ------------------------------------------------------------------
@@ -253,6 +269,7 @@ class Registry:
                     "first_seen": now_iso,
                     "registration_count": 0,
                     "eligible_for_payments": True,
+                    "capture_trust_level": UNTRUSTED_LEVEL,
                 }
 
             previous_address = record.get("address")
@@ -282,6 +299,17 @@ class Registry:
                 except (TypeError, ValueError):
                     min_service_uptime = record.get("min_service_uptime")
 
+            requested_trust_level = (
+                metadata.get("capture_trust_level")
+                or record.get("capture_trust_level")
+                or UNTRUSTED_LEVEL
+            )
+            if requested_trust_level not in VALID_TRUST_LEVELS:
+                raise RegistryError(
+                    "Invalid capture trust level",
+                    status_code=400,
+                )
+
             record.update(
                 {
                     "address": address,
@@ -305,6 +333,7 @@ class Registry:
                     "min_service_uptime": min_service_uptime
                     if min_service_uptime is not None
                     else record.get("min_service_uptime"),
+                    "capture_trust_level": requested_trust_level,
                 }
             )
 
@@ -346,6 +375,7 @@ class Registry:
             eligible_for_payments=eligible_flag,
             has_active_payments=has_active_payments,
             cooldown_expires_at=record.get("cooldown_expires_at"),
+            capture_trust_level=requested_trust_level,
             message=message,
         )
 
@@ -422,6 +452,84 @@ class Registry:
                 return
             record["last_healthy_at"] = datetime.now(timezone.utc).isoformat()
             self._persist()
+
+    def record_capture_proof(
+        self,
+        orchestrator_id: str,
+        *,
+        nonce: str,
+        frame_root: str,
+        command_root: str,
+        script_root: str,
+        asset_root: Optional[str],
+        proof_hash: str,
+        attestation: Dict[str, Any],
+        gpu_uuid: Optional[str],
+        trust_level: Optional[str],
+    ) -> None:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            record = self._records.get(orchestrator_id)
+            if not record:
+                raise RegistryError("Unknown orchestrator", status_code=404)
+
+            if trust_level and trust_level not in VALID_TRUST_LEVELS:
+                raise RegistryError("Invalid capture trust level", status_code=400)
+
+            record["last_attested_nonce"] = nonce
+            record["last_attested_at"] = timestamp
+            record["frame_root"] = frame_root
+            record["command_root"] = command_root
+            record["script_root"] = script_root
+            record["asset_root"] = asset_root
+            record["proof_hash"] = proof_hash
+            record["last_proof_at"] = timestamp
+            record["tee_quote"] = attestation
+            if gpu_uuid:
+                record["gpu_uuid"] = gpu_uuid
+            if trust_level:
+                record["capture_trust_level"] = trust_level
+            self._persist()
+
+        payload = {
+            "nonce": nonce,
+            "frame_root": frame_root,
+            "command_root": command_root,
+            "script_root": script_root,
+            "asset_root": asset_root,
+            "proof_hash": proof_hash,
+            "gpu_uuid": gpu_uuid,
+            "capture_trust_level": record.get("capture_trust_level"),
+        }
+        self._write_audit_event("capture_proof_recorded", orchestrator_id, payload)
+
+    def has_fresh_proof(
+        self,
+        orchestrator_id: str,
+        *,
+        ttl_seconds: int,
+        require_trusted: bool,
+    ) -> bool:
+        with self._lock:
+            record = self._records.get(orchestrator_id)
+            if not record:
+                return False
+
+            trust_level = record.get("capture_trust_level") or UNTRUSTED_LEVEL
+            if require_trusted and trust_level != TRUSTED_LEVEL:
+                return False
+
+            last = record.get("last_proof_at")
+            if not last:
+                return False
+            try:
+                last_dt = datetime.fromisoformat(last)
+            except ValueError:
+                return False
+            age = datetime.now(timezone.utc) - last_dt
+            if age.total_seconds() > ttl_seconds:
+                return False
+            return True
 
     def get_record(self, orchestrator_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:

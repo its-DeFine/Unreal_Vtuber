@@ -13,7 +13,9 @@ from pydantic import BaseModel, Field, field_validator
 
 from .config import PaymentSettings
 from .ledger import Ledger
-from .registry import Registry, RegistryError
+from .attestation import AttestationError, verify_attestation
+from .proofs import ProofVerificationError, verify_script_proof
+from .registry import VALID_TRUST_LEVELS, Registry, RegistryError
 
 
 class RateLimiter:
@@ -50,6 +52,7 @@ class RegistrationPayload(BaseModel):
     health_timeout: Optional[float] = Field(default=None, ge=0.1, le=60.0)
     monitored_services: Optional[List[str]] = Field(default=None)
     min_service_uptime: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+    capture_trust_level: Optional[str] = Field(default=None, max_length=32)
 
     @field_validator("contact_email")
     @classmethod
@@ -82,6 +85,16 @@ class RegistrationPayload(BaseModel):
             raise ValueError("monitored_services limit is 25 entries")
         return cleaned
 
+    @field_validator("capture_trust_level")
+    @classmethod
+    def validate_trust_level(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = value.lower()
+        if normalized not in VALID_TRUST_LEVELS:
+            raise ValueError("capture_trust_level must be 'trusted' or 'untrusted'")
+        return normalized
+
 
 class RegistrationResponse(BaseModel):
     orchestrator_id: str
@@ -91,6 +104,7 @@ class RegistrationResponse(BaseModel):
     is_top_100: bool
     registration_count: int
     cooldown_expires_at: Optional[str]
+    capture_trust_level: str
     message: str
 
 
@@ -118,10 +132,50 @@ class OrchestratorRecord(BaseModel):
     health_timeout: Optional[float]
     monitored_services: Optional[List[str]]
     min_service_uptime: Optional[float]
+    capture_trust_level: str
+    gpu_uuid: Optional[str]
+    frame_root: Optional[str]
+    command_root: Optional[str]
+    script_root: Optional[str]
+    asset_root: Optional[str]
+    last_attested_at: Optional[str]
+    last_attested_nonce: Optional[str]
+    last_proof_at: Optional[str]
+    proof_hash: Optional[str]
+    tee_quote: Optional[Dict[str, Any]]
 
 
 class OrchestratorsResponse(BaseModel):
     orchestrators: List[OrchestratorRecord]
+
+
+class ProofSubmission(BaseModel):
+    orchestrator_id: str = Field(min_length=1, max_length=128)
+    nonce: str = Field(min_length=1, max_length=256)
+    attestation: Dict[str, Any]
+    frame_hash_root: str = Field(min_length=1, max_length=256)
+    command_root: str = Field(min_length=1, max_length=256)
+    script_root: str = Field(min_length=1, max_length=256)
+    asset_root: Optional[str] = Field(default=None, max_length=256)
+    proof: Dict[str, Any]
+    capture_trust_level: Optional[str] = Field(default=None, max_length=32)
+
+    @field_validator("capture_trust_level")
+    @classmethod
+    def validate_trust_level(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = value.lower()
+        if normalized not in VALID_TRUST_LEVELS:
+            raise ValueError("capture_trust_level must be 'trusted' or 'untrusted'")
+        return normalized
+
+
+class ProofSubmissionResponse(BaseModel):
+    orchestrator_id: str
+    capture_trust_level: str
+    last_proof_at: str
+    proof_hash: str
 
 
 def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) -> FastAPI:
@@ -178,6 +232,8 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
             metadata["monitored_services"] = payload.monitored_services
         if payload.min_service_uptime is not None:
             metadata["min_service_uptime"] = payload.min_service_uptime
+        if payload.capture_trust_level:
+            metadata["capture_trust_level"] = payload.capture_trust_level
 
         result = registry.register(
             orchestrator_id=payload.orchestrator_id,
@@ -194,6 +250,7 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
             is_top_100=result.is_top_100,
             registration_count=result.registration_count,
             cooldown_expires_at=result.cooldown_expires_at,
+            capture_trust_level=result.capture_trust_level,
             message=result.message,
         )
 
@@ -237,6 +294,17 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
                     health_timeout=record.get("health_timeout"),
                     monitored_services=record.get("monitored_services"),
                     min_service_uptime=record.get("min_service_uptime"),
+                    capture_trust_level=record.get("capture_trust_level", "untrusted"),
+                    gpu_uuid=record.get("gpu_uuid"),
+                    frame_root=record.get("frame_root"),
+                    command_root=record.get("command_root"),
+                    script_root=record.get("script_root"),
+                    asset_root=record.get("asset_root"),
+                    last_attested_at=record.get("last_attested_at"),
+                    last_attested_nonce=record.get("last_attested_nonce"),
+                    last_proof_at=record.get("last_proof_at"),
+                    proof_hash=record.get("proof_hash"),
+                    tee_quote=record.get("tee_quote"),
                 )
             )
 
@@ -276,6 +344,71 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
             last_healthy_at=record.get("last_healthy_at"),
             last_cooldown_started_at=record.get("last_cooldown_started_at"),
             last_cooldown_cleared_at=record.get("last_cooldown_cleared_at"),
+            health_url=record.get("health_url"),
+            health_timeout=record.get("health_timeout"),
+            monitored_services=record.get("monitored_services"),
+            min_service_uptime=record.get("min_service_uptime"),
+            capture_trust_level=record.get("capture_trust_level", "untrusted"),
+            gpu_uuid=record.get("gpu_uuid"),
+            frame_root=record.get("frame_root"),
+            command_root=record.get("command_root"),
+            script_root=record.get("script_root"),
+            asset_root=record.get("asset_root"),
+            last_attested_at=record.get("last_attested_at"),
+            last_attested_nonce=record.get("last_attested_nonce"),
+            last_proof_at=record.get("last_proof_at"),
+            proof_hash=record.get("proof_hash"),
+            tee_quote=record.get("tee_quote"),
+        )
+
+    @app.post("/api/orchestrators/submit-proof", response_model=ProofSubmissionResponse)
+    async def submit_proof(payload: ProofSubmission) -> ProofSubmissionResponse:
+        record = registry.get_record(payload.orchestrator_id)
+        if not record:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+        try:
+            attestation_info = verify_attestation(
+                payload.attestation,
+                expected_nonce=payload.nonce,
+            )
+        except AttestationError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+        try:
+            proof_info = verify_script_proof(
+                payload.proof,
+                script_root=payload.script_root,
+                asset_root=payload.asset_root,
+                frame_root=payload.frame_hash_root,
+                command_root=payload.command_root,
+                nonce=payload.nonce,
+            )
+        except ProofVerificationError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+        trust_level = payload.capture_trust_level or attestation_info.get("capture_trust_level")
+        registry.record_capture_proof(
+            payload.orchestrator_id,
+            nonce=payload.nonce,
+            frame_root=payload.frame_hash_root,
+            command_root=payload.command_root,
+            script_root=payload.script_root,
+            asset_root=payload.asset_root,
+            proof_hash=proof_info["proof_hash"],
+            attestation=payload.attestation,
+            gpu_uuid=attestation_info.get("gpu_uuid"),
+            trust_level=trust_level,
+        )
+
+        updated = registry.get_record(payload.orchestrator_id)
+        assert updated is not None  # defensive, registry should always return now
+        last_proof_at = updated.get("last_proof_at") or datetime.now(timezone.utc).isoformat()
+        return ProofSubmissionResponse(
+            orchestrator_id=payload.orchestrator_id,
+            capture_trust_level=updated.get("capture_trust_level", "untrusted"),
+            last_proof_at=last_proof_at,
+            proof_hash=proof_info["proof_hash"],
         )
 
     return app

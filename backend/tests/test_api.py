@@ -37,6 +37,8 @@ def build_registry(temp_paths):
         registration_rate_limit_burst=5,
         api_admin_token=None,
         audit_log_path=registry_path.with_name("registry-audit.log"),
+        capture_proof_ttl_seconds=300,
+        require_trusted_capture=False,
     )
     registry = Registry(
         path=registry_path,
@@ -54,6 +56,8 @@ async def test_register_endpoint_success(temp_paths):
         registration_rate_limit_per_minute=5,
         registration_rate_limit_burst=5,
         api_admin_token=None,
+        capture_proof_ttl_seconds=300,
+        require_trusted_capture=False,
     )
     app = create_app(registry, ledger, app_settings)
 
@@ -71,6 +75,7 @@ async def test_register_endpoint_success(temp_paths):
     body = response.json()
     assert body["orchestrator_id"] == "orch-test"
     assert body["eligible_for_payments"] is True
+    assert body["capture_trust_level"] == "untrusted"
 
 
 @pytest.mark.anyio("asyncio")
@@ -80,6 +85,8 @@ async def test_register_endpoint_rate_limited(temp_paths):
         registration_rate_limit_per_minute=1,
         registration_rate_limit_burst=1,
         api_admin_token=None,
+        capture_proof_ttl_seconds=300,
+        require_trusted_capture=False,
     )
     app = create_app(registry, ledger, app_settings)
 
@@ -113,6 +120,8 @@ async def test_admin_listing_requires_token(temp_paths):
         registration_rate_limit_per_minute=5,
         registration_rate_limit_burst=5,
         api_admin_token="secret",
+        capture_proof_ttl_seconds=300,
+        require_trusted_capture=False,
     )
     app = create_app(registry, ledger, app_settings)
     transport = httpx.ASGITransport(app=app)
@@ -129,3 +138,59 @@ async def test_admin_listing_requires_token(temp_paths):
     assert authorized.status_code == 200
     data = authorized.json()
     assert data["orchestrators"][0]["orchestrator_id"] == "orch-admin"
+
+
+@pytest.mark.anyio("asyncio")
+async def test_submit_proof_success(temp_paths):
+    registry, ledger = build_registry(temp_paths)
+    app_settings = SimpleNamespace(
+        registration_rate_limit_per_minute=5,
+        registration_rate_limit_burst=5,
+        api_admin_token=None,
+        capture_proof_ttl_seconds=300,
+        require_trusted_capture=False,
+    )
+    app = create_app(registry, ledger, app_settings)
+
+    address = "0xDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+    with patch.object(Registry, "_resolve_top_set", return_value={address.lower()}):
+        registry.register(
+            orchestrator_id="orch-proof",
+            address=address,
+        )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        proof_payload = {
+            "orchestrator_id": "orch-proof",
+            "nonce": "nonce-123",
+            "attestation": {
+                "nonce": "nonce-123",
+                "measurement": "hash",
+                "gpu_uuid": "GPU-123",
+            },
+            "frame_hash_root": "frame-root",
+            "command_root": "command-root",
+            "script_root": "script-root",
+            "asset_root": "asset-root",
+            "proof": {
+                "status": "valid",
+                "public_inputs": {
+                    "script_root": "script-root",
+                    "asset_root": "asset-root",
+                    "frame_root": "frame-root",
+                    "command_root": "command-root",
+                    "nonce": "nonce-123",
+                },
+            },
+        }
+
+        response = await client.post(
+            "/api/orchestrators/submit-proof",
+            json=proof_payload,
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["orchestrator_id"] == "orch-proof"
+    assert body["capture_trust_level"] == "trusted"
