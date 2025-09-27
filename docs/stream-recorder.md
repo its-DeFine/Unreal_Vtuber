@@ -47,9 +47,17 @@ Arguments:
 - `--storage-url` + `--session-id` – When supplied together, the recorder automatically uploads the capture via `scripts/upload_capture.py`.
 - `--upload-orchestrator-id` – Optional orchestrator identifier forwarded to the storage API during upload.
 - `--storage-token` – Optional bearer token passed as `X-Storage-Token` when uploading.
+- `--video-bitrate` / `--audio-bitrate` – Control the local transcode quality (defaults: 6000 kbps video, 128 kbps audio).
+- `--frame-rate` – Override the transcoder FPS (default 30).
 
 The recorder automatically responds to signalling pings, exchanges SDP offer/answer, forwards ICE candidates, and writes the resulting media stream via `aiortc.MediaRecorder`.
 
 If upload arguments are omitted you can still call `scripts/upload_capture.py` manually after recording.
 
 > Running inside Docker on the orchestrator? Launch the container with `--network host` so the recorder can reach the local signalling server on `ws://127.0.0.1:8080`.
+
+### Tips for Higher Quality Captures
+
+- Prefer MP4 outputs (`--output captures/foo.mp4`) when you plan to edit or share clips broadly; the recorder will encode with H.264 (`libx264`).
+- For WebM outputs, bump `--video-bitrate` (for example `--video-bitrate 8000`) if you see pixelation; WebM uses `libvpx` by default.
+- Ensure the upstream Pixel Streaming session is rendering at the target resolution/bitrate—recordings cannot exceed source quality.

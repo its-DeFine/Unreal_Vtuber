@@ -41,6 +41,9 @@ class RecorderConfig:
     streamer_id: Optional[str]
     duration: Optional[float]
     inactivity_timeout: float = 15.0
+    video_bitrate_kbps: Optional[int] = None
+    audio_bitrate_kbps: Optional[int] = None
+    frame_rate: int = 30
 
 
 class PixelStreamingRecorder:
@@ -193,16 +196,15 @@ class PixelStreamingRecorder:
             elif suffix in {".mp4", ".m4v", ".mov"}:
                 recording_kwargs["format"] = "mp4"
             self.recorder = MediaRecorder(str(self.cfg.output_path), **recording_kwargs)
-            if suffix == ".webm":
-                self._patch_recorder_for_webm()
+            self._patch_recorder()
         return self.recorder
 
-    def _patch_recorder_for_webm(self) -> None:
+    def _patch_recorder(self) -> None:
         recorder = self.recorder
         if recorder is None:
             return
 
-        def _webm_add_track(self_recorder, track) -> None:
+        def _custom_add_track(self_recorder, track) -> None:
             container = getattr(self_recorder, "_MediaRecorder__container", None)
             tracks = getattr(self_recorder, "_MediaRecorder__tracks", None)
             if container is None or tracks is None:
@@ -211,28 +213,57 @@ class PixelStreamingRecorder:
             format_name = container.format.name
 
             if track.kind == "audio":
-                if format_name == "webm":
-                    codec_name = "libopus"
-                elif format_name in ("wav", "alsa", "pulse"):
-                    codec_name = "pcm_s16le"
-                elif format_name == "mp3":
-                    codec_name = "mp3"
-                elif format_name == "ogg":
-                    codec_name = "libopus"
-                else:
-                    codec_name = "aac"
+                codec_name = self._select_audio_codec(format_name)
                 stream = container.add_stream(codec_name)
+                self._configure_audio_stream(stream)
             else:
-                if format_name == "image2":
-                    stream = container.add_stream("png", rate=30)
-                    stream.pix_fmt = "rgb24"
-                else:
-                    stream = container.add_stream("libvpx", rate=30)
-                    stream.pix_fmt = "yuv420p"
+                codec_name = self._select_video_codec(format_name)
+                stream = container.add_stream(codec_name, rate=self.cfg.frame_rate)
+                self._configure_video_stream(stream, codec_name)
 
             tracks[track] = MediaRecorderContext(stream)
 
-        recorder.addTrack = types.MethodType(_webm_add_track, recorder)  # type: ignore[assignment]
+        recorder.addTrack = types.MethodType(_custom_add_track, recorder)  # type: ignore[assignment]
+
+    def _select_video_codec(self, format_name: str) -> str:
+        if format_name == "webm":
+            return "libvpx"
+        return "libx264"
+
+    def _select_audio_codec(self, format_name: str) -> str:
+        if format_name == "webm":
+            return "libopus"
+        if format_name in ("wav", "alsa", "pulse"):
+            return "pcm_s16le"
+        if format_name == "mp3":
+            return "mp3"
+        if format_name == "ogg":
+            return "libopus"
+        return "aac"
+
+    def _configure_video_stream(self, stream: Any, codec_name: str) -> None:
+        stream.pix_fmt = "yuv420p"
+        target_bitrate = int(self.cfg.video_bitrate_kbps * 1000) if self.cfg.video_bitrate_kbps else None
+        if target_bitrate:
+            stream.bit_rate = target_bitrate
+        ctx = getattr(stream, "codec_context", None)
+        if ctx is not None:
+            if target_bitrate:
+                ctx.bit_rate = target_bitrate
+            if codec_name == "libx264":
+                ctx.options.setdefault("preset", "veryfast")
+                ctx.options.setdefault("profile", "high")
+            elif codec_name == "libvpx":
+                ctx.options.setdefault("deadline", "realtime")
+                ctx.options.setdefault("cpu-used", "1")
+
+    def _configure_audio_stream(self, stream: Any) -> None:
+        target_bitrate = int(self.cfg.audio_bitrate_kbps * 1000) if self.cfg.audio_bitrate_kbps else None
+        if target_bitrate:
+            stream.bit_rate = target_bitrate
+            ctx = getattr(stream, "codec_context", None)
+            if ctx is not None:
+                ctx.bit_rate = target_bitrate
 
     def _on_track(self, track) -> None:
         logger.info("Track received: %s", track.kind)
@@ -311,8 +342,11 @@ class PixelStreamingRecorder:
 
     async def _stop_recorder(self) -> None:
         if self.recorder and self.recorder_started:
-            await self.recorder.stop()
-            logger.info("Recorder stopped. Output saved to %s", self.cfg.output_path)
+            try:
+                await self.recorder.stop()
+                logger.info("Recorder stopped. Output saved to %s", self.cfg.output_path)
+            except Exception as exc:
+                logger.warning("Recorder stop failed: %s", exc)
 
     async def _shutdown(self) -> None:
         await self._stop_recorder()
@@ -326,6 +360,9 @@ async def async_main(args: argparse.Namespace) -> bool:
         streamer_id=args.streamer,
         duration=args.duration,
         inactivity_timeout=args.inactivity_timeout,
+        video_bitrate_kbps=args.video_bitrate,
+        audio_bitrate_kbps=args.audio_bitrate,
+        frame_rate=args.frame_rate,
     )
     recorder = PixelStreamingRecorder(cfg)
     return await recorder.run()
@@ -429,6 +466,24 @@ def parse_args() -> argparse.Namespace:
         "--storage-token",
         default=None,
         help="Optional token supplied as X-Storage-Token when uploading"
+    )
+    parser.add_argument(
+        "--video-bitrate",
+        type=int,
+        default=6000,
+        help="Target video bitrate in kbps for the local recording encoder (default: 6000)"
+    )
+    parser.add_argument(
+        "--audio-bitrate",
+        type=int,
+        default=128,
+        help="Target audio bitrate in kbps for the local recording encoder (default: 128)"
+    )
+    parser.add_argument(
+        "--frame-rate",
+        type=int,
+        default=30,
+        help="Frame rate to request from the recorder's transcoder"
     )
     args = parser.parse_args()
     if args.duration and args.duration <= 0:
