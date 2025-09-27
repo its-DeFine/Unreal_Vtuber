@@ -208,18 +208,22 @@ class PixelStreamingRecorder:
             if container is None or tracks is None:
                 raise RuntimeError("Recorder container unavailable")
 
+            format_name = container.format.name
+
             if track.kind == "audio":
-                if container.format.name in ("wav", "alsa", "pulse"):
+                if format_name == "webm":
+                    codec_name = "libopus"
+                elif format_name in ("wav", "alsa", "pulse"):
                     codec_name = "pcm_s16le"
-                elif container.format.name == "mp3":
+                elif format_name == "mp3":
                     codec_name = "mp3"
-                elif container.format.name == "ogg":
+                elif format_name == "ogg":
                     codec_name = "libopus"
                 else:
                     codec_name = "aac"
                 stream = container.add_stream(codec_name)
             else:
-                if container.format.name == "image2":
+                if format_name == "image2":
                     stream = container.add_stream("png", rate=30)
                     stream.pix_fmt = "rgb24"
                 else:
