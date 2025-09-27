@@ -5,7 +5,7 @@ This prototype records Pixel Streaming sessions without modifying the Unreal pro
 ## Requirements
 
 - Python 3.10+
-- `aiortc`, `aiohttp`, `numpy` (see `stream_recorder/requirements.txt`)
+- `aiortc` (1.13 or newer), `aiohttp`, `numpy` (see `stream_recorder/requirements.txt`)
 - Network access to the Pixel Streaming signalling server (default `ws://<host>:8888`)
 
 Install dependencies locally:
