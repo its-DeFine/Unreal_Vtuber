@@ -21,7 +21,7 @@ pip install -r requirements.txt
 
 ```bash
 python stream_recorder/record_stream.py \
-  --signalling-url ws://86.106.138.188:8888 \
+  --signalling-url ws://86.106.138.188:8080 \
   --output captures/session-001.webm \
   --duration 120 \
   --streamer orch-alpha
@@ -29,7 +29,7 @@ python stream_recorder/record_stream.py \
 # Automatically upload to the storage service when complete:
 
 python stream_recorder/record_stream.py \
-  --signalling-url ws://86.106.138.188:8888 \
+  --signalling-url ws://86.106.138.188:8080 \
   --output captures/session-001.webm \
   --duration 120 \
   --session-id session-001 \
@@ -51,3 +51,5 @@ Arguments:
 The recorder automatically responds to signalling pings, exchanges SDP offer/answer, forwards ICE candidates, and writes the resulting media stream via `aiortc.MediaRecorder`.
 
 If upload arguments are omitted you can still call `scripts/upload_capture.py` manually after recording.
+
+> Running inside Docker on the orchestrator? Launch the container with `--network host` so the recorder can reach the local signalling server on `ws://127.0.0.1:8080`.
