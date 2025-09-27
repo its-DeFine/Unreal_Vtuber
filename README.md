@@ -53,6 +53,7 @@ backend issues an on-chain transfer using the configured wallet.
 Prefer AWS automation? See [docs/aws-onboarding.md](docs/aws-onboarding.md) for the EC2 provisioning workflow.
 
 Need to retain recordings? The storage pipeline is documented in [docs/capture-storage.md](docs/capture-storage.md).
+To capture streams headlessly without Unreal changes, see [docs/stream-recorder.md](docs/stream-recorder.md).
 
 ## Registry & top-100 checks
 On startup the backend records orchestrator metadata under
