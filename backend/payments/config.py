@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from decimal import Decimal
 from pathlib import Path
 from typing import List, Optional
@@ -106,6 +107,7 @@ class PaymentSettings(BaseSettings):
     default_health_timeout: float = Field(default=5.0, env="PAYMENTS_DEFAULT_HEALTH_TIMEOUT")
     default_min_service_uptime: float = Field(default=80.0, env="PAYMENTS_DEFAULT_MIN_SERVICE_UPTIME")
     audit_log_path: Path = Field(default=Path("/app/data/audit/registry.log"), env="PAYMENTS_AUDIT_LOG_PATH")
+    address_denylist: List[str] = Field(default_factory=list, env="PAYMENTS_ADDRESS_DENYLIST")
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -156,8 +158,45 @@ class PaymentSettings(BaseSettings):
             raise ValueError("Value must be positive")
         return value
 
+    @field_validator("address_denylist", mode="before")
+    @classmethod
+    def parse_address_denylist(cls, value):  # type: ignore[override]
+        if value is None:
+            return []
+        if isinstance(value, str):
+            parts = re.split(r"[\s,]+", value.strip())
+            return [part for part in parts if part]
+        return value
+
+    @field_validator("address_denylist")
+    @classmethod
+    def normalize_address_denylist(cls, value: List[str]) -> List[str]:
+        normalized: List[str] = []
+        seen = set()
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("address_denylist entries must be strings")
+            candidate = item.strip()
+            if not candidate:
+                continue
+            if not candidate.startswith("0x") or len(candidate) != 42:
+                raise ValueError("address_denylist entries must be 42-character hex strings")
+            candidate_lower = candidate.lower()
+            if not all(ch in "0123456789abcdef" for ch in candidate_lower[2:]):
+                raise ValueError("address_denylist entries must be valid hex strings")
+            if candidate_lower in seen:
+                continue
+            seen.add(candidate_lower)
+            normalized.append(candidate_lower)
+        return normalized
+
     @model_validator(mode="after")
-    def validate_single_orchestrator_mode(self) -> "PaymentSettings":
+    def populate_denylist_and_validate(self) -> "PaymentSettings":
+        if not self.address_denylist:
+            raw = os.environ.get("PAYMENTS_ADDRESS_DENYLIST")
+            if raw:
+                parts = self.parse_address_denylist(raw)
+                self.address_denylist = self.normalize_address_denylist(parts)
         if self.single_orchestrator_mode:
             if not self.orchestrator_id:
                 raise ValueError(

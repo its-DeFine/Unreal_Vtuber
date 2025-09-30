@@ -28,6 +28,7 @@ def settings():
         top_contract_abi_path=None,
         registration_rate_limit_per_minute=5,
         registration_rate_limit_burst=5,
+        address_denylist=[],
     )
 
 
@@ -133,3 +134,40 @@ def test_address_uniqueness(temp_paths, settings):
                 address="0xAAAA",
             )
     assert exc.value.status_code == 409
+
+
+def test_registration_rejects_denylisted_address(temp_paths, settings):
+    balances_path, registry_path = temp_paths
+    settings.address_denylist = ["0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF"]
+    registry = create_registry(registry_path, balances_path, settings)
+
+    with pytest.raises(RegistryError) as exc:
+        registry.register(
+            orchestrator_id="blocked",
+            address="0xDeadBeefDeadBeefDeadBeefDeadBeefDeadBeeF",
+            skip_rank_validation=True,
+        )
+
+    assert exc.value.status_code == 403
+    assert "denylisted" in str(exc.value)
+    assert registry.get_record("blocked") is None
+
+
+def test_existing_record_becomes_denylisted(temp_paths, settings):
+    balances_path, registry_path = temp_paths
+    settings.address_denylist = []
+    registry = create_registry(registry_path, balances_path, settings)
+
+    registry.register(
+        orchestrator_id="orch-keep",
+        address="0xAAAA",
+        skip_rank_validation=True,
+    )
+
+    settings.address_denylist = ["0xaaaa"]
+    reloaded = create_registry(registry_path, balances_path, settings)
+
+    record = reloaded.get_record("orch-keep")
+    assert record is not None
+    assert record["denylisted"] is True
+    assert reloaded.is_eligible("orch-keep") is False
