@@ -23,8 +23,6 @@ TCP_CONNECT_RETRIES = int(os.getenv("VTUBER_TCP_RETRIES", "20"))
 TCP_RETRY_DELAY = float(os.getenv("VTUBER_TCP_RETRY_DELAY", "0.5"))
 ALLOWED_ADDRESSES = [addr.strip() for addr in os.getenv("VTUBER_ALLOWED_ADDRESSES", "").split(",") if addr.strip()]
 DEFAULT_AUDIO_HOLD_MS = int(os.getenv("VTUBER_AUDIO_HOLD_MS", "15000"))
-RECORDER_ENDPOINT = os.getenv("VTUBER_RECORDER_ENDPOINT", "http://127.0.0.1:9001").strip()
-RECORDER_TIMEOUT = float(os.getenv("VTUBER_RECORDER_TIMEOUT", "5"))
 
 
 class AudioAsset(BaseModel):
@@ -138,12 +136,10 @@ async def _prepare_assets(payload: ScriptRequest) -> Tuple[Path, Dict[str, str]]
 
 
 async def _execute_script(payload: ScriptRequest, status: ScriptStatus) -> None:
-    await _notify_recorder_start(payload.session_id)
     audio_dir, sanitized_files = await _prepare_assets(payload)
     audio_map = payload.audio_index()
     status.state = "running"
     status.total_steps = len(payload.commands)
-    success = False
 
     try:
         for idx, command in enumerate(payload.commands, start=1):
@@ -167,7 +163,6 @@ async def _execute_script(payload: ScriptRequest, status: ScriptStatus) -> None:
                 except Exception:
                     pass
         status.state = "completed"
-        success = True
     except Exception as exc:  # noqa: BLE001
         status.state = "failed"
         status.error = str(exc)
@@ -181,7 +176,6 @@ async def _execute_script(payload: ScriptRequest, status: ScriptStatus) -> None:
             global _active_session
             if _active_session == payload.session_id:
                 _active_session = None
-        await _notify_recorder_stop(payload.session_id, success)
 
 
 def _render_command(
@@ -229,37 +223,6 @@ async def execute_script(payload: ScriptRequest, request: Request) -> ScriptStat
 
     asyncio.create_task(_execute_script(payload, status))
     return status
-
-
-async def _notify_recorder_start(session_id: str) -> None:
-    if not RECORDER_ENDPOINT:
-        return
-    payload = {"session_id": session_id}
-    await _send_recorder_request("record/start", payload)
-
-
-async def _notify_recorder_stop(session_id: str, success: bool) -> None:
-    if not RECORDER_ENDPOINT:
-        return
-    payload = {"session_id": session_id, "success": success}
-    await _send_recorder_request("record/stop", payload)
-
-
-async def _send_recorder_request(path: str, payload: Dict[str, str | bool]) -> None:
-    url = f"{RECORDER_ENDPOINT.rstrip('/')}/{path.lstrip('/')}"
-    try:
-        async with aiohttp.ClientSession() as http:
-            async with http.post(url, json=payload, timeout=RECORDER_TIMEOUT) as resp:
-                if resp.status >= 400:
-                    text = await resp.text()
-                    logger.warning(
-                        "Recorder endpoint %s responded with %s: %s",
-                        url,
-                        resp.status,
-                        text,
-                    )
-    except Exception:  # noqa: BLE001
-        logger.exception("Failed to contact recorder endpoint %s", url)
 
 
 async def _open_command_connection() -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
