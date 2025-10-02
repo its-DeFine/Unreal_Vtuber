@@ -76,6 +76,10 @@ Arguments:
 - `--mode` – Select `transcode` (default) or `raw`. Raw mode dumps the encoded RTP payloads to `.h264` / `.opus` alongside the requested output.
 - `--raw-remux` – Optional command (such as a shell script or `ffmpeg` wrapper) invoked after capture to remux the raw dumps into the final container.
 - `--preferred-spatial-layer` / `--preferred-temporal-layer` – Request specific SFU layers so the recorder matches the browser’s high-quality feed.
+- `--answer-start-bitrate` / `--answer-max-bitrate` – Inject high-range `x-google-*` hints into the SDP answer (defaults 60 Mbps / 80 Mbps).
+- `--encoder-min-qp` / `--encoder-max-qp` – Push encoder QP bounds over the data channel (defaults 10 / 30).
+- `--encoder-*-bitrate` – Send minimum/target/maximum encoder bitrates (in bps) via the data channel so UE jumps to the desired quality immediately.
+- `--webrtc-*-bitrate` – Mirror the browser’s WebRTC hints (min/start/max, in bps) to shorten congestion-control ramp-up.
 
 The recorder automatically responds to signalling pings, exchanges SDP offer/answer, forwards ICE candidates, and writes the resulting media stream via `aiortc.MediaRecorder`.
 
@@ -89,3 +93,5 @@ If upload arguments are omitted you can still call `scripts/upload_capture.py` m
 - For WebM outputs, bump `--video-bitrate` (for example `--video-bitrate 8000`) if you see pixelation; WebM uses `libvpx` by default.
 - Ensure the upstream Pixel Streaming session is rendering at the target resolution/bitrate—recordings cannot exceed source quality.
 - In `--mode raw`, the recorder writes `*.h264` and `*.opus` dumps. Use your own remux command (for example an `ffmpeg` invocation that understands raw RTP payloads) to package those into MP4/WebM without re-encoding.
+- When the recorder runs on the orchestrator it now mirrors the Epic browser client by issuing quality-control commands over the data channel. Tune the `RECORDER_ENCODER_*` and `RECORDER_WEBRTC_*` environment variables (or the matching CLI flags) to change the bitrates/quantisers it requests.
+- The Unreal container loads high-quality defaults from `pixel-streaming/config/ConsoleVariables.ini`. Edit that file (or override the bind mount in `docker-compose.unreal.yml`) if you need different Pixel Streaming CVars at boot.

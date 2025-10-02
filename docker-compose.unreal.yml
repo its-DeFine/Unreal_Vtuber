@@ -101,6 +101,7 @@ services:
       - /usr/share/vulkan:/host-libs/usr/share/vulkan:ro
       - /etc/vulkan:/host-libs/etc/vulkan:ro
       - /usr/share/glvnd:/host-libs/usr/share/glvnd:ro
+      - ./pixel-streaming/config/ConsoleVariables.ini:/opt/embody/Embody/Saved/Config/LinuxNoEditor/ConsoleVariables.ini:ro
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     networks:
       - vtuber_network
@@ -155,6 +156,14 @@ services:
       - PREFERRED_TEMPORAL_LAYER=${RECORDER_PREFERRED_TEMPORAL_LAYER:-}
       - ANSWER_START_BITRATE_KBPS=${RECORDER_ANSWER_START_BITRATE_KBPS:-60000}
       - ANSWER_MAX_BITRATE_KBPS=${RECORDER_ANSWER_MAX_BITRATE_KBPS:-80000}
+      - ENCODER_MIN_QP=${RECORDER_ENCODER_MIN_QP:-10}
+      - ENCODER_MAX_QP=${RECORDER_ENCODER_MAX_QP:-30}
+      - ENCODER_MIN_BITRATE=${RECORDER_ENCODER_MIN_BITRATE:-10000000}
+      - ENCODER_TARGET_BITRATE=${RECORDER_ENCODER_TARGET_BITRATE:-15000000}
+      - ENCODER_MAX_BITRATE=${RECORDER_ENCODER_MAX_BITRATE:-20000000}
+      - WEBRTC_MIN_BITRATE=${RECORDER_WEBRTC_MIN_BITRATE:-12000000}
+      - WEBRTC_START_BITRATE=${RECORDER_WEBRTC_START_BITRATE:-15000000}
+      - WEBRTC_MAX_BITRATE=${RECORDER_WEBRTC_MAX_BITRATE:-22000000}
       - INACTIVITY_TIMEOUT=${RECORDER_INACTIVITY_TIMEOUT:-10}
       - TAIL_SECONDS=${RECORDER_TAIL_SECONDS:-2}
       - STORAGE_URL=${RECORDER_STORAGE_URL:-}

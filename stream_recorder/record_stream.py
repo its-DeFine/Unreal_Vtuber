@@ -15,11 +15,12 @@ import asyncio
 import json
 import logging
 import os
+import struct
 import subprocess
 import sys
 import types
-from dataclasses import dataclass
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -35,6 +36,15 @@ from aiortc.codecs import h264 as h264_codec
 from aiortc.contrib.media import MediaRecorder, MediaRecorderContext
 
 logger = logging.getLogger("pixelstream.recorder")
+
+TO_STREAMER_MESSAGES = {
+    "RequestQualityControl": {"id": 1, "structure": []},
+    "FpsRequest": {"id": 2, "structure": []},
+    "AverageBitrateRequest": {"id": 3, "structure": []},
+    "StartStreaming": {"id": 4, "structure": []},
+    "RequestInitialSettings": {"id": 7, "structure": []},
+    "Command": {"id": 51, "structure": ["string"]},
+}
 
 
 @dataclass
@@ -53,6 +63,14 @@ class RecorderConfig:
     preferred_temporal_layer: Optional[int] = None
     answer_start_bitrate_kbps: int = 60000
     answer_max_bitrate_kbps: int = 80000
+    encoder_min_qp: int = 10
+    encoder_max_qp: int = 30
+    encoder_min_bitrate_bps: int = 10_000_000
+    encoder_target_bitrate_bps: int = 15_000_000
+    encoder_max_bitrate_bps: int = 20_000_000
+    webrtc_min_bitrate_bps: int = 12_000_000
+    webrtc_start_bitrate_bps: int = 15_000_000
+    webrtc_max_bitrate_bps: int = 22_000_000
 
 
 class PixelStreamingRecorder:
@@ -74,6 +92,7 @@ class PixelStreamingRecorder:
         self.protocol_version: Optional[str] = None
         self.current_streamer: Optional[str] = None
         self.stop_requested = False
+        self.data_channel = None
 
     async def run(self) -> bool:
         logger.info("Connecting to signalling server %s", self.cfg.signalling_url)
@@ -208,6 +227,22 @@ class PixelStreamingRecorder:
         pc = RTCPeerConnection(configuration=configuration)
         pc.on("track", self._on_track)
 
+        @pc.on("datachannel")
+        def on_datachannel(channel):
+            logger.info("Data channel discovered: label=%s", channel.label)
+
+            @channel.on("open")
+            def on_open():
+                logger.info("Data channel %s opened", channel.label)
+                self.data_channel = channel
+                asyncio.ensure_future(self._configure_stream_quality())
+
+            @channel.on("close")
+            def on_close():
+                logger.info("Data channel %s closed", channel.label)
+                if self.data_channel is channel:
+                    self.data_channel = None
+
         @pc.on("icecandidate")
         async def on_icecandidate(event: Any) -> None:
             candidate = event.candidate
@@ -227,6 +262,23 @@ class PixelStreamingRecorder:
 
         self.pc = pc
         return pc
+
+    async def _configure_stream_quality(self) -> None:
+        try:
+            await self._send_to_streamer("RequestQualityControl")
+            await self._send_to_streamer("FpsRequest")
+            await self._send_to_streamer("StartStreaming")
+            await self._send_command({"Encoder.MinQP": self.cfg.encoder_min_qp})
+            await self._send_command({"Encoder.MaxQP": self.cfg.encoder_max_qp})
+            await self._send_command({"Encoder.MinBitrate": self.cfg.encoder_min_bitrate_bps})
+            await self._send_command({"Encoder.TargetBitrate": self.cfg.encoder_target_bitrate_bps})
+            await self._send_command({"Encoder.MaxBitrate": self.cfg.encoder_max_bitrate_bps})
+            await self._send_command({"WebRTC.MinBitrate": self.cfg.webrtc_min_bitrate_bps})
+            await self._send_command({"WebRTC.StartBitrate": self.cfg.webrtc_start_bitrate_bps})
+            await self._send_command({"WebRTC.MaxBitrate": self.cfg.webrtc_max_bitrate_bps})
+            await self._send_to_streamer("RequestInitialSettings")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Unable to push quality commands over data channel: %s", exc)
 
     def _ensure_recorder(self) -> MediaRecorder:
         if self.cfg.mode == "raw":
@@ -424,6 +476,47 @@ class PixelStreamingRecorder:
         await self.ws.send_json(payload)
         logger.debug("Sent message: %s", payload)
 
+    async def _send_to_streamer(self, message_type: str, data: Optional[list] = None) -> None:
+        if self.data_channel is None or self.data_channel.readyState != "open":
+            raise RuntimeError("Data channel not ready")
+        payload = self._encode_datachannel_message(message_type, data or [])
+        self.data_channel.send(payload)
+        logger.debug("Sent data channel message %s", message_type)
+
+    async def _send_command(self, command: Dict[str, Any]) -> None:
+        await self._send_to_streamer("Command", [json.dumps(command)])
+
+    @staticmethod
+    def _encode_datachannel_message(message_type: str, message_data: list) -> bytes:
+        definition = TO_STREAMER_MESSAGES.get(message_type)
+        if definition is None:
+            raise ValueError(f"Unsupported streamer message {message_type}")
+        if len(message_data) != len(definition["structure"]):
+            raise ValueError(
+                f"Invalid payload for {message_type}: expected {len(definition['structure'])} elements"
+            )
+        buffer = bytearray()
+        buffer.append(definition["id"])
+        for value, field_type in zip(message_data, definition["structure"]):
+            if field_type == "string":
+                chars = list(str(value))
+                buffer.extend(struct.pack("<H", len(chars)))
+                for ch in chars:
+                    buffer.extend(struct.pack("<H", ord(ch)))
+            elif field_type == "uint8":
+                buffer.extend(struct.pack("<B", int(value)))
+            elif field_type == "uint16":
+                buffer.extend(struct.pack("<H", int(value)))
+            elif field_type == "int16":
+                buffer.extend(struct.pack("<h", int(value)))
+            elif field_type == "float":
+                buffer.extend(struct.pack("<f", float(value)))
+            elif field_type == "double":
+                buffer.extend(struct.pack("<d", float(value)))
+            else:
+                raise ValueError(f"Unsupported field type {field_type}")
+        return bytes(buffer)
+
     async def _send_unsubscribe(self) -> None:
         if self.shutting_down:
             return
@@ -617,6 +710,16 @@ async def async_main(args: argparse.Namespace) -> bool:
         raw_remux=args.raw_remux,
         preferred_spatial_layer=args.preferred_spatial_layer,
         preferred_temporal_layer=args.preferred_temporal_layer,
+        answer_start_bitrate_kbps=args.answer_start_bitrate,
+        answer_max_bitrate_kbps=args.answer_max_bitrate,
+        encoder_min_qp=args.encoder_min_qp,
+        encoder_max_qp=args.encoder_max_qp,
+        encoder_min_bitrate_bps=args.encoder_min_bitrate,
+        encoder_target_bitrate_bps=args.encoder_target_bitrate,
+        encoder_max_bitrate_bps=args.encoder_max_bitrate,
+        webrtc_min_bitrate_bps=args.webrtc_min_bitrate,
+        webrtc_start_bitrate_bps=args.webrtc_start_bitrate,
+        webrtc_max_bitrate_bps=args.webrtc_max_bitrate,
     )
     recorder = PixelStreamingRecorder(cfg)
     return await recorder.run()
@@ -761,6 +864,66 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Preferred temporal layer index to request when SFU is enabled"
+    )
+    parser.add_argument(
+        "--answer-start-bitrate",
+        type=int,
+        default=int(os.getenv("RECORDER_ANSWER_START_BITRATE_KBPS", "60000")),
+        help="Start bitrate hint (kbps) injected into the SDP answer"
+    )
+    parser.add_argument(
+        "--answer-max-bitrate",
+        type=int,
+        default=int(os.getenv("RECORDER_ANSWER_MAX_BITRATE_KBPS", "80000")),
+        help="Max bitrate hint (kbps) injected into the SDP answer"
+    )
+    parser.add_argument(
+        "--encoder-min-qp",
+        type=int,
+        default=int(os.getenv("RECORDER_ENCODER_MIN_QP", "10")),
+        help="Minimum encoder QP pushed over the data channel"
+    )
+    parser.add_argument(
+        "--encoder-max-qp",
+        type=int,
+        default=int(os.getenv("RECORDER_ENCODER_MAX_QP", "30")),
+        help="Maximum encoder QP pushed over the data channel"
+    )
+    parser.add_argument(
+        "--encoder-min-bitrate",
+        type=int,
+        default=int(os.getenv("RECORDER_ENCODER_MIN_BITRATE", "10000000")),
+        help="Minimum encoder bitrate in bps pushed over the data channel"
+    )
+    parser.add_argument(
+        "--encoder-target-bitrate",
+        type=int,
+        default=int(os.getenv("RECORDER_ENCODER_TARGET_BITRATE", "15000000")),
+        help="Target encoder bitrate in bps pushed over the data channel"
+    )
+    parser.add_argument(
+        "--encoder-max-bitrate",
+        type=int,
+        default=int(os.getenv("RECORDER_ENCODER_MAX_BITRATE", "20000000")),
+        help="Maximum encoder bitrate in bps pushed over the data channel"
+    )
+    parser.add_argument(
+        "--webrtc-min-bitrate",
+        type=int,
+        default=int(os.getenv("RECORDER_WEBRTC_MIN_BITRATE", "12000000")),
+        help="Minimum WebRTC bitrate in bps pushed over the data channel"
+    )
+    parser.add_argument(
+        "--webrtc-start-bitrate",
+        type=int,
+        default=int(os.getenv("RECORDER_WEBRTC_START_BITRATE", "15000000")),
+        help="Starting WebRTC bitrate in bps pushed over the data channel"
+    )
+    parser.add_argument(
+        "--webrtc-max-bitrate",
+        type=int,
+        default=int(os.getenv("RECORDER_WEBRTC_MAX_BITRATE", "22000000")),
+        help="Maximum WebRTC bitrate in bps pushed over the data channel"
     )
     args = parser.parse_args()
     if args.duration and args.duration <= 0:

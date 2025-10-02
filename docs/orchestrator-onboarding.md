@@ -42,6 +42,9 @@ stack, and the script runner talking to the remote payments backend.
         - `RECORDER_VIDEO_BITRATE_KBPS`, `RECORDER_AUDIO_BITRATE_KBPS`, `RECORDER_FRAME_RATE` – change encoder settings for transcode mode.
         - `RECORDER_SIGNALLING_URL`, `RECORDER_STREAMER_ID`, `RECORDER_MODE`, `RECORDER_RAW_REMUX_COMMAND` – advanced overrides for the recorder service.
         - `RECORDER_STORAGE_URL`, `RECORDER_STORAGE_TOKEN`, `RECORDER_UPLOAD_ORCHESTRATOR_ID` – enable automatic uploads to the storage service.
+        - `RECORDER_ANSWER_START_BITRATE_KBPS`, `RECORDER_ANSWER_MAX_BITRATE_KBPS` – tweak the SDP bitrate hints advertised to the streamer.
+        - `RECORDER_ENCODER_MIN_QP`, `RECORDER_ENCODER_MAX_QP`, `RECORDER_ENCODER_MIN_BITRATE`, `RECORDER_ENCODER_TARGET_BITRATE`, `RECORDER_ENCODER_MAX_BITRATE` – values pushed via the data channel to clamp Unreal’s encoder quality.
+        - `RECORDER_WEBRTC_MIN_BITRATE`, `RECORDER_WEBRTC_START_BITRATE`, `RECORDER_WEBRTC_MAX_BITRATE` – WebRTC congestion-control hints (in bps) mirroring the Epic browser client.
      
    > The **dedicated client IP** is only required when you expose Pixel
    > Streaming to remote viewers. For local-only recording, skip the public
@@ -66,6 +69,9 @@ stack, and the script runner talking to the remote payments backend.
    docker compose -f docker-compose.unreal.yml up -d
    ```
    The compose file reads `.env` and `.env.turn` automatically.
+   It also mounts `pixel-streaming/config/ConsoleVariables.ini` into the Unreal
+   container so high-quality Pixel Streaming CVars are applied at boot. Adjust
+   that file if you need different defaults.
 3. Check container health:
    ```bash
    docker compose -f docker-compose.unreal.yml ps

@@ -41,6 +41,14 @@ PREFERRED_SPATIAL_LAYER = os.getenv("PREFERRED_SPATIAL_LAYER")
 PREFERRED_TEMPORAL_LAYER = os.getenv("PREFERRED_TEMPORAL_LAYER")
 ANSWER_START_BITRATE = int(os.getenv("ANSWER_START_BITRATE_KBPS", "60000"))
 ANSWER_MAX_BITRATE = int(os.getenv("ANSWER_MAX_BITRATE_KBPS", "80000"))
+ENCODER_MIN_QP = int(os.getenv("ENCODER_MIN_QP", os.getenv("RECORDER_ENCODER_MIN_QP", "10")))
+ENCODER_MAX_QP = int(os.getenv("ENCODER_MAX_QP", os.getenv("RECORDER_ENCODER_MAX_QP", "30")))
+ENCODER_MIN_BITRATE = int(os.getenv("ENCODER_MIN_BITRATE", os.getenv("RECORDER_ENCODER_MIN_BITRATE", "10000000")))
+ENCODER_TARGET_BITRATE = int(os.getenv("ENCODER_TARGET_BITRATE", os.getenv("RECORDER_ENCODER_TARGET_BITRATE", "15000000")))
+ENCODER_MAX_BITRATE = int(os.getenv("ENCODER_MAX_BITRATE", os.getenv("RECORDER_ENCODER_MAX_BITRATE", "20000000")))
+WEBRTC_MIN_BITRATE = int(os.getenv("WEBRTC_MIN_BITRATE", os.getenv("RECORDER_WEBRTC_MIN_BITRATE", "12000000")))
+WEBRTC_START_BITRATE = int(os.getenv("WEBRTC_START_BITRATE", os.getenv("RECORDER_WEBRTC_START_BITRATE", "15000000")))
+WEBRTC_MAX_BITRATE = int(os.getenv("WEBRTC_MAX_BITRATE", os.getenv("RECORDER_WEBRTC_MAX_BITRATE", "22000000")))
 INACTIVITY_TIMEOUT = float(os.getenv("INACTIVITY_TIMEOUT", "10"))
 TAIL_SECONDS = float(os.getenv("TAIL_SECONDS", "2"))
 PORT = int(os.getenv("PORT", "9001"))
@@ -148,6 +156,14 @@ class SessionManager:
                 preferred_temporal_layer=int(PREFERRED_TEMPORAL_LAYER) if PREFERRED_TEMPORAL_LAYER else None,
                 answer_start_bitrate_kbps=ANSWER_START_BITRATE,
                 answer_max_bitrate_kbps=ANSWER_MAX_BITRATE,
+                encoder_min_qp=ENCODER_MIN_QP,
+                encoder_max_qp=ENCODER_MAX_QP,
+                encoder_min_bitrate_bps=ENCODER_MIN_BITRATE,
+                encoder_target_bitrate_bps=ENCODER_TARGET_BITRATE,
+                encoder_max_bitrate_bps=ENCODER_MAX_BITRATE,
+                webrtc_min_bitrate_bps=WEBRTC_MIN_BITRATE,
+                webrtc_start_bitrate_bps=WEBRTC_START_BITRATE,
+                webrtc_max_bitrate_bps=WEBRTC_MAX_BITRATE,
             )
             session = RecorderSession(
                 session_id,
