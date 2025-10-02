@@ -141,7 +141,7 @@ services:
     container_name: vtuber-recorder-manager
     restart: unless-stopped
     environment:
-      - SIGNALLING_URL=${RECORDER_SIGNALLING_URL:-ws://unreal-signaling:8888}
+      - SIGNALLING_URL=${RECORDER_SIGNALLING_URL:-ws://unreal-signaling:8080}
       - OUTPUT_DIR=${RECORDER_OUTPUT_DIR:-/captures}
       - OUTPUT_SUFFIX=${RECORDER_OUTPUT_SUFFIX:-.mp4}
       - STREAMER_ID=${RECORDER_STREAMER_ID:-}
