@@ -123,7 +123,7 @@ services:
     network_mode: "service:unreal-game"
     environment:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
-      - VTUBER_TCP_HOST=127.0.0.1
+      - VTUBER_TCP_HOST=${VTUBER_TCP_HOST:-unreal-game}
       - VTUBER_TCP_PORT=7777
       - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-}
       - VTUBER_RECORDER_ENDPOINT=${VTUBER_RECORDER_ENDPOINT:-http://recorder-manager:9001}
