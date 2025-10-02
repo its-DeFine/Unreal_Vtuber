@@ -61,8 +61,6 @@ Arguments:
 
 The recorder automatically responds to signalling pings, exchanges SDP offer/answer, forwards ICE candidates, and writes the resulting media stream via `aiortc.MediaRecorder`.
 
-If upload arguments are omitted you can still call `scripts/upload_capture.py` manually after recording.
-
 > Run the recorder directly on the orchestrator (or inside a container launched with `--network host`) so it can reach the local signalling server at `ws://127.0.0.1:8080` without exposing additional ports to the public Internet.
 
 ### Tips for Higher Quality Captures
