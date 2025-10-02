@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import struct
 import subprocess
 import sys
+import time
 import types
 import uuid
 from dataclasses import dataclass
@@ -93,6 +95,8 @@ class PixelStreamingRecorder:
         self.current_streamer: Optional[str] = None
         self.stop_requested = False
         self.data_channel = None
+        self.stats_task: Optional[asyncio.Task] = None
+        self._stats_prev: Dict[str, Dict[str, float]] = {}
 
     async def run(self) -> bool:
         logger.info("Connecting to signalling server %s", self.cfg.signalling_url)
@@ -229,19 +233,31 @@ class PixelStreamingRecorder:
 
         @pc.on("datachannel")
         def on_datachannel(channel):
-            logger.info("Data channel discovered: label=%s", channel.label)
+            logger.info(
+                "Data channel discovered: label=%s state=%s", channel.label, channel.readyState
+            )
+            self.data_channel = channel
+
+            async def configure() -> None:
+                try:
+                    await self._configure_stream_quality()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Quality configuration failed: %s", exc)
 
             @channel.on("open")
-            def on_open():
+            def on_open() -> None:
                 logger.info("Data channel %s opened", channel.label)
                 self.data_channel = channel
-                asyncio.ensure_future(self._configure_stream_quality())
+                asyncio.ensure_future(configure())
 
             @channel.on("close")
-            def on_close():
+            def on_close() -> None:
                 logger.info("Data channel %s closed", channel.label)
                 if self.data_channel is channel:
                     self.data_channel = None
+
+            if channel.readyState == "open":
+                asyncio.ensure_future(configure())
 
         @pc.on("icecandidate")
         async def on_icecandidate(event: Any) -> None:
@@ -261,18 +277,35 @@ class PixelStreamingRecorder:
             await self._send_message({"type": "iceCandidate", **payload})
 
         self.pc = pc
+        if self.stats_task is None or self.stats_task.done():
+            self.stats_task = asyncio.create_task(self._stats_loop())
         return pc
 
     async def _configure_stream_quality(self) -> None:
         try:
+            logger.info("Requesting quality control over data channel")
             await self._send_to_streamer("RequestQualityControl")
             await self._send_to_streamer("FpsRequest")
             await self._send_to_streamer("StartStreaming")
+            logger.info(
+                "Pushing encoder bitrates min=%sbps target=%sbps max=%sbps and QP=%s-%s",
+                self.cfg.encoder_min_bitrate_bps,
+                self.cfg.encoder_target_bitrate_bps,
+                self.cfg.encoder_max_bitrate_bps,
+                self.cfg.encoder_min_qp,
+                self.cfg.encoder_max_qp,
+            )
             await self._send_command({"Encoder.MinQP": self.cfg.encoder_min_qp})
             await self._send_command({"Encoder.MaxQP": self.cfg.encoder_max_qp})
             await self._send_command({"Encoder.MinBitrate": self.cfg.encoder_min_bitrate_bps})
             await self._send_command({"Encoder.TargetBitrate": self.cfg.encoder_target_bitrate_bps})
             await self._send_command({"Encoder.MaxBitrate": self.cfg.encoder_max_bitrate_bps})
+            logger.info(
+                "Announcing WebRTC bitrate window min=%sbps start=%sbps max=%sbps",
+                self.cfg.webrtc_min_bitrate_bps,
+                self.cfg.webrtc_start_bitrate_bps,
+                self.cfg.webrtc_max_bitrate_bps,
+            )
             await self._send_command({"WebRTC.MinBitrate": self.cfg.webrtc_min_bitrate_bps})
             await self._send_command({"WebRTC.StartBitrate": self.cfg.webrtc_start_bitrate_bps})
             await self._send_command({"WebRTC.MaxBitrate": self.cfg.webrtc_max_bitrate_bps})
@@ -480,6 +513,7 @@ class PixelStreamingRecorder:
         if self.data_channel is None or self.data_channel.readyState != "open":
             raise RuntimeError("Data channel not ready")
         payload = self._encode_datachannel_message(message_type, data or [])
+        logger.debug("Sending data channel message %s payload=%s", message_type, data or [])
         self.data_channel.send(payload)
         logger.debug("Sent data channel message %s", message_type)
 
@@ -516,6 +550,62 @@ class PixelStreamingRecorder:
             else:
                 raise ValueError(f"Unsupported field type {field_type}")
         return bytes(buffer)
+
+    async def _stats_loop(self) -> None:
+        logger.debug("Starting WebRTC stats logger")
+        try:
+            while not self.shutting_down:
+                await asyncio.sleep(5)
+                if not self.pc:
+                    continue
+                try:
+                    stats = await self.pc.getStats()
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("getStats failed: %s", exc)
+                    continue
+                self._log_media_stats(stats, time.monotonic())
+        except asyncio.CancelledError:
+            logger.debug("Stats logger cancelled")
+            raise
+
+    def _log_media_stats(self, stats: Dict[str, Any], timestamp: float) -> None:
+        entries = []
+        for kind in ("video", "audio"):
+            report = next(
+                (
+                    entry
+                    for entry in stats.values()
+                    if getattr(entry, "type", None) == "inbound-rtp"
+                    and getattr(entry, "kind", None) == kind
+                ),
+                None,
+            )
+            if not report:
+                continue
+            key = f"{kind}_rtp"
+            prev = self._stats_prev.get(key)
+            bitrate = None
+            if prev is not None:
+                delta_bytes = getattr(report, "bytesReceived", 0) - prev.get("bytes", 0)
+                delta_t = max(timestamp - prev.get("time", timestamp), 1e-6)
+                bitrate = (delta_bytes * 8) / delta_t / 1000.0
+            self._stats_prev[key] = {
+                "bytes": getattr(report, "bytesReceived", 0),
+                "time": timestamp,
+            }
+            if bitrate is None:
+                continue
+            if kind == "video":
+                fps = getattr(report, "framesPerSecond", None)
+                frames = getattr(report, "framesDecoded", None)
+                entries.append(
+                    f"video bitrate={bitrate:.0f} kbps fps={fps} framesDecoded={frames}"
+                )
+            else:
+                jitter = getattr(report, "jitter", None)
+                entries.append(f"audio bitrate={bitrate:.0f} kbps jitter={jitter}")
+        if entries:
+            logger.info("Stats: %s", " | ".join(entries))
 
     async def _send_unsubscribe(self) -> None:
         if self.shutting_down:
@@ -579,6 +669,11 @@ class PixelStreamingRecorder:
                 await self._send_message({"type": "playerDisconnected"})
             except Exception:
                 pass
+        if self.stats_task:
+            self.stats_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self.stats_task
+            self.stats_task = None
 
     async def stop(self) -> None:
         """Request a graceful shutdown of the recording session."""
