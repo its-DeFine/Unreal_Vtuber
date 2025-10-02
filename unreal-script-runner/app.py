@@ -23,7 +23,7 @@ TCP_CONNECT_RETRIES = int(os.getenv("VTUBER_TCP_RETRIES", "20"))
 TCP_RETRY_DELAY = float(os.getenv("VTUBER_TCP_RETRY_DELAY", "0.5"))
 ALLOWED_ADDRESSES = [addr.strip() for addr in os.getenv("VTUBER_ALLOWED_ADDRESSES", "").split(",") if addr.strip()]
 DEFAULT_AUDIO_HOLD_MS = int(os.getenv("VTUBER_AUDIO_HOLD_MS", "15000"))
-RECORDER_ENDPOINT = os.getenv("VTUBER_RECORDER_ENDPOINT", "http://recorder-manager:9001").strip()
+RECORDER_ENDPOINT = os.getenv("VTUBER_RECORDER_ENDPOINT", "http://127.0.0.1:9001").strip()
 RECORDER_TIMEOUT = float(os.getenv("VTUBER_RECORDER_TIMEOUT", "5"))
 
 
