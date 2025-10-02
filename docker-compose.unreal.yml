@@ -126,7 +126,7 @@ services:
       - VTUBER_TCP_HOST=127.0.0.1
       - VTUBER_TCP_PORT=7777
       - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-}
-      - VTUBER_RECORDER_ENDPOINT=http://127.0.0.1:9001
+      - VTUBER_RECORDER_ENDPOINT=${VTUBER_RECORDER_ENDPOINT:-http://recorder-manager:9001}
     volumes:
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     restart: unless-stopped
