@@ -19,9 +19,11 @@ logging.basicConfig(level=logging.INFO)
 SESSION_ROOT = Path(os.getenv("VTUBER_SESSION_ROOT", "/opt/embody/sessions"))
 TCP_HOST = os.getenv("VTUBER_TCP_HOST", "127.0.0.1")
 TCP_PORT = int(os.getenv("VTUBER_TCP_PORT", "7777"))
+TCP_CONNECT_RETRIES = int(os.getenv("VTUBER_TCP_RETRIES", "20"))
+TCP_RETRY_DELAY = float(os.getenv("VTUBER_TCP_RETRY_DELAY", "0.5"))
 ALLOWED_ADDRESSES = [addr.strip() for addr in os.getenv("VTUBER_ALLOWED_ADDRESSES", "").split(",") if addr.strip()]
 DEFAULT_AUDIO_HOLD_MS = int(os.getenv("VTUBER_AUDIO_HOLD_MS", "15000"))
-RECORDER_ENDPOINT = os.getenv("VTUBER_RECORDER_ENDPOINT", "").strip()
+RECORDER_ENDPOINT = os.getenv("VTUBER_RECORDER_ENDPOINT", "http://127.0.0.1:9001").strip()
 RECORDER_TIMEOUT = float(os.getenv("VTUBER_RECORDER_TIMEOUT", "5"))
 
 
@@ -143,7 +145,7 @@ async def _execute_script(payload: ScriptRequest, status: ScriptStatus) -> None:
             status.current_step = idx
             message = _render_command(command, payload.session_id, audio_map, audio_dir)
             logger.info("TCP command -> %s", message)
-            reader, writer = await asyncio.open_connection(TCP_HOST, TCP_PORT)
+            reader, writer = await _open_command_connection()
             try:
                 writer.write((message + "\r\n").encode("utf-8"))
                 await writer.drain()
@@ -245,6 +247,26 @@ async def _send_recorder_request(path: str, payload: Dict[str, str | bool]) -> N
                     )
     except Exception:  # noqa: BLE001
         logger.exception("Failed to contact recorder endpoint %s", url)
+
+
+async def _open_command_connection() -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    last_exc: Optional[Exception] = None
+    attempts = max(1, TCP_CONNECT_RETRIES)
+    for attempt in range(1, attempts + 1):
+        try:
+            return await asyncio.open_connection(TCP_HOST, TCP_PORT)
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            logger.warning(
+                "TCP connect attempt %s/%s failed (%s). Retrying in %.2fs",
+                attempt,
+                attempts,
+                exc,
+                TCP_RETRY_DELAY,
+            )
+            await asyncio.sleep(TCP_RETRY_DELAY)
+    assert last_exc is not None
+    raise last_exc
 
 
 @app.get("/scripts/{session_id}")
