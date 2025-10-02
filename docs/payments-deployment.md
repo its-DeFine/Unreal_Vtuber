@@ -34,6 +34,7 @@ This document reflects the current production layout where the payments backend 
 | TCP 22 | SSH (optional) | lock to management IPs |
 | TCP 8080 | Pixel Streaming UI | local orchestrator access (use SSH tunnel if viewing remotely) |
 | TCP 8888-8889 | WebRTC signaling (HTTP/WS) | local orchestrator access |
+| TCP 9001 | Recorder manager control plane | local orchestrator access |
 | TCP 9090 | Health endpoint consumed by payments backend | payments EC2 IP only |
 | TCP 9876/9877 | Worker/script APIs (voice/FX control) | local orchestrator access (allow backend services as needed) |
 | TCP 9995 | Livepeer orchestrator (if enabled) | Livepeer control plane only |

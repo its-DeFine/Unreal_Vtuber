@@ -35,6 +35,11 @@ stack, and the script runner talking to the remote payments backend.
     - `PUBLIC_IP` – the IPv4 you want TURN/signaling to advertise.
     - `VTUBER_SESSION_DIR` – where to persist session assets on disk.
     - Optional: `ORCHESTRATOR_CONTACT_EMAIL`, `VTUBER_ALLOWED_ADDRESSES`, etc.
+    - Recorder tuning (optional):
+        - `RECORDER_CAPTURE_DIR` – host directory mounted at `/captures` inside `recorder-manager` (defaults to `/home/ubuntu/Unreal_Vtuber/captures`).
+        - `RECORDER_VIDEO_BITRATE_KBPS`, `RECORDER_AUDIO_BITRATE_KBPS`, `RECORDER_FRAME_RATE` – change encoder settings for transcode mode.
+        - `RECORDER_SIGNALLING_URL`, `RECORDER_STREAMER_ID`, `RECORDER_MODE`, `RECORDER_RAW_REMUX_COMMAND` – advanced overrides for the recorder service.
+        - `RECORDER_STORAGE_URL`, `RECORDER_STORAGE_TOKEN`, `RECORDER_UPLOAD_ORCHESTRATOR_ID` – enable automatic uploads to the storage service.
      
    > The **dedicated client IP** is only required when you expose Pixel
    > Streaming to remote viewers. For local-only recording, skip the public
@@ -77,6 +82,8 @@ backend so this host shows up in `/api/orchestrators`.
   forward the port over SSH) and confirm the page loads.
 - **Runner API**: `curl http://127.0.0.1:9877/health` should return
   `{"status":"ok"}`.
+- **Recorder manager**: `curl http://127.0.0.1:9001/health` confirms the auto
+  recorder endpoint is reachable.
 - **Payments backend**: `curl http://<PAYMENTS_IP>:8081/api/orchestrators`
   should list your `ORCHESTRATOR_ID` with `eligible_for_payments=true` once the
   health service reports healthy.

@@ -428,6 +428,11 @@ class PixelStreamingRecorder:
         await self._stop_recorder()
         await self._close_pc()
 
+    async def stop(self) -> None:
+        """Request a graceful shutdown of the recording session."""
+        logger.info("Stop requested")
+        self.close_event.set()
+
 
 class RawCaptureManager:
     def __init__(self, output_path: Path, remux_command: Optional[str]) -> None:

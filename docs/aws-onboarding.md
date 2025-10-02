@@ -92,6 +92,7 @@ ssh -i scripts/<key-name>.pem ubuntu@<public-ip>
 
 - Confirm Pixel Streaming UI locally (SSH tunnel or `http://127.0.0.1:8080` on the orchestrator)
 - Confirm script runner health: `curl http://<public-ip>:9877/health`
+- Confirm recorder manager health: `curl http://<public-ip>:9001/health`
 - Confirm payments entry: `curl http://3.141.111.200:8081/api/orchestrators | jq '.'` (look for your `orchestrator_id`).
 - When testing is complete, terminate the instance:
   ```bash
