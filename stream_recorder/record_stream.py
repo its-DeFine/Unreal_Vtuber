@@ -72,25 +72,47 @@ class PixelStreamingRecorder:
         self.raw_capture: Optional["RawCaptureManager"] = None
         self.client_id = str(uuid.uuid4())
         self.protocol_version: Optional[str] = None
+        self.current_streamer: Optional[str] = None
+        self.stop_requested = False
 
     async def run(self) -> bool:
         logger.info("Connecting to signalling server %s", self.cfg.signalling_url)
+        retry_delay = 1.0
         async with aiohttp.ClientSession() as session:
             self.session = session
-            async with session.ws_connect(self.cfg.signalling_url, timeout=30) as ws:
-                self.ws = ws
-                await self.on_open()
-                consumer = asyncio.create_task(self._consume())
-                terminator = asyncio.create_task(self._wait_for_termination())
-                done, pending = await asyncio.wait(
-                    {consumer, terminator}, return_when=asyncio.FIRST_COMPLETED
-                )
-                for task in pending:
-                    task.cancel()
-                for task in done:
-                    exc = task.exception()
-                    if exc:
-                        raise exc
+            while not self.shutting_down:
+                self.stop_requested = False
+                try:
+                    async with session.ws_connect(self.cfg.signalling_url, timeout=30) as ws:
+                        self.ws = ws
+                        await self.on_open()
+                        consumer = asyncio.create_task(self._consume())
+                        terminator = asyncio.create_task(self._wait_for_termination())
+                        done, pending = await asyncio.wait(
+                            {consumer, terminator}, return_when=asyncio.FIRST_COMPLETED
+                        )
+                        for task in pending:
+                            task.cancel()
+                        for task in done:
+                            exc = task.exception()
+                            if exc:
+                                raise exc
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    if self.shutting_down:
+                        break
+                    logger.warning("Signalling connection error: %s", exc)
+                finally:
+                    await self._close_pc()
+                    self.ws = None
+
+                if self.recorder_started or self.shutting_down:
+                    break
+
+                await asyncio.sleep(min(retry_delay, self.cfg.inactivity_timeout))
+                retry_delay = min(retry_delay * 2, 5.0)
+                logger.info("Retrying signalling connection")
 
         await self._shutdown()
         return self.recorder_started
@@ -117,21 +139,14 @@ class PixelStreamingRecorder:
         await self._send_unsubscribe()
         await self._close_pc()
         await self._stop_recorder()
-        self.shutting_down = True
+        if self.stop_requested:
+            self.shutting_down = True
         if self.ws is not None and not self.ws.closed:
             await self.ws.close()
 
     async def on_open(self) -> None:
         logger.info("Websocket connection established")
-        await self._send_message(
-            {
-                "type": "playerConnected",
-                "playerId": self.client_id,
-                "dataChannel": True,
-                "sfu": False,
-                "protocolVersion": "1.3.0",
-            }
-        )
+        self.current_streamer = None
         await self._send_message({"type": "listStreamers"})
 
     async def on_message(self, message: Dict[str, Any]) -> None:
@@ -148,6 +163,10 @@ class PixelStreamingRecorder:
             await self._handle_streamer_list(message)
         elif msg_type == "offer":
             await self._handle_offer(message)
+        elif msg_type == "streamerDisconnected":
+            await self._handle_streamer_disconnected()
+        elif msg_type == "streamerIdChanged":
+            await self._handle_streamer_id_changed(message)
         elif msg_type == "iceCandidate":
             await self._handle_remote_candidate(message)
         elif msg_type == "ping":
@@ -169,6 +188,7 @@ class PixelStreamingRecorder:
             await self._send_message({"type": "listStreamers"})
             return
         logger.info("Subscribing to streamer %s", target)
+        self.current_streamer = target
         await self._send_message({"type": "subscribe", "streamerId": target})
 
     async def _create_pc(self) -> RTCPeerConnection:
@@ -363,6 +383,24 @@ class PixelStreamingRecorder:
         if self.cfg.duration is not None:
             self.active.set()
 
+    async def _handle_streamer_disconnected(self) -> None:
+        logger.warning("Streamer %s disconnected", self.current_streamer)
+        await self._close_pc()
+        self.recorder_started = False
+        self.player_id = None
+        if not self.shutting_down:
+            await asyncio.sleep(self.cfg.inactivity_timeout)
+            await self._send_message({"type": "listStreamers"})
+
+    async def _handle_streamer_id_changed(self, message: Dict[str, Any]) -> None:
+        old_id = message.get("oldId") or self.current_streamer
+        new_id = message.get("newId")
+        logger.info("Streamer id changed from %s to %s", old_id, new_id)
+        if new_id:
+            self.current_streamer = new_id
+            if not self.shutting_down:
+                await self._send_message({"type": "subscribe", "streamerId": new_id})
+
     async def _handle_remote_candidate(self, message: Dict[str, Any]) -> None:
         candidate_info = message.get("candidate")
         if not candidate_info:
@@ -452,6 +490,7 @@ class PixelStreamingRecorder:
     async def stop(self) -> None:
         """Request a graceful shutdown of the recording session."""
         logger.info("Stop requested")
+        self.stop_requested = True
         self.close_event.set()
 
 

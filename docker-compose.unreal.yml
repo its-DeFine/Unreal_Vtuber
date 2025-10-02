@@ -120,18 +120,19 @@ services:
   vtuber-script-runner:
     build:
       context: ./unreal-script-runner
-    network_mode: "service:unreal-game"
     environment:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
-      - VTUBER_TCP_HOST=${VTUBER_TCP_HOST:-127.0.0.1}
+      - VTUBER_TCP_HOST=${VTUBER_TCP_HOST:-unreal-game}
       - VTUBER_TCP_PORT=7777
       - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-}
-      - VTUBER_RECORDER_ENDPOINT=${VTUBER_RECORDER_ENDPOINT:-http://127.0.0.1:9001}
+      - VTUBER_RECORDER_ENDPOINT=${VTUBER_RECORDER_ENDPOINT:-http://recorder-manager:9001}
     volumes:
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     restart: unless-stopped
     depends_on:
       - unreal-game
+    networks:
+      - vtuber_network
 
   recorder-manager:
     build:
@@ -140,7 +141,6 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/recorder-manager:latest
     container_name: vtuber-recorder-manager
     restart: unless-stopped
-    network_mode: "service:unreal-game"
     environment:
       - SIGNALLING_URL=${RECORDER_SIGNALLING_URL:-ws://unreal-signaling:8080}
       - OUTPUT_DIR=${RECORDER_OUTPUT_DIR:-/captures}
@@ -167,6 +167,8 @@ services:
     depends_on:
       - unreal-signaling
       - unreal-game
+    networks:
+      - vtuber_network
 
   orchestrator-registration:
     image: python:3.11-slim

@@ -36,8 +36,8 @@ stack, and the script runner talking to the remote payments backend.
     - `VTUBER_SESSION_DIR` – where to persist session assets on disk.
     - Optional: `ORCHESTRATOR_CONTACT_EMAIL`, `VTUBER_ALLOWED_ADDRESSES`, etc.
     - Recorder tuning (optional):
-        - `VTUBER_RECORDER_ENDPOINT` – where the script runner posts recorder start/stop events (defaults to `http://127.0.0.1:9001`).
-        - `VTUBER_TCP_HOST` – TCP command target for the Unreal game (defaults to `127.0.0.1`).
+        - `VTUBER_RECORDER_ENDPOINT` – recorder webhook URL (defaults to `http://recorder-manager:9001`).
+        - `VTUBER_TCP_HOST` – TCP command target for the Unreal game (defaults to `unreal-game`).
         - `RECORDER_CAPTURE_DIR` – host directory mounted at `/captures` inside `recorder-manager` (defaults to `/home/ubuntu/Unreal_Vtuber/captures`).
         - `RECORDER_VIDEO_BITRATE_KBPS`, `RECORDER_AUDIO_BITRATE_KBPS`, `RECORDER_FRAME_RATE` – change encoder settings for transcode mode.
         - `RECORDER_SIGNALLING_URL`, `RECORDER_STREAMER_ID`, `RECORDER_MODE`, `RECORDER_RAW_REMUX_COMMAND` – advanced overrides for the recorder service.
