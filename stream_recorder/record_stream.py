@@ -19,6 +19,7 @@ import subprocess
 import sys
 import types
 from dataclasses import dataclass
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -69,6 +70,8 @@ class PixelStreamingRecorder:
         self.close_event = asyncio.Event()
         self.shutting_down = False
         self.raw_capture: Optional["RawCaptureManager"] = None
+        self.client_id = str(uuid.uuid4())
+        self.protocol_version: Optional[str] = None
 
     async def run(self) -> bool:
         logger.info("Connecting to signalling server %s", self.cfg.signalling_url)
@@ -120,6 +123,15 @@ class PixelStreamingRecorder:
 
     async def on_open(self) -> None:
         logger.info("Websocket connection established")
+        await self._send_message(
+            {
+                "type": "playerConnected",
+                "playerId": self.client_id,
+                "dataChannel": True,
+                "sfu": False,
+                "protocolVersion": "1.3.0",
+            }
+        )
         await self._send_message({"type": "listStreamers"})
 
     async def on_message(self, message: Dict[str, Any]) -> None:
@@ -130,6 +142,8 @@ class PixelStreamingRecorder:
             self.peer_connection_options = message.get("peerConnectionOptions", {})
             protocol = message.get("protocolVersion")
             logger.info("Received config (protocol %s)", protocol)
+            if protocol:
+                self.protocol_version = protocol
         elif msg_type == "streamerList":
             await self._handle_streamer_list(message)
         elif msg_type == "offer":
@@ -365,6 +379,8 @@ class PixelStreamingRecorder:
     async def _send_message(self, payload: Dict[str, Any]) -> None:
         if self.player_id and payload.get("type") in {"answer", "iceCandidate", "layerPreference"}:
             payload.setdefault("playerId", self.player_id)
+        elif payload.get("type") in {"subscribe", "unsubscribe", "playerDisconnected"}:
+            payload.setdefault("playerId", self.player_id or self.client_id)
         if self.ws is None:
             raise RuntimeError("Websocket not connected")
         await self.ws.send_json(payload)
@@ -427,6 +443,11 @@ class PixelStreamingRecorder:
     async def _shutdown(self) -> None:
         await self._stop_recorder()
         await self._close_pc()
+        if not self.shutting_down:
+            try:
+                await self._send_message({"type": "playerDisconnected"})
+            except Exception:
+                pass
 
     async def stop(self) -> None:
         """Request a graceful shutdown of the recording session."""
