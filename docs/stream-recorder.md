@@ -34,17 +34,6 @@ python stream_recorder/record_stream.py \
   --duration 120 \
   --streamer orch-alpha
 
-# Automatically upload to the storage service when complete:
-
-python stream_recorder/record_stream.py \
-  --signalling-url ws://127.0.0.1:8080 \
-  --output captures/session-001.webm \
-  --duration 120 \
-  --session-id session-001 \
-  --storage-url http://storage-unit:9000 \
-  --upload-orchestrator-id orch-alpha \
-  --storage-token supersecret
-
 # Capture the raw RTP payloads without re-encoding (requires a later remux):
 
 python stream_recorder/record_stream.py \
@@ -60,9 +49,6 @@ Arguments:
 - `--output` – Destination file (extension determines container format).
 - `--duration` – Seconds to record (omit or set 0 to run until the stream ends).
 - `--streamer` – Optional explicit streamer id (otherwise the first available stream is chosen).
-- `--storage-url` + `--session-id` – When supplied together, the recorder automatically uploads the capture via `scripts/upload_capture.py`.
-- `--upload-orchestrator-id` – Optional orchestrator identifier forwarded to the storage API during upload.
-- `--storage-token` – Optional bearer token passed as `X-Storage-Token` when uploading.
 - `--video-bitrate` / `--audio-bitrate` – Control the local transcode quality (defaults: 6000 kbps video, 128 kbps audio).
 - `--frame-rate` – Override the transcoder FPS (default 30).
 - `--mode` – Select `transcode` (default) or `raw`. Raw mode dumps the encoded RTP payloads to `.h264` / `.opus` alongside the requested output.
