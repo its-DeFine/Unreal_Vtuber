@@ -51,8 +51,8 @@ class RecorderConfig:
     raw_remux: Optional[str] = None
     preferred_spatial_layer: Optional[int] = None
     preferred_temporal_layer: Optional[int] = None
-    answer_start_bitrate_kbps: int = 8000
-    answer_max_bitrate_kbps: int = 20000
+    answer_start_bitrate_kbps: int = 60000
+    answer_max_bitrate_kbps: int = 80000
 
 
 class PixelStreamingRecorder:
