@@ -95,3 +95,50 @@ If upload arguments are omitted you can still call `scripts/upload_capture.py` m
 - In `--mode raw`, the recorder writes `*.h264` and `*.opus` dumps. Use your own remux command (for example an `ffmpeg` invocation that understands raw RTP payloads) to package those into MP4/WebM without re-encoding.
 - When the recorder runs on the orchestrator it now mirrors the Epic browser client by issuing quality-control commands over the data channel. Tune the `RECORDER_ENCODER_*` and `RECORDER_WEBRTC_*` environment variables (or the matching CLI flags) to change the bitrates/quantisers it requests.
 - The Unreal container loads high-quality defaults from `pixel-streaming/config/ConsoleVariables.ini`. Edit that file (or override the bind mount in `docker-compose.unreal.yml`) if you need different Pixel Streaming CVars at boot.
+
+## High-Quality Capture Playbook
+
+Past recordings looked blocky because four pieces were out of sync: Unreal booted with conservative encoder CVars, the recorder never requested quality control, TURN credentials were stale, and aiortc ramped bitrate slowly. The fixes are now baked into this repo; follow this checklist whenever you stand up (or debug) a capture host.
+
+1. **Unreal encoder defaults** – `docker-compose.unreal.yml` mounts
+   `pixel-streaming/config/ConsoleVariables.ini` into the game container. That
+   INI forces a CBR 15–20 Mbps stream with QP 10–30 at 60 fps. Update the file
+   if you need different limits, but do not edit the container in-place; the
+   bind mount ensures every restart inherits the same settings.
+
+2. **Recorder handshakes like the Epic web player** – `record_stream.py`
+   requests quality control, pushes encoder/WebRTC bitrate knobs, and logs the
+   commands when the data channel opens. The knobs are exposed via
+   `RECORDER_ENCODER_*`, `RECORDER_WEBRTC_*`, and the matching CLI flags so you
+   can experiment without touching code.
+
+3. **TURN credentials must be fresh** – anytime you restart the stack (or move
+   the host) run `./scripts/generate_turn_credentials.sh` before
+   `docker compose up`. Stale credentials were the primary reason the streamer
+   kept disconnecting during early tests.
+
+4. **Verify the stream is healthy before blaming the recorder** – if
+   `docker compose logs unreal-game` shows segfaults, fix the packaged build
+   first. The recorder will loop (and the stats will stay near zero) until the
+   streamer actually publishes media.
+
+5. **Use raw mode for fidelity and inspect stats** – `--mode raw` writes the
+   encoded RTP payloads (`*.h264` + `*.opus`) plus a ready-to-play MKV when you
+   remux. The recorder logs a `Stats:` line every five seconds with video/audio
+   bitrate, FPS, and jitter—watch those to confirm the stream ramps to the
+   expected quality immediately.
+
+With those pieces in place the latest captures (`session-aiortc-hq-debug.*`) hit
+15–20 Mbps almost immediately and match what the Epic browser client sees.
+
+### Troubleshooting Checklist
+
+If quality regresses:
+
+1. Check Unreal logs for crashes (`docker compose logs unreal-game`).
+2. Make sure TURN credentials were regenerated before the most recent restart.
+3. Confirm the data channel logs show the encoder/WebRTC commands (look for the
+   `Requesting quality control over data channel` line in the recorder output).
+4. Use `ffprobe` on the raw `.h264` dump to confirm target bitrate and runtime.
+5. If the stats logger prints 0 kbps for minutes, the stream never delivered
+   frames—go back to step 1.
