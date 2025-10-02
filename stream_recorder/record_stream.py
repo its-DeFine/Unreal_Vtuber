@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import sys
 import types
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from aiortc import (
     RTCConfiguration,
 )
 from aiortc.sdp import candidate_from_sdp
+from aiortc.codecs import h264 as h264_codec
 from aiortc.contrib.media import MediaRecorder, MediaRecorderContext
 
 logger = logging.getLogger("pixelstream.recorder")
@@ -44,6 +46,12 @@ class RecorderConfig:
     video_bitrate_kbps: Optional[int] = None
     audio_bitrate_kbps: Optional[int] = None
     frame_rate: int = 30
+    mode: str = "transcode"
+    raw_remux: Optional[str] = None
+    preferred_spatial_layer: Optional[int] = None
+    preferred_temporal_layer: Optional[int] = None
+    answer_start_bitrate_kbps: int = 8000
+    answer_max_bitrate_kbps: int = 20000
 
 
 class PixelStreamingRecorder:
@@ -60,6 +68,7 @@ class PixelStreamingRecorder:
         self.active = asyncio.Event()
         self.close_event = asyncio.Event()
         self.shutting_down = False
+        self.raw_capture: Optional["RawCaptureManager"] = None
 
     async def run(self) -> bool:
         logger.info("Connecting to signalling server %s", self.cfg.signalling_url)
@@ -186,6 +195,8 @@ class PixelStreamingRecorder:
         return pc
 
     def _ensure_recorder(self) -> MediaRecorder:
+        if self.cfg.mode == "raw":
+            raise RuntimeError("MediaRecorder not available in raw mode")
         if not self.recorder:
             output_dir = self.cfg.output_path.parent
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -267,19 +278,37 @@ class PixelStreamingRecorder:
 
     def _on_track(self, track) -> None:
         logger.info("Track received: %s", track.kind)
-        recorder = self._ensure_recorder()
-        recorder.addTrack(track)
-        if not self.recorder_started:
-            asyncio.ensure_future(self._start_recorder())
+        if self.cfg.mode == "raw":
+            if self.raw_capture is None:
+                self.raw_capture = RawCaptureManager(self.cfg.output_path, self.cfg.raw_remux)
+            receiver = None
+            if self.pc:
+                for candidate in self.pc.getReceivers():
+                    if candidate.track is track:
+                        receiver = candidate
+                        break
+            attached = self.raw_capture.add_track(track, receiver)
+            logger.debug("Raw attach for %s returned %s", track.kind, attached)
+            if attached and not self.recorder_started:
+                self.recorder_started = True
+        else:
+            recorder = self._ensure_recorder()
+            recorder.addTrack(track)
+            if not self.recorder_started:
+                asyncio.ensure_future(self._start_recorder())
 
     async def _start_recorder(self) -> None:
         async with self.recorder_start_lock:
             if self.recorder_started:
                 return
-            recorder = self._ensure_recorder()
-            await recorder.start()
-            self.recorder_started = True
-            logger.info("Recorder started")
+            if self.cfg.mode == "raw":
+                self.recorder_started = True
+                logger.info("Raw recorder armed")
+            else:
+                recorder = self._ensure_recorder()
+                await recorder.start()
+                self.recorder_started = True
+                logger.info("Recorder started")
 
     async def _handle_offer(self, message: Dict[str, Any]) -> None:
         pc = await self._create_pc()
@@ -288,7 +317,10 @@ class PixelStreamingRecorder:
         await pc.setRemoteDescription(offer)
 
         answer = await pc.createAnswer()
-        await pc.setLocalDescription(answer)
+        tuned_sdp = self._tune_answer_bitrates(answer.sdp)
+        await pc.setLocalDescription(
+            RTCSessionDescription(sdp=tuned_sdp, type=answer.type)
+        )
 
         response = {"type": "answer", "sdp": pc.localDescription.sdp}
         if self.player_id:
@@ -296,12 +328,23 @@ class PixelStreamingRecorder:
         await self._send_message(response)
         logger.info("Sent SDP answer")
 
-        # Epic's player requests quality control immediately so frames flow to us.
+        # Request quality control so the streamer sends us the high-quality stream.
         try:
             await self._send_message({"type": "requestQualityControl"})
             logger.debug("Requested quality control ownership")
         except Exception as exc:
             logger.warning("Failed to request quality control: %s", exc)
+
+        if self.cfg.preferred_spatial_layer is not None:
+            layer_msg = {"type": "layerPreference", "spatialLayer": self.cfg.preferred_spatial_layer}
+            if self.cfg.preferred_temporal_layer is not None:
+                layer_msg["temporalLayer"] = self.cfg.preferred_temporal_layer
+            try:
+                await self._send_message(layer_msg)
+                logger.info("Requested layer preference spatial=%s temporal=%s",
+                            self.cfg.preferred_spatial_layer, layer_msg.get("temporalLayer"))
+            except Exception as exc:
+                logger.warning("Failed to request layer preference: %s", exc)
 
         if self.cfg.duration is not None:
             self.active.set()
@@ -335,22 +378,164 @@ class PixelStreamingRecorder:
         except Exception:
             pass
 
+    def _tune_answer_bitrates(self, sdp: str) -> str:
+        start_bps = max(self.cfg.answer_start_bitrate_kbps, 1) * 1000
+        max_bps = max(self.cfg.answer_max_bitrate_kbps, self.cfg.answer_start_bitrate_kbps) * 1000
+        lines = []
+        for line in sdp.splitlines():
+            if line.startswith("a=fmtp:") and (
+                "x-google" in line or "profile-level-id" in line or "apt=" in line
+            ):
+                line = self._ensure_bitrate_hint(line, "x-google-start-bitrate", start_bps)
+                line = self._ensure_bitrate_hint(line, "x-google-max-bitrate", max_bps)
+            lines.append(line)
+        return "\r\n".join(lines) + "\r\n"
+
+    @staticmethod
+    def _ensure_bitrate_hint(line: str, key: str, value: int) -> str:
+        parts = line.split(";")
+        replaced = False
+        for idx, part in enumerate(parts):
+            token = part.strip()
+            if token.startswith(f"{key}="):
+                parts[idx] = f"{key}={value}"
+                replaced = True
+        if not replaced:
+            parts.append(f"{key}={value}")
+        return ";".join(parts)
+
     async def _close_pc(self) -> None:
         if self.pc:
             await self.pc.close()
             self.pc = None
 
     async def _stop_recorder(self) -> None:
-        if self.recorder and self.recorder_started:
-            try:
-                await self.recorder.stop()
-                logger.info("Recorder stopped. Output saved to %s", self.cfg.output_path)
-            except Exception as exc:
-                logger.warning("Recorder stop failed: %s", exc)
+        if self.cfg.mode == "raw":
+            if self.raw_capture:
+                try:
+                    await self.raw_capture.finalize()
+                except Exception as exc:
+                    logger.warning("Raw capture finalize failed: %s", exc)
+        else:
+            if self.recorder and self.recorder_started:
+                try:
+                    await self.recorder.stop()
+                    logger.info("Recorder stopped. Output saved to %s", self.cfg.output_path)
+                except Exception as exc:
+                    logger.warning("Recorder stop failed: %s", exc)
 
     async def _shutdown(self) -> None:
         await self._stop_recorder()
         await self._close_pc()
+
+
+class RawCaptureManager:
+    def __init__(self, output_path: Path, remux_command: Optional[str]) -> None:
+        self.output_path = output_path
+        stem = output_path.with_suffix("")
+        self.video_path = stem.with_suffix(".h264")
+        self.audio_path = stem.with_suffix(".opus")
+        self.remux_command = remux_command
+        self.video_sink: Optional[RawVideoSink] = None
+        self.audio_sink: Optional[RawAudioSink] = None
+        self._patched_receivers: list[tuple[Any, Any]] = []
+
+    def add_track(self, track: Any, receiver: Any) -> bool:
+        if receiver is None:
+            logger.warning("Unable to locate receiver for track %s (type=%s, attrs=%s)", track.kind, type(track), getattr(track, "__dict__", {}))
+            return False
+
+        if track.kind == "video":
+            if self.video_sink is None:
+                self.video_path.parent.mkdir(parents=True, exist_ok=True)
+                self.video_sink = RawVideoSink(self.video_path)
+            sink = self.video_sink
+        elif track.kind == "audio":
+            if self.audio_sink is None:
+                self.audio_path.parent.mkdir(parents=True, exist_ok=True)
+                self.audio_sink = RawAudioSink(self.audio_path)
+            sink = self.audio_sink
+        else:
+            logger.debug("Skipping unsupported track kind %s", track.kind)
+            return False
+
+        original = receiver._handle_rtp_packet
+
+        async def wrapped(packet, *args, **kwargs):
+            try:
+                sink.handle(packet)
+            except Exception as exc:
+                logger.debug("Raw sink error for %s packet: %s", track.kind, exc)
+            return await original(packet, *args, **kwargs)
+
+        receiver._handle_rtp_packet = wrapped
+        self._patched_receivers.append((receiver, original))
+        return True
+
+    async def finalize(self) -> None:
+        for sink in (self.video_sink, self.audio_sink):
+            if sink is not None:
+                sink.close()
+        for receiver, original in self._patched_receivers:
+            receiver._handle_rtp_packet = original
+        self._patched_receivers.clear()
+        logger.info("Raw capture saved video=%s audio=%s", self.video_path, self.audio_path)
+        if self.remux_command and self.video_sink and self.audio_sink:
+            await self._remux()
+
+    async def _remux(self) -> None:
+        cmd = [
+            self.remux_command,
+            "-y",
+            "-f",
+            "h264",
+            "-i",
+            str(self.video_path),
+            "-f",
+            "opus",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            "-i",
+            str(self.audio_path),
+            "-c",
+            "copy",
+            str(self.output_path),
+        ]
+        logger.info("Remuxing raw capture with command: %s", " ".join(cmd))
+        proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            logger.warning("Remux command failed (%s): %s", proc.returncode, stderr.decode().strip())
+        else:
+            logger.info("Remuxed capture written to %s", self.output_path)
+
+
+class RawVideoSink:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.file = path.open("wb")
+
+    def handle(self, packet: Any) -> None:
+        _, data = h264_codec.H264PayloadDescriptor.parse(packet.payload)
+        if data:
+            self.file.write(data)
+
+    def close(self) -> None:
+        self.file.close()
+
+
+class RawAudioSink:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.file = path.open("wb")
+
+    def handle(self, packet: Any) -> None:
+        self.file.write(packet.payload)
+
+    def close(self) -> None:
+        self.file.close()
 
 
 async def async_main(args: argparse.Namespace) -> bool:
@@ -363,6 +548,10 @@ async def async_main(args: argparse.Namespace) -> bool:
         video_bitrate_kbps=args.video_bitrate,
         audio_bitrate_kbps=args.audio_bitrate,
         frame_rate=args.frame_rate,
+        mode=args.mode,
+        raw_remux=args.raw_remux,
+        preferred_spatial_layer=args.preferred_spatial_layer,
+        preferred_temporal_layer=args.preferred_temporal_layer,
     )
     recorder = PixelStreamingRecorder(cfg)
     return await recorder.run()
@@ -484,6 +673,29 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=30,
         help="Frame rate to request from the recorder's transcoder"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["transcode", "raw"],
+        default="transcode",
+        help="Recording pipeline to use (transcode: re-encode via aiortc; raw: dump encoded payloads)"
+    )
+    parser.add_argument(
+        "--raw-remux",
+        default=None,
+        help="Optional command (e.g. ffmpeg) to remux raw dumps into the final output container"
+    )
+    parser.add_argument(
+        "--preferred-spatial-layer",
+        type=int,
+        default=None,
+        help="Preferred spatial layer index to request when SFU is enabled"
+    )
+    parser.add_argument(
+        "--preferred-temporal-layer",
+        type=int,
+        default=None,
+        help="Preferred temporal layer index to request when SFU is enabled"
     )
     args = parser.parse_args()
     if args.duration and args.duration <= 0:

@@ -16,12 +16,12 @@ This document summarizes how the Unreal VTuber repository packages the Pixel Str
                   |                                    |
                   |                                    v
                   |                        +-------------------------+
-                  |                        | turn-server (coturn)    |
-                  |                        | UDP/TCP 3478 + 49160-49200
+|                        | turn-server (coturn)    |
+|                        | (optional) UDP/TCP 3478 + 49160-49200
                   |                        | Credentials from .env.turn
                   |                        +-------------------------+
                   v
-        Client browsers via TURN/STUN
+        Local recorder / orchestrator services
 ```
 
 All services share the external Docker network `vtuber_network`, so the streamer connects to the signaling container using the internal DNS name `unreal-signaling`.
@@ -49,7 +49,7 @@ All services share the external Docker network `vtuber_network`, so the streamer
 - **`setup.sh` needs internet at build time**: Running it during the Docker build ensures Wilbur is ready. If run at runtime, the container would require outbound access, which complicates deployments.
 - **CA certificates are required**: `setup.sh` and `start.sh` use `curl https://api.ipify.org` and other TLS endpoints. Installing `ca-certificates` inside the container prevents `curl: (77)` errors.
 - **File descriptor limits**: The game crashes or loses websocket connections if `nofile` is too low. We set `HOST_ULIMIT_NOFILE=1040` and pass `ULIMIT_NOFILE=1040` into the game container so `/usr/local/bin/start-embody.sh` applies the correct limit.
-- **TURN reachability is a client-side dependency**: The stack intentionally exposes UDP 3478 and the relay range 49160–49200. If a client network blocks outbound UDP, WebRTC will stall at “connection negotiated”. A quick sanity check is to run the Trickle ICE test page with the TURN credentials.
+- **TURN reachability is optional**: The recorder runs on the orchestrator and connects over the Docker network, so no additional ports need to be exposed publicly. Enable TURN only when remote viewers must reach the stream across restrictive networks.
 - **Compose vs. manual scripts**: Running Epic’s `start.sh` on the host helped identify missing dependencies, but ultimately the goal is a self-contained container. The current Dockerfile mirrors those host steps so compose deployments are turnkey.
 
 ## Operational Checklist
@@ -60,6 +60,6 @@ All services share the external Docker network `vtuber_network`, so the streamer
 4. `docker compose -f backend/docker-compose.yml -f docker-compose.unreal.yml build unreal-signaling`
 5. `docker compose -f backend/docker-compose.yml -f docker-compose.unreal.yml up -d turn-server unreal-signaling unreal-game`
 6. Verify logs and ulimit: `docker logs vtuber-unreal-signaling --tail 20`, `docker exec vtuber-unreal-game bash -lc 'ulimit -n'`
-7. Connect via browser at `http://<public-ip>:8080`
+7. Connect via browser on the orchestrator (`http://127.0.0.1:8080`, or tunnel the port over SSH if you need to view it remotely)
 
 Keep `.env.turn` secure—the credentials are shared between coturn and Wilbur. Regenerate the file whenever redeploying to rotate secrets.

@@ -6,7 +6,7 @@ This prototype records Pixel Streaming sessions without modifying the Unreal pro
 
 - Python 3.10+
 - `aiortc` (1.13 or newer), `aiohttp`, `numpy` (see `stream_recorder/requirements.txt`)
-- Network access to the Pixel Streaming signalling server (default `ws://<host>:8888`)
+- Shell access to the orchestrator that is running the Pixel Streaming stack (the recorder runs there and talks to `ws://127.0.0.1:8080`)
 
 Install dependencies locally:
 
@@ -21,7 +21,7 @@ pip install -r requirements.txt
 
 ```bash
 python stream_recorder/record_stream.py \
-  --signalling-url ws://86.106.138.188:8080 \
+  --signalling-url ws://127.0.0.1:8080 \
   --output captures/session-001.webm \
   --duration 120 \
   --streamer orch-alpha
@@ -29,18 +29,26 @@ python stream_recorder/record_stream.py \
 # Automatically upload to the storage service when complete:
 
 python stream_recorder/record_stream.py \
-  --signalling-url ws://86.106.138.188:8080 \
+  --signalling-url ws://127.0.0.1:8080 \
   --output captures/session-001.webm \
   --duration 120 \
   --session-id session-001 \
   --storage-url http://storage-unit:9000 \
   --upload-orchestrator-id orch-alpha \
   --storage-token supersecret
+
+# Capture the raw RTP payloads without re-encoding (requires a later remux):
+
+python stream_recorder/record_stream.py \
+  --signalling-url ws://127.0.0.1:8080 \
+  --output captures/session-raw.mp4 \
+  --duration 60 \
+  --mode raw
 ```
 
 Arguments:
 
-- `--signalling-url` – WebSocket endpoint of the Pixel Streaming signalling server.
+- `--signalling-url` – WebSocket endpoint of the Pixel Streaming signalling server (usually `ws://127.0.0.1:8080` when the recorder runs on the orchestrator).
 - `--output` – Destination file (extension determines container format).
 - `--duration` – Seconds to record (omit or set 0 to run until the stream ends).
 - `--streamer` – Optional explicit streamer id (otherwise the first available stream is chosen).
@@ -49,15 +57,19 @@ Arguments:
 - `--storage-token` – Optional bearer token passed as `X-Storage-Token` when uploading.
 - `--video-bitrate` / `--audio-bitrate` – Control the local transcode quality (defaults: 6000 kbps video, 128 kbps audio).
 - `--frame-rate` – Override the transcoder FPS (default 30).
+- `--mode` – Select `transcode` (default) or `raw`. Raw mode dumps the encoded RTP payloads to `.h264` / `.opus` alongside the requested output.
+- `--raw-remux` – Optional command (such as a shell script or `ffmpeg` wrapper) invoked after capture to remux the raw dumps into the final container.
+- `--preferred-spatial-layer` / `--preferred-temporal-layer` – Request specific SFU layers so the recorder matches the browser’s high-quality feed.
 
 The recorder automatically responds to signalling pings, exchanges SDP offer/answer, forwards ICE candidates, and writes the resulting media stream via `aiortc.MediaRecorder`.
 
 If upload arguments are omitted you can still call `scripts/upload_capture.py` manually after recording.
 
-> Running inside Docker on the orchestrator? Launch the container with `--network host` so the recorder can reach the local signalling server on `ws://127.0.0.1:8080`.
+> Run the recorder directly on the orchestrator (or inside a container launched with `--network host`) so it can reach the local signalling server at `ws://127.0.0.1:8080` without exposing additional ports to the public Internet.
 
 ### Tips for Higher Quality Captures
 
 - Prefer MP4 outputs (`--output captures/foo.mp4`) when you plan to edit or share clips broadly; the recorder will encode with H.264 (`libx264`).
 - For WebM outputs, bump `--video-bitrate` (for example `--video-bitrate 8000`) if you see pixelation; WebM uses `libvpx` by default.
 - Ensure the upstream Pixel Streaming session is rendering at the target resolution/bitrate—recordings cannot exceed source quality.
+- In `--mode raw`, the recorder writes `*.h264` and `*.opus` dumps. Use your own remux command (for example an `ffmpeg` invocation that understands raw RTP payloads) to package those into MP4/WebM without re-encoding.

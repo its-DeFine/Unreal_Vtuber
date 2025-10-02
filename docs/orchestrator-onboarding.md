@@ -36,9 +36,9 @@ stack, and the script runner talking to the remote payments backend.
     - `VTUBER_SESSION_DIR` – where to persist session assets on disk.
     - Optional: `ORCHESTRATOR_CONTACT_EMAIL`, `VTUBER_ALLOWED_ADDRESSES`, etc.
      
-   > The **dedicated client IP** is the public IPv4 of the workstation(s) you
-   > allow to view Pixel Streaming and trigger scripts. Use that same address
-   > when updating your local firewall rules in step 4.
+   > The **dedicated client IP** is only required when you expose Pixel
+   > Streaming to remote viewers. For local-only recording, skip the public
+   > allowlist and access the UI via SSH tunneling instead.
 
 3. Generate TURN credentials (creates `.env.turn` used by the TURN container):
    ```bash
@@ -73,22 +73,22 @@ backend so this host shows up in `/api/orchestrators`.
 
 ## 4. Verify connectivity
 
-- **Pixel Streaming UI**: open `http://<PUBLIC_IP>:8080` from the allowed IP and
-  confirm the page loads.
-- **Runner API**: `curl http://<PUBLIC_IP>:9877/health` should return `{"status":"ok"}`.
-- **Payments backend**: `curl http://<PAYMENTS_IP>:8081/api/orchestrators` should
-  list your `ORCHESTRATOR_ID` with `eligible_for_payments=true` once the health
-  service reports healthy.
+- **Pixel Streaming UI**: on the orchestrator, open `http://127.0.0.1:8080` (or
+  forward the port over SSH) and confirm the page loads.
+- **Runner API**: `curl http://127.0.0.1:9877/health` should return
+  `{"status":"ok"}`.
+- **Payments backend**: `curl http://<PAYMENTS_IP>:8081/api/orchestrators`
+  should list your `ORCHESTRATOR_ID` with `eligible_for_payments=true` once the
+  health service reports healthy.
 - **Audio/script test** (optional): from another terminal run
   ```bash
   cd autonomy/private_creator
   python3 generate_vtuber_program.py --prompt "Quick hello" --session-id local-test
   ```
   to send audio + commands to the orchestrator.
-- **Firewall/ingress**: ensure your host firewall allows the same ports as the
-  AWS security group—TCP 8080/8888/8889/9877 and UDP 3478 plus 49160-49200 **from
-  the dedicated client IP** (the workstation address noted above), and TCP 9090
-  inbound from the payments backend IP. Block everything else.
+- **Firewall/ingress**: restrict inbound traffic to the orchestrator itself and
+  the payments backend. External clients no longer need 8080/8888/8889 or the
+  TURN relay range because captures are initiated from inside the host.
 
 ---
 
