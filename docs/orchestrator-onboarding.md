@@ -36,12 +36,10 @@ stack, and the script runner talking to the remote payments backend.
     - `VTUBER_SESSION_DIR` – where to persist session assets on disk.
     - Optional: `ORCHESTRATOR_CONTACT_EMAIL`, `VTUBER_ALLOWED_ADDRESSES`, etc.
     - Recorder tuning (optional):
-        - `VTUBER_RECORDER_ENDPOINT` – recorder webhook URL (defaults to `http://recorder-manager:9001`).
         - `VTUBER_TCP_HOST` – TCP command target for the Unreal game (defaults to `unreal-game`).
-        - `RECORDER_CAPTURE_DIR` – host directory mounted at `/captures` inside `recorder-manager` (defaults to `/home/ubuntu/Unreal_Vtuber/captures`).
+        - `VTUBER_ALLOWED_ADDRESSES` – optional comma-separated IPs allowed to send TCP commands.
         - `RECORDER_VIDEO_BITRATE_KBPS`, `RECORDER_AUDIO_BITRATE_KBPS`, `RECORDER_FRAME_RATE` – change encoder settings for transcode mode.
-        - `RECORDER_SIGNALLING_URL`, `RECORDER_STREAMER_ID`, `RECORDER_MODE`, `RECORDER_RAW_REMUX_COMMAND` – advanced overrides for the recorder service.
-        - `RECORDER_STORAGE_URL`, `RECORDER_STORAGE_TOKEN`, `RECORDER_UPLOAD_ORCHESTRATOR_ID` – enable automatic uploads to the storage service.
+        - `RECORDER_SIGNALLING_URL`, `RECORDER_STREAMER_ID`, `RECORDER_MODE`, `RECORDER_RAW_REMUX_COMMAND` – overrides used when you invoke the recorder script manually.
         - `RECORDER_ANSWER_START_BITRATE_KBPS`, `RECORDER_ANSWER_MAX_BITRATE_KBPS` – tweak the SDP bitrate hints advertised to the streamer.
         - `RECORDER_ENCODER_MIN_QP`, `RECORDER_ENCODER_MAX_QP`, `RECORDER_ENCODER_MIN_BITRATE`, `RECORDER_ENCODER_TARGET_BITRATE`, `RECORDER_ENCODER_MAX_BITRATE` – values pushed via the data channel to clamp Unreal’s encoder quality.
         - `RECORDER_WEBRTC_MIN_BITRATE`, `RECORDER_WEBRTC_START_BITRATE`, `RECORDER_WEBRTC_MAX_BITRATE` – WebRTC congestion-control hints (in bps) mirroring the Epic browser client.

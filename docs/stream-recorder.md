@@ -2,21 +2,13 @@
 
 This prototype records Pixel Streaming sessions without modifying the Unreal project. It connects to the signalling server, subscribes to the target streamer and stores a synchronized audio/video file.
 
-## Recorder Manager
+## Recorder Overview
 
-When the orchestrator runs via `docker-compose.unreal.yml` the `recorder-manager`
-service is enabled by default. The Unreal script runner notifies this service
-whenever a payload is accepted, so recordings start automatically and stop once
-the session completes. Captures land under
-`${RECORDER_CAPTURE_DIR:-/home/ubuntu/Unreal_Vtuber/captures}` and can be
-uploaded to the storage service without any manual commands.
-
-Environment knobs in the compose file control bitrate, output format, upload
-behaviour, and preferred spatial/temporal layers. If you need to tweak them, set
-the `RECORDER_*` variables in `.env` before launching the stack.
-
-The remainder of this document explains how to run the recorder manually (for
-local testing or ad-hoc captures).
+Captures are triggered manually (either on the orchestrator or from a
+whitelisted workstation). There’s no background container auto-recording payloads:
+run `stream_recorder/record_stream.py` whenever you need a clip. The rest of
+this document walks through manual usage and the tuning flags now baked into the
+recorder.
 
 ## Requirements
 
