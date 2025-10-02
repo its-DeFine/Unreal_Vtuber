@@ -17,7 +17,7 @@ logger.setLevel(logging.INFO)
 logging.basicConfig(level=logging.INFO)
 
 SESSION_ROOT = Path(os.getenv("VTUBER_SESSION_ROOT", "/opt/embody/sessions"))
-TCP_HOST = os.getenv("VTUBER_TCP_HOST", "unreal-game")
+TCP_HOST = os.getenv("VTUBER_TCP_HOST", "127.0.0.1")
 TCP_PORT = int(os.getenv("VTUBER_TCP_PORT", "7777"))
 TCP_CONNECT_RETRIES = int(os.getenv("VTUBER_TCP_RETRIES", "20"))
 TCP_RETRY_DELAY = float(os.getenv("VTUBER_TCP_RETRY_DELAY", "0.5"))
