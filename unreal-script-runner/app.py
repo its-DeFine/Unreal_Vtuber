@@ -6,7 +6,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Dict, Literal, Optional
+from typing import Dict, Literal, Optional, Tuple
 
 import aiohttp
 from fastapi import FastAPI, HTTPException, Request
@@ -115,7 +115,7 @@ _active_session: Optional[str] = None
 _statuses: Dict[str, ScriptStatus] = {}
 
 
-async def _prepare_assets(payload: ScriptRequest) -> Path:
+async def _prepare_assets(payload: ScriptRequest) -> Tuple[Path, Dict[str, str]]:
     session_dir = SESSION_ROOT / payload.session_id
     audio_dir = session_dir / "audio"
     if session_dir.exists():
@@ -123,17 +123,23 @@ async def _prepare_assets(payload: ScriptRequest) -> Path:
     audio_dir.mkdir(parents=True, exist_ok=True)
 
     async with aiohttp.ClientSession() as http:
-        for asset in payload.audio:
+        sanitized: Dict[str, str] = {}
+        for idx, asset in enumerate(payload.audio):
             if asset.payload_b64:
                 asset.write_to(audio_dir)
             else:
                 await asset.download_into(http, audio_dir)
-    return audio_dir
+            original = audio_dir / asset.filename
+            if original.exists():
+                safe_name = _sanitize_filename(idx, original.suffix or ".mp3")
+                original.rename(audio_dir / safe_name)
+                sanitized[asset.id] = safe_name
+        return audio_dir, sanitized
 
 
 async def _execute_script(payload: ScriptRequest, status: ScriptStatus) -> None:
     await _notify_recorder_start(payload.session_id)
-    audio_dir = await _prepare_assets(payload)
+    audio_dir, sanitized_files = await _prepare_assets(payload)
     audio_map = payload.audio_index()
     status.state = "running"
     status.total_steps = len(payload.commands)
@@ -143,7 +149,7 @@ async def _execute_script(payload: ScriptRequest, status: ScriptStatus) -> None:
         for idx, command in enumerate(payload.commands, start=1):
             await asyncio.sleep(command.delay_ms / 1000)
             status.current_step = idx
-            message = _render_command(command, payload.session_id, audio_map, audio_dir)
+            message = _render_command(command, payload.session_id, audio_map, audio_dir, sanitized_files)
             logger.info("TCP command -> %s", message)
             reader, writer = await _open_command_connection()
             try:
@@ -183,6 +189,7 @@ def _render_command(
     session_id: str,
     audio_map: Dict[str, AudioAsset],
     audio_dir: Path,
+    sanitized_files: Dict[str, str],
 ) -> str:
     if command.type == "tcp":
         assert command.value is not None
@@ -190,10 +197,16 @@ def _render_command(
     asset = audio_map.get(command.id or "")
     if asset is None:
         raise ValueError(f"audio asset {command.id!r} not found")
-    file_path = audio_dir / asset.filename
+    filename = sanitized_files.get(asset.id or "") or asset.filename
+    file_path = audio_dir / filename
     if not file_path.exists():
-        raise ValueError(f"audio file missing: {asset.filename}")
-    return f"TTS_BYOB_/opt/embody/sessions/{session_id}/audio/{asset.filename}"
+        raise ValueError(f"audio file missing: {filename}")
+    return f"TTS_BYOB_/opt/embody/sessions/{session_id}/audio/{filename}"
+
+
+def _sanitize_filename(index: int, suffix: str) -> str:
+    safe_index = index % 10000
+    return f"{safe_index:04d}{suffix}"
 
 
 @app.get("/health")
