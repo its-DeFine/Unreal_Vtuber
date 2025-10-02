@@ -28,7 +28,7 @@ LOGGER = logging.getLogger("pixelstream.manager")
 LOG_LEVEL = os.getenv("RECORDER_LOG_LEVEL", os.getenv("PIXELSTREAM_LOG", "INFO"))
 logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper(), logging.INFO))
 
-SIGNALLING_URL = os.getenv("SIGNALLING_URL", "ws://unreal-signaling:8080")
+SIGNALLING_URL = os.getenv("SIGNALLING_URL", "ws://127.0.0.1:8080")
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "/captures"))
 OUTPUT_SUFFIX = os.getenv("OUTPUT_SUFFIX", ".mp4")
 STREAMER_ID = os.getenv("STREAMER_ID") or None
