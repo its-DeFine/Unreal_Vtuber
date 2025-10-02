@@ -36,9 +36,6 @@ services:
 
   # Signaling Server - WebRTC signaling and web interface
   unreal-signaling:
-    build:
-      context: .
-      dockerfile: docker/pixel-streaming/signaling/Dockerfile
     image: ghcr.io/its-define/unreal_vtuber/embody-signaling:latest
     container_name: vtuber-unreal-signaling
     restart: unless-stopped
@@ -104,6 +101,7 @@ services:
       - /usr/share/vulkan:/host-libs/usr/share/vulkan:ro
       - /etc/vulkan:/host-libs/etc/vulkan:ro
       - /usr/share/glvnd:/host-libs/usr/share/glvnd:ro
+      - ./pixel-streaming/config/ConsoleVariables.ini:/opt/embody/Embody/Saved/Config/LinuxNoEditor/ConsoleVariables.ini:ro
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     networks:
       - vtuber_network
@@ -123,10 +121,9 @@ services:
   vtuber-script-runner:
     build:
       context: ./unreal-script-runner
-    network_mode: "service:unreal-game"
     environment:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
-      - VTUBER_TCP_HOST=127.0.0.1
+      - VTUBER_TCP_HOST=${VTUBER_TCP_HOST:-unreal-game}
       - VTUBER_TCP_PORT=7777
       - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-}
     volumes:
@@ -134,6 +131,8 @@ services:
     restart: unless-stopped
     depends_on:
       - unreal-game
+    networks:
+      - vtuber_network
 
   orchestrator-registration:
     image: python:3.11-slim

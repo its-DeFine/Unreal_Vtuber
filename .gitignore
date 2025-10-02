@@ -82,6 +82,7 @@ characters/templates/*.json
 *.mp4
 *.avi
 *.mov
+captures/
 # Private creator workspace
 private_creator/
 

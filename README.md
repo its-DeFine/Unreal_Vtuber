@@ -52,6 +52,9 @@ backend issues an on-chain transfer using the configured wallet.
 
 Prefer AWS automation? See [docs/aws-onboarding.md](docs/aws-onboarding.md) for the EC2 provisioning workflow.
 
+Need to retain recordings? Run the recorder with `--mode raw` (or the Docker one-liner) and archive the resulting `.h264/.opus` or remuxed `.mkv` files wherever you prefer.
+To capture streams headlessly without Unreal changes, see [docs/stream-recorder.md](docs/stream-recorder.md); the recorder now supports automatic uploads when `--storage-url` and `--session-id` are provided.
+
 ## Registry & top-100 checks
 On startup the backend records orchestrator metadata under
 `backend/data/registry.json`. When `TOP_CONTRACT_*` variables are configured, it

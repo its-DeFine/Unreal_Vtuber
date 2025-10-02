@@ -32,14 +32,15 @@ This document reflects the current production layout where the payments backend 
 | Port/Proto | Purpose | Exposure |
 |------------|---------|---------|
 | TCP 22 | SSH (optional) | lock to management IPs |
-| TCP 8080 | Pixel Streaming UI | dedicated client IP only |
-| TCP 8888-8889 | WebRTC signaling (HTTP/WS) | dedicated client IP only |
+| TCP 8080 | Pixel Streaming UI | local orchestrator access (use SSH tunnel if viewing remotely) |
+| TCP 8888-8889 | WebRTC signaling (HTTP/WS) | local orchestrator access |
+| TCP 9001 | Recorder manager control plane | local orchestrator access |
 | TCP 9090 | Health endpoint consumed by payments backend | payments EC2 IP only |
-| TCP 9876/9877 | Worker/script APIs (voice/FX control) | dedicated client IP or backend services |
+| TCP 9876/9877 | Worker/script APIs (voice/FX control) | local orchestrator access (allow backend services as needed) |
 | TCP 9995 | Livepeer orchestrator (if enabled) | Livepeer control plane only |
-| UDP 3478 | coturn STUN/TURN | dedicated client IP only |
+| UDP 3478 | coturn STUN/TURN | optional (only when exposing to external viewers) |
 | UDP 19302-19303 | Google STUN fallback | optional; limit to client IP if enabled |
-| UDP 40000-49999 & 49160-49200 | TURN media relay ranges | dedicated client IP only |
+| UDP 40000-49999 & 49160-49200 | TURN media relay ranges (optional – only required when exposing Pixel Streaming to external viewers) | n/a |
 
 ### Payments backend inbound
 

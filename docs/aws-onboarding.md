@@ -41,7 +41,7 @@ cp provision_orchestrator.env.example provision_orchestrator.env
 Edit `provision_orchestrator.env` and fill in the required fields:
 
 ```
-DEDICATED_CLIENT_IP=203.0.113.42    # IP that’s allowed to view Pixel Streaming / submit scripts
+DEDICATED_CLIENT_IP=203.0.113.42    # Optional: IP allowed to view Pixel Streaming directly (use admin IP and SSH tunneling for local-only ops)
 ADMIN_SOURCE_IP=203.0.113.50       # Your SSH management IP (only this address gets port 22)
 PAYMENTS_BACKEND_IP=3.141.111.200  # Payments elastic IP
 PAYMENTS_API_URL=http://3.141.111.200:8081
@@ -54,9 +54,9 @@ ALLOCATE_ELASTIC_IP=false          # Set true to allocate and attach a fresh Ela
 ```
 
 Notes:
-- The **dedicated client IP** is the public IPv4 of the workstation(s) that will
-  reach the Pixel Streaming UI. Only this address (plus the payments backend IP)
-  is opened in the security group.
+- The **dedicated client IP** is only needed when you expose Pixel Streaming to
+  external viewers. For local-only recording, reuse the admin IP and access the
+  UI via SSH tunneling instead of opening the ports publicly.
 - The script defaults to subnet `subnet-0aad8738d8ac9fc25`, AMI `ami-0f09ef696435ff61a` (Ubuntu 22.04 + NVIDIA), and a 200 GB gp3 root volume. Override `AWS_SUBNET_ID`, `AWS_AMI_ID`, or `AWS_ROOT_VOLUME_GB` only if you know you need a different environment.
 - Set `ALLOCATE_ELASTIC_IP=true` to automatically allocate a new Elastic IP and attach it to the orchestrator. Alternatively, provide `ELASTIC_IP_ALLOCATION_ID` to reuse an existing allocation.
 - `ORCHESTRATOR_KEY_NAME` is the EC2 key pair label. If it doesn’t exist, the script creates it and writes the private key under `autonomy/scripts/<name>.pem`.
@@ -75,7 +75,7 @@ python3 scripts/provision_orchestrator.py
 
 What happens:
 1. Key pair: creates or reuses the key pair named in `ORCHESTRATOR_KEY_NAME`.
-2. Security group: creates/updates the group `vtuber-orchestrator-autoprovision` with the correct ingress rules (8080/8888-8889/9876-9877/3478/19302-19303/40000-49999 to the dedicated client IP, 9090 to the payments backend IP, 22 to the admin IP ± dedicated IP if toggled).
+2. Security group: creates/updates the group `vtuber-orchestrator-autoprovision` with the correct ingress rules (8080/8888-8889/9876-9877 scoped to the dedicated client IP when provided; otherwise only the admin IP is allowed, and you should use SSH tunneling for UI access. TURN ports remain closed unless you opt in). TCP 9090 is opened to the payments backend IP, and port 22 stays limited to the admin IP (plus the dedicated IP if `ALLOW_DEDICATED_IP_SSH=true`).
 3. Instance: launches a `g5.xlarge` instance in `us-east-2`, subnet `subnet-0aad8738d8ac9fc25`, AMI `ami-0f09ef696435ff61a`, with a 200 GB gp3 root volume (override via `AWS_ROOT_VOLUME_GB`). If Elastic IP allocation is enabled it attaches the existing or newly created address automatically.
 4. Bootstrapping: installs OS updates, Docker, NVIDIA driver + container toolkit, reboot, rsyncs `Unreal_Vtuber`, generates TURN credentials, pulls images, starts `docker-compose.unreal.yml`.
 5. Registration: runs `scripts/register_orchestrator.py` (with built-in retries) to register the orchestrator against `PAYMENTS_API_URL` with your ID/address (and contact email if set).
@@ -90,8 +90,9 @@ ssh -i scripts/<key-name>.pem ubuntu@<public-ip>
 
 ## 4. Post-Provision Checklist
 
-- Confirm Pixel Streaming UI: `http://<public-ip>:8080`
+- Confirm Pixel Streaming UI locally (SSH tunnel or `http://127.0.0.1:8080` on the orchestrator)
 - Confirm script runner health: `curl http://<public-ip>:9877/health`
+- Confirm recorder manager health: `curl http://<public-ip>:9001/health`
 - Confirm payments entry: `curl http://3.141.111.200:8081/api/orchestrators | jq '.'` (look for your `orchestrator_id`).
 - When testing is complete, terminate the instance:
   ```bash

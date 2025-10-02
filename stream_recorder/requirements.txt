@@ -1,0 +1,4 @@
+aiortc>=1.13
+aiohttp>=3.9
+numpy>=1.24
+requests>=2.31

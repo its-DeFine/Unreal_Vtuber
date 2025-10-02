@@ -14,7 +14,13 @@ WORKDIR ${SIGNALING_SCRIPTS}
 RUN chmod +x *.sh \
     && echo "v18.16.1" > ${SIGNALING_ROOT}/NODE_VERSION \
     && ./setup.sh --nosudo --deps \
+    && PATH="${SIGNALING_SCRIPTS}/node/bin:$PATH" npm install --prefix ${SIGNALING_ROOT}/Signalling \
     && PATH="${SIGNALING_SCRIPTS}/node/bin:$PATH" npm install --prefix ${SIGNALING_ROOT}/SignallingWebServer
+
+# overlay patched signalling sources and rebuild
+COPY PixelStreamingInfrastructure/Signalling/src ${SIGNALING_ROOT}/Signalling/src
+RUN PATH="${SIGNALING_SCRIPTS}/node/bin:$PATH" npm run build --prefix ${SIGNALING_ROOT}/Signalling \
+    && PATH="${SIGNALING_SCRIPTS}/node/bin:$PATH" npm run build --prefix ${SIGNALING_ROOT}/SignallingWebServer
 
 COPY docker/unreal-streaming/signaling/run-packaged-signaling.sh /usr/local/bin/run-packaged-signaling.sh
 RUN chmod +x /usr/local/bin/run-packaged-signaling.sh
