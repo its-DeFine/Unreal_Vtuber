@@ -1,0 +1,9 @@
+services:
+  register-worker:
+    build:
+      context: ./docker/register
+      dockerfile: Dockerfile.register_worker
+    container_name: vtuber-register-worker
+    env_file:
+      - .env.register
+
