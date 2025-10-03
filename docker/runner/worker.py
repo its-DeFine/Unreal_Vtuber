@@ -100,7 +100,7 @@ async def param_updates(data):
 async def connect_to_pixel_streaming():
     """Connect to the Pixel Streaming signaling server."""
     global client
-    signaling_url = os.environ.get("SIGNALING_WEBSERVER_URL", "ws://localhost:8080")
+    signaling_url = os.environ.get("SIGNALING_WEBSERVER_URL", "ws://vtuber-unreal-signaling:8080")
     streamer_id = os.environ.get("STREAMER_ID", "")
 
     client = PixelStreamingClient(signaling_url, streamer_id, pixel_streaming_frame_callback)
