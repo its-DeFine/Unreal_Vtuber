@@ -1,0 +1,21 @@
+services:
+  vtuber-runner:
+    build:
+      context: ./docker/runner
+      dockerfile: Dockerfile.worker
+    container_name: vtuber-runner
+    env_file:
+      - .env.runner
+    runtime: nvidia #for gpu stats
+    volumes:
+      - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
+    ports:
+      - 8001:8000
+    networks:
+      - vtuber_network
+
+networks:
+  vtuber_network:
+    external: True
+    name: vtuber_network
+
