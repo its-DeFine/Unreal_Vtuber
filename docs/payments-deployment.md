@@ -103,9 +103,12 @@ PAYMENTS_DEFAULT_MIN_SERVICE_UPTIME=80
 PAYMENTS_AUDIT_LOG_PATH=/app/data/audit/registry.log
 PAYMENTS_BOOTSTRAP_ORCHESTRATORS_PATH=/app/data/orchestrators.json
 PAYMENTS_BOOTSTRAP_SKIP_RANK_VALIDATION=true
+PAYMENTS_ADDRESS_DENYLIST=0xAddressOne,0xAddressTwo
 ```
 
 `PAYMENTS_SINGLE_ORCHESTRATOR_MODE` now defaults to `false`; if you turn it back on, also populate `ORCHESTRATOR_ID`, `ORCHESTRATOR_ADDRESS`, and (optionally) `ORCHESTRATOR_HEALTH_URL` so the backend can auto-register that single node. The recommended approach remains letting each orchestrator POST to the API.
+
+- `PAYMENTS_ADDRESS_DENYLIST` accepts a comma- or whitespace-separated list of 42-character payout wallet addresses. Any orchestrator that attempts to register using one of these addresses will receive a `403` and existing records will be held ineligible for payouts.
 
 ---
 
@@ -158,6 +161,9 @@ If an orchestrator’s public IP changes (e.g., instance restart without Elastic
 ---
 
 ## 6. Frequently Asked Questions
+
+**Q: How do I reset the registry but keep existing balances?**  
+A: Stop the payments backend (`docker compose -f backend/docker-compose.yml stop payments-backend`), back up `backend/data/balances.json`, and delete `backend/data/registry.json` (plus the `.bak` variant). When you restart the stack the ledger file is reused so outstanding balances remain intact, while the registry repopulates from fresh registrations. Configure `PAYMENTS_ADDRESS_DENYLIST` before restarting so denylisted wallets remain blocked from re-registering.
 
 **Q: How does the orchestrator know its public IP?**  
 A: The registration helper queries the EC2 metadata service. Override with `ORCHESTRATOR_HOST_PUBLIC_IP` if you are behind a load balancer or NAT gateway.

@@ -89,6 +89,7 @@ class RegistrationResponse(BaseModel):
     balance_eth: str
     eligible_for_payments: bool
     is_top_100: bool
+    denylisted: bool
     registration_count: int
     cooldown_expires_at: Optional[str]
     message: str
@@ -100,6 +101,7 @@ class OrchestratorRecord(BaseModel):
     balance_eth: str
     eligible_for_payments: bool
     is_top_100: bool
+    denylisted: bool
     cooldown_expires_at: Optional[str]
     cooldown_active: bool
     first_seen: Optional[str]
@@ -192,6 +194,7 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
             balance_eth=str(balance),
             eligible_for_payments=result.eligible_for_payments,
             is_top_100=result.is_top_100,
+            denylisted=result.denylisted,
             registration_count=result.registration_count,
             cooldown_expires_at=result.cooldown_expires_at,
             message=result.message,
@@ -219,6 +222,7 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
                     balance_eth=str(balance),
                     eligible_for_payments=bool(record.get("eligible_for_payments", False)),
                     is_top_100=bool(record.get("is_top_100", False)),
+                    denylisted=bool(record.get("denylisted", False)),
                     cooldown_expires_at=cooldown_expires_at,
                     cooldown_active=cooldown_active,
                     first_seen=record.get("first_seen"),
@@ -262,6 +266,7 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
             balance_eth=str(balance),
             eligible_for_payments=bool(record.get("eligible_for_payments", False)),
             is_top_100=bool(record.get("is_top_100", False)),
+            denylisted=bool(record.get("denylisted", False)),
             cooldown_expires_at=cooldown_expires_at,
             cooldown_active=cooldown_active,
             first_seen=record.get("first_seen"),

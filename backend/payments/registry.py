@@ -35,6 +35,7 @@ class RegistrationResult:
     registration_count: int
     is_top_100: bool
     eligible_for_payments: bool
+    denylisted: bool
     has_active_payments: bool
     cooldown_expires_at: Optional[str]
     message: str
@@ -62,6 +63,10 @@ class Registry:
         self._lock = threading.RLock()
         self._records: Dict[str, Dict[str, Any]] = {}
         self._address_index: Dict[str, str] = {}
+        denylist_raw = getattr(settings, "address_denylist", []) or []
+        self._denylist_addresses: set[str] = {
+            address.lower() for address in denylist_raw if isinstance(address, str)
+        }
         self._load()
         self._top_cache_addresses: set[str] = set()
         self._top_cache_timestamp: Optional[datetime] = None
@@ -87,10 +92,17 @@ class Registry:
             if not isinstance(raw, dict):
                 continue
             record = self._normalize_record(orchestrator_id, raw, now_iso)
-            records[orchestrator_id] = record
             address = record.get("address")
+            denylisted = bool(record.get("denylisted", False))
             if isinstance(address, str):
-                address_index[address.lower()] = orchestrator_id
+                address_lower = address.lower()
+                if address_lower in self._denylist_addresses:
+                    denylisted = True
+                address_index[address_lower] = orchestrator_id
+            if denylisted:
+                record["denylisted"] = True
+                record["eligible_for_payments"] = False
+            records[orchestrator_id] = record
 
         self._records = records
         self._address_index = address_index
@@ -148,6 +160,7 @@ class Registry:
         normalized.setdefault("registration_count", int(record.get("registration_count", 0)))
         normalized.setdefault("is_top_100", bool(record.get("is_top_100", False)))
         normalized.setdefault("eligible_for_payments", bool(record.get("eligible_for_payments", False)))
+        normalized.setdefault("denylisted", bool(record.get("denylisted", False)))
         normalized.setdefault("cooldown_expires_at", record.get("cooldown_expires_at"))
         normalized.setdefault("last_missed_all_services", record.get("last_missed_all_services"))
         normalized.setdefault("last_cooldown_started_at", record.get("last_cooldown_started_at"))
@@ -225,6 +238,26 @@ class Registry:
             record = self._records.get(orchestrator_id)
             first_registration = record is None
 
+            if address_lower in self._denylist_addresses:
+                if record is not None:
+                    record["denylisted"] = True
+                    record["eligible_for_payments"] = False
+                    record["last_seen"] = now_iso
+                    self._records[orchestrator_id] = record
+                    self._persist()
+                self._write_audit_event(
+                    "register_denied",
+                    orchestrator_id,
+                    {
+                        "address": address,
+                        "reason": "denylisted",
+                    },
+                )
+                raise RegistryError(
+                    "Address is denylisted and cannot register",
+                    status_code=403,
+                )
+
             if not skip_rank_validation:
                 top_set = self._resolve_top_set()
                 if address_lower not in top_set:
@@ -253,6 +286,7 @@ class Registry:
                     "first_seen": now_iso,
                     "registration_count": 0,
                     "eligible_for_payments": True,
+                    "denylisted": False,
                 }
 
             previous_address = record.get("address")
@@ -309,7 +343,13 @@ class Registry:
             )
 
             cooldown_active = self._refresh_cooldown_state(record, now_dt)
-            record["eligible_for_payments"] = False if cooldown_active else bool(record.get("is_top_100", False))
+            denylisted_flag = bool(record.get("denylisted", False))
+            if denylisted_flag:
+                record["eligible_for_payments"] = False
+            else:
+                record["eligible_for_payments"] = (
+                    False if cooldown_active else bool(record.get("is_top_100", False))
+                )
 
             if metadata.get("services_healthy"):
                 record["last_healthy_at"] = now_iso
@@ -326,16 +366,19 @@ class Registry:
                 "first_registration": first_registration,
                 "registration_count": registration_count,
                 "is_top_100": is_top_member,
-                "eligible_for_payments": not cooldown_active and is_top_member,
+                "eligible_for_payments": not denylisted_flag and not cooldown_active and is_top_member,
+                "denylisted": denylisted_flag,
             },
         )
 
         message = "Registered orchestrator" if first_registration else "Registration refreshed"
-        if cooldown_active:
+        if denylisted_flag:
+            message = "Registration blocked (address denylisted)"
+        elif cooldown_active:
             message = f"{message} (cooldown active)"
 
         is_top_flag = bool(record.get("is_top_100", False))
-        eligible_flag = not cooldown_active and is_top_flag
+        eligible_flag = not denylisted_flag and not cooldown_active and is_top_flag
 
         return RegistrationResult(
             orchestrator_id=orchestrator_id,
@@ -344,6 +387,7 @@ class Registry:
             registration_count=registration_count,
             is_top_100=is_top_flag,
             eligible_for_payments=eligible_flag,
+            denylisted=denylisted_flag,
             has_active_payments=has_active_payments,
             cooldown_expires_at=record.get("cooldown_expires_at"),
             message=message,
@@ -356,8 +400,13 @@ class Registry:
                 return False
             now_dt = datetime.now(timezone.utc)
             cooldown_active = self._refresh_cooldown_state(record, now_dt)
+            denylisted_flag = bool(record.get("denylisted", False))
             changed = False
-            if cooldown_active:
+            if denylisted_flag:
+                if record.get("eligible_for_payments"):
+                    record["eligible_for_payments"] = False
+                    changed = True
+            elif cooldown_active:
                 if record.get("eligible_for_payments"):
                     record["eligible_for_payments"] = False
                     changed = True
@@ -368,7 +417,7 @@ class Registry:
                     changed = True
             if changed:
                 self._persist()
-            return bool(record.get("eligible_for_payments", False))
+            return bool(record.get("eligible_for_payments", False)) and not denylisted_flag
 
     def is_in_cooldown(self, orchestrator_id: str) -> bool:
         with self._lock:
