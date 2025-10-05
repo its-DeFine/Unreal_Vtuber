@@ -77,6 +77,9 @@ your provisioning pipeline. The script reads the standard `ORCHESTRATOR_*` varia
 - `GET /api/orchestrators` – returns the full registry including balances. Requires `X-Admin-Token` when
   `PAYMENTS_API_ADMIN_TOKEN` is set.
 - `GET /api/orchestrators/{id}` – single orchestrator view with cooldown timestamps and health markers.
+- Set `PAYMENTS_MANAGER_IP_ALLOWLIST` to the payments control-plane IP(s) so only trusted callers can view
+  sensitive metadata such as `host_public_ip`, `last_seen_ip`, and `health_url`; other clients receive the same
+  registry but with those fields redacted.
 
 ### Cooldown behaviour
 If all monitored containers are down three cycles in a row the backend pauses payouts for one hour. During this window

@@ -104,11 +104,13 @@ PAYMENTS_AUDIT_LOG_PATH=/app/data/audit/registry.log
 PAYMENTS_BOOTSTRAP_ORCHESTRATORS_PATH=/app/data/orchestrators.json
 PAYMENTS_BOOTSTRAP_SKIP_RANK_VALIDATION=true
 PAYMENTS_ADDRESS_DENYLIST=0xAddressOne,0xAddressTwo
+PAYMENTS_MANAGER_IP_ALLOWLIST=203.0.113.10,127.0.0.1
 ```
 
 `PAYMENTS_SINGLE_ORCHESTRATOR_MODE` now defaults to `false`; if you turn it back on, also populate `ORCHESTRATOR_ID`, `ORCHESTRATOR_ADDRESS`, and (optionally) `ORCHESTRATOR_HEALTH_URL` so the backend can auto-register that single node. The recommended approach remains letting each orchestrator POST to the API.
 
 - `PAYMENTS_ADDRESS_DENYLIST` accepts a comma- or whitespace-separated list of 42-character payout wallet addresses. Any orchestrator that attempts to register using one of these addresses will receive a `403` and existing records will be held ineligible for payouts.
+- `PAYMENTS_MANAGER_IP_ALLOWLIST` configures which source IPs are allowed to view orchestrator IP information (`host_public_ip`, `last_seen_ip`, `health_url`). Requests from any other address still receive the registry data, but the sensitive fields are redacted. Include the IP of the payments admin host (and any proxies that terminate TLS) here.
 
 ---
 

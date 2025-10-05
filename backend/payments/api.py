@@ -1,6 +1,7 @@
 """HTTP API for orchestrator self-registration and admin visibility."""
 from __future__ import annotations
 
+import ipaddress
 import threading
 import time
 from collections import deque
@@ -138,6 +139,46 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
         window_seconds=10,
     )
 
+    manager_ip_allowlist = {
+        str(ipaddress.ip_address(ip)) for ip in getattr(settings, "manager_ip_allowlist", [])
+    }
+    sensitive_fields = {
+        "host_public_ip": None,
+        "last_seen_ip": None,
+        "health_url": None,
+    }
+
+    def normalize_ip(value: Optional[str]) -> Optional[str]:
+        if not value:
+            return None
+        try:
+            return str(ipaddress.ip_address(value))
+        except ValueError:
+            return None
+
+    def request_ip(request: Request) -> Optional[str]:
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            first = forwarded.split(",", 1)[0].strip()
+            normalized = normalize_ip(first)
+            if normalized:
+                return normalized
+        client_host = request.client.host if request.client else None
+        return normalize_ip(client_host)
+
+    def include_sensitive_fields(request: Request) -> bool:
+        if not manager_ip_allowlist:
+            return True
+        client = request_ip(request)
+        if client is None:
+            return False
+        return client in manager_ip_allowlist
+
+    def redact_record(record: OrchestratorRecord, include_sensitive: bool) -> OrchestratorRecord:
+        if include_sensitive:
+            return record
+        return record.model_copy(update=sensitive_fields)
+
     async def require_admin(request: Request) -> None:
         token = settings.api_admin_token
         if not token:
@@ -201,10 +242,13 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
         )
 
     @app.get("/api/orchestrators", response_model=OrchestratorsResponse)
-    async def list_orchestrators(_: Any = Depends(require_admin)) -> OrchestratorsResponse:
+    async def list_orchestrators(
+        request: Request, _: Any = Depends(require_admin)
+    ) -> OrchestratorsResponse:
         records = registry.all_records()
         response: List[OrchestratorRecord] = []
         now = datetime.now(timezone.utc)
+        sensitive_allowed = include_sensitive_fields(request)
         for orchestrator_id, record in records.items():
             balance = ledger.get_balance(orchestrator_id)
             cooldown_expires_at = record.get("cooldown_expires_at")
@@ -215,39 +259,40 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
                     cooldown_active = expires > now
                 except ValueError:
                     cooldown_active = False
-            response.append(
-                OrchestratorRecord(
-                    orchestrator_id=orchestrator_id,
-                    address=record.get("address", ""),
-                    balance_eth=str(balance),
-                    eligible_for_payments=bool(record.get("eligible_for_payments", False)),
-                    is_top_100=bool(record.get("is_top_100", False)),
-                    denylisted=bool(record.get("denylisted", False)),
-                    cooldown_expires_at=cooldown_expires_at,
-                    cooldown_active=cooldown_active,
-                    first_seen=record.get("first_seen"),
-                    last_seen=record.get("last_seen"),
-                    registration_count=int(record.get("registration_count", 0)),
-                    contact_email=record.get("contact_email"),
-                    capability=record.get("capability"),
-                    host_public_ip=record.get("host_public_ip"),
-                    host_name=record.get("host_name"),
-                    last_seen_ip=record.get("last_seen_ip"),
-                    last_missed_all_services=record.get("last_missed_all_services"),
-                    last_healthy_at=record.get("last_healthy_at"),
-                    last_cooldown_started_at=record.get("last_cooldown_started_at"),
-                    last_cooldown_cleared_at=record.get("last_cooldown_cleared_at"),
-                    health_url=record.get("health_url"),
-                    health_timeout=record.get("health_timeout"),
-                    monitored_services=record.get("monitored_services"),
-                    min_service_uptime=record.get("min_service_uptime"),
-                )
+            entry = OrchestratorRecord(
+                orchestrator_id=orchestrator_id,
+                address=record.get("address", ""),
+                balance_eth=str(balance),
+                eligible_for_payments=bool(record.get("eligible_for_payments", False)),
+                is_top_100=bool(record.get("is_top_100", False)),
+                denylisted=bool(record.get("denylisted", False)),
+                cooldown_expires_at=cooldown_expires_at,
+                cooldown_active=cooldown_active,
+                first_seen=record.get("first_seen"),
+                last_seen=record.get("last_seen"),
+                registration_count=int(record.get("registration_count", 0)),
+                contact_email=record.get("contact_email"),
+                capability=record.get("capability"),
+                host_public_ip=record.get("host_public_ip"),
+                host_name=record.get("host_name"),
+                last_seen_ip=record.get("last_seen_ip"),
+                last_missed_all_services=record.get("last_missed_all_services"),
+                last_healthy_at=record.get("last_healthy_at"),
+                last_cooldown_started_at=record.get("last_cooldown_started_at"),
+                last_cooldown_cleared_at=record.get("last_cooldown_cleared_at"),
+                health_url=record.get("health_url"),
+                health_timeout=record.get("health_timeout"),
+                monitored_services=record.get("monitored_services"),
+                min_service_uptime=record.get("min_service_uptime"),
             )
+            response.append(redact_record(entry, sensitive_allowed))
 
         return OrchestratorsResponse(orchestrators=response)
 
     @app.get("/api/orchestrators/{orchestrator_id}", response_model=OrchestratorRecord)
-    async def get_orchestrator(orchestrator_id: str, _: Any = Depends(require_admin)) -> OrchestratorRecord:
+    async def get_orchestrator(
+        orchestrator_id: str, request: Request, _: Any = Depends(require_admin)
+    ) -> OrchestratorRecord:
         record = registry.get_record(orchestrator_id)
         if not record:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
@@ -260,7 +305,7 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
                 cooldown_active = expires > datetime.now(timezone.utc)
             except ValueError:
                 cooldown_active = False
-        return OrchestratorRecord(
+        entry = OrchestratorRecord(
             orchestrator_id=orchestrator_id,
             address=record.get("address", ""),
             balance_eth=str(balance),
@@ -281,7 +326,12 @@ def create_app(registry: Registry, ledger: Ledger, settings: PaymentSettings) ->
             last_healthy_at=record.get("last_healthy_at"),
             last_cooldown_started_at=record.get("last_cooldown_started_at"),
             last_cooldown_cleared_at=record.get("last_cooldown_cleared_at"),
+            health_url=record.get("health_url"),
+            health_timeout=record.get("health_timeout"),
+            monitored_services=record.get("monitored_services"),
+            min_service_uptime=record.get("min_service_uptime"),
         )
+        return redact_record(entry, include_sensitive_fields(request))
 
     return app
 

@@ -129,3 +129,87 @@ async def test_admin_listing_requires_token(temp_paths):
     assert authorized.status_code == 200
     data = authorized.json()
     assert data["orchestrators"][0]["orchestrator_id"] == "orch-admin"
+
+
+@pytest.mark.anyio("asyncio")
+async def test_admin_listing_redacts_ips_for_unlisted_clients(temp_paths):
+    registry, ledger = build_registry(temp_paths)
+
+    address = "0xDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+    metadata = {
+        "host_public_ip": "203.0.113.5",
+        "request_ip": "203.0.113.5",
+        "health_url": "http://203.0.113.5:9090/health",
+    }
+    with patch.object(Registry, "_resolve_top_set", return_value={address.lower()}):
+        registry.register(
+            orchestrator_id="orch-sanitize",
+            address=address,
+            metadata=metadata,
+        )
+
+    app_settings = SimpleNamespace(
+        registration_rate_limit_per_minute=5,
+        registration_rate_limit_burst=5,
+        api_admin_token="secret",
+        manager_ip_allowlist=["198.51.100.10"],
+    )
+    app = create_app(registry, ledger, app_settings)
+
+    blocked_transport = httpx.ASGITransport(app=app, client=("203.0.113.200", 12345))
+    async with httpx.AsyncClient(
+        transport=blocked_transport,
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/api/orchestrators",
+            headers={"X-Admin-Token": "secret"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    record = body["orchestrators"][0]
+    assert record["host_public_ip"] is None
+    assert record["last_seen_ip"] is None
+    assert record["health_url"] is None
+
+    allowed_transport = httpx.ASGITransport(app=app, client=("198.51.100.10", 4321))
+    async with httpx.AsyncClient(
+        transport=allowed_transport,
+        base_url="http://test",
+    ) as client:
+        allowed = await client.get(
+            "/api/orchestrators",
+            headers={"X-Admin-Token": "secret"},
+        )
+
+    assert allowed.status_code == 200
+    allowed_record = allowed.json()["orchestrators"][0]
+    assert allowed_record["host_public_ip"] == "203.0.113.5"
+    assert allowed_record["last_seen_ip"] == "203.0.113.5"
+    assert allowed_record["health_url"] == "http://203.0.113.5:9090/health"
+
+    async with httpx.AsyncClient(
+        transport=allowed_transport,
+        base_url="http://test",
+    ) as client:
+        allowed_single = await client.get(
+            "/api/orchestrators/orch-sanitize",
+            headers={"X-Admin-Token": "secret"},
+        )
+
+    assert allowed_single.status_code == 200
+    assert allowed_single.json()["host_public_ip"] == "203.0.113.5"
+
+    blocked_single_transport = httpx.ASGITransport(app=app, client=("192.0.2.44", 2222))
+    async with httpx.AsyncClient(
+        transport=blocked_single_transport,
+        base_url="http://test",
+    ) as client:
+        blocked_single = await client.get(
+            "/api/orchestrators/orch-sanitize",
+            headers={"X-Admin-Token": "secret"},
+        )
+
+    assert blocked_single.status_code == 200
+    assert blocked_single.json()["host_public_ip"] is None

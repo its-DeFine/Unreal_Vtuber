@@ -1,6 +1,7 @@
 """Settings loader for the payments backend."""
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 from decimal import Decimal
@@ -108,6 +109,10 @@ class PaymentSettings(BaseSettings):
     default_min_service_uptime: float = Field(default=80.0, env="PAYMENTS_DEFAULT_MIN_SERVICE_UPTIME")
     audit_log_path: Path = Field(default=Path("/app/data/audit/registry.log"), env="PAYMENTS_AUDIT_LOG_PATH")
     address_denylist: List[str] = Field(default_factory=list, env="PAYMENTS_ADDRESS_DENYLIST")
+    manager_ip_allowlist: List[str] = Field(
+        default_factory=list,
+        env="PAYMENTS_MANAGER_IP_ALLOWLIST",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -190,13 +195,49 @@ class PaymentSettings(BaseSettings):
             normalized.append(candidate_lower)
         return normalized
 
+    @field_validator("manager_ip_allowlist", mode="before")
+    @classmethod
+    def parse_manager_ip_allowlist(cls, value):  # type: ignore[override]
+        if value is None:
+            return []
+        if isinstance(value, str):
+            parts = re.split(r"[\s,]+", value.strip())
+            return [part for part in parts if part]
+        return value
+
+    @field_validator("manager_ip_allowlist")
+    @classmethod
+    def normalize_manager_ip_allowlist(cls, value: List[str]) -> List[str]:
+        normalized: List[str] = []
+        seen = set()
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("manager_ip_allowlist entries must be strings")
+            candidate = item.strip()
+            if not candidate:
+                continue
+            try:
+                canonical = str(ipaddress.ip_address(candidate))
+            except ValueError as exc:
+                raise ValueError("manager_ip_allowlist entries must be valid IPv4/IPv6 addresses") from exc
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            normalized.append(canonical)
+        return normalized
+
     @model_validator(mode="after")
-    def populate_denylist_and_validate(self) -> "PaymentSettings":
+    def populate_lists_and_validate(self) -> "PaymentSettings":
         if not self.address_denylist:
             raw = os.environ.get("PAYMENTS_ADDRESS_DENYLIST")
             if raw:
                 parts = self.parse_address_denylist(raw)
                 self.address_denylist = self.normalize_address_denylist(parts)
+        if not self.manager_ip_allowlist:
+            raw_ips = os.environ.get("PAYMENTS_MANAGER_IP_ALLOWLIST")
+            if raw_ips:
+                parts = self.parse_manager_ip_allowlist(raw_ips)
+                self.manager_ip_allowlist = self.normalize_manager_ip_allowlist(parts)
         if self.single_orchestrator_mode:
             if not self.orchestrator_id:
                 raise ValueError(
