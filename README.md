@@ -26,10 +26,38 @@ backend issues an on-chain transfer using the configured wallet.
    # edit .env with PAYMENTS_API_URL, ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP,
    # and ORCHESTRATOR_HEALTH_URL=http://<PUBLIC_IP>:9090/health
    ```
-4. Open the firewall for your dedicated client IP (e.g. 86.106.138.188) and the payments backend (3.141.111.200). Allow:
-   - TCP 8080, 8888, 8889, 9876, 9877 from the client IP.
-   - UDP 3478 and 49160‑49200 from the client IP.
-   - TCP 9090 from the payments backend IP.
+4. Open the firewall so the forwarder, your workstation, and the payments backend can reach this host.
+
+   | Traffic source                     | Ports (TCP)                   | Ports (UDP)               |
+   | --------------------------------- | ------------------------------ | ------------------------- |
+   | Forwarder / client (3.150.172.153)| 8080, 8888, 8889, 9876, 9877   | 3478, 49160‑49200        |
+   | Payments backend (3.141.111.200)  | 9090                           | –                       |
+
+   **Example (UFW)**
+   ```bash
+   CLIENT_IP=3.150.172.153          # Forwarder public IP
+   DIRECT_VIEWER_IP=86.106.138.188  # Optional: operator workstation
+   PAYMENTS_IP=3.141.111.200
+
+   for PORT in 8080 8888 8889 9876 9877; do
+     sudo ufw allow from $CLIENT_IP to any port $PORT proto tcp
+   done
+   sudo ufw allow from $CLIENT_IP to any port 3478 proto udp
+   sudo ufw allow from $CLIENT_IP to any port 49160:49200 proto udp
+
+   if [ -n "$DIRECT_VIEWER_IP" ]; then
+     for PORT in 8080 8888 8889 9876 9877; do
+       sudo ufw allow from $DIRECT_VIEWER_IP to any port $PORT proto tcp
+     done
+     sudo ufw allow from $DIRECT_VIEWER_IP to any port 3478 proto udp
+     sudo ufw allow from $DIRECT_VIEWER_IP to any port 49160:49200 proto udp
+   fi
+
+   sudo ufw allow from $PAYMENTS_IP    to any port 9090 proto tcp
+   sudo ufw reload
+   ```
+
+   **If the orchestrator is outside AWS**, mirror these allowances on that host (permit the forwarder IP—and any optional operator IPs—on the same ports).
 
    ![Firewall rules](docs/images/firewall-rules.png)
 
@@ -52,8 +80,6 @@ backend issues an on-chain transfer using the configured wallet.
 
 Prefer AWS automation? See [docs/aws-onboarding.md](docs/aws-onboarding.md) for the EC2 provisioning workflow.
 
-Need to retain recordings? Run the recorder with `--mode raw` (or the Docker one-liner) and archive the resulting `.h264/.opus` or remuxed `.mkv` files wherever you prefer.
-To capture streams headlessly without Unreal changes, see [docs/stream-recorder.md](docs/stream-recorder.md); the recorder now supports automatic uploads when `--storage-url` and `--session-id` are provided.
 
 ## Registry & top-100 checks
 On startup the backend records orchestrator metadata under
