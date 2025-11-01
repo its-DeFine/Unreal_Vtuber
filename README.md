@@ -68,10 +68,6 @@ backend issues an on-chain transfer using the configured wallet.
    sudo ufw reload
    ```
 
-   **If the orchestrator is outside AWS**, mirror these allowances on that host (permit the forwarder IP—and any optional operator IPs—on the same ports).
-
-   ![Firewall rules](docs/images/firewall-rules.png)
-
 5. Launch the Pixel Streaming stack:
    ```bash
    docker network create vtuber_network 2>/dev/null || true
