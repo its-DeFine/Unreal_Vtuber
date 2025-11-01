@@ -1,1 +1,0 @@
-"""Stream recorder package."""

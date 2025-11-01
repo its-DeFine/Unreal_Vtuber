@@ -10,12 +10,23 @@ backend issues an on-chain transfer using the configured wallet.
 - `backend/docker-compose.yml` – payments backend container that monitors the Unreal services.
 - `backend/payments` – Python package with the monitoring + payout logic.
 
-## Quick start (local GPU host)
+## Onboarding vs. upgrade
+
+- **New host onboarding**: follow [New deployment](#new-deployment) if you are bringing up a fresh orchestrator.
+- **Updating an existing host**: skip ahead to [Upgrade from previous release](#upgrade-from-previous-release) for migration notes.
+
+---
+
+## New deployment
 1. Clone the repo and enter it:
    ```bash
    git clone https://github.com/its-DeFine/Unreal_Vtuber.git
    cd Unreal_Vtuber
    ```
+
+   :::note GPU reference
+   Our test environment runs on AWS g5.xlarge: NVIDIA A10G (24 GB VRAM, ~158 TFLOPS FP16, 150 W TDP), 4 vCPUs, 16 GB RAM. Any GPU with comparable specs should deliver similar Pixel Streaming quality.
+   :::
 2. Generate TURN credentials (writes `.env.turn`):
    ```bash
    ./scripts/generate_turn_credentials.sh
@@ -26,10 +37,38 @@ backend issues an on-chain transfer using the configured wallet.
    # edit .env with PAYMENTS_API_URL, ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP,
    # and ORCHESTRATOR_HEALTH_URL=http://<PUBLIC_IP>:9090/health
    ```
-4. Open the firewall for your dedicated client IP (e.g. 86.106.138.188) and the payments backend (3.141.111.200). Allow:
-   - TCP 8080, 8888, 8889, 9876, 9877 from the client IP.
-   - UDP 3478 and 49160‑49200 from the client IP.
-   - TCP 9090 from the payments backend IP.
+4. Open the firewall so the forwarder, your workstation, and the payments backend can reach this host.
+
+   | Traffic source                     | Ports (TCP)                   | Ports (UDP)               |
+   | --------------------------------- | ------------------------------ | ------------------------- |
+   | Forwarder / client (3.150.172.153)| 8080, 8888, 8889, 9876, 9877   | 3478, 49160‑49200        |
+   | Payments backend (3.141.111.200)  | 9090                           | –                       |
+
+   **Example (UFW)**
+   ```bash
+   CLIENT_IP=3.150.172.153          # Forwarder public IP
+   DIRECT_VIEWER_IP=86.106.138.188  # Optional: operator workstation
+   PAYMENTS_IP=3.141.111.200
+
+   for PORT in 8080 8888 8889 9876 9877; do
+     sudo ufw allow from $CLIENT_IP to any port $PORT proto tcp
+   done
+   sudo ufw allow from $CLIENT_IP to any port 3478 proto udp
+   sudo ufw allow from $CLIENT_IP to any port 49160:49200 proto udp
+
+   if [ -n "$DIRECT_VIEWER_IP" ]; then
+     for PORT in 8080 8888 8889 9876 9877; do
+       sudo ufw allow from $DIRECT_VIEWER_IP to any port $PORT proto tcp
+     done
+     sudo ufw allow from $DIRECT_VIEWER_IP to any port 3478 proto udp
+     sudo ufw allow from $DIRECT_VIEWER_IP to any port 49160:49200 proto udp
+   fi
+
+   sudo ufw allow from $PAYMENTS_IP    to any port 9090 proto tcp
+   sudo ufw reload
+   ```
+
+   **If the orchestrator is outside AWS**, mirror these allowances on that host (permit the forwarder IP—and any optional operator IPs—on the same ports).
 
    ![Firewall rules](docs/images/firewall-rules.png)
 
@@ -50,10 +89,28 @@ backend issues an on-chain transfer using the configured wallet.
    - Runner health: `curl http://<PUBLIC_IP>:9877/health`
    - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
 
+---
+
+## Upgrade from previous release
+
+1. **Update the repo**:
+   ```bash
+   cd /home/ubuntu/Unreal_Vtuber
+   git fetch origin
+   git pull origin main         # or checkout the release tag/branch
+   ```
+   Review `.env`, `.env.turn`, and other local overrides for new variables before proceeding.
+2. **Refresh containers**: `docker compose -f docker-compose.unreal.yml pull` (or `build`) to pick up the new signaling image.
+3. **Restart Unreal stack**: `docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game vtuber-turn-server`.
+4. **Recreate the script runner** (required after every game restart so it shares the network namespace):
+   ```bash
+   cd /home/ubuntu/Unreal_Vtuber
+   docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
+   ```
+5. **Sanity check**: ensure the UI loads (`:8080`), runner health endpoint responds (`:9877/health`), and payments registration still passes. No manual frontend overlay is needed—the signaling container now ships the UI.
+
 Prefer AWS automation? See [docs/aws-onboarding.md](docs/aws-onboarding.md) for the EC2 provisioning workflow.
 
-Need to retain recordings? Run the recorder with `--mode raw` (or the Docker one-liner) and archive the resulting `.h264/.opus` or remuxed `.mkv` files wherever you prefer.
-To capture streams headlessly without Unreal changes, see [docs/stream-recorder.md](docs/stream-recorder.md); the recorder now supports automatic uploads when `--storage-url` and `--session-id` are provided.
 
 ## Registry & top-100 checks
 On startup the backend records orchestrator metadata under
