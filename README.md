@@ -23,6 +23,10 @@ backend issues an on-chain transfer using the configured wallet.
    git clone https://github.com/its-DeFine/Unreal_Vtuber.git
    cd Unreal_Vtuber
    ```
+
+   :::note GPU reference
+   Our test environment runs on AWS g5.xlarge: NVIDIA A10G (24 GB VRAM, ~158 TFLOPS FP16, 150 W TDP), 4 vCPUs, 16 GB RAM. Any GPU with comparable specs should deliver similar Pixel Streaming quality.
+   :::
 2. Generate TURN credentials (writes `.env.turn`):
    ```bash
    ./scripts/generate_turn_credentials.sh
