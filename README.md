@@ -10,7 +10,14 @@ backend issues an on-chain transfer using the configured wallet.
 - `backend/docker-compose.yml` – payments backend container that monitors the Unreal services.
 - `backend/payments` – Python package with the monitoring + payout logic.
 
-## Quick start (local GPU host)
+## Onboarding vs. upgrade
+
+- **New host onboarding**: follow [New deployment](#new-deployment) if you are bringing up a fresh orchestrator.
+- **Updating an existing host**: skip ahead to [Upgrade from previous release](#upgrade-from-previous-release) for migration notes.
+
+---
+
+## New deployment
 1. Clone the repo and enter it:
    ```bash
    git clone https://github.com/its-DeFine/Unreal_Vtuber.git
@@ -77,6 +84,26 @@ backend issues an on-chain transfer using the configured wallet.
    - Pixel Streaming UI: `http://<PUBLIC_IP>:8080`
    - Runner health: `curl http://<PUBLIC_IP>:9877/health`
    - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
+
+---
+
+## Upgrade from previous release
+
+1. **Update the repo**:
+   ```bash
+   cd /home/ubuntu/Unreal_Vtuber
+   git fetch origin
+   git pull origin main         # or checkout the release tag/branch
+   ```
+   Review `.env`, `.env.turn`, and other local overrides for new variables before proceeding.
+2. **Refresh containers**: `docker compose -f docker-compose.unreal.yml pull` (or `build`) to pick up the new signaling image.
+3. **Restart Unreal stack**: `docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game vtuber-turn-server`.
+4. **Recreate the script runner** (required after every game restart so it shares the network namespace):
+   ```bash
+   cd /home/ubuntu/Unreal_Vtuber
+   docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
+   ```
+5. **Sanity check**: ensure the UI loads (`:8080`), runner health endpoint responds (`:9877/health`), and payments registration still passes. No manual frontend overlay is needed—the signaling container now ships the UI.
 
 Prefer AWS automation? See [docs/aws-onboarding.md](docs/aws-onboarding.md) for the EC2 provisioning workflow.
 
