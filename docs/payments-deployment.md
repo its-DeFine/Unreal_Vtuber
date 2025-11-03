@@ -11,7 +11,7 @@ This document reflects the current production layout where the payments backend 
 | Payments EC2         |<---health----|  Unreal Orchestrator |
 | (t3.small or similar)|              |  (g4/g5 instance)     |
 |                      |----payouts-->|                      |
-| backend/docker-compose.yml |        | docker-compose.unreal|
+| payments-backend repo      |        | docker-compose.unreal|
 +----------------------+              +----------------------+
                  ^                                  ^
                  |                                  |
@@ -19,7 +19,7 @@ This document reflects the current production layout where the payments backend 
          (SSH/API access)                   Livepeer traffic
 ```
 
-- **Payments EC2**: runs `payments-backend` and the Fluent Bit collector (from `backend/docker-compose.yml`). In production we deploy this compose stack on a **separate EC2 instance** (no GPU required) so the payment loop is isolated from the Unreal workloads.
+- **Payments EC2**: runs `payments-backend` and the Fluent Bit collector from the standalone `Embody-Inc/payments-backend` repository. In production we deploy this compose stack on a **separate EC2 instance** (no GPU required) so the payment loop is isolated from the Unreal workloads.
 - **Orchestrator EC2**: runs TURN, signaling, packaged Unreal, script runner, and the registration helper (from `docker-compose.unreal.yml`).
 - Multiple orchestrators can report to the same payments backend—the backend monitors each via the `health_url` they register.
 
@@ -88,7 +88,7 @@ TURN_REALM=your.domain
 
 Generate `.env.turn` with `./scripts/generate_turn_credentials.sh` whenever you redeploy.
 
-### Payments backend (`backend/docker-compose.yml`)
+### Payments backend (`Embody-Inc/payments-backend`)
 
 ```
 PAYMENT_INTERVAL_SECONDS=60
@@ -146,7 +146,7 @@ If an orchestrator’s public IP changes (e.g., instance restart without Elastic
 1. Launch t3.small (or similar) in the correct VPC/subnet.
 2. Allocate and associate an Elastic IP.
 3. Open security group ports: `tcp/8081` (from orchestrator IPs, or `0.0.0.0/0` if you expect rotating hosts), `tcp/22` if SSH is needed.
-4. Copy the `backend` compose folder, set `backend/.env`, run `docker compose -f backend/docker-compose.yml up -d`.
+4. Clone `Embody-Inc/payments-backend`, set its `.env`, run `docker compose up -d` from that repository.
 
 ### Orchestrator EC2
 
@@ -165,7 +165,7 @@ If an orchestrator’s public IP changes (e.g., instance restart without Elastic
 ## 6. Frequently Asked Questions
 
 **Q: How do I reset the registry but keep existing balances?**  
-A: Stop the payments backend (`docker compose -f backend/docker-compose.yml stop payments-backend`), back up `backend/data/balances.json`, and delete `backend/data/registry.json` (plus the `.bak` variant). When you restart the stack the ledger file is reused so outstanding balances remain intact, while the registry repopulates from fresh registrations. Configure `PAYMENTS_ADDRESS_DENYLIST` before restarting so denylisted wallets remain blocked from re-registering.
+A: Stop the payments backend (`cd payments-backend && docker compose stop payments-backend`), back up `payments-backend/data/balances.json`, and delete `payments-backend/data/registry.json` (plus the `.bak` variant). When you restart the stack the ledger file is reused so outstanding balances remain intact, while the registry repopulates from fresh registrations. Configure `PAYMENTS_ADDRESS_DENYLIST` before restarting so denylisted wallets remain blocked from re-registering.
 
 **Q: How does the orchestrator know its public IP?**  
 A: The registration helper queries the EC2 metadata service. Override with `ORCHESTRATOR_HOST_PUBLIC_IP` if you are behind a load balancer or NAT gateway.
@@ -177,7 +177,7 @@ A: Yes; the helper runs at start-up and re-registers automatically. Ensure the s
 A: Only for development. In production keep them separate to avoid GPU host restarts impacting payouts and vice versa.
 
 **Q: Where do audit logs live?**  
-A: `backend/data/audit/payments-audit.log` inside the payments container (also shipped to Fluent Bit outputs). Each registration or cooldown transition appends a JSON line.
+A: `payments-backend/data/audit/payments-audit.log` inside the payments container (also shipped to Fluent Bit outputs). Each registration or cooldown transition appends a JSON line.
 
 Following this guide keeps the payments pipeline resilient while minimizing manual updates when infrastructure changes.
 

@@ -12,14 +12,6 @@ echo -e "${GREEN}     VTuber + Unreal Engine Pixel Streaming Launcher${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
-BACKEND_COMPOSE="backend/docker-compose.yml"
-
-if [ ! -f "$BACKEND_COMPOSE" ]; then
-    echo -e "${RED}Error: $BACKEND_COMPOSE not found!${NC}"
-    echo "Please run this script from the repo root"
-    exit 1
-fi
-
 if [ ! -f "docker-compose.unreal.yml" ]; then
     echo -e "${RED}Error: docker-compose.unreal.yml not found!${NC}"
     exit 1
@@ -27,16 +19,13 @@ fi
 
 echo -e "${YELLOW}Checking environment configuration...${NC}"
 
-if [ ! -f "backend/.env" ] && [ -f "backend/.env.example" ]; then
-    echo -e "${YELLOW}Warning: backend/.env file not found, copying from backend/.env.example${NC}"
-    cp backend/.env.example backend/.env
-fi
-
 if [ ! -f ".env.unreal" ]; then
     echo -e "${RED}Error: .env.unreal file not found!${NC}"
     echo "Copy .env.unreal.example to .env.unreal and update your game paths."
     exit 1
 fi
+
+echo -e "${YELLOW}Reminder: start the payments backend from the Embody-Inc/payments-backend repo if payouts are required.${NC}"
 
 COMMAND=${1:-up}
 DETACHED=""
@@ -46,15 +35,15 @@ fi
 
 check_health() {
     echo -e "\n${YELLOW}Checking service health...${NC}"
-    docker compose -f "$BACKEND_COMPOSE" -f docker-compose.unreal.yml ps
+    docker compose -f docker-compose.unreal.yml ps
 }
 
 show_logs() {
     local SERVICE=$1
     if [ -z "$SERVICE" ]; then
-        docker compose -f "$BACKEND_COMPOSE" -f docker-compose.unreal.yml logs --tail=50
+        docker compose -f docker-compose.unreal.yml logs --tail=50
     else
-        docker compose -f "$BACKEND_COMPOSE" -f docker-compose.unreal.yml logs --tail=50 "$SERVICE"
+        docker compose -f docker-compose.unreal.yml logs --tail=50 "$SERVICE"
     fi
 }
 
@@ -69,7 +58,7 @@ case "$COMMAND" in
         source .env.unreal
         set +a
 
-        docker compose -f "$BACKEND_COMPOSE" -f docker-compose.unreal.yml up $DETACHED
+        docker compose -f docker-compose.unreal.yml up $DETACHED
 
         if [ "$DETACHED" == "-d" ]; then
             echo -e "\n${GREEN}Services started in background!${NC}"
@@ -86,7 +75,7 @@ case "$COMMAND" in
 
     down|stop)
         echo -e "${YELLOW}Stopping VTuber and Unreal Engine...${NC}"
-        docker compose -f "$BACKEND_COMPOSE" -f docker-compose.unreal.yml down
+        docker compose -f docker-compose.unreal.yml down
         echo -e "${GREEN}Services stopped!${NC}"
         ;;
 
@@ -107,7 +96,7 @@ case "$COMMAND" in
 
     build)
         echo -e "${YELLOW}Building Docker images...${NC}"
-        docker compose -f "$BACKEND_COMPOSE" -f docker-compose.unreal.yml build
+        docker compose -f docker-compose.unreal.yml build
         echo -e "${GREEN}Build complete!${NC}"
         ;;
 

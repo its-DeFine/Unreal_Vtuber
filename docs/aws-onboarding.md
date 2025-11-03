@@ -4,6 +4,11 @@ This page is for operators who need to spin up a fresh Unreal orchestrator EC2 i
 
 ---
 
+> **Payments backend note**  
+> The Docker Compose stack that used to live under `backend/` now resides in the
+> `Embody-Inc/payments-backend` repository. Run backend maintenance commands from
+> that repo on the payments host.
+
 ## 1. Prerequisites
 
 ### Workstation requirements
@@ -99,7 +104,9 @@ ssh -i scripts/<key-name>.pem ubuntu@<public-ip>
   aws ec2 terminate-instances --instance-ids <id> --region us-east-2
   ```
 
-Remember to resume the payments backend container (`docker compose -f backend/docker-compose.yml unpause payments-backend`) once you need payouts to flow again.
+Remember to resume the payments backend container from the standalone repo
+(`cd payments-backend && docker compose unpause payments-backend`) once you need
+payouts to flow again.
 
 ---
 
@@ -111,7 +118,7 @@ Remember to resume the payments backend container (`docker compose -f backend/do
 | Launch fails: “g5.xlarge not available” | Account/region lacks G5 quota | File a limit-increase request for G5 instances in `us-east-2` |
 | SSH times out | Security group doesn’t allow your IP | Re-run the script with correct `ADMIN_SOURCE_IP` (or enable `ALLOW_DEDICATED_IP_SSH`) |
 | Pixel Streaming not accessible from client | `DEDICATED_CLIENT_IP` incorrect | Update the env file and rerun provisioning or adjust the security group manually |
-| Payments API still paused | Payments backend left paused after earlier tests | `ssh ubuntu@3.141.111.200` then `docker compose -f backend/docker-compose.yml unpause payments-backend` |
+| Payments API still paused | Payments backend left paused after earlier tests | `ssh ubuntu@3.141.111.200`, `cd payments-backend`, then `docker compose unpause payments-backend` |
 
 When in doubt, check CloudWatch or EC2 console logs for the instance, and tail the orchestrator containers:
 ```bash

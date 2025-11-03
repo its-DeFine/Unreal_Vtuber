@@ -1,29 +1,33 @@
-# Unreal VTuber Payments Backend
+# Unreal VTuber Pixel Streaming Stack
 
-The Embody Unreal VTuber stack now ships with a lightweight payments backend that
-monitors the Pixel Streaming containers and automatically accrues payouts for the
-host orchestrator. Once the tracked balance reaches a configurable threshold, the
-backend issues an on-chain transfer using the configured wallet.
+This repository now hosts the Unreal Engine Pixel Streaming runtime plus the
+launcher scripts used to operate an orchestrator host. The Python payments
+backend that previously lived in `backend/` was extracted to its own project so
+it can be deployed and iterated on independently of the Unreal stack.
 
-## What this contains
-- `docker-compose.unreal.yml` – TURN, signaling and packaged Unreal Engine build.
-- `backend/docker-compose.yml` – payments backend container that monitors the Unreal services.
-- `backend/payments` – Python package with the monitoring + payout logic.
+## Payments backend moved
 
-## Onboarding vs. upgrade
+- Clone the backend from `Embody-Inc/payments-backend` when payouts are needed.
+- Run its Docker Compose stack separately (typically on a non-GPU host) and
+  expose the API on a reachable address or join it to the shared
+  `vtuber_network`.
+- Set `PAYMENTS_API_URL`, `ORCHESTRATOR_ID`, and `ORCHESTRATOR_ADDRESS` in
+  `.env` here so the orchestrator registration helper can contact the backend.
 
-- **New host onboarding**: follow [New deployment](#new-deployment) if you are bringing up a fresh orchestrator.
-- **Updating an existing host**: skip ahead to [Upgrade from previous release](#upgrade-from-previous-release) for migration notes.
+## Contents
 
----
+- `docker-compose.unreal.yml` – TURN, signaling, packaged Unreal container, script runner, and orchestrator registration helper.
+- `pixel-streaming/` – Pixel Streaming configuration overrides shipped with the Unreal build.
+- `scripts/` – utilities for onboarding and orchestration (`start_vtuber_unreal.sh`, `register_orchestrator.py`, etc.).
+- `docs/` – deployment, integration, and operations guides (each doc now calls out where to pull the payments backend).
 
 ## New deployment
+
 1. Clone the repo and enter it:
    ```bash
    git clone https://github.com/its-DeFine/Unreal_Vtuber.git
    cd Unreal_Vtuber
    ```
-
    :::note GPU reference
    Our test environment runs on AWS g5.xlarge: NVIDIA A10G (24 GB VRAM, ~158 TFLOPS FP16, 150 W TDP), 4 vCPUs, 16 GB RAM. Any GPU with comparable specs should deliver similar Pixel Streaming quality.
    :::
@@ -34,21 +38,21 @@ backend issues an on-chain transfer using the configured wallet.
 3. Copy and edit the orchestrator env:
    ```bash
    cp orchestrator.env.example .env
-   # edit .env with PAYMENTS_API_URL, ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP,
-   # and ORCHESTRATOR_HEALTH_URL=http://<PUBLIC_IP>:9090/health
+   # edit .env with PAYMENTS_API_URL (point at the standalone backend),
+   # ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP, and ORCHESTRATOR_HEALTH_URL
    ```
 4. Open the firewall so the forwarder, your workstation, and the payments backend can reach this host.
 
    | Traffic source                     | Ports (TCP)                   | Ports (UDP)               |
    | --------------------------------- | ------------------------------ | ------------------------- |
    | Forwarder / client (3.150.172.153)| 8080, 8888, 8889, 9876, 9877   | 3478, 49160‑49200        |
-   | Payments backend (3.141.111.200)  | 9090                           | –                       |
+   | Payments backend (set to your host)| 9090                          | –                        |
 
    **Example (UFW)**
    ```bash
    CLIENT_IP=3.150.172.153          # Forwarder public IP
    DIRECT_VIEWER_IP=86.106.138.188  # Optional: operator workstation
-   PAYMENTS_IP=3.141.111.200
+   PAYMENTS_IP=<payments-backend-ip>
 
    for PORT in 8080 8888 8889 9876 9877; do
      sudo ufw allow from $CLIENT_IP to any port $PORT proto tcp
@@ -67,86 +71,46 @@ backend issues an on-chain transfer using the configured wallet.
    sudo ufw allow from $PAYMENTS_IP    to any port 9090 proto tcp
    sudo ufw reload
    ```
-
-   **If the orchestrator is outside AWS**, mirror these allowances on that host (permit the forwarder IP—and any optional operator IPs—on the same ports).
-
-   ![Firewall rules](docs/images/firewall-rules.png)
-
 5. Launch the Pixel Streaming stack:
    ```bash
    docker network create vtuber_network 2>/dev/null || true
    docker compose -f docker-compose.unreal.yml up -d
    ```
-6. Register with the payments backend (retries until it succeeds):
+6. Start the payments backend from the `Embody-Inc/payments-backend` repo (or
+   point `PAYMENTS_API_URL` at an existing deployment).
+7. Register with the payments backend (retries until it succeeds):
    ```bash
    PAYMENTS_API_URL=http://<payments-ip>:8081 \
    ORCHESTRATOR_ID=<your-id> \
    ORCHESTRATOR_ADDRESS=<your-wallet> \
    python3 scripts/register_orchestrator.py
    ```
-7. Verify:
+8. Verify:
    - Pixel Streaming UI: `http://<PUBLIC_IP>:8080`
    - Runner health: `curl http://<PUBLIC_IP>:9877/health`
    - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
 
----
-
 ## Upgrade from previous release
 
-1. **Update the repo**:
+1. Update the repo:
    ```bash
    cd /home/ubuntu/Unreal_Vtuber
    git fetch origin
    git pull origin main         # or checkout the release tag/branch
    ```
-   Review `.env`, `.env.turn`, and other local overrides for new variables before proceeding.
-2. **Refresh containers**: `docker compose -f docker-compose.unreal.yml pull` (or `build`) to pick up the new signaling image.
-3. **Restart Unreal stack**: `docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game vtuber-turn-server`.
-4. **Recreate the script runner** (required after every game restart so it shares the network namespace):
+2. Refresh containers: `docker compose -f docker-compose.unreal.yml pull`
+   (or `build`) to pick up the latest signaling image.
+3. Restart Unreal stack: `docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game vtuber-turn-server`.
+4. Recreate the script runner (required after every game restart so it shares the network namespace):
    ```bash
-   cd /home/ubuntu/Unreal_Vtuber
    docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
    ```
-5. **Sanity check**: ensure the UI loads (`:8080`), runner health endpoint responds (`:9877/health`), and payments registration still passes. No manual frontend overlay is needed—the signaling container now ships the UI.
+5. Sanity check: ensure the UI loads (`:8080`), runner health responds (`:9877/health`), and payments registration still passes.
+6. Update the standalone backend repo separately so payouts keep flowing with the latest code.
 
-Prefer AWS automation? See [docs/aws-onboarding.md](docs/aws-onboarding.md) for the EC2 provisioning workflow.
+## Documentation
 
-
-## Registry & top-100 checks
-On startup the backend records orchestrator metadata under
-`backend/data/registry.json`. When `TOP_CONTRACT_*` variables are configured, it
-pulls the on-chain top 100 list and only enables automatic payments if the
-registered wallet appears in that set. The registration outcome (first-time
-flag, outstanding balance status, and top-100 membership) is logged during
-boot.
-
-## Self-registration API
-The payments service now ships with a FastAPI server bound to `PAYMENTS_API_HOST:PAYMENTS_API_PORT`.
-Operators can let each Unreal orchestrator host report its metadata instead of editing `.env` manually.
-A helper script lives at `scripts/register_orchestrator.py`; run it during compose startup or as part of
-your provisioning pipeline. The script reads the standard `ORCHESTRATOR_*` variables plus
-`PAYMENTS_API_URL` and retries with exponential backoff until the backend accepts the registration.
-
-### Endpoint summary
-- `POST /api/orchestrators/register` – accepts JSON `{"orchestrator_id", "address", ...}` and records the metadata.
-  Requests are rate-limited and rejected unless the wallet is part of the current top-100 set. The response includes
-  eligibility flags, cooldown status, and the current ledger balance.
-- `GET /api/orchestrators` – returns the full registry including balances. Requires `X-Admin-Token` when
-  `PAYMENTS_API_ADMIN_TOKEN` is set.
-- `GET /api/orchestrators/{id}` – single orchestrator view with cooldown timestamps and health markers.
-- Set `PAYMENTS_MANAGER_IP_ALLOWLIST` to the payments control-plane IP(s) so only trusted callers can view
-  sensitive metadata such as `host_public_ip`, `last_seen_ip`, and `health_url`; other clients receive the same
-  registry but with those fields redacted.
-
-### Cooldown behaviour
-If all monitored containers are down three cycles in a row the backend pauses payouts for one hour. During this window
-the registry entry remains visible but `eligible_for_payments` is `false`. Re-registration simply refreshes metadata;
-payments automatically resume once the cooldown expires and the orchestrator is back in the top set.
-
-To trigger a manual registration from a host, run:
-
-```bash
-PAYMENTS_API_URL=https://payments.example.com \
-ORCHESTRATOR_ID=orch-123 ORCHESTRATOR_ADDRESS=0xabc... \
-python3 scripts/register_orchestrator.py
-```
+The `docs/` directory continues to cover onboarding, AWS automation, and
+operations. Each guide now includes a reminder that the payments services are
+maintained in `Embody-Inc/payments-backend`; consult that project for compose
+files, environment variables, and data layout.
