@@ -1,4 +1,4 @@
-"""Container health monitor reused by the payments backend."""
+"""Container health monitor reused by the orchestrator health service."""
 from __future__ import annotations
 
 import logging
@@ -198,13 +198,14 @@ class ServiceMonitor:
             )
             response.raise_for_status()
             data = response.json()
-            if not isinstance(data, dict) or "summary" not in data:
-                logger.warning("Remote health response malformed: %s", data)
-                return None
-            return data
         except requests.RequestException as exc:
-            logger.warning("Remote health check failed (%s): %s", url, exc)
+            logger.warning("Remote health check failed: %s", exc)
+            return None
+        except ValueError as exc:  # pragma: no cover - JSON decode errors
+            logger.warning("Invalid JSON payload from %s: %s", url, exc)
             return None
 
-
-__all__ = ["ServiceMonitor"]
+        summary = data.get("summary")
+        if summary and "status_message" in summary:
+            logger.debug("Remote health summary: %s", summary["status_message"])
+        return data

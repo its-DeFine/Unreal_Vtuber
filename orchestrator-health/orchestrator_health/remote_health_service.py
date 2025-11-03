@@ -1,8 +1,8 @@
 """Expose local Docker service health over HTTP for remote monitoring."""
 from __future__ import annotations
 
-import os
 import logging
+import os
 
 from fastapi import FastAPI, HTTPException
 

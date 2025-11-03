@@ -7,6 +7,6 @@ ENV PYTHONUNBUFFERED=1
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-COPY payments /app/payments
+COPY orchestrator_health /app/orchestrator_health
 
-CMD ["python", "-m", "payments.main"]
+CMD ["python", "-m", "orchestrator_health.remote_health_service"]
