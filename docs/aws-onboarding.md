@@ -5,9 +5,9 @@ This page is for operators who need to spin up a fresh Unreal orchestrator EC2 i
 ---
 
 > **Payments backend note**  
-> The Docker Compose stack that used to live under `backend/` now resides in the
-> `Embody-Inc/payments-backend` repository. Run backend maintenance commands from
-> that repo on the payments host.
+> The Docker Compose stack that used to live under `backend/` now resides in a
+> standalone payments backend repository. Run backend maintenance commands from
+> that project on the payments host.
 
 ## 1. Prerequisites
 
@@ -98,6 +98,7 @@ ssh -i scripts/<key-name>.pem ubuntu@<public-ip>
 - Confirm Pixel Streaming UI locally (SSH tunnel or `http://127.0.0.1:8080` on the orchestrator)
 - Confirm script runner health: `curl http://<public-ip>:9877/health`
 - Confirm recorder manager health: `curl http://<public-ip>:9001/health`
+- Confirm orchestrator monitor: `curl http://<public-ip>:9090/health`
 - Confirm payments entry: `curl http://3.141.111.200:8081/api/orchestrators | jq '.'` (look for your `orchestrator_id`).
 - When testing is complete, terminate the instance:
   ```bash

@@ -65,5 +65,5 @@ All services share the external Docker network `vtuber_network`, so the streamer
 
 Keep `.env.turn` secure—the credentials are shared between coturn and Wilbur. Regenerate the file whenever redeploying to rotate secrets.
 
-Run the payments backend from the standalone `Embody-Inc/payments-backend`
-repository whenever payouts or orchestrator monitoring are required.
+Run the payments backend from the standalone payments repository whenever
+payouts or orchestrator monitoring are required.

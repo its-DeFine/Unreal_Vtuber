@@ -142,7 +142,7 @@ services:
     env_file:
       - .env
     environment:
-      # Point to the standalone payments backend (now maintained in Embody-Inc/payments-backend)
+      # Point to the standalone payments backend maintained outside this repo
       - PAYMENTS_API_URL=${PAYMENTS_API_URL:-http://payments-backend:8081}
       - ORCHESTRATOR_REGISTRATION_DELAY=${ORCHESTRATOR_REGISTRATION_DELAY:-10}
     volumes:
@@ -153,6 +153,22 @@ services:
       - -lc
       - "sleep ${ORCHESTRATOR_REGISTRATION_DELAY:-10} && python3 scripts/register_orchestrator.py"
     restart: "no"
+    networks:
+      - vtuber_network
+
+  orchestrator-health:
+    build:
+      context: ./orchestrator-health
+      dockerfile: Dockerfile
+    command: ["python", "-m", "orchestrator_health.remote_health_service"]
+    environment:
+      - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server}
+      - ORCHESTRATOR_HEALTH_PORT=9090
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
     networks:
       - vtuber_network
 

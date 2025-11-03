@@ -7,16 +7,19 @@ it can be deployed and iterated on independently of the Unreal stack.
 
 ## Payments backend moved
 
-- Clone the backend from `Embody-Inc/payments-backend` when payouts are needed.
-- Run its Docker Compose stack separately (typically on a non-GPU host) and
+- Clone the internal payments backend repository when payouts are needed
+  (maintained separately from this project).
+- Run its Docker Compose stack separately—typically on a non-GPU host—and
   expose the API on a reachable address or join it to the shared
   `vtuber_network`.
-- Set `PAYMENTS_API_URL`, `ORCHESTRATOR_ID`, and `ORCHESTRATOR_ADDRESS` in
-  `.env` here so the orchestrator registration helper can contact the backend.
+- Set `PAYMENTS_API_URL`, `ORCHESTRATOR_ID`, `ORCHESTRATOR_ADDRESS`, and
+  `ORCHESTRATOR_HEALTH_URL` in `.env` so the orchestrator registration helper
+  can contact the backend and advertise its health endpoint.
 
 ## Contents
 
-- `docker-compose.unreal.yml` – TURN, signaling, packaged Unreal container, script runner, and orchestrator registration helper.
+- `docker-compose.unreal.yml` – TURN, signaling, packaged Unreal container, script runner, orchestrator registration helper, and local health monitor.
+- `orchestrator-health/` – lightweight FastAPI service that exposes container health at `http://<host>:9090/health`.
 - `pixel-streaming/` – Pixel Streaming configuration overrides shipped with the Unreal build.
 - `scripts/` – utilities for onboarding and orchestration (`start_vtuber_unreal.sh`, `register_orchestrator.py`, etc.).
 - `docs/` – deployment, integration, and operations guides (each doc now calls out where to pull the payments backend).
@@ -71,13 +74,13 @@ it can be deployed and iterated on independently of the Unreal stack.
    sudo ufw allow from $PAYMENTS_IP    to any port 9090 proto tcp
    sudo ufw reload
    ```
-5. Launch the Pixel Streaming stack:
+5. Launch the Pixel Streaming stack (includes the health monitor service):
    ```bash
    docker network create vtuber_network 2>/dev/null || true
    docker compose -f docker-compose.unreal.yml up -d
    ```
-6. Start the payments backend from the `Embody-Inc/payments-backend` repo (or
-   point `PAYMENTS_API_URL` at an existing deployment).
+6. Start the payments backend from its dedicated repository (or point
+   `PAYMENTS_API_URL` at an existing deployment).
 7. Register with the payments backend (retries until it succeeds):
    ```bash
    PAYMENTS_API_URL=http://<payments-ip>:8081 \
@@ -88,6 +91,7 @@ it can be deployed and iterated on independently of the Unreal stack.
 8. Verify:
    - Pixel Streaming UI: `http://<PUBLIC_IP>:8080`
    - Runner health: `curl http://<PUBLIC_IP>:9877/health`
+   - Orchestrator monitor: `curl http://<PUBLIC_IP>:9090/health`
    - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
 
 ## Upgrade from previous release
@@ -106,11 +110,11 @@ it can be deployed and iterated on independently of the Unreal stack.
    docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
    ```
 5. Sanity check: ensure the UI loads (`:8080`), runner health responds (`:9877/health`), and payments registration still passes.
-6. Update the standalone backend repo separately so payouts keep flowing with the latest code.
+6. Update the standalone payments backend repository separately so payouts keep flowing with the latest code.
 
 ## Documentation
 
 The `docs/` directory continues to cover onboarding, AWS automation, and
-operations. Each guide now includes a reminder that the payments services are
-maintained in `Embody-Inc/payments-backend`; consult that project for compose
-files, environment variables, and data layout.
+operations. Each guide now notes that the payments services are maintained in
+a standalone repository; consult that project for compose files, environment
+variables, and data layout.

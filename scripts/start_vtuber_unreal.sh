@@ -25,7 +25,7 @@ if [ ! -f ".env.unreal" ]; then
     exit 1
 fi
 
-echo -e "${YELLOW}Reminder: start the payments backend from the Embody-Inc/payments-backend repo if payouts are required.${NC}"
+echo -e "${YELLOW}Reminder: start the payments backend from its separate repository if payouts are required.${NC}"
 
 COMMAND=${1:-up}
 DETACHED=""
