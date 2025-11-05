@@ -9,7 +9,7 @@ This document reflects the current production layout where the payments backend 
 ```
 +----------------------+              +----------------------+
 | Payments EC2         |<---health----|  Unreal Orchestrator |
-| (t3.small or similar)|              |  (g4/g5 instance)     |
+| (t3.small or similar)|              |  (g4dn.xlarge)       |
 |                      |----payouts-->|                      |
 | payments backend repo      |        | docker-compose.unreal|
 +----------------------+              +----------------------+
