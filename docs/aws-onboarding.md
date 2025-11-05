@@ -23,7 +23,7 @@ This page is for operators who need to spin up a fresh Unreal orchestrator EC2 i
   - `CreateSecurityGroup`, `AuthorizeSecurityGroupIngress`
   - `CreateKeyPair`
   - `RunInstances`, `CreateTags`, `StopInstances`, `TerminateInstances`
-- These commands launch `g5.xlarge` instances, which are service-limited. Ask your AWS admin to grant your account access to the G5 family before running the script.
+- These commands launch `g4dn.xlarge` instances, which require NVIDIA T4 quotas. Ask your AWS admin to grant your account access to the G4 family before running the script.
 - Export the keys before provisioning (temporary example):
   ```bash
   export AWS_ACCESS_KEY_ID=AKIA...
@@ -81,7 +81,7 @@ python3 scripts/provision_orchestrator.py
 What happens:
 1. Key pair: creates or reuses the key pair named in `ORCHESTRATOR_KEY_NAME`.
 2. Security group: creates/updates the group `vtuber-orchestrator-autoprovision` with the correct ingress rules (8080/8888-8889/9876-9877 scoped to the dedicated client IP when provided; otherwise only the admin IP is allowed, and you should use SSH tunneling for UI access. TURN ports remain closed unless you opt in). TCP 9090 is opened to the payments backend IP, and port 22 stays limited to the admin IP (plus the dedicated IP if `ALLOW_DEDICATED_IP_SSH=true`).
-3. Instance: launches a `g5.xlarge` instance in `us-east-2`, subnet `subnet-0aad8738d8ac9fc25`, AMI `ami-0f09ef696435ff61a`, with a 200 GB gp3 root volume (override via `AWS_ROOT_VOLUME_GB`). If Elastic IP allocation is enabled it attaches the existing or newly created address automatically.
+3. Instance: launches a `g4dn.xlarge` instance in `us-east-2`, subnet `subnet-0aad8738d8ac9fc25`, AMI `ami-0f09ef696435ff61a`, with a 200 GB gp3 root volume (override via `AWS_ROOT_VOLUME_GB`). If Elastic IP allocation is enabled it attaches the existing or newly created address automatically.
 4. Bootstrapping: installs OS updates, Docker, NVIDIA driver + container toolkit, reboot, rsyncs `Unreal_Vtuber`, generates TURN credentials, pulls images, starts `docker-compose.unreal.yml`.
 5. Registration: runs `scripts/register_orchestrator.py` (with built-in retries) to register the orchestrator against `PAYMENTS_API_URL` with your ID/address (and contact email if set).
 6. Output: prints the instance ID, public IP, security group ID, and key path.
@@ -116,7 +116,7 @@ payouts to flow again.
 | Symptom | Likely Cause | Fix |
 |---------|--------------|-----|
 | Provision script fails with “UnauthorizedOperation” | IAM user lacks required permissions | Ask AWS admin to grant EC2 launch rights or use a role with broader access |
-| Launch fails: “g5.xlarge not available” | Account/region lacks G5 quota | File a limit-increase request for G5 instances in `us-east-2` |
+| Launch fails: “g4dn.xlarge not available” | Account/region lacks G4 quota | File a limit-increase request for G4 instances in `us-east-2` |
 | SSH times out | Security group doesn’t allow your IP | Re-run the script with correct `ADMIN_SOURCE_IP` (or enable `ALLOW_DEDICATED_IP_SSH`) |
 | Pixel Streaming not accessible from client | `DEDICATED_CLIENT_IP` incorrect | Update the env file and rerun provisioning or adjust the security group manually |
 | Payments API still paused | Payments backend left paused after earlier tests | `ssh ubuntu@3.141.111.200`, `cd payments-backend`, then `docker compose unpause payments-backend` |

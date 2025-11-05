@@ -32,7 +32,7 @@ it can be deployed and iterated on independently of the Unreal stack.
    cd Unreal_Vtuber
    ```
    :::note GPU reference
-   Our test environment runs on AWS g5.xlarge: NVIDIA A10G (24 GB VRAM, ~158 TFLOPS FP16, 150 W TDP), 4 vCPUs, 16 GB RAM. Any GPU with comparable specs should deliver similar Pixel Streaming quality.
+Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFLOPS FP16, 70 W TDP), 4 vCPUs, 16 GB RAM. Any GPU with comparable specs should deliver similar Pixel Streaming quality while keeping costs in check.
    :::
 2. Generate TURN credentials (writes `.env.turn`):
    ```bash
