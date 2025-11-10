@@ -1,25 +1,15 @@
 # Unreal VTuber Pixel Streaming Stack
 
 This repository now hosts the Unreal Engine Pixel Streaming runtime plus the
-launcher scripts used to operate an orchestrator host. The Python payments
-backend that previously lived in `backend/` was extracted to its own project so
-it can be deployed and iterated on independently of the Unreal stack.
-
-## Payments backend moved
-
-- Clone the internal payments backend repository when payouts are needed
-  (maintained separately from this project).
-- Run its Docker Compose stack separately—typically on a non-GPU host—and
-  expose the API on a reachable address or join it to the shared
-  `vtuber_network`.
-- Set `PAYMENTS_API_URL`, `ORCHESTRATOR_ID`, `ORCHESTRATOR_ADDRESS`, and
-  `ORCHESTRATOR_HEALTH_URL` in `.env` so the orchestrator registration helper
-  can contact the backend and advertise its health endpoint.
+launcher scripts used to operate an orchestrator host. The registration helper
+still talks to the remote payments API, but the backend itself lives in a
+separate repository.
 
 ## Contents
 
 - `docker-compose.unreal.yml` – TURN, signaling, packaged Unreal container, script runner, orchestrator registration helper, and local health monitor.
 - `orchestrator-health/` – lightweight FastAPI service that exposes container health at `http://<host>:9090/health`.
+- `orchestrator-control/` – idle guardian service that auto-suspends Unreal when idle and exposes the wake API used for pay-as-you-go dispatch.
 - `pixel-streaming/` – Pixel Streaming configuration overrides shipped with the Unreal build.
 - `scripts/` – utilities for onboarding and orchestration (`start_vtuber_unreal.sh`, `register_orchestrator.py`, etc.).
 - `docs/` – deployment, integration, and operations guides (each doc now calls out where to pull the payments backend).
@@ -44,34 +34,32 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    # edit .env with PAYMENTS_API_URL (point at the standalone backend),
    # ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP, and ORCHESTRATOR_HEALTH_URL
    ```
-4. Open the firewall so the forwarder, your workstation, and the payments backend can reach this host.
+4. Open the firewall so the forwarder and any operator workstations can reach this host.
 
-   | Traffic source                     | Ports (TCP)                   | Ports (UDP)               |
-   | --------------------------------- | ------------------------------ | ------------------------- |
-   | Forwarder / client (3.150.172.153)| 8080, 8888, 8889, 9876, 9877   | 3478, 49160‑49200        |
+| Traffic source                     | Ports (TCP)                       | Ports (UDP)               |
+| --------------------------------- | ---------------------------------- | ------------------------- |
+| Forwarder / client (3.150.172.153)| 8080, 8888, 8889, 9100, 9876, 9877 | 3478, 49160‑49200        |
    | Payments backend (set to your host)| 9090                          | –                        |
 
    **Example (UFW)**
    ```bash
    CLIENT_IP=3.150.172.153          # Forwarder public IP
    DIRECT_VIEWER_IP=86.106.138.188  # Optional: operator workstation
-   PAYMENTS_IP=<payments-backend-ip>
 
-   for PORT in 8080 8888 8889 9876 9877; do
+   for PORT in 8080 8888 8889 9100 9876 9877; do
      sudo ufw allow from $CLIENT_IP to any port $PORT proto tcp
    done
    sudo ufw allow from $CLIENT_IP to any port 3478 proto udp
    sudo ufw allow from $CLIENT_IP to any port 49160:49200 proto udp
 
    if [ -n "$DIRECT_VIEWER_IP" ]; then
-     for PORT in 8080 8888 8889 9876 9877; do
+     for PORT in 8080 8888 8889 9100 9876 9877; do
        sudo ufw allow from $DIRECT_VIEWER_IP to any port $PORT proto tcp
      done
      sudo ufw allow from $DIRECT_VIEWER_IP to any port 3478 proto udp
      sudo ufw allow from $DIRECT_VIEWER_IP to any port 49160:49200 proto udp
    fi
 
-   sudo ufw allow from $PAYMENTS_IP    to any port 9090 proto tcp
    sudo ufw reload
    ```
 5. Launch the Pixel Streaming stack (includes the health monitor service):
@@ -79,38 +67,45 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    docker network create vtuber_network 2>/dev/null || true
    docker compose -f docker-compose.unreal.yml up -d
    ```
-6. Start the payments backend from its dedicated repository (or point
-   `PAYMENTS_API_URL` at an existing deployment).
-7. Register with the payments backend (retries until it succeeds):
+6. Register with the payments backend (retries until it succeeds):
    ```bash
    PAYMENTS_API_URL=http://<payments-ip>:8081 \
    ORCHESTRATOR_ID=<your-id> \
    ORCHESTRATOR_ADDRESS=<your-wallet> \
    python3 scripts/register_orchestrator.py
    ```
-8. Verify:
+7. Verify:
    - Pixel Streaming UI: `http://<PUBLIC_IP>:8080`
    - Runner health: `curl http://<PUBLIC_IP>:9877/health`
    - Orchestrator monitor: `curl http://<PUBLIC_IP>:9090/health`
    - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
 
-## Upgrade from previous release
+## Upgrade / migrate from an older release
 
-1. Update the repo:
+1. **Pull the latest codebase**
    ```bash
    cd /home/ubuntu/Unreal_Vtuber
    git fetch origin
    git pull origin main         # or checkout the release tag/branch
    ```
-2. Refresh containers: `docker compose -f docker-compose.unreal.yml pull`
-   (or `build`) to pick up the latest signaling image.
-3. Restart Unreal stack: `docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game vtuber-turn-server`.
-4. Recreate the script runner (required after every game restart so it shares the network namespace):
+2. **Make sure allowlists match the new deployment**
+   - Repeat the same firewall/allowlist steps outlined in the “New deployment” section (Step 4) so the forwarder and any direct-viewer workstation IPs line up with the new address. Remove the previous workstation IP entry while you’re there so the security group only has the current sources.  
+   - If the orchestrator’s public IP changed (new Elastic IP or subnet), rerun `Embody-Inc/Embody-docs/scripts/unreal-vtuber/whitelist_forwarder.sh <id> <ip>` and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`) so registration advertises the correct IP.
+3. **Refresh container images**
    ```bash
-   docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
+   docker compose -f docker-compose.unreal.yml pull
    ```
-5. Sanity check: ensure the UI loads (`:8080`), runner health responds (`:9877/health`), and payments registration still passes.
-6. Update the standalone payments backend repository separately so payouts keep flowing with the latest code.
+4. **Recreate Unreal + signaling services with the new images**
+   ```bash
+   docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game vtuber-turn-server
+   ```
+5. **Rebuild the runner/idle guard so they pick up the latest config**
+   ```bash
+   docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner orchestrator-idle-guard
+   ```
+6. **Validate traffic + health**
+   - Pixel UI: `http://<PUBLIC_IP>:8080`
+   - Runner: `curl http://<PUBLIC_IP>:9877/health`
 
 ## Documentation
 
@@ -118,3 +113,33 @@ The `docs/` directory continues to cover onboarding, AWS automation, and
 operations. Each guide now notes that the payments services are maintained in
 a standalone repository; consult that project for compose files, environment
 variables, and data layout.
+
+## Pay-as-you-go auto suspend
+
+Phase 4 converts the orchestration runtime to “pay on demand.” Two new pieces
+ship with this repo:
+
+1. **Idle guardian (`orchestrator-idle-guard`)**  
+   - Polls the script runner’s `/activity` endpoint and the docker daemon.  
+   - If no commands arrive for `IDLE_SHUTDOWN_SECONDS` (default 600 s) the guardian
+     sends `QUIT.` to Unreal and stops the `vtuber-unreal-game` container, saving
+     ~200 W per idle orchestrator.  
+   - Exposes `POST /wake` on port `9100` so the scheduler can wake the game on demand.
+
+2. **Script runner activity metrics**  
+   - `GET /activity` returns the last command timestamp and current session so the guardian
+     (or any automation) can decide when to suspend the GPU.
+
+### Client workflow
+
+1. Call the wake endpoint before sending a plan:
+   ```bash
+   curl -X POST http://<public-ip>:9100/wake
+   ```
+   or set `RUNNER_WAKE_URL` / `--wake-url` in `clip-runner.js`.
+2. Once the wake call completes, run the plan normally (script runner stays reachable at `:9877`).
+3. If no further commands arrive, the guardian stops the game container on its own.
+
+The idle timeout, check interval, and wake timeout are configurable via
+`IDLE_SHUTDOWN_SECONDS`, `IDLE_CHECK_INTERVAL_SECONDS`, and `WAKE_TIMEOUT_SECONDS`
+in `.env`. See `orchestrator-control/idle_guardian.py` for the full list of options.
