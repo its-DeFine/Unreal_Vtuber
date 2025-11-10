@@ -88,9 +88,9 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    ```bash
    docker compose -f docker-compose.unreal.yml pull
    ```
-4. **Recreate Unreal + signaling services with the new images**
+4. **Recreate Unreal + signaling + TURN services with the new images**
    ```bash
-   docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game vtuber-turn-server
+   docker compose -f docker-compose.unreal.yml up -d turn-server unreal-signaling unreal-game
    ```
 5. **Rebuild the runner so it picks up the latest config**
    ```bash
