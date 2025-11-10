@@ -33,17 +33,17 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    # edit .env with PAYMENTS_API_URL (point at the standalone backend),
    # ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP, and ORCHESTRATOR_HEALTH_URL
    ```
-4. Open the firewall so the forwarder and any operator workstations can reach this host.
+4. Open the firewall so the forwarder (3.150.172.153) and payments backend (3.141.111.200) can reach this host.
 
 | Traffic source                     | Ports (TCP)                       | Ports (UDP)               |
 | --------------------------------- | ---------------------------------- | ------------------------- |
-| Forwarder / client (3.150.172.153)| 8080, 8888, 8889, 9876, 9877 | 3478, 49160‑49200        |
-   | Payments backend (set to your host)| 9090                          | –                        |
+| Forwarder / client (3.150.172.153) | 8080, 8888, 8889, 9876, 9877 | 3478, 49160‑49200 |
+| Payments backend (3.141.111.200) | 9090                          | –                |
 
    **Example (UFW)**
    ```bash
    CLIENT_IP=3.150.172.153          # Forwarder public IP
-   DIRECT_VIEWER_IP=86.106.138.188  # Optional: operator workstation
+   PAYMENTS_IP=3.141.111.200        # Payments backend public IP
 
    for PORT in 8080 8888 8889 9876 9877; do
      sudo ufw allow from $CLIENT_IP to any port $PORT proto tcp
@@ -51,13 +51,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    sudo ufw allow from $CLIENT_IP to any port 3478 proto udp
    sudo ufw allow from $CLIENT_IP to any port 49160:49200 proto udp
 
-   if [ -n "$DIRECT_VIEWER_IP" ]; then
-     for PORT in 8080 8888 8889 9876 9877; do
-       sudo ufw allow from $DIRECT_VIEWER_IP to any port $PORT proto tcp
-     done
-     sudo ufw allow from $DIRECT_VIEWER_IP to any port 3478 proto udp
-     sudo ufw allow from $DIRECT_VIEWER_IP to any port 49160:49200 proto udp
-   fi
+   sudo ufw allow from $PAYMENTS_IP to any port 9090 proto tcp
 
    sudo ufw reload
    ```
