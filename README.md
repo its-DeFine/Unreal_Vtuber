@@ -82,15 +82,15 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    git pull origin main         # or checkout the release tag/branch
    ```
 2. **Make sure allowlists match the new deployment**
-   - Repeat the same firewall/allowlist steps outlined in the “New deployment” section (Step 4) so the forwarder and any direct-viewer workstation IPs line up with the new address. Remove the previous workstation IP entry while you’re there so the security group only has the current sources.  
-   - If the orchestrator’s public IP changed (new Elastic IP or subnet), rerun `Embody-Inc/Embody-docs/scripts/unreal-vtuber/whitelist_forwarder.sh <id> <ip>` and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`) so registration advertises the correct IP.
+   - Repeat the same firewall steps outlined in the “New deployment” section (Step 4) so the forwarder and payments backend can still reach the host, and prune any stale entries.
+   - If the orchestrator’s public IP changed (new Elastic IP or subnet), refresh the allowlist in your security group and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`) so registration advertises the correct IP.
 3. **Refresh container images**
    ```bash
    docker compose -f docker-compose.unreal.yml pull
    ```
-4. **Recreate Unreal + signaling services with the new images**
+4. **Recreate TURN + Unreal + signaling services with the new images**
    ```bash
-   docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game vtuber-turn-server
+   docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game turn-server
    ```
 5. **Rebuild the runner so it picks up the latest config**
    ```bash
