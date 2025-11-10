@@ -9,7 +9,6 @@ separate repository.
 
 - `docker-compose.unreal.yml` – TURN, signaling, packaged Unreal container, script runner, orchestrator registration helper, and local health monitor.
 - `orchestrator-health/` – lightweight FastAPI service that exposes container health at `http://<host>:9090/health`.
-- `orchestrator-control/` – idle guardian service that auto-suspends Unreal when idle and exposes the wake API used for pay-as-you-go dispatch.
 - `pixel-streaming/` – Pixel Streaming configuration overrides shipped with the Unreal build.
 - `scripts/` – utilities for onboarding and orchestration (`start_vtuber_unreal.sh`, `register_orchestrator.py`, etc.).
 - `docs/` – deployment, integration, and operations guides (each doc now calls out where to pull the payments backend).
@@ -38,7 +37,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
 
 | Traffic source                     | Ports (TCP)                       | Ports (UDP)               |
 | --------------------------------- | ---------------------------------- | ------------------------- |
-| Forwarder / client (3.150.172.153)| 8080, 8888, 8889, 9100, 9876, 9877 | 3478, 49160‑49200        |
+| Forwarder / client (3.150.172.153)| 8080, 8888, 8889, 9876, 9877 | 3478, 49160‑49200        |
    | Payments backend (set to your host)| 9090                          | –                        |
 
    **Example (UFW)**
@@ -46,14 +45,14 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    CLIENT_IP=3.150.172.153          # Forwarder public IP
    DIRECT_VIEWER_IP=86.106.138.188  # Optional: operator workstation
 
-   for PORT in 8080 8888 8889 9100 9876 9877; do
+   for PORT in 8080 8888 8889 9876 9877; do
      sudo ufw allow from $CLIENT_IP to any port $PORT proto tcp
    done
    sudo ufw allow from $CLIENT_IP to any port 3478 proto udp
    sudo ufw allow from $CLIENT_IP to any port 49160:49200 proto udp
 
    if [ -n "$DIRECT_VIEWER_IP" ]; then
-     for PORT in 8080 8888 8889 9100 9876 9877; do
+     for PORT in 8080 8888 8889 9876 9877; do
        sudo ufw allow from $DIRECT_VIEWER_IP to any port $PORT proto tcp
      done
      sudo ufw allow from $DIRECT_VIEWER_IP to any port 3478 proto udp
@@ -99,9 +98,9 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    ```bash
    docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game vtuber-turn-server
    ```
-5. **Rebuild the runner/idle guard so they pick up the latest config**
+5. **Rebuild the runner so it picks up the latest config**
    ```bash
-   docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner orchestrator-idle-guard
+   docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
    ```
 6. **Validate traffic + health**
    - Pixel UI: `http://<PUBLIC_IP>:8080`
@@ -113,33 +112,3 @@ The `docs/` directory continues to cover onboarding, AWS automation, and
 operations. Each guide now notes that the payments services are maintained in
 a standalone repository; consult that project for compose files, environment
 variables, and data layout.
-
-## Pay-as-you-go auto suspend
-
-Phase 4 converts the orchestration runtime to “pay on demand.” Two new pieces
-ship with this repo:
-
-1. **Idle guardian (`orchestrator-idle-guard`)**  
-   - Polls the script runner’s `/activity` endpoint and the docker daemon.  
-   - If no commands arrive for `IDLE_SHUTDOWN_SECONDS` (default 600 s) the guardian
-     sends `QUIT.` to Unreal and stops the `vtuber-unreal-game` container, saving
-     ~200 W per idle orchestrator.  
-   - Exposes `POST /wake` on port `9100` so the scheduler can wake the game on demand.
-
-2. **Script runner activity metrics**  
-   - `GET /activity` returns the last command timestamp and current session so the guardian
-     (or any automation) can decide when to suspend the GPU.
-
-### Client workflow
-
-1. Call the wake endpoint before sending a plan:
-   ```bash
-   curl -X POST http://<public-ip>:9100/wake
-   ```
-   or set `RUNNER_WAKE_URL` / `--wake-url` in `clip-runner.js`.
-2. Once the wake call completes, run the plan normally (script runner stays reachable at `:9877`).
-3. If no further commands arrive, the guardian stops the game container on its own.
-
-The idle timeout, check interval, and wake timeout are configurable via
-`IDLE_SHUTDOWN_SECONDS`, `IDLE_CHECK_INTERVAL_SECONDS`, and `WAKE_TIMEOUT_SECONDS`
-in `.env`. See `orchestrator-control/idle_guardian.py` for the full list of options.
