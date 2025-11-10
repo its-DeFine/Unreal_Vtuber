@@ -44,6 +44,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    ```bash
    CLIENT_IP=3.150.172.153          # Forwarder public IP
    DIRECT_VIEWER_IP=86.106.138.188  # Optional: operator workstation
+   PAYMENTS_IP=<payments-backend-ip>
 
    for PORT in 8080 8888 8889 9876 9877; do
      sudo ufw allow from $CLIENT_IP to any port $PORT proto tcp
@@ -58,6 +59,8 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
      sudo ufw allow from $DIRECT_VIEWER_IP to any port 3478 proto udp
      sudo ufw allow from $DIRECT_VIEWER_IP to any port 49160:49200 proto udp
    fi
+
+   sudo ufw allow from $PAYMENTS_IP to any port 9090 proto tcp
 
    sudo ufw reload
    ```
