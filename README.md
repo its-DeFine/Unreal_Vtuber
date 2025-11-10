@@ -32,6 +32,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    cp orchestrator.env.example .env
    # edit .env with PAYMENTS_API_URL (point at the standalone backend),
    # ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP, and ORCHESTRATOR_HEALTH_URL
+   # include VTUBER_ALLOWED_ADDRESSES=3.150.172.153 so the script runner accepts commands from the forwarder
    ```
 4. Open the firewall so the forwarder (3.150.172.153) and payments backend (3.141.111.200) can reach this host.
 
@@ -55,7 +56,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
 
    sudo ufw reload
    ```
-5. Launch the Pixel Streaming stack (includes the health monitor service):
+5. Launch the Pixel Streaming stack (includes the health monitor service). Double-check `.env` still contains `VTUBER_ALLOWED_ADDRESSES=3.150.172.153` before running compose:
    ```bash
    docker network create vtuber_network 2>/dev/null || true
    docker compose -f docker-compose.unreal.yml up -d
@@ -88,7 +89,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    ```bash
    docker compose -f docker-compose.unreal.yml pull
    ```
-4. **Recreate TURN + Unreal + signaling services with the new images**
+4. **Recreate TURN + Unreal + signaling services with the new images** (ensure `.env` still lists `VTUBER_ALLOWED_ADDRESSES=3.150.172.153` before restarting)
    ```bash
    docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game turn-server
    ```
