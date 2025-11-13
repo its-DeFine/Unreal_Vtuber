@@ -74,6 +74,16 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    - Orchestrator monitor: `curl http://<PUBLIC_IP>:9090/health`
    - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
 
+### Automatic script-runner recovery
+
+The compose stack now includes `vtuber-watchdog`, a lightweight service that
+listens to Docker events for `vtuber-unreal-game`. Whenever the game container
+restarts or crashes, the watchdog automatically runs
+`docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner`
+so the runner always reattaches to the game’s network namespace. You can still
+run the same command manually if you need to bounce the runner immediately, but
+routine crashes no longer require an operator on-call.
+
 ## Upgrade / migrate from an older release
 
 1. **Pull the latest codebase**

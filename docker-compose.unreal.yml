@@ -134,6 +134,22 @@ services:
     depends_on:
       - unreal-game
 
+  vtuber-watchdog:
+    build:
+      context: .
+      dockerfile: docker/watchdog/Dockerfile
+    container_name: vtuber-watchdog
+    restart: unless-stopped
+    depends_on:
+      - unreal-game
+    environment:
+      - WATCHDOG_COMPOSE_FILE=/workspace/docker-compose.unreal.yml
+      - WATCHDOG_RUNNER_SERVICE=vtuber-script-runner
+      - WATCHDOG_GAME_CONTAINER=vtuber-unreal-game
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/workspace:ro
+
   orchestrator-registration:
     image: python:3.11-slim
     container_name: vtuber-orchestrator-registration
