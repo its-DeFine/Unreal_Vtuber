@@ -48,7 +48,7 @@ ensure_runner_namespace() {
 
   if [ -z "$runner_id" ]; then
     log "Runner container missing; recreating $WATCHDOG_RUNNER_SERVICE."
-    compose_cmd up -d --force-recreate "$WATCHDOG_RUNNER_SERVICE"
+    compose_cmd up -d --no-deps --force-recreate "$WATCHDOG_RUNNER_SERVICE"
     return
   fi
 
@@ -56,7 +56,7 @@ ensure_runner_namespace() {
 
   if [ "$runner_ns" != "$game_ns" ] || [ -z "$runner_ns" ]; then
     log "Sandbox mismatch detected (game=$game_ns runner=$runner_ns). Recreating runner."
-    compose_cmd up -d --force-recreate "$WATCHDOG_RUNNER_SERVICE"
+    compose_cmd up -d --no-deps --force-recreate "$WATCHDOG_RUNNER_SERVICE"
   elif [ "$WATCHDOG_VERBOSE" = "1" ]; then
     log "Runner namespace matches Unreal game."
   fi
