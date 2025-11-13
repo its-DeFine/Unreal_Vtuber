@@ -84,6 +84,11 @@ so the runner always reattaches to the game’s network namespace. You can still
 run the same command manually if you need to bounce the runner immediately, but
 routine crashes no longer require an operator on-call.
 
+> The watchdog uses the same Compose project name as the rest of the stack
+> (`COMPOSE_PROJECT_NAME`, defaults to `unreal_vtuber`). If you override the
+> project name when deploying, Compose automatically propagates it to the
+> watchdog container so it recreates the correct runner.
+
 ## Upgrade / migrate from an older release
 
 1. **Pull the latest codebase**

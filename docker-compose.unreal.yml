@@ -146,6 +146,7 @@ services:
       - WATCHDOG_COMPOSE_FILE=/workspace/docker-compose.unreal.yml
       - WATCHDOG_RUNNER_SERVICE=vtuber-script-runner
       - WATCHDOG_GAME_CONTAINER=vtuber-unreal-game
+      - WATCHDOG_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-unreal_vtuber}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/workspace:ro

@@ -11,6 +11,7 @@ WATCHDOG_RUNNER_SERVICE="${WATCHDOG_RUNNER_SERVICE:-vtuber-script-runner}"
 WATCHDOG_GAME_CONTAINER="${WATCHDOG_GAME_CONTAINER:-vtuber-unreal-game}"
 WATCHDOG_EVENT_RETRY_DELAY="${WATCHDOG_EVENT_RETRY_DELAY:-5}"
 WATCHDOG_VERBOSE="${WATCHDOG_VERBOSE:-0}"
+WATCHDOG_PROJECT_NAME="${WATCHDOG_PROJECT_NAME:-}"
 
 if [ ! -f "$WATCHDOG_COMPOSE_FILE" ]; then
   log "Compose file $WATCHDOG_COMPOSE_FILE not found; exiting."
@@ -25,7 +26,13 @@ else
 fi
 
 compose_cmd() {
-  if [ "$USE_COMPOSE_PLUGIN" = "1" ]; then
+  if [ "$USE_COMPOSE_PLUGIN" != "1" ]; then
+    return 1
+  fi
+
+  if [ -n "$WATCHDOG_PROJECT_NAME" ]; then
+    docker compose -p "$WATCHDOG_PROJECT_NAME" -f "$WATCHDOG_COMPOSE_FILE" "$@"
+  else
     docker compose -f "$WATCHDOG_COMPOSE_FILE" "$@"
   fi
 }
@@ -75,6 +82,6 @@ watch_events() {
   done
 }
 
-log "Starting vtuber-script-runner watchdog (runner=$WATCHDOG_RUNNER_SERVICE, game=$WATCHDOG_GAME_CONTAINER)."
+log "Starting vtuber-script-runner watchdog (runner=$WATCHDOG_RUNNER_SERVICE, game=$WATCHDOG_GAME_CONTAINER, project=${WATCHDOG_PROJECT_NAME:-<default>})."
 ensure_runner_namespace
 watch_events
