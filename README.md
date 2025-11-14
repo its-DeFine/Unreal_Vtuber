@@ -74,6 +74,38 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    - Orchestrator monitor: `curl http://<PUBLIC_IP>:9090/health`
    - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
 
+### Automatic script-runner recovery
+
+The compose stack now includes `vtuber-watchdog`, a lightweight service that
+listens to Docker events for `vtuber-unreal-game`. Whenever the game container
+restarts or crashes, the watchdog automatically runs
+`docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner`
+so the runner always reattaches to the game’s network namespace. You can still
+run the same command manually if you need to bounce the runner immediately, but
+routine crashes no longer require an operator on-call.
+
+> The watchdog uses the same Compose project name as the rest of the stack
+> (`COMPOSE_PROJECT_NAME`, defaults to `unreal_vtuber`). If you override the
+> project name when deploying, Compose automatically propagates it to the
+> watchdog container so it recreates the correct runner.
+
+### Automatic image updates
+
+`vtuber-auto-updater` (backed by [containrrr/watchtower](https://containrrr.dev/watchtower/))
+watches `vtuber-unreal-game`, `vtuber-unreal-signaling`, and `vtuber-turn-server`. Every
+`WATCHTOWER_INTERVAL` seconds (defaults to 900/15 minutes) it pulls the latest `:latest`
+tags and issues `docker compose … up -d --force-recreate` so the refreshed containers come
+up with the new images. Customize the cadence by exporting `WATCHTOWER_INTERVAL=<seconds>`
+before running `docker compose up -d`. If you need to pause auto-updates entirely, stop
+`vtuber-auto-updater` with `docker compose -f docker-compose.unreal.yml stop vtuber-auto-updater`.
+
+## Documentation
+
+The `docs/` directory continues to cover onboarding, AWS automation, and
+operations. Each guide now notes that the payments services are maintained in
+a standalone repository; consult that project for compose files, environment
+variables, and data layout.
+
 ## Upgrade / migrate from an older release
 
 1. **Pull the latest codebase**
@@ -83,27 +115,25 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    git pull origin main         # or checkout the release tag/branch
    ```
 2. **Make sure allowlists match the new deployment**
-   - Repeat the same firewall steps outlined in the “New deployment” section (Step 4) so the forwarder and payments backend can still reach the host, and prune any stale entries.
-   - If the orchestrator’s public IP changed (new Elastic IP or subnet), refresh the allowlist in your security group and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`) so registration advertises the correct IP.
-3. **Refresh container images**
+   - Repeat the firewall steps from “New deployment” so the forwarder and payments backend can still reach the host.
+   - If the orchestrator’s public IP changed, refresh the allowlist and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`).
+3. **Refresh container images (optional)**  
+   Watchtower keeps `:latest` current, so only do this if auto-updates are paused or you need a specific tag.
    ```bash
    docker compose -f docker-compose.unreal.yml pull
    ```
-4. **Recreate TURN + Unreal + signaling services with the new images** (ensure `.env` still lists `VTUBER_ALLOWED_ADDRESSES=3.150.172.153` before restarting)
+4. **Recreate TURN + Unreal + signaling services** (skip if watchtower already deployed the image)
    ```bash
    docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game turn-server
    ```
-5. **Rebuild the runner so it picks up the latest config**
+5. **Rebuild the runner**
    ```bash
    docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
    ```
-6. **Validate traffic + health**
+6. **(One-time) ensure helper services exist**
+   ```bash
+   docker compose -f docker-compose.unreal.yml up -d vtuber-watchdog vtuber-auto-updater
+   ```
+7. **Validate traffic + health**
    - Pixel UI: `http://<PUBLIC_IP>:8080`
    - Runner: `curl http://<PUBLIC_IP>:9877/health`
-
-## Documentation
-
-The `docs/` directory continues to cover onboarding, AWS automation, and
-operations. Each guide now notes that the payments services are maintained in
-a standalone repository; consult that project for compose files, environment
-variables, and data layout.
