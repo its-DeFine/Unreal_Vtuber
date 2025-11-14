@@ -89,6 +89,16 @@ routine crashes no longer require an operator on-call.
 > project name when deploying, Compose automatically propagates it to the
 > watchdog container so it recreates the correct runner.
 
+### Automatic image updates
+
+`vtuber-auto-updater` (backed by [containrrr/watchtower](https://containrrr.dev/watchtower/))
+watches `vtuber-unreal-game`, `vtuber-unreal-signaling`, and `vtuber-turn-server`. Every
+`WATCHTOWER_INTERVAL` seconds (defaults to 900/15 minutes) it pulls the latest `:latest`
+tags and issues `docker compose … up -d --force-recreate` so the refreshed containers come
+up with the new images. Customize the cadence by exporting `WATCHTOWER_INTERVAL=<seconds>`
+before running `docker compose up -d`. If you need to pause auto-updates entirely, stop
+`vtuber-auto-updater` with `docker compose -f docker-compose.unreal.yml stop vtuber-auto-updater`.
+
 ## Upgrade / migrate from an older release
 
 1. **Pull the latest codebase**

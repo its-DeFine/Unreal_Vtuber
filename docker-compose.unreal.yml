@@ -189,6 +189,26 @@ services:
     networks:
       - vtuber_network
 
+  vtuber-auto-updater:
+    image: containrrr/watchtower:1.7.1
+    container_name: vtuber-auto-updater
+    restart: unless-stopped
+    depends_on:
+      - unreal-game
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      [
+        "--interval",
+        "${WATCHTOWER_INTERVAL:-900}",
+        "--cleanup",
+        "--include-restarting",
+        "--rolling-restart",
+        "vtuber-turn-server",
+        "vtuber-unreal-signaling",
+        "vtuber-unreal-game",
+      ]
+
 networks:
   vtuber_network:
     external: true
