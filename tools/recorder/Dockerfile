@@ -13,6 +13,9 @@ RUN apt-get update && \
       gir1.2-gst-1.0 \
       gir1.2-glib-2.0 \
       libgirepository1.0-dev \
+      libcairo2-dev \
+      libgdk-pixbuf-2.0-dev \
+      libpango1.0-dev \
       curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
