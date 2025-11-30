@@ -2,7 +2,7 @@
 
 This sidecar runs alongside the Pixel Streaming stack to control the GStreamer copy-recorder without touching the signaling container entrypoint.
 
-## Endpoints (port 9096 inside the stack)
+## Endpoints (port 8889 inside the stack)
 - `POST /recordings/start` – body: `{ label?, duration?, streamer_id? }`
   - `streamer_id` optional; defaults to first streamer if omitted.
   - Spawns `gs_webrtc_recorder.py` in the sidecar with no re-encode; output lands in `/recordings/<label>_<epoch>.mkv`.
@@ -17,18 +17,21 @@ This sidecar runs alongside the Pixel Streaming stack to control the GStreamer c
 `docker-compose.unreal.yml` includes:
 ```yaml
   recorder-control:
-    image: node:18-slim
+    build:
+      context: ./tools/recorder
+      dockerfile: Dockerfile
     depends_on: [unreal-signaling]
     env:
-      RECORDER_CTRL_PORT=9096
+      RECORDER_CTRL_PORT=8889
       RECORDER_SIGNALING_URL=ws://unreal-signaling:80
       RECORDER_OUTPUT_DIR=/recordings
       PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
       VTUBER_ALLOWED_ADDRESSES=... # set in .env
     volumes:
-      - ./tools/recorder:/opt/embody/recorder:ro
       - /recordings:/recordings
-    command: ["node", "/opt/embody/recorder/control_server.js"]
+    command: ["python3", "/opt/embody/recorder/control_server.py"]
+    ports:
+      - "8889:8889"
     networks: [vtuber_network]
 ```
 Ensure `/recordings` is a host path/volume shared where you want outputs stored/pulled from.

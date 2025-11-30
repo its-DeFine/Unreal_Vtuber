@@ -27,10 +27,12 @@ Gst.init(None)
 SIGNALING_URL = os.environ.get("RECORDER_SIGNALING_URL", "ws://127.0.0.1:80")
 OUTPUT_DIR = Path(os.environ.get("RECORDER_OUTPUT_DIR", "/recordings"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-TURN_USER = "turn_sneyw7LrVl"
-TURN_PASS = "5ZB2QzuKAGTwmLK4CkOzfIRu"
-TURN_HOST = "18.222.198.146"
-TURN_PORT = 3478
+# TURN configuration via env; leave unset to skip TURN
+TURN_URL = os.environ.get("RECORDER_TURN_URL")
+TURN_USER = os.environ.get("RECORDER_TURN_USER")
+TURN_PASS = os.environ.get("RECORDER_TURN_PASS")
+TURN_HOST = os.environ.get("RECORDER_TURN_HOST")
+TURN_PORT = int(os.environ.get("RECORDER_TURN_PORT", "3478"))
 
 class GstRecorder:
     def __init__(self, loop, label="capture", streamer_id=None):
@@ -57,7 +59,10 @@ class GstRecorder:
         self.pipeline = Gst.Pipeline.new("pipeline")
         self.webrtcbin = Gst.ElementFactory.make("webrtcbin", "webrtcbin")
         self.webrtcbin.set_property("stun-server", "stun://stun.l.google.com:19302")
-        self.webrtcbin.set_property("turn-server", f"turn://{TURN_USER}:{TURN_PASS}@{TURN_HOST}:{TURN_PORT}")
+        if TURN_URL:
+            self.webrtcbin.set_property("turn-server", TURN_URL)
+        elif TURN_USER and TURN_PASS and TURN_HOST:
+            self.webrtcbin.set_property("turn-server", f"turn://{TURN_USER}:{TURN_PASS}@{TURN_HOST}:{TURN_PORT}")
         self.webrtcbin.set_property("bundle-policy", 3)
         self.webrtcbin.connect("on-ice-candidate", self.on_ice_candidate)
         self.webrtcbin.connect("pad-added", self.on_pad_added)

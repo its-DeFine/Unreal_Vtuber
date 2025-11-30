@@ -46,7 +46,6 @@ services:
     ports:
       - "8080:8080"     # HTTP web interface
       - "8888:8888"     # Streamer port
-      - "8889:8889"     # SFU port
     environment:
       PUBLIC_IP: ${PUBLIC_IP:-auto}
       HTTP_PORT: "8080"
@@ -210,7 +209,9 @@ services:
       ]
 
   recorder-control:
-    image: node:18-slim
+    build:
+      context: ./tools/recorder
+      dockerfile: Dockerfile
     container_name: vtuber-recorder-control
     depends_on:
       - unreal-signaling
@@ -221,12 +222,13 @@ services:
       - PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
       - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1}
     volumes:
-      - ./tools/recorder:/opt/embody/recorder:ro
       - /recordings:/recordings
-    command: ["node", "/opt/embody/recorder/control_server.js"]
+    command: ["python3", "/opt/embody/recorder/control_server.py"]
     restart: unless-stopped
     networks:
       - vtuber_network
+    ports:
+      - "8889:8889"
 
 networks:
   vtuber_network:
