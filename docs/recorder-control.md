@@ -10,7 +10,7 @@ This sidecar runs alongside the Pixel Streaming stack to control the GStreamer c
 - `GET /recordings/status` – reports running/not, pid, label, streamer_id, output path.
 
 ## Auth
-- IP allowlist: `VTUBER_ALLOWED_ADDRESSES` (or `RECORDINGS_ALLOWED_IPS`). Requests from other IPs get 403.
+- IP allowlist: `VTUBER_ALLOWED_ADDRESSES` (or `RECORDINGS_ALLOWED_IPS`). Requests from other IPs get 403. Default includes loopback + the Docker bridge.
 - Optional token: set `RECORDINGS_API_TOKEN` to require Bearer auth; leave unset to rely on IP allowlist only.
 
 ## Compose (already wired)
@@ -26,7 +26,7 @@ This sidecar runs alongside the Pixel Streaming stack to control the GStreamer c
       RECORDER_SIGNALING_URL=ws://unreal-signaling:80
       RECORDER_OUTPUT_DIR=/recordings
       PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
-      VTUBER_ALLOWED_ADDRESSES=... # set in .env
+      VTUBER_ALLOWED_ADDRESSES=... # set in .env (defaults to 127.0.0.1,::1,172.18.0.1,86.106.138.188)
     volumes:
       - /recordings:/recordings
     command: ["python3", "/opt/embody/recorder/control_server.py"]
@@ -39,15 +39,15 @@ Ensure `/recordings` is a host path/volume shared where you want outputs stored/
 ## Usage
 ```
 # start a 25s recording with label "sync_test"
-curl -X POST http://<host>:9096/recordings/start \
+curl -X POST http://<host>:8889/recordings/start \
   -H 'Content-Type: application/json' \
   -d '{"label":"sync_test","duration":25}'
 
 # check status
-curl http://<host>:9096/recordings/status
+curl http://<host>:8889/recordings/status
 
 # stop early if needed
-curl -X POST http://<host>:9096/recordings/stop
+curl -X POST http://<host>:8889/recordings/stop
 ```
 
 ## Notes
