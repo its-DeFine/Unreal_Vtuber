@@ -12,7 +12,6 @@ RUN apt-get update && \
       gstreamer1.0-libav \
       gir1.2-gst-1.0 \
       gir1.2-glib-2.0 \
-      python3-gi \
       libgirepository1.0-dev \
       curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
