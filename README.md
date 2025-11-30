@@ -89,6 +89,27 @@ routine crashes no longer require an operator on-call.
 > project name when deploying, Compose automatically propagates it to the
 > watchdog container so it recreates the correct runner.
 
+### Sleep / wake control
+
+The orchestrator health service on port **9090** now exposes a small power API
+so you can intentionally stop/start the Unreal game without the watchdog
+undoing it. The state is persisted at `/var/lib/vtuber/power-state/power_state.json`
+and shared with the watchdog so it skips recovery while sleeping.
+
+- Check state: `curl http://<PUBLIC_IP>:9090/power`
+- Sleep: `curl -X POST -H "Content-Type: application/json" -d '{"action":"sleep","reason":"maintenance"}' http://<PUBLIC_IP>:9090/power`
+- Wake: `curl -X POST -H "Content-Type: application/json" -d '{"action":"wake"}' http://<PUBLIC_IP>:9090/power`
+
+Notes:
+- Access is limited by source IP (`POWER_ALLOWED_IPS`, comma-separated). Default is
+  the forwarder IP `3.150.172.153`; update the env var if your forwarder changes.
+- Sleep writes state first, then stops the game (and stops the runner if
+  `POWER_STOP_RUNNER_ON_SLEEP` is left at its default). The watchdog ignores game
+  events while the state is `sleeping`.
+- Wake flips state to `awake`, starts the game, waits for it to be running, and
+  restarts the runner to reattach to the game namespace. The watchdog resumes normal
+  enforcement once awake.
+
 ### Automatic image updates
 
 `vtuber-auto-updater` (backed by [containrrr/watchtower](https://containrrr.dev/watchtower/))

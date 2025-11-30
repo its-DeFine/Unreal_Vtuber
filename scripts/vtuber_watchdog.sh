@@ -12,6 +12,7 @@ WATCHDOG_GAME_CONTAINER="${WATCHDOG_GAME_CONTAINER:-vtuber-unreal-game}"
 WATCHDOG_EVENT_RETRY_DELAY="${WATCHDOG_EVENT_RETRY_DELAY:-5}"
 WATCHDOG_VERBOSE="${WATCHDOG_VERBOSE:-0}"
 WATCHDOG_PROJECT_NAME="${WATCHDOG_PROJECT_NAME:-}"
+WATCHDOG_POWER_STATE_FILE="${WATCHDOG_POWER_STATE_FILE:-/var/lib/vtuber/power-state/power_state.json}"
 
 if [ ! -f "$WATCHDOG_COMPOSE_FILE" ]; then
   log "Compose file $WATCHDOG_COMPOSE_FILE not found; exiting."
@@ -37,7 +38,23 @@ compose_cmd() {
   fi
 }
 
+power_state_sleeping() {
+  state_file="$WATCHDOG_POWER_STATE_FILE"
+  if [ -z "$state_file" ] || [ ! -f "$state_file" ]; then
+    return 1
+  fi
+
+  # Cheap JSON parsing: find "state": "sleeping"
+  state_value="$(grep -oE '\"state\"[[:space:]]*:[[:space:]]*\"[^\"]+\"' "$state_file" 2>/dev/null | head -n 1 | cut -d '\"' -f4 || true)"
+  [ "$state_value" = "sleeping" ]
+}
+
 ensure_runner_namespace() {
+  if power_state_sleeping; then
+    [ "$WATCHDOG_VERBOSE" = "1" ] && log "Sleep mode active; skipping runner namespace check."
+    return
+  fi
+
   runner_id="$(compose_cmd ps -q "$WATCHDOG_RUNNER_SERVICE" | head -n 1 || true)"
   game_ns="$(docker inspect -f '{{.NetworkSettings.SandboxKey}}' "$WATCHDOG_GAME_CONTAINER" 2>/dev/null || true)"
 
@@ -74,6 +91,10 @@ watch_events() {
       while IFS= read -r event_line; do
         [ -z "$event_line" ] && continue
         log "Received event: $event_line"
+        if power_state_sleeping; then
+          [ "$WATCHDOG_VERBOSE" = "1" ] && log "Sleep mode active; ignoring event."
+          continue
+        fi
         ensure_runner_namespace
       done
 
