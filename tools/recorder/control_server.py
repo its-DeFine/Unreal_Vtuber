@@ -159,14 +159,18 @@ async def handle_root(request: web.Request):
     return web.json_response({"service": "gs-recorder-control", "active": STATE["proc"] is not None})
 
 
-def main():
+def make_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_root)
     app.router.add_get("/recordings/status", handle_status)
     app.router.add_post("/recordings/start", handle_start)
     app.router.add_post("/recordings/stop", handle_stop)
     app.router.add_get("/recordings/{filename}", handle_download)
-    web.run_app(app, host="0.0.0.0", port=RECORDER_CTRL_PORT)
+    return app
+
+
+def main():
+    web.run_app(make_app(), host="0.0.0.0", port=RECORDER_CTRL_PORT)
 
 
 if __name__ == "__main__":
