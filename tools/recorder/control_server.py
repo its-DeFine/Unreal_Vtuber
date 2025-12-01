@@ -22,6 +22,11 @@ RECORDER_API_TOKEN = os.environ.get("RECORDINGS_API_TOKEN")
 STATE = {"proc": None, "label": None, "streamer": None, "started": None, "mkv": None}
 
 
+def _sanitize_label(raw: str) -> str:
+    cleaned = "".join(c if c.isalnum() or c in ("-", "_") else "-" for c in raw.strip())
+    return cleaned or "capture"
+
+
 def client_ip(request: web.Request) -> Optional[str]:
     host = request.remote
     if not host:
@@ -67,7 +72,7 @@ async def handle_start(request: web.Request):
         data = await request.json()
     except Exception:
         data = {}
-    label = data.get("label") or "capture"
+    label = _sanitize_label(data.get("label") or "capture")
     duration = data.get("duration")
     streamer_id = data.get("streamer_id")
 
@@ -83,6 +88,7 @@ async def handle_start(request: web.Request):
     env.setdefault("RECORDER_OUTPUT_DIR", str(OUTPUT_DIR))
 
     proc = await asyncio.create_subprocess_exec(*cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    run_token = object()
     STATE.update(
         {
             "proc": proc,
@@ -90,6 +96,7 @@ async def handle_start(request: web.Request):
             "streamer": streamer_id,
             "started": asyncio.get_event_loop().time(),
             "mkv": str(OUTPUT_DIR / f"{label}_{int(asyncio.get_event_loop().time())}.mkv"),
+            "run_token": run_token,
         }
     )
 
@@ -105,7 +112,8 @@ async def handle_start(request: web.Request):
     async def _waiter():
         code = await proc.wait()
         print(f"[recorder] exited with {code}")
-        STATE.update({"proc": None, "label": None, "streamer": None, "started": None, "mkv": None})
+        if STATE.get("run_token") is run_token:
+            STATE.update({"proc": None, "label": None, "streamer": None, "started": None, "mkv": None, "run_token": None})
 
     asyncio.create_task(_waiter())
 
@@ -125,11 +133,12 @@ async def handle_stop(request: web.Request):
     ensure_auth(request)
     if not STATE["proc"]:
         raise web.HTTPConflict(text="No recorder running")
+    run_token = STATE.get("run_token")
     try:
         STATE["proc"].send_signal(signal.SIGINT)
     except ProcessLookupError:
         pass
-    STATE.update({"proc": None, "label": None, "streamer": None, "started": None, "mkv": None})
+    STATE.update({"proc": None, "label": None, "streamer": None, "started": None, "mkv": None, "run_token": run_token})
     return web.json_response({"stopped": True})
 
 

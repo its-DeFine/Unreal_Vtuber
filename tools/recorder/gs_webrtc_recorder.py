@@ -34,13 +34,17 @@ TURN_PASS = os.environ.get("RECORDER_TURN_PASS")
 TURN_HOST = os.environ.get("RECORDER_TURN_HOST")
 TURN_PORT = int(os.environ.get("RECORDER_TURN_PORT", "3478"))
 
+def _sanitize_label(raw: str) -> str:
+    cleaned = "".join(c if c.isalnum() or c in ("-", "_") else "-" for c in raw.strip())
+    return cleaned or "capture"
+
 class GstRecorder:
     def __init__(self, loop, label="capture", streamer_id=None):
         self.loop = loop
-        self.label = label
+        self.label = _sanitize_label(label or "capture")
         self.streamer_id = streamer_id
         self.player_id = str(uuid.uuid4())
-        self.base = OUTPUT_DIR / f"{label}_{int(loop.time())}"
+        self.base = OUTPUT_DIR / f"{self.label}_{int(loop.time())}"
         self.mkv = str(self.base) + ".mkv"
         self.pipeline = None
         self.webrtcbin = None
