@@ -23,4 +23,4 @@ jobs:
           pip install pytest pytest-asyncio aiohttp
       - name: Run recorder tests
         run: |
-          pytest tools/recorder/tests
+          PYTHONPATH="$GITHUB_WORKSPACE" pytest tools/recorder/tests

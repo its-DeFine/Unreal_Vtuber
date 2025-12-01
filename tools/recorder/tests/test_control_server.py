@@ -1,13 +1,6 @@
 import importlib
-import pathlib
-import sys
-
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
-
-
-# Ensure repo root on sys.path for imports
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[2]))
 
 
 @pytest.fixture
