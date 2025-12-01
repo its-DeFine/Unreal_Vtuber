@@ -44,7 +44,7 @@ services:
     env_file:
       - .env.turn
     ports:
-      - "8080:8080"     # HTTP web interface
+      - "8080:80"       # HTTP web interface
       - "8888:8888"     # Streamer port
     environment:
       PUBLIC_IP: ${PUBLIC_IP:-auto}
@@ -54,7 +54,7 @@ services:
       STUN_SERVER: ${STUN_SERVER:-stun.l.google.com:19302}
       ENABLE_REST_API: ${ENABLE_REST_API:-0}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
       interval: 30s
       timeout: 10s
       retries: 3
