@@ -133,6 +133,19 @@ async def handle_stop(request: web.Request):
     return web.json_response({"stopped": True})
 
 
+async def handle_download(request: web.Request):
+    ensure_auth(request)
+    name = request.match_info.get("filename", "")
+    target = (OUTPUT_DIR / name).resolve()
+    try:
+        target.relative_to(OUTPUT_DIR)
+    except ValueError:
+        raise web.HTTPForbidden(text="Invalid path")
+    if not target.exists() or not target.is_file():
+        raise web.HTTPNotFound(text="File not found")
+    return web.FileResponse(target)
+
+
 async def handle_root(request: web.Request):
     return web.json_response({"service": "gs-recorder-control", "active": STATE["proc"] is not None})
 
@@ -143,6 +156,7 @@ def main():
     app.router.add_get("/recordings/status", handle_status)
     app.router.add_post("/recordings/start", handle_start)
     app.router.add_post("/recordings/stop", handle_stop)
+    app.router.add_get("/recordings/{filename}", handle_download)
     web.run_app(app, host="0.0.0.0", port=RECORDER_CTRL_PORT)
 
 
