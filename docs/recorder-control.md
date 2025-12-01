@@ -26,7 +26,7 @@ This sidecar runs alongside the Pixel Streaming stack to control the GStreamer c
       RECORDER_SIGNALING_URL=ws://unreal-signaling:80
       RECORDER_OUTPUT_DIR=/recordings
       PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
-      VTUBER_ALLOWED_ADDRESSES=... # set in .env (defaults to 127.0.0.1,::1,172.18.0.1,86.106.138.188)
+      VTUBER_ALLOWED_ADDRESSES=... # set in .env (defaults to 127.0.0.1,::1,172.18.0.1)
     volumes:
       - /recordings:/recordings
     command: ["python3", "/opt/embody/recorder/control_server.py"]
