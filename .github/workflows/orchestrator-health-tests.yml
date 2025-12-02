@@ -23,4 +23,5 @@ jobs:
           pip install pytest fastapi starlette httpx
       - name: Run tests
         run: |
-          PYTHONPATH="$GITHUB_WORKSPACE" pytest orchestrator-health/tests
+          export PYTHONPATH="$GITHUB_WORKSPACE/orchestrator-health:$PYTHONPATH"
+          pytest orchestrator-health/tests
