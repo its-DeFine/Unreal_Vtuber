@@ -15,7 +15,23 @@ separate repository.
 
 ## New deployment
 
-1. Clone the repo and enter it:
+1. Authenticate to GitHub and GHCR first (repo is private; images are private).
+   - Ensure your GitHub account is a collaborator on the repo/registry.
+   - If you already use `gh` on this host:
+     ```bash
+     gh auth status || gh auth login --web --scopes "repo,read:packages,write:packages"
+     gh auth token | docker login ghcr.io -u your-github-username --password-stdin
+     ```
+   - If you prefer a PAT directly:
+     - Create a PAT on your own account with `repo` and `read:packages` (add `write:packages` only if you need to push images).
+     - Use it for both git and GHCR:
+       ```bash
+       git config --global url."https://<PAT>@github.com/".insteadOf "https://github.com/"
+       echo '<PAT>' | docker login ghcr.io -u your-github-username --password-stdin
+       ```
+     The `docker login` writes `/home/ubuntu/.docker/config.json`, which is mounted into
+     `vtuber-auto-updater` so Watchtower can keep pulling private images automatically.
+2. Clone the repo and enter it:
    ```bash
    git clone https://github.com/its-DeFine/Unreal_Vtuber.git
    cd Unreal_Vtuber
@@ -23,20 +39,10 @@ separate repository.
    :::note GPU reference
 Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFLOPS FP16, 70 W TDP), 4 vCPUs, 16 GB RAM. Any GPU with comparable specs should deliver similar Pixel Streaming quality while keeping costs in check.
    :::
-2. Generate TURN credentials (writes `.env.turn`):
+3. Generate TURN credentials (writes `.env.turn`):
    ```bash
    ./scripts/generate_turn_credentials.sh
    ```
-3. Authenticate to GHCR (images are private):
-   - If `gh auth status` already works on your machine:
-     ```bash
-     gh auth token | docker login ghcr.io -u your-github-username --password-stdin
-     ```
-   - If not logged in yet:
-     ```bash
-     gh auth login --web --scopes "repo,read:packages"
-     gh auth token | docker login ghcr.io -u your-github-username --password-stdin
-     ```
 4. Copy and edit the orchestrator env:
    ```bash
    cp orchestrator.env.example .env
@@ -139,22 +145,25 @@ variables, and data layout.
 
 ## Upgrade / migrate from an older release
 
-1. **Pull the latest codebase**
+1. **Authenticate to GitHub + GHCR (private repo, private images)**  
+   Do this on the host so Watchtower can reuse `/home/ubuntu/.docker/config.json`:
+   - Be sure the account is a collaborator on the repo/registry.
+   - With `gh`:
+     ```bash
+     gh auth status || gh auth login --web --scopes "repo,read:packages,write:packages"
+     gh auth token | docker login ghcr.io -u your-github-username --password-stdin
+     ```
+   - Or with a PAT you created (scopes: `repo`, `read:packages`; add `write:packages` only if you push):
+     ```bash
+     git config --global url."https://<PAT>@github.com/".insteadOf "https://github.com/"
+     echo '<PAT>' | docker login ghcr.io -u your-github-username --password-stdin
+     ```
+2. **Pull the latest codebase**
    ```bash
    cd /home/ubuntu/Unreal_Vtuber
    git fetch origin
    git pull origin main         # or checkout the release tag/branch
    ```
-2. **Authenticate to GHCR (images are private)**
-   - Already logged in with `gh`:
-     ```bash
-     gh auth token | docker login ghcr.io -u your-github-username --password-stdin
-     ```
-   - Need to log in first:
-     ```bash
-     gh auth login --web --scopes "repo,read:packages"
-     gh auth token | docker login ghcr.io -u your-github-username --password-stdin
-     ```
 3. **Make sure allowlists match the new deployment**
    - Repeat the firewall steps from “New deployment” so the forwarder and payments backend can still reach the host.
    - If the orchestrator’s public IP changed, refresh the allowlist and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`).
