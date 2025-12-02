@@ -20,7 +20,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install pytest fastapi starlette
+          pip install pytest fastapi starlette httpx
       - name: Run tests
         run: |
           PYTHONPATH="$GITHUB_WORKSPACE" pytest orchestrator-health/tests
