@@ -19,7 +19,7 @@ separate repository.
    - Ensure your GitHub account is a collaborator on the repo/registry.
    - If you already use `gh` on this host:
      ```bash
-     gh auth status || gh auth login --web --scopes "repo,read:packages,write:packages"
+     gh auth status || gh auth login --web --scopes "repo,read:packages"
      gh auth token | docker login ghcr.io -u your-github-username --password-stdin
      ```
    - If you prefer a PAT directly:
@@ -150,7 +150,7 @@ variables, and data layout.
    - Be sure the account is a collaborator on the repo/registry.
    - With `gh`:
      ```bash
-     gh auth status || gh auth login --web --scopes "repo,read:packages,write:packages"
+     gh auth status || gh auth login --web --scopes "repo,read:packages"
      gh auth token | docker login ghcr.io -u your-github-username --password-stdin
      ```
    - Or with a PAT you created (scopes: `repo`, `read:packages`; add `write:packages` only if you push):
