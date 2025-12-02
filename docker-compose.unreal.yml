@@ -198,6 +198,9 @@ services:
     restart: unless-stopped
     depends_on:
       - unreal-game
+    environment:
+      # Watchtower embeds an older Docker client; force a modern API version to match the host daemon.
+      - DOCKER_API_VERSION=${DOCKER_API_VERSION:-1.44}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command:
