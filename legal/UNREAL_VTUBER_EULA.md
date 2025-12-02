@@ -3,7 +3,7 @@
 _Last updated: 2025‑12‑02_
 
 These terms govern your use of the proprietary Unreal VTuber Pixel Streaming
-stack authored and operated by **Atumera Inc.** (“**Atumera**”, “**we**”, “**us**”).
+stack authored and operated by **Atumera LLC** (“**Atumera**”, “**we**”, “**us**”).
 By building, pulling, running, or otherwise using the container images and
 scripts described in this repository, you agree to be bound by these terms.
 
@@ -219,4 +219,3 @@ cases, these limitations apply to the maximum extent permitted by law.
 
 If you are negotiating a broader commercial or partner agreement with Atumera,
 that agreement will govern to the extent it conflicts with this EULA.
-

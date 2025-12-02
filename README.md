@@ -182,7 +182,7 @@ variables, and data layout.
 ## License and allowed use
 
 The Unreal VTuber Pixel Streaming stack, including the packaged Unreal game
-container and pixel streaming containers, is proprietary to **Atumera Inc.** and
+container and pixel streaming containers, is proprietary to **Atumera LLC** and
 licensed for use only by authorized orchestrators under Atumera’s terms.
 
 - You may not reverse engineer, decompile, redistribute, or repurpose the game
