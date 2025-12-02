@@ -16,13 +16,14 @@ separate repository.
 ## New deployment
 
 1. Authenticate to GitHub and GHCR first (repo is private; images are private).
+   - Ensure your GitHub account is a collaborator on the repo/registry.
    - If you already use `gh` on this host:
      ```bash
      gh auth status || gh auth login --web --scopes "repo,read:packages,write:packages"
      gh auth token | docker login ghcr.io -u your-github-username --password-stdin
      ```
    - If you prefer a PAT directly:
-     - Create a PAT with `repo, read:packages` (and `write:packages` if you push).
+     - Create a PAT on your own account with `repo` and `read:packages` (add `write:packages` only if you need to push images).
      - Use it for both git and GHCR:
        ```bash
        git config --global url."https://<PAT>@github.com/".insteadOf "https://github.com/"
@@ -146,10 +147,17 @@ variables, and data layout.
 
 1. **Authenticate to GitHub + GHCR (private repo, private images)**  
    Do this on the host so Watchtower can reuse `/home/ubuntu/.docker/config.json`:
-   ```bash
-   gh auth status || gh auth login --web --scopes "repo,read:packages,write:packages"
-   gh auth token | docker login ghcr.io -u your-github-username --password-stdin
-   ```
+   - Be sure the account is a collaborator on the repo/registry.
+   - With `gh`:
+     ```bash
+     gh auth status || gh auth login --web --scopes "repo,read:packages,write:packages"
+     gh auth token | docker login ghcr.io -u your-github-username --password-stdin
+     ```
+   - Or with a PAT you created (scopes: `repo`, `read:packages`; add `write:packages` only if you push):
+     ```bash
+     git config --global url."https://<PAT>@github.com/".insteadOf "https://github.com/"
+     echo '<PAT>' | docker login ghcr.io -u your-github-username --password-stdin
+     ```
 2. **Pull the latest codebase**
    ```bash
    cd /home/ubuntu/Unreal_Vtuber
