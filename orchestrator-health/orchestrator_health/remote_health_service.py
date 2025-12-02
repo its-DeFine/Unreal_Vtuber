@@ -19,11 +19,18 @@ monitor = ServiceMonitor()
 docker_client = monitor.docker_client
 
 POWER_STATE_FILE = Path(os.environ.get("POWER_STATE_FILE", "/var/lib/vtuber/power-state/power_state.json"))
-POWER_ALLOWED_IPS = [
-    addr.strip()
-    for addr in (os.environ.get("POWER_ALLOWED_IPS", "3.150.172.153").split(","))
-    if addr.strip()
-]
+
+
+def _parse_ip_list(primary_env: str, fallback_env: str | None = None, default: str = "") -> list[str]:
+    raw = os.environ.get(primary_env)
+    if (raw is None) and fallback_env:
+        raw = os.environ.get(fallback_env)
+    if raw is None:
+        raw = default
+    return [addr.strip() for addr in raw.split(",") if addr.strip()]
+
+
+POWER_ALLOWED_IPS = _parse_ip_list("POWER_ALLOWED_IPS", fallback_env="VTUBER_ALLOWED_ADDRESSES")
 POWER_GAME_SERVICE = os.environ.get("POWER_GAME_SERVICE", "unreal-game")
 POWER_GAME_CONTAINER = os.environ.get("POWER_GAME_CONTAINER", "vtuber-unreal-game")
 POWER_RUNNER_SERVICE = os.environ.get("POWER_RUNNER_SERVICE", "vtuber-script-runner")

@@ -182,7 +182,7 @@ services:
     environment:
       - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server}
       - ORCHESTRATOR_HEALTH_PORT=9090
-      - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-127.0.0.1,::1,172.18.0.1,86.106.138.188}
+      - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state
