@@ -149,6 +149,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/workspace:ro
+      - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state:ro
 
   orchestrator-registration:
     image: python:3.11-slim
@@ -180,8 +181,10 @@ services:
     environment:
       - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server}
       - ORCHESTRATOR_HEALTH_PORT=9090
+      - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state
     ports:
       - "9090:9090"
     restart: unless-stopped
