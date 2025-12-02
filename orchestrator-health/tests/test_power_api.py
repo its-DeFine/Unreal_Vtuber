@@ -6,10 +6,11 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def power_app(monkeypatch):
+def power_app(monkeypatch, tmp_path):
     # Clear env to defaults for predictable tests
     monkeypatch.delenv("POWER_ALLOWED_IPS", raising=False)
     monkeypatch.delenv("VTUBER_ALLOWED_ADDRESSES", raising=False)
+    monkeypatch.setenv("POWER_STATE_FILE", str(tmp_path / "power_state.json"))
     import orchestrator_health.remote_health_service as svc
 
     importlib.reload(svc)
