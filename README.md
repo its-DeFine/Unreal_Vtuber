@@ -178,3 +178,16 @@ variables, and data layout.
 8. **Validate traffic + health**
    - Pixel UI: `http://<PUBLIC_IP>:8080`
    - Runner: `curl http://<PUBLIC_IP>:9877/health`
+
+## License and allowed use
+
+The Unreal VTuber Pixel Streaming stack, including the packaged Unreal game
+container and pixel streaming containers, is proprietary to **Atumera Inc.** and
+licensed for use only by authorized orchestrators under Atumera’s terms.
+
+- You may not reverse engineer, decompile, redistribute, or repurpose the game
+  or pixel streaming containers outside of the orchestrator context Atumera
+  authorizes.
+- Use of the stack is governed by `legal/UNREAL_VTUBER_EULA.md` in this
+  repository, in addition to any third‑party licenses that apply to Unreal
+  Engine, Epic’s Pixel Streaming tooling, and other dependencies.
