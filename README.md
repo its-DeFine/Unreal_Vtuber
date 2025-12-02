@@ -27,14 +27,24 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    ```bash
    ./scripts/generate_turn_credentials.sh
    ```
-3. Copy and edit the orchestrator env:
+3. Authenticate to GHCR (images are private):
+   - If `gh auth status` already works on your machine:
+     ```bash
+     gh auth token | docker login ghcr.io -u your-github-username --password-stdin
+     ```
+   - If not logged in yet:
+     ```bash
+     gh auth login --web --scopes "repo,read:packages"
+     gh auth token | docker login ghcr.io -u your-github-username --password-stdin
+     ```
+4. Copy and edit the orchestrator env:
    ```bash
    cp orchestrator.env.example .env
    # edit .env with PAYMENTS_API_URL (point at the standalone backend),
    # ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP, and ORCHESTRATOR_HEALTH_URL
    # include VTUBER_ALLOWED_ADDRESSES=3.150.172.153 so the script runner accepts commands from the forwarder
    ```
-4. Open the firewall so the forwarder (3.150.172.153) and payments backend (3.141.111.200) can reach this host.
+5. Open the firewall so the forwarder (3.150.172.153) and payments backend (3.141.111.200) can reach this host.
 
 | Traffic source                     | Ports (TCP)                       | Ports (UDP)               |
 | --------------------------------- | ---------------------------------- | ------------------------- |
@@ -56,12 +66,12 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
 
    sudo ufw reload
    ```
-5. Launch the Pixel Streaming stack (includes the health monitor service). Double-check `.env` still contains `VTUBER_ALLOWED_ADDRESSES=3.150.172.153` before running compose:
+6. Launch the Pixel Streaming stack (includes the health monitor service). Double-check `.env` still contains `VTUBER_ALLOWED_ADDRESSES=3.150.172.153` before running compose:
    ```bash
    docker network create vtuber_network 2>/dev/null || true
    docker compose -f docker-compose.unreal.yml up -d
    ```
-6. Register with the payments backend (retries until it succeeds):
+7. Register with the payments backend (retries until it succeeds):
    ```bash
    PAYMENTS_API_URL=http://<payments-ip>:8081 \
    ORCHESTRATOR_ID=<your-id> \
@@ -135,26 +145,49 @@ variables, and data layout.
    git fetch origin
    git pull origin main         # or checkout the release tag/branch
    ```
-2. **Make sure allowlists match the new deployment**
+2. **Authenticate to GHCR (images are private)**
+   - Already logged in with `gh`:
+     ```bash
+     gh auth token | docker login ghcr.io -u your-github-username --password-stdin
+     ```
+   - Need to log in first:
+     ```bash
+     gh auth login --web --scopes "repo,read:packages"
+     gh auth token | docker login ghcr.io -u your-github-username --password-stdin
+     ```
+3. **Make sure allowlists match the new deployment**
    - Repeat the firewall steps from “New deployment” so the forwarder and payments backend can still reach the host.
    - If the orchestrator’s public IP changed, refresh the allowlist and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`).
-3. **Refresh container images (optional)**  
+4. **Refresh container images (optional)**  
    Watchtower keeps `:latest` current, so only do this if auto-updates are paused or you need a specific tag.
    ```bash
    docker compose -f docker-compose.unreal.yml pull
    ```
-4. **Recreate TURN + Unreal + signaling services** (skip if watchtower already deployed the image)
+5. **Recreate TURN + Unreal + signaling services** (skip if watchtower already deployed the image)
    ```bash
    docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game turn-server
    ```
-5. **Rebuild the runner**
+6. **Rebuild the runner**
    ```bash
    docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
    ```
-6. **(One-time) ensure helper services exist**
+7. **(One-time) ensure helper services exist**
    ```bash
    docker compose -f docker-compose.unreal.yml up -d vtuber-watchdog vtuber-auto-updater
    ```
-7. **Validate traffic + health**
+8. **Validate traffic + health**
    - Pixel UI: `http://<PUBLIC_IP>:8080`
    - Runner: `curl http://<PUBLIC_IP>:9877/health`
+
+## License and allowed use
+
+The Unreal VTuber Pixel Streaming stack, including the packaged Unreal game
+container and pixel streaming containers, is proprietary to **Atumera LLC** and
+licensed for use only by authorized orchestrators under Atumera’s terms.
+
+- You may not reverse engineer, decompile, redistribute, or repurpose the game
+  or pixel streaming containers outside of the orchestrator context Atumera
+  authorizes.
+- Use of the stack is governed by `legal/UNREAL_VTUBER_EULA.md` in this
+  repository, in addition to any third‑party licenses that apply to Unreal
+  Engine, Epic’s Pixel Streaming tooling, and other dependencies.
