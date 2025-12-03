@@ -8,6 +8,8 @@ This sidecar runs alongside the Pixel Streaming stack to control the GStreamer c
   - Spawns `gs_webrtc_recorder.py` in the sidecar with no re-encode; output lands in `/recordings/<label>_<epoch>.mkv`.
 - `POST /recordings/stop` – stops the active recorder process.
 - `GET /recordings/status` – reports running/not, pid, label, streamer_id, output path.
+- `GET /recordings/{filename}` – download a specific MKV.
+- `DELETE /recordings/{filename}` – remove a specific MKV from `/recordings`.
 
 ## Auth
 - IP allowlist: `VTUBER_ALLOWED_ADDRESSES` (or `RECORDINGS_ALLOWED_IPS`). Requests from other IPs get 403. Default includes loopback + the Docker bridge.
@@ -25,8 +27,10 @@ This sidecar runs alongside the Pixel Streaming stack to control the GStreamer c
       RECORDER_CTRL_PORT=8889
       RECORDER_SIGNALING_URL=ws://unreal-signaling:80
       RECORDER_OUTPUT_DIR=/recordings
-      PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
-      VTUBER_ALLOWED_ADDRESSES=... # set in .env (defaults to 127.0.0.1,::1,172.18.0.1)
+  PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
+  VTUBER_ALLOWED_ADDRESSES=... # set in .env (defaults to 127.0.0.1,::1,172.18.0.1)
+  RECORDER_SIGNALING_URL=ws://unreal-signaling:80 # override if your streamer socket differs (e.g., 8888)
+  RECORDINGS_API_TOKEN=... # optional bearer token; leave unset to rely on IP allowlist
     volumes:
       - /recordings:/recordings
     command: ["python3", "/opt/embody/recorder/control_server.py"]

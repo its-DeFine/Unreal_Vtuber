@@ -10,6 +10,7 @@ separate repository.
 - `docker-compose.unreal.yml` – TURN, signaling, packaged Unreal container, script runner, orchestrator registration helper, and local health monitor.
 - `orchestrator-health/` – lightweight FastAPI service that exposes container health at `http://<host>:9090/health`.
 - `pixel-streaming/` – Pixel Streaming configuration overrides shipped with the Unreal build.
+- `tools/recorder/` – recorder-control sidecar (see `docs/recorder-control.md`).
 - `scripts/` – utilities for onboarding and orchestration (`start_vtuber_unreal.sh`, `register_orchestrator.py`, etc.).
 - `docs/` – deployment, integration, and operations guides (each doc now calls out where to pull the payments backend).
 
