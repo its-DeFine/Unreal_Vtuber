@@ -23,23 +23,23 @@ separate repository.
    :::note GPU reference
 Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFLOPS FP16, 70 W TDP), 4 vCPUs, 16 GB RAM. Any GPU with comparable specs should deliver similar Pixel Streaming quality while keeping costs in check.
    :::
-2. Generate TURN credentials (writes `.env.turn`):
-   ```bash
-   ./scripts/generate_turn_credentials.sh
-   ```
-3. Copy and edit the orchestrator env:
+2. Copy and edit the orchestrator env:
    ```bash
    cp orchestrator.env.example .env
    # edit .env with PAYMENTS_API_URL (point at the standalone backend),
    # ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP, and ORCHESTRATOR_HEALTH_URL
    # include VTUBER_ALLOWED_ADDRESSES=3.150.172.153 so the script runner accepts commands from the forwarder
    ```
-4. Open the firewall so the forwarder (3.150.172.153) and payments backend (3.141.111.200) can reach this host.
+3. Generate TURN credentials (writes `.env.turn`):
+   ```bash
+   ./scripts/generate_turn_credentials.sh
+   ```
+4. Open the firewall so the forwarder (3.150.172.153) and payments backend (3.141.111.200) can reach this host. TURN is not required by default, so leave TURN/relay UDP closed unless you explicitly enable it.
 
-| Traffic source                     | Ports (TCP)                       | Ports (UDP)               |
-| --------------------------------- | ---------------------------------- | ------------------------- |
-| Forwarder / client (3.150.172.153) | 8080, 8888, 8889, 9876, 9877 | 3478, 49160‑49200 |
-| Payments backend (3.141.111.200) | 9090                          | –                |
+| Traffic source                     | Ports (TCP)                       | Ports (UDP)                                 |
+| --------------------------------- | ---------------------------------- | ------------------------------------------- |
+| Forwarder / client (3.150.172.153) | 8080, 8888, 8889, 9876, 9877 | – (TURN optional; keep closed by default) |
+| Payments backend (3.141.111.200) | 9090                          | –                                           |
 
    **Example (UFW)**
    ```bash
@@ -49,8 +49,6 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    for PORT in 8080 8888 8889 9876 9877; do
      sudo ufw allow from $CLIENT_IP to any port $PORT proto tcp
    done
-   sudo ufw allow from $CLIENT_IP to any port 3478 proto udp
-   sudo ufw allow from $CLIENT_IP to any port 49160:49200 proto udp
 
    sudo ufw allow from $PAYMENTS_IP to any port 9090 proto tcp
 
@@ -108,32 +106,38 @@ variables, and data layout.
 
 ## Upgrade / migrate from an older release
 
-1. **Pull the latest codebase**
+1. **Authenticate with GitHub CLI (collaborator account)**  
+   - If you are already signed in with the correct GitHub account (`gh auth status`), continue to step 2.  
+   - Otherwise install/login (this installs the Git credential helper so future `git fetch/pull` on this host keep working without the global PAT rewrite):
+     ```bash
+     sudo apt-get update && sudo apt-get install -y gh
+     gh auth login --hostname github.com --git-protocol https --web
+     ```
+   - Headless login (no browser): export a PAT with `repo` scope and run `echo "$GITHUB_TOKEN" | gh auth login --hostname github.com --git-protocol https --with-token`.
+   - If you previously added a global PAT rewrite (`git config --global url."https://<PAT>@github.com/".insteadOf "https://github.com/"`), remove it so `gh` credentials are used:
+     ```bash
+     git config --global --unset-all url."https://github.com/".insteadOf || true
+     git config --global --unset-all url."https://<PAT>@github.com/".insteadOf || true
+     ```
+2. **Make sure allowlists match the new deployment**
+   - Repeat the firewall steps from “New deployment” so the forwarder and payments backend can still reach the host.
+   - If the orchestrator’s public IP changed, refresh the allowlist and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`).
+3. **Pull the latest codebase**
    ```bash
    cd /home/ubuntu/Unreal_Vtuber
    git fetch origin
    git pull origin main         # or checkout the release tag/branch
    ```
-2. **Make sure allowlists match the new deployment**
-   - Repeat the firewall steps from “New deployment” so the forwarder and payments backend can still reach the host.
-   - If the orchestrator’s public IP changed, refresh the allowlist and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`).
-3. **Refresh container images (optional)**  
+4. **Refresh container images (optional)**  
    Watchtower keeps `:latest` current, so only do this if auto-updates are paused or you need a specific tag.
    ```bash
    docker compose -f docker-compose.unreal.yml pull
    ```
-4. **Recreate TURN + Unreal + signaling services** (skip if watchtower already deployed the image)
+5. **Regenerate TURN credentials and restart the stack**
    ```bash
-   docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game turn-server
+   ./scripts/generate_turn_credentials.sh
+   docker compose -f docker-compose.unreal.yml up -d --force-recreate
    ```
-5. **Rebuild the runner**
-   ```bash
-   docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
-   ```
-6. **(One-time) ensure helper services exist**
-   ```bash
-   docker compose -f docker-compose.unreal.yml up -d vtuber-watchdog vtuber-auto-updater
-   ```
-7. **Validate traffic + health**
+6. **Validate traffic + health**
    - Pixel UI: `http://<PUBLIC_IP>:8080`
    - Runner: `curl http://<PUBLIC_IP>:9877/health`
