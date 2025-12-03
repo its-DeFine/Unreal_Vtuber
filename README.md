@@ -139,48 +139,55 @@ variables, and data layout.
 
 ## Upgrade / migrate from an older release
 
-1. **Authenticate to GitHub + GHCR (private repo, private images)**  
-   Do this on the host so Watchtower can reuse `/home/ubuntu/.docker/config.json`:
-   - Use the read-only PAT we provide to you out-of-band (scopes: `repo`, `read:packages`).
-   - Apply it for git and GHCR (replace `<PAT>` and `<github-username>`):
+1. **Install GitHub CLI and sign in (collaborator account)**  
+   - If you are already signed in with the correct account (`gh auth status`), skip to step 2.  
+   - Otherwise:
      ```bash
-     git config --global url."https://<PAT>@github.com/".insteadOf "https://github.com/"
-     echo '<PAT>' | docker login ghcr.io -u <github-username> --password-stdin
+     sudo apt-get update && sudo apt-get install -y gh
+     gh auth login --hostname github.com --git-protocol https --web
      ```
-2. **Pull the latest codebase**
+   - Headless (no browser): export `GITHUB_TOKEN` with `repo` scope and run  
+     `echo "$GITHUB_TOKEN" | gh auth login --hostname github.com --git-protocol https --with-token`.
+2. **Authenticate to GHCR for private images**  
+   Use the PAT provided out-of-band (scopes: `read:packages`; add `write:packages` if you push):
+   ```bash
+   echo '<PAT>' | docker login ghcr.io -u <github-username> --password-stdin
+   ```
+3. **Pull the latest codebase**
    ```bash
    cd /home/ubuntu/Unreal_Vtuber
    git fetch origin
    git pull origin main         # or checkout the release tag/branch
    ```
-3. **Make sure allowlists match the new deployment**
+4. **Make sure allowlists match the new deployment**
    - Repeat the firewall steps from “New deployment” so the forwarder and payments backend can still reach the host.
    - If the orchestrator’s public IP changed, refresh the allowlist and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`).
-4. **Refresh container images**  
+5. **Refresh container images**  
    ```bash
    docker compose -f docker-compose.unreal.yml pull
    ```
-5. **Restart the full stack**  
+6. **Regenerate TURN credentials and restart the stack**  
    ```bash
+   ./scripts/generate_turn_credentials.sh
    docker compose -f docker-compose.unreal.yml down
    docker compose -f docker-compose.unreal.yml up -d
    ```
-6. **Rebuild the runner**
+7. **Rebuild the runner**
    ```bash
    docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
    ```
-7. **(One-time) ensure helper services exist**
+8. **(One-time) ensure helper services exist**
    ```bash
    docker compose -f docker-compose.unreal.yml up -d vtuber-watchdog vtuber-auto-updater
    ```
-8. **If orchestrator-health is missing modules after upgrade**  
+9. **If orchestrator-health is missing modules after upgrade**  
    ```bash
    docker compose -f docker-compose.unreal.yml build --no-cache orchestrator-health
    docker compose -f docker-compose.unreal.yml up -d orchestrator-health
    ```
-9. **Validate traffic + health**
-   - Pixel UI: `http://<PUBLIC_IP>:8080`
-   - Runner: `curl http://<PUBLIC_IP>:9877/health`
+10. **Validate traffic + health**
+    - Pixel UI: `http://<PUBLIC_IP>:8080`
+    - Runner: `curl http://<PUBLIC_IP>:9877/health`
 
 ## License and allowed use
 
