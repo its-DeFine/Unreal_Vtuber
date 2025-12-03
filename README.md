@@ -168,16 +168,16 @@ variables, and data layout.
 3. **Make sure allowlists match the new deployment**
    - Repeat the firewall steps from “New deployment” so the forwarder and payments backend can still reach the host.
    - If the orchestrator’s public IP changed, refresh the allowlist and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`).
-4. **Refresh container images (optional)**  
-   Watchtower keeps `:latest` current, so only do this if auto-updates are paused or you need a specific tag.
+4. **Refresh container images**  
    ```bash
    docker compose -f docker-compose.unreal.yml pull
    ```
-5. **Recreate TURN + Unreal + signaling services** (skip if watchtower already deployed the image)
+5. **Restart the full stack**  
    ```bash
-   docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game turn-server
+   docker compose -f docker-compose.unreal.yml down
+   docker compose -f docker-compose.unreal.yml up -d
    ```
-6. **Rebuild the runner**
+6. **Rebuild the runner** (optional if you prefer a fresh runner image)
    ```bash
    docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
    ```
@@ -185,7 +185,12 @@ variables, and data layout.
    ```bash
    docker compose -f docker-compose.unreal.yml up -d vtuber-watchdog vtuber-auto-updater
    ```
-8. **Validate traffic + health**
+8. **If orchestrator-health is missing modules after upgrade**  
+   ```bash
+   docker compose -f docker-compose.unreal.yml build --no-cache orchestrator-health
+   docker compose -f docker-compose.unreal.yml up -d orchestrator-health
+   ```
+9. **Validate traffic + health**
    - Pixel UI: `http://<PUBLIC_IP>:8080`
    - Runner: `curl http://<PUBLIC_IP>:9877/health`
 
