@@ -26,14 +26,7 @@ separate repository.
    - Headless (no browser): export `GITHUB_TOKEN` with `repo` scope and run
      `echo "$GITHUB_TOKEN" | gh auth login --hostname github.com --git-protocol https --with-token`.
 
-2. Authenticate to GHCR for private images
-   Use the PAT provided out-of-band (scopes: `read:packages`; add `write:packages` if you push). This does not affect git fetch/pull; it only stores credentials for image pulls/pushes:
-   ```bash
-   echo '<PAT>' | docker login ghcr.io -u <github-username> --password-stdin
-   ```
-   The `docker login` writes `/home/ubuntu/.docker/config.json`, which is mounted into
-   `vtuber-auto-updater` so Watchtower can keep pulling private images automatically.
-3. Clone the repo and enter it:
+2. Clone the repo and enter it:
    ```bash
    git clone https://github.com/its-DeFine/Unreal_Vtuber.git
    cd Unreal_Vtuber
@@ -41,6 +34,13 @@ separate repository.
    :::note GPU reference
 Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFLOPS FP16, 70 W TDP), 4 vCPUs, 16 GB RAM. Any GPU with comparable specs should deliver similar Pixel Streaming quality while keeping costs in check.
    :::
+3. Authenticate to GHCR for private images
+   Use the PAT provided out-of-band (scopes: `read:packages`; add `write:packages` if you push). This does not affect git fetch/pull; it only stores credentials for image pulls/pushes:
+   ```bash
+   echo '<PAT>' | docker login ghcr.io -u <github-username> --password-stdin
+   ```
+   The `docker login` writes `/home/ubuntu/.docker/config.json`, which is mounted into
+   `vtuber-auto-updater` so Watchtower can keep pulling private images automatically.
 4. Generate TURN credentials (writes `.env.turn`):
    ```bash
    ./scripts/generate_turn_credentials.sh
@@ -156,16 +156,16 @@ variables, and data layout.
      ```
    - Headless (no browser): export `GITHUB_TOKEN` with `repo` scope and run  
      `echo "$GITHUB_TOKEN" | gh auth login --hostname github.com --git-protocol https --with-token`.
-2. **Authenticate to GHCR for private images**  
-   Use the PAT provided out-of-band (scopes: `read:packages`; add `write:packages` if you push):
-   ```bash
-   echo '<PAT>' | docker login ghcr.io -u <github-username> --password-stdin
-   ```
-3. **Pull the latest codebase**
+2. **Pull the latest codebase**
    ```bash
    cd /home/ubuntu/Unreal_Vtuber
    git fetch origin
    git pull origin main         # or checkout the release tag/branch
+   ```
+3. **Authenticate to GHCR for private images**  
+   Use the PAT provided out-of-band (scopes: `read:packages`; add `write:packages` if you push):
+   ```bash
+   echo '<PAT>' | docker login ghcr.io -u <github-username> --password-stdin
    ```
 4. **Make sure allowlists match the new deployment**
    - Repeat the firewall steps from “New deployment” so the forwarder and payments backend can still reach the host.
