@@ -132,6 +132,6 @@ accordingly).
 
 - Review `docs/payments-deployment.md` for network port whitelists between the
   orchestrator and the payments backend.
-- To provision remote AWS orchestrators instead, use
-  `scripts/provision_orchestrator.py` with
-  `scripts/provision_orchestrator.env.example`.
+- For cloud-hosted orchestrators, follow the AWS onboarding guide in
+  `docs/aws-onboarding.md` (launch GPU instance, install Docker/NVIDIA, then run
+  the same compose stack with your `.env` settings).

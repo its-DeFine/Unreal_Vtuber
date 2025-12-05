@@ -183,28 +183,10 @@ Following this guide keeps the payments pipeline resilient while minimizing manu
 
 ---
 
-## 7. Automated Provisioning Helper
+## 7. Automated provisioning (legacy)
 
-For ad-hoc testing it is often faster to spin up a disposable orchestrator than to repurpose the production node. The helper script `scripts/provision_orchestrator.py` automates the full workflow:
-
-1. Creates (or reuses) the EC2 key pair and security group with the correct allowlists.
-2. Launches a GPU-backed Ubuntu instance in the specified subnet.
-3. Installs Docker, NVIDIA drivers, and the NVIDIA container toolkit.
-4. Syncs the `autonomy` project files, generates TURN credentials, starts the docker-compose stack, and registers the orchestrator with the payments backend.
-
-### Usage
-
-1. Copy `scripts/provision_orchestrator.env.example` to `scripts/provision_orchestrator.env` and populate the required values (instance type, dedicated client IP, payments backend IP, orchestrator ID/address, etc.). We default to the shared GPU subnet `subnet-0aad8738d8ac9fc25` and AMI `ami-0f09ef696435ff61a`—override them only if you need a different environment. Set `ALLOW_DEDICATED_IP_SSH=true` if you want the same client IP to reach SSH in addition to the admin IP.
-2. Ensure `aws` CLI v2, `ssh`, `scp`, `rsync`, and `jq` are available on your workstation and that AWS credentials are exported (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`).
-3. Run:
-
-```bash
-cd autonomy
-python3 scripts/provision_orchestrator.py
-```
-
-The script prints the new instance ID, public IP, and key path once the stack is live. When you are done testing remember to terminate the EC2 instance and resume the paused payments backend container.
-
-### Required AWS permissions
-
-The IAM identity used to run the script must be allowed to perform the following EC2 actions in the target region: `Describe*`, `CreateKeyPair`, `CreateSecurityGroup`, `AuthorizeSecurityGroupIngress`, `RunInstances`, `CreateTags`, `StopInstances`, and `TerminateInstances`. A full-access key (AdministratorAccess) meets these requirements.
+The old `scripts/provision_orchestrator.py` helper has been removed now that the
+images and repo are public. To spin up new orchestrators, launch a GPU host
+(e.g., g4dn.xlarge) with the required security group, install Docker + NVIDIA,
+clone this repo, and follow the main README “New deployment” steps. Use your own
+automation/Infra-as-Code if you want to replicate the previous workflow.
