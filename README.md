@@ -1,6 +1,6 @@
 # Unreal VTuber Pixel Streaming Stack
 
-ATTENTION: Under active development, do not try to setup at this time.
+**ATTENTION:** Under active development, do not try to setup at this time.
 
 This repository now hosts the Unreal Engine Pixel Streaming runtime plus the
 launcher scripts used to operate an orchestrator host. The registration helper
