@@ -132,6 +132,7 @@ accordingly).
 
 - Review `docs/payments-deployment.md` for network port whitelists between the
   orchestrator and the payments backend.
-- For cloud-hosted orchestrators, follow the AWS onboarding guide in
-  `docs/aws-onboarding.md` (launch GPU instance, install Docker/NVIDIA, then run
-  the same compose stack with your `.env` settings).
+- For cloud-hosted orchestrators, follow the same compose steps on a GPU host
+  (launch instance, install Docker + NVIDIA drivers, clone this repo, fill `.env`,
+  run `docker compose -f docker-compose.unreal.yml up -d`, then register with
+  the payments API).
