@@ -130,8 +130,9 @@ accordingly).
 
 ## 7. Next steps
 
-- Review `docs/payments-deployment.md` for network port whitelists between the
-  orchestrator and the payments backend.
+- Keep the payments backend reachable on 8081 from this orchestrator and allow
+  payments->orchestrator health on 9090. Ensure security groups reflect those
+  two paths alongside the forwarder ingress listed above.
 - For cloud-hosted orchestrators, follow the same compose steps on a GPU host
   (launch instance, install Docker + NVIDIA drivers, clone this repo, fill `.env`,
   run `docker compose -f docker-compose.unreal.yml up -d`, then register with
