@@ -10,6 +10,7 @@ RUN apt-get update && \
       python3-pip \
       python3-dev \
       pkg-config \
+      sudo \
       supervisor \
       gstreamer1.0-tools \
       gstreamer1.0-plugins-base \
