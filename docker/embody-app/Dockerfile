@@ -65,4 +65,4 @@ ENV RUNNER_POLL_SECONDS=120
 
 EXPOSE 80 8888 8889
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+ENTRYPOINT ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
