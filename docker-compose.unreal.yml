@@ -55,6 +55,7 @@ services:
       VTUBER_TCP_PORT: ${VTUBER_TCP_PORT:-7777}
       VTUBER_SESSION_ROOT: ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}
       VTUBER_ALLOWED_ADDRESSES: ${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.18.0.1}
+      RECORDER_CTRL_PORT: 8890
       RECORDER_OUTPUT_DIR: /recordings
       RECORDER_SIGNALING_URL: ${RECORDER_SIGNALING_URL:-ws://localhost:80}
       RUNNER_URL: ${RUNNER_URL:-http://127.0.0.1:9877}
@@ -66,7 +67,7 @@ services:
     ports:
       - "8080:80"       # HTTP web interface
       - "8888:8888"     # Streamer port
-      - "8889:8889"     # Recorder/API
+      - "8889:8890"     # Recorder/API (exposed on 8889)
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]
       interval: 30s
