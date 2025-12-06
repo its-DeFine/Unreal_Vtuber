@@ -16,7 +16,8 @@ RUN apt-get update && \
       gstreamer1.0-plugins-ugly \
       gstreamer1.0-libav \
       gstreamer1.0-nice \
-      gir1.2-gst-1.0 \
+      gir1.2-gstreamer-1.0 \
+      gir1.2-gst-plugins-base-1.0 \
       gir1.2-gst-plugins-bad-1.0 \
       gir1.2-glib-2.0 \
       libgirepository1.0-dev \
