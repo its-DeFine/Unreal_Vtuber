@@ -34,38 +34,55 @@ services:
     networks:
       - vtuber_network
 
-  # Signaling Server - WebRTC signaling and web interface
-  unreal-signaling:
-    image: ghcr.io/its-define/unreal_vtuber/embody-signaling:latest
-    container_name: vtuber-unreal-signaling
+  # Embody app (monolith: signaling + runner + recorder-control)
+  embody-app:
+    build:
+      context: .
+      dockerfile: docker/embody-app/Dockerfile
+    container_name: vtuber-embody-app
     restart: unless-stopped
     depends_on:
       - turn-server
     env_file:
       - .env.turn
+    environment:
+      PUBLIC_IP: ${PUBLIC_IP:-auto}
+      SIGNALING_HTTP_PORT: 80
+      SIGNALING_STREAMER_PORT: 8888
+      SIGNALING_SFU_PORT: 8889
+      STUN_SERVER: ${STUN_SERVER:-stun.l.google.com:19302}
+      VTUBER_TCP_HOST: ${VTUBER_TCP_HOST:-vtuber-unreal-game}
+      VTUBER_TCP_PORT: ${VTUBER_TCP_PORT:-7777}
+      VTUBER_SESSION_ROOT: ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}
+      VTUBER_ALLOWED_ADDRESSES: ${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.18.0.1}
+      RECORDER_OUTPUT_DIR: /recordings
+      RECORDER_SIGNALING_URL: ${RECORDER_SIGNALING_URL:-ws://localhost:80}
+      RUNNER_URL: ${RUNNER_URL:-http://127.0.0.1:9877}
+      PLANNER_URL: ${PLANNER_URL:-}
+      PLAN_SPEECH_SPACING_MS: ${PLAN_SPEECH_SPACING_MS:-2000}
+      RUNNER_POLL_SECONDS: ${RUNNER_POLL_SECONDS:-120}
+      RECORDINGS_API_TOKEN: ${RECORDINGS_API_TOKEN:-}
+      ENABLE_REST_API: ${ENABLE_REST_API:-1}
     ports:
       - "8080:80"       # HTTP web interface
       - "8888:8888"     # Streamer port
-    environment:
-      PUBLIC_IP: ${PUBLIC_IP:-auto}
-      HTTP_PORT: "8080"
-      STREAMER_PORT: "8888"
-      SFU_PORT: "8889"
-      STUN_SERVER: ${STUN_SERVER:-stun.l.google.com:19302}
-      ENABLE_REST_API: ${ENABLE_REST_API:-0}
+      - "8889:8889"     # Recorder/API
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    volumes:
+      - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
+      - /recordings:/recordings
+      - ./pixel-streaming/config/ConsoleVariables.ini:/opt/embody/Embody/Saved/Config/LinuxNoEditor/ConsoleVariables.ini:ro
+      - ./pixel-streaming/config/GameUserSettings.ini:/opt/embody/Embody/Saved/Config/LinuxNoEditor/GameUserSettings.ini:ro
     networks:
-      - vtuber_network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      vtuber_network:
+        aliases:
+          - unreal-signaling
+          - vtuber-script-runner
 
   # Embody Game - Headless Unreal Engine with Pixel Streaming
   unreal-game:
@@ -81,7 +98,7 @@ services:
       - "7777:7777"
       - "9877:9877"
     depends_on:
-      unreal-signaling:
+      embody-app:
         condition: service_healthy
     environment:
       - PIXEL_STREAMING_URL=ws://unreal-signaling:8888
@@ -118,21 +135,6 @@ services:
               count: 1
               capabilities: [gpu]
 
-  vtuber-script-runner:
-    build:
-      context: ./unreal-script-runner
-    network_mode: "service:unreal-game"
-    environment:
-      - VTUBER_SESSION_ROOT=/opt/embody/sessions
-      - VTUBER_TCP_HOST=${VTUBER_TCP_HOST:-127.0.0.1}
-      - VTUBER_TCP_PORT=7777
-      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.18.0.1,172.31.34.188}
-    volumes:
-      - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
-    restart: unless-stopped
-    depends_on:
-      - unreal-game
-
   vtuber-watchdog:
     build:
       context: .
@@ -143,7 +145,7 @@ services:
       - unreal-game
     environment:
       - WATCHDOG_COMPOSE_FILE=/workspace/docker-compose.unreal.yml
-      - WATCHDOG_RUNNER_SERVICE=vtuber-script-runner
+      - WATCHDOG_RUNNER_SERVICE=vtuber-embody-app
       - WATCHDOG_GAME_CONTAINER=vtuber-unreal-game
       - WATCHDOG_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-unreal_vtuber}
     volumes:
@@ -179,7 +181,7 @@ services:
       dockerfile: Dockerfile
     command: ["python", "-m", "orchestrator_health.remote_health_service"]
     environment:
-      - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server}
+      - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-embody-app,vtuber-turn-server}
       - ORCHESTRATOR_HEALTH_PORT=9090
       - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-}
     volumes:
@@ -210,32 +212,9 @@ services:
         "--include-restarting",
         "--rolling-restart",
         "vtuber-turn-server",
-        "vtuber-unreal-signaling",
+        "vtuber-embody-app",
         "vtuber-unreal-game",
       ]
-
-  recorder-control:
-    build:
-      context: ./tools/recorder
-      dockerfile: Dockerfile
-    container_name: vtuber-recorder-control
-    depends_on:
-      - unreal-signaling
-    environment:
-      - RECORDER_CTRL_PORT=8889
-      - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL:-ws://vtuber-unreal-signaling:80}
-      - RECORDER_OUTPUT_DIR=/recordings
-      - PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
-      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.18.0.1}
-      - RECORDER_TURN_URL=${RECORDER_TURN_URL:-turn://${TURN_USER}:${TURN_PASS}@vtuber-turn-server:${TURN_PORT:-3478}}
-    volumes:
-      - /recordings:/recordings
-    command: ["python3", "/opt/embody/recorder/control_server.py"]
-    restart: unless-stopped
-    networks:
-      - vtuber_network
-    ports:
-      - "8889:8889"
 
 networks:
   vtuber_network:

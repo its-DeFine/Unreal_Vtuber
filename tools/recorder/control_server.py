@@ -1,11 +1,13 @@
 import asyncio
+import datetime
 import json
 import os
+import uuid
 import signal
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
-from aiohttp import web
+from aiohttp import ClientSession, web
 
 RECORDER_CTRL_PORT = int(os.environ.get("RECORDER_CTRL_PORT", "8889"))
 SIGNALING_URL = os.environ.get("RECORDER_SIGNALING_URL", "ws://unreal-signaling:80")
@@ -18,6 +20,15 @@ ALLOWED_IPS = {
     if ip.strip()
 }
 RECORDER_API_TOKEN = os.environ.get("RECORDINGS_API_TOKEN")
+
+PLANNER_URL = os.environ.get("PLANNER_URL")
+RUNNER_URL = os.environ.get("RUNNER_URL", "http://vtuber-script-runner:9877")
+PLAN_DEFAULT_SPACING_MS = int(os.environ.get("PLAN_SPEECH_SPACING_MS", "2000"))
+RUNNER_POLL_SECONDS = int(os.environ.get("RUNNER_POLL_SECONDS", "120"))
+
+# In-memory plan/run cache for quick lookup (intentionally simple for single-instance use).
+PLANS: Dict[str, Dict[str, Any]] = {}
+RUNS: Dict[str, Dict[str, Any]] = {}
 
 STATE = {"proc": None, "label": None, "streamer": None, "started": None, "mkv": None}
 
@@ -64,17 +75,9 @@ async def handle_status(request: web.Request):
     )
 
 
-async def handle_start(request: web.Request):
-    ensure_auth(request)
+async def _start_recorder(label: str, duration: Optional[int], streamer_id: Optional[str]) -> Dict[str, Any]:
     if STATE["proc"]:
         raise web.HTTPConflict(text="Recorder already running")
-    try:
-        data = await request.json()
-    except Exception:
-        data = {}
-    label = _sanitize_label(data.get("label") or "capture")
-    duration = data.get("duration")
-    streamer_id = data.get("streamer_id")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     cmd = ["python3", PY_RECORDER, "--label", label]
@@ -117,16 +120,28 @@ async def handle_start(request: web.Request):
 
     asyncio.create_task(_waiter())
 
-    return web.json_response(
-        {
-            "started": True,
-            "pid": proc.pid,
-            "label": label,
-            "streamer_id": streamer_id,
-            "duration": duration,
-            "output": STATE["mkv"],
-        }
-    )
+    return {
+        "started": True,
+        "pid": proc.pid,
+        "label": label,
+        "streamer_id": streamer_id,
+        "duration": duration,
+        "output": STATE["mkv"],
+    }
+
+
+async def handle_start(request: web.Request):
+    ensure_auth(request)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    label = _sanitize_label(data.get("label") or "capture")
+    duration = data.get("duration")
+    streamer_id = data.get("streamer_id")
+
+    result = await _start_recorder(label=label, duration=duration, streamer_id=streamer_id)
+    return web.json_response(result)
 
 
 async def handle_stop(request: web.Request):
@@ -167,6 +182,193 @@ async def handle_delete(request: web.Request):
     target.unlink()
     return web.json_response({"deleted": True, "file": name})
 
+
+async def _call_planner(prompt: str, mode: Optional[str], spacing_ms: int) -> Dict[str, Any]:
+    if not PLANNER_URL:
+        # Fallback stub when planner URL not provided: create a simple speech-only plan.
+        return {
+            "plan_id": uuid.uuid4().hex,
+            "prompt": prompt,
+            "mode": mode,
+            "speech_spacing_ms": spacing_ms,
+            "resolved_commands": [prompt],
+        }
+
+    params = {"resolve_aliases": "true", "speech_spacing_ms": spacing_ms}
+    payload = {"prompt": prompt}
+    if mode:
+        payload["mode"] = mode
+
+    async with ClientSession() as session:
+        async with session.post(PLANNER_URL, params=params, json=payload) as resp:
+            if resp.status >= 300:
+                text = await resp.text()
+                raise web.HTTPBadRequest(text=f"planner error ({resp.status}): {text}")
+            data = await resp.json()
+            return data
+
+
+def _is_speech_command(cmd: str) -> bool:
+    upper = cmd.upper()
+    return upper.startswith("TTS") or upper.startswith("SAY") or "SPEECH" in upper
+
+
+def _extract_speech(plan: Dict[str, Any]) -> List[str]:
+    raw = plan.get("resolved_commands") or plan.get("commands") or []
+    speech: List[str] = []
+    for entry in raw:
+        if isinstance(entry, str):
+            if _is_speech_command(entry) or not speech:
+                speech.append(entry)
+        elif isinstance(entry, dict):
+            val = entry.get("value") or entry.get("command")
+            if isinstance(val, str) and (_is_speech_command(val) or not speech):
+                speech.append(val)
+    return speech
+
+
+def _runner_commands_from_speech(speech: List[str], spacing_ms: int) -> List[Dict[str, Any]]:
+    commands: List[Dict[str, Any]] = []
+    for idx, cmd in enumerate(speech):
+        commands.append({"delay_ms": 0 if idx == 0 else spacing_ms, "type": "tcp", "value": cmd})
+    return commands
+
+
+async def handle_create_plan(request: web.Request):
+    body = await request.json()
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        raise web.HTTPBadRequest(text="prompt is required")
+    mode = body.get("mode")
+    spacing_ms = int(body.get("speech_spacing_ms") or PLAN_DEFAULT_SPACING_MS)
+
+    plan_data = await _call_planner(prompt=prompt, mode=mode, spacing_ms=spacing_ms)
+    plan_id = plan_data.get("plan_id") or uuid.uuid4().hex
+    speech_commands = _extract_speech(plan_data) or ([prompt] if prompt else [])
+    record = {
+        "plan_id": plan_id,
+        "prompt": prompt,
+        "mode": mode,
+        "speech_spacing_ms": spacing_ms,
+        "speech_commands": speech_commands,
+        "raw": plan_data,
+        "created_at": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    PLANS[plan_id] = record
+    return web.json_response(record)
+
+
+async def handle_get_plan(request: web.Request):
+    plan_id = request.match_info.get("plan_id", "")
+    plan = PLANS.get(plan_id)
+    if not plan:
+        raise web.HTTPNotFound(text="plan not found")
+    return web.json_response(plan)
+
+
+async def _call_runner(session_id: str, commands: List[Dict[str, Any]]) -> Dict[str, Any]:
+    payload = {"session_id": session_id, "commands": commands, "audio": []}
+    async with ClientSession() as session:
+        async with session.post(f"{RUNNER_URL}/scripts/execute", json=payload) as resp:
+            if resp.status >= 300:
+                text = await resp.text()
+                raise web.HTTPBadRequest(text=f"runner error ({resp.status}): {text}")
+            return await resp.json()
+
+
+async def _poll_runner(session_id: str) -> Dict[str, Any]:
+    deadline = asyncio.get_event_loop().time() + RUNNER_POLL_SECONDS
+    async with ClientSession() as session:
+        while True:
+            async with session.get(f"{RUNNER_URL}/scripts/{session_id}") as resp:
+                if resp.status == 404:
+                    raise web.HTTPNotFound(text="runner session not found")
+                data = await resp.json()
+                state = data.get("state")
+                if state in {"completed", "failed"}:
+                    return data
+            if asyncio.get_event_loop().time() > deadline:
+                raise web.HTTPGatewayTimeout(text="runner polling timed out")
+            await asyncio.sleep(1)
+
+
+async def handle_run_plan(request: web.Request):
+    ensure_auth(request)
+    body = await request.json()
+    plan_id = body.get("plan_id")
+    prompt = (body.get("prompt") or "").strip()
+    mode = body.get("mode")
+    spacing_ms = int(body.get("speech_spacing_ms") or PLAN_DEFAULT_SPACING_MS)
+    record_clip = bool(body.get("record", True))
+    execute = bool(body.get("execute", True))
+    streamer_id = body.get("streamer_id")
+
+    plan = PLANS.get(plan_id or "")
+    if not plan:
+        plan_resp = await _call_planner(prompt=prompt, mode=mode, spacing_ms=spacing_ms)
+        speech_commands = _extract_speech(plan_resp)
+        plan_id = plan_resp.get("plan_id") or uuid.uuid4().hex
+        plan = {
+            "plan_id": plan_id,
+            "prompt": prompt,
+            "mode": mode,
+            "speech_spacing_ms": spacing_ms,
+            "speech_commands": speech_commands,
+            "raw": plan_resp,
+            "created_at": datetime.datetime.utcnow().isoformat() + "Z",
+        }
+        PLANS[plan_id] = plan
+
+    speech_commands = plan.get("speech_commands") or ([prompt] if prompt else [])
+    if not speech_commands:
+        raise web.HTTPBadRequest(text="no speech commands available for this plan")
+
+    commands = _runner_commands_from_speech(speech_commands, spacing_ms)
+    session_id = body.get("run_id") or uuid.uuid4().hex
+
+    if record_clip:
+        label = _sanitize_label(body.get("label") or session_id)
+        duration = body.get("duration")
+        await _start_recorder(label=label, duration=duration, streamer_id=streamer_id)
+
+    runner_status = None
+    if execute:
+        await _call_runner(session_id=session_id, commands=commands)
+        runner_status = await _poll_runner(session_id=session_id)
+
+    clip_file = STATE.get("mkv")
+    if record_clip:
+        try:
+            await handle_stop(request)
+        except Exception:
+            pass
+
+    clip_name = Path(clip_file).name if clip_file else None
+    clip_url = f"/recordings/{clip_name}" if clip_name else None
+
+    run_record = {
+        "run_id": session_id,
+        "plan_id": plan_id,
+        "prompt": plan.get("prompt"),
+        "mode": plan.get("mode"),
+        "speech_spacing_ms": spacing_ms,
+        "speech_commands": speech_commands,
+        "runner_status": runner_status,
+        "recording": {"file": clip_name, "download_url": clip_url} if clip_name else None,
+        "started_at": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    RUNS[session_id] = run_record
+    return web.json_response(run_record)
+
+
+async def handle_get_run(request: web.Request):
+    run_id = request.match_info.get("run_id", "")
+    run = RUNS.get(run_id)
+    if not run:
+        raise web.HTTPNotFound(text="run not found")
+    return web.json_response(run)
+
+
 async def handle_root(request: web.Request):
     return web.json_response({"service": "gs-recorder-control", "active": STATE["proc"] is not None})
 
@@ -179,6 +381,10 @@ def make_app() -> web.Application:
     app.router.add_post("/recordings/stop", handle_stop)
     app.router.add_get("/recordings/{filename}", handle_download)
     app.router.add_delete("/recordings/{filename}", handle_delete)
+    app.router.add_post("/api/plans", handle_create_plan)
+    app.router.add_get("/api/plans/{plan_id}", handle_get_plan)
+    app.router.add_post("/api/runs", handle_run_plan)
+    app.router.add_get("/api/runs/{run_id}", handle_get_run)
     return app
 
 
