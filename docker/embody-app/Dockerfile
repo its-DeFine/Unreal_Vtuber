@@ -8,6 +8,8 @@ RUN apt-get update && \
       python3 \
       python3-venv \
       python3-pip \
+      python3-dev \
+      pkg-config \
       supervisor \
       gstreamer1.0-tools \
       gstreamer1.0-plugins-base \
