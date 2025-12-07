@@ -50,7 +50,8 @@ services:
       SIGNALING_HTTP_PORT: 80
       SIGNALING_STREAMER_PORT: 8888
       STUN_SERVER: ${STUN_SERVER:-stun.l.google.com:19302}
-      VTUBER_TCP_HOST: ${VTUBER_TCP_HOST:-vtuber-unreal-game}
+      # Game listens on loopback; route via bridge gateway (docker-proxy maps 7777 to loopback).
+      VTUBER_TCP_HOST: ${VTUBER_TCP_HOST:-172.18.0.1}
       VTUBER_TCP_PORT: ${VTUBER_TCP_PORT:-7777}
       VTUBER_SESSION_ROOT: ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}
       VTUBER_ALLOWED_ADDRESSES: ${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.18.0.1}
