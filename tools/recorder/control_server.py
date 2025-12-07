@@ -4,6 +4,7 @@ import json
 import os
 import uuid
 import signal
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -43,6 +44,21 @@ RUNNER_URL = os.environ.get("RUNNER_URL", "http://vtuber-script-runner:9877")
 PLAN_DEFAULT_SPACING_MS = int(os.environ.get("PLAN_SPEECH_SPACING_MS", "2000"))
 RUNNER_POLL_SECONDS = int(os.environ.get("RUNNER_POLL_SECONDS", "120"))
 
+# ElevenLabs TTS wiring (optional). If these env vars are set, speech text will
+# be wrapped in a TTS_ElevenLabs_* command and an init command will be sent once
+# per runner session.
+ELEVEN_KEY = os.environ.get("ELEVENLABS_API_KEY")
+ELEVEN_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID")
+ELEVEN_MODEL_ID = os.environ.get("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2")
+ELEVEN_FORMAT = os.environ.get("ELEVENLABS_FORMAT", "mp3_44100_128")
+ELEVEN_STABILITY = os.environ.get("ELEVENLABS_STABILITY", "0.5")
+ELEVEN_SIMILARITY = os.environ.get("ELEVENLABS_SIMILARITY", "0.75")
+ELEVEN_STYLE = os.environ.get("ELEVENLABS_STYLE", "0.0")
+ELEVEN_SPEECH_PAUSE = os.environ.get("ELEVENLABS_SPEECH_PAUSE", "1.0")
+ELEVEN_VOLUME_BOOST = os.environ.get("ELEVENLABS_VOLUME_BOOST", "1")
+ELEVEN_VOICE_STYLE = os.environ.get("ELEVENLABS_VOICE_STYLE", "Neutral")
+ELEVEN_VOICE_IDX = os.environ.get("ELEVENLABS_VOICE_IDX", "1")
+
 # In-memory plan/run cache for quick lookup (intentionally simple for single-instance use).
 PLANS: Dict[str, Dict[str, Any]] = {}
 RUNS: Dict[str, Dict[str, Any]] = {}
@@ -53,6 +69,24 @@ STATE = {"proc": None, "label": None, "streamer": None, "started": None, "mkv": 
 def _sanitize_label(raw: str) -> str:
     cleaned = "".join(c if c.isalnum() or c in ("-", "_") else "-" for c in raw.strip())
     return cleaned or "capture"
+
+
+def _find_recording(label: str, started_after: Optional[float] = None) -> Optional[Path]:
+    """Return the most recent MKV matching the label prefix."""
+    prefix = f"{_sanitize_label(label)}_"
+    latest: Optional[Path] = None
+    latest_mtime: float = -1
+    for path in OUTPUT_DIR.glob(f"{prefix}*.mkv"):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        if started_after and stat.st_mtime < started_after:
+            continue
+        if stat.st_mtime > latest_mtime:
+            latest = path
+            latest_mtime = stat.st_mtime
+    return latest
 
 
 def client_ip(request: web.Request) -> Optional[str]:
@@ -68,6 +102,8 @@ def ensure_auth(request: web.Request):
     ip = client_ip(request)
     auth = request.headers.get("authorization", "")
     token = auth.split(" ", 1)[1].strip() if auth.lower().startswith("bearer ") else auth.strip()
+    if not token:
+        token = (request.query.get("token") or "").strip()
 
     # Token can satisfy auth even if the IP is not explicitly allowlisted.
     if RECORDER_API_TOKEN:
@@ -169,7 +205,8 @@ async def handle_start(request: web.Request):
 async def handle_stop(request: web.Request):
     ensure_auth(request)
     if not STATE["proc"]:
-        raise web.HTTPConflict(text="No recorder running")
+        # Be lenient to avoid UI CORS/preflight churn when a stop races or recorder already exited.
+        return web.json_response({"stopped": False, "reason": "No recorder running"})
     run_token = STATE.get("run_token")
     try:
         STATE["proc"].send_signal(signal.SIGINT)
@@ -249,10 +286,42 @@ def _extract_speech(plan: Dict[str, Any]) -> List[str]:
     return speech
 
 
+def _is_tts_payload(cmd: str) -> bool:
+    upper = cmd.upper()
+    return upper.startswith("TTS_ELEVENLABS_") or upper.startswith("ELEVENLABS=")
+
+
+def _wrap_elevenlabs(text: str) -> str:
+    """
+    Build the TTS_ElevenLabs payload with defaults that mirror send_tts_test.sh.
+    TTS_ElevenLabs_{TEXT}_{stability}_{similarity}_{style}_{pause}_{volumeBoost}_{voiceStyle}_{voiceIdx}
+    """
+    return "TTS_ElevenLabs_{}_{}_{}_{}_{}_{}_{}_{}".format(
+        text,
+        ELEVEN_STABILITY,
+        ELEVEN_SIMILARITY,
+        ELEVEN_STYLE,
+        ELEVEN_SPEECH_PAUSE,
+        ELEVEN_VOLUME_BOOST,
+        ELEVEN_VOICE_STYLE,
+        ELEVEN_VOICE_IDX,
+    )
+
+
 def _runner_commands_from_speech(speech: List[str], spacing_ms: int) -> List[Dict[str, Any]]:
     commands: List[Dict[str, Any]] = []
+    use_eleven = all([ELEVEN_KEY, ELEVEN_VOICE_ID])
+
+    if use_eleven:
+        init = f"ElevenLabs={ELEVEN_KEY}={ELEVEN_VOICE_ID}={ELEVEN_MODEL_ID}={ELEVEN_FORMAT}"
+        commands.append({"delay_ms": 0, "type": "tcp", "value": init})
+
     for idx, cmd in enumerate(speech):
-        commands.append({"delay_ms": 0 if idx == 0 else spacing_ms, "type": "tcp", "value": cmd})
+        payload = cmd
+        if use_eleven and not _is_tts_payload(cmd):
+            payload = _wrap_elevenlabs(cmd)
+        delay = 0 if (idx == 0 and not use_eleven) else (200 if use_eleven and idx == 0 else spacing_ms)
+        commands.append({"delay_ms": delay, "type": "tcp", "value": payload})
     return commands
 
 
@@ -324,6 +393,7 @@ async def handle_run_plan(request: web.Request):
     record_clip = bool(body.get("record", True))
     execute = bool(body.get("execute", True))
     streamer_id = body.get("streamer_id")
+    duration = body.get("duration")
 
     plan = PLANS.get(plan_id or "")
     if not plan:
@@ -348,25 +418,37 @@ async def handle_run_plan(request: web.Request):
     commands = _runner_commands_from_speech(speech_commands, spacing_ms)
     session_id = body.get("run_id") or uuid.uuid4().hex
 
+    label = _sanitize_label(body.get("label") or session_id)
+    started_wall = time.time()
+    recorder_proc = None
     if record_clip:
-        label = _sanitize_label(body.get("label") or session_id)
-        duration = body.get("duration")
         await _start_recorder(label=label, duration=duration, streamer_id=streamer_id)
+        recorder_proc = STATE.get("proc")
 
     runner_status = None
     if execute:
         await _call_runner(session_id=session_id, commands=commands)
         runner_status = await _poll_runner(session_id=session_id)
 
-    clip_file = STATE.get("mkv")
-    if record_clip:
+    if record_clip and recorder_proc:
+        # Wait for recorder to finish: let duration dictate runtime, otherwise send a gentle stop.
+        timeout = (duration or 0) + 10
         try:
-            await handle_stop(request)
-        except Exception:
-            pass
+            await asyncio.wait_for(recorder_proc.wait(), timeout=timeout if timeout > 0 else 10)
+        except asyncio.TimeoutError:
+            try:
+                recorder_proc.send_signal(signal.SIGINT)
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(recorder_proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                pass
 
-    clip_name = Path(clip_file).name if clip_file else None
-    clip_url = f"/recordings/{clip_name}" if clip_name else None
+    clip_path = _find_recording(label=label, started_after=started_wall - 5) if record_clip else None
+    clip_file = clip_path.name if clip_path else None
+
+    clip_url = f"/recordings/{clip_file}" if clip_file else None
 
     run_record = {
         "run_id": session_id,
@@ -376,7 +458,7 @@ async def handle_run_plan(request: web.Request):
         "speech_spacing_ms": spacing_ms,
         "speech_commands": speech_commands,
         "runner_status": runner_status,
-        "recording": {"file": clip_name, "download_url": clip_url} if clip_name else None,
+        "recording": {"file": clip_file, "download_url": clip_url} if clip_file else None,
         "started_at": datetime.datetime.utcnow().isoformat() + "Z",
     }
     RUNS[session_id] = run_record
@@ -404,6 +486,7 @@ def make_app() -> web.Application:
     app.router.add_get("/recordings/status", handle_status)
     app.router.add_post("/recordings/start", handle_start)
     app.router.add_post("/recordings/stop", handle_stop)
+    app.router.add_get("/recordings/stop", handle_stop)  # GET shim to avoid CORS/preflight issues
     app.router.add_get("/recordings/{filename}", handle_download)
     app.router.add_delete("/recordings/{filename}", handle_delete)
     app.router.add_post("/api/plans", handle_create_plan)
