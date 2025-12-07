@@ -66,15 +66,20 @@ def client_ip(request: web.Request) -> Optional[str]:
 
 def ensure_auth(request: web.Request):
     ip = client_ip(request)
-    if ALLOWED_IPS and (ip is None or ip not in ALLOWED_IPS):
-        raise web.HTTPForbidden(text="Forbidden (IP)")
+    auth = request.headers.get("authorization", "")
+    token = auth.split(" ", 1)[1].strip() if auth.lower().startswith("bearer ") else auth.strip()
+
+    # Token can satisfy auth even if the IP is not explicitly allowlisted.
     if RECORDER_API_TOKEN:
-        auth = request.headers.get("authorization", "")
-        token = auth.split(" ", 1)[1].strip() if auth.lower().startswith("bearer ") else auth.strip()
         if not token:
             raise web.HTTPUnauthorized(text="Missing token")
         if token != RECORDER_API_TOKEN:
             raise web.HTTPForbidden(text="Forbidden (token)")
+    if ALLOWED_IPS and (ip is None or ip not in ALLOWED_IPS):
+        # If the caller presented a valid token, let it pass even if IP is outside the allowlist.
+        if RECORDER_API_TOKEN and token == RECORDER_API_TOKEN:
+            return
+        raise web.HTTPForbidden(text="Forbidden (IP)")
 
 
 async def handle_status(request: web.Request):
