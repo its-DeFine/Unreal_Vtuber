@@ -9,6 +9,23 @@ from typing import Any, Dict, List, Optional
 
 from aiohttp import ClientSession, web
 
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
+}
+
+
+@web.middleware
+async def cors_middleware(request: web.Request, handler):
+    if request.method == "OPTIONS":
+        resp = web.Response(status=204)
+    else:
+        resp = await handler(request)
+    for key, value in CORS_HEADERS.items():
+        resp.headers[key] = value
+    return resp
+
 RECORDER_CTRL_PORT = int(os.environ.get("RECORDER_CTRL_PORT", "8889"))
 SIGNALING_URL = os.environ.get("RECORDER_SIGNALING_URL", "ws://unreal-signaling:80")
 OUTPUT_DIR = Path(os.environ.get("RECORDER_OUTPUT_DIR", "/recordings")).resolve()
@@ -368,13 +385,16 @@ async def handle_get_run(request: web.Request):
         raise web.HTTPNotFound(text="run not found")
     return web.json_response(run)
 
+async def handle_options(_: web.Request):
+    return web.Response(headers=CORS_HEADERS)
+
 
 async def handle_root(request: web.Request):
     return web.json_response({"service": "gs-recorder-control", "active": STATE["proc"] is not None})
 
 
 def make_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[cors_middleware])
     app.router.add_get("/", handle_root)
     app.router.add_get("/recordings/status", handle_status)
     app.router.add_post("/recordings/start", handle_start)
@@ -385,6 +405,7 @@ def make_app() -> web.Application:
     app.router.add_get("/api/plans/{plan_id}", handle_get_plan)
     app.router.add_post("/api/runs", handle_run_plan)
     app.router.add_get("/api/runs/{run_id}", handle_get_run)
+    app.router.add_route("OPTIONS", "/{path_info:.*}", handle_options)
     return app
 
 
