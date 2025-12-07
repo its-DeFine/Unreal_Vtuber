@@ -87,7 +87,7 @@ services:
 
   # Embody Game - Headless Unreal Engine with Pixel Streaming
   unreal-game:
-    image: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest
+    image: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:2025-10-27-ue55
     container_name: vtuber-unreal-game
     restart: unless-stopped
     runtime: nvidia
