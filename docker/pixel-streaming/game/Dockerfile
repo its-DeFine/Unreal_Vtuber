@@ -1,34 +1,17 @@
-FROM nvidia/opengl:1.2-glvnd-runtime-ubuntu22.04
+FROM ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest
 
-ENV UE_APP_ROOT=/opt/embody
+USER root
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-      libx11-6 \
-      libxrandr2 \
-      libxinerama1 \
-      libxcursor1 \
-      libxi6 \
-      libsm6 \
-      libglu1-mesa \
-      libice6 \
-      libssl3 \
-      libuuid1 \
-      ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+# Reset the packaged payload and copy in the new build bytes.
+RUN rm -rf /opt/embody && mkdir -p /opt/embody
+COPY linux-pixel-streaming/ /opt/embody/
 
-WORKDIR ${UE_APP_ROOT}
+RUN chown -R embody:embody /opt/embody && \
+    chmod +x /opt/embody/Engine/Binaries/Linux/* || true && \
+    chmod +x /opt/embody/*.sh || true
 
-# The CI workflow copies the packaged build into build/LinuxNoEditor relative to
-# the repository root before invoking docker build.
-COPY linux-pixel-streaming/ ${UE_APP_ROOT}/
-
-RUN chmod +x ${UE_APP_ROOT}/Engine/Binaries/Linux/* || true && \
-    chmod +x ${UE_APP_ROOT}/*.sh || true
-
-ENV LD_LIBRARY_PATH=${UE_APP_ROOT}/Engine/Binaries/Linux:${UE_APP_ROOT}/Engine/Binaries/Linux/PixelStreaming:${LD_LIBRARY_PATH:-}
-ENV UE_PIXEL_STREAMING_ROOT=${UE_APP_ROOT}
+USER embody
+ENV UE_PIXEL_STREAMING_ROOT=/opt/embody
+WORKDIR /opt/embody
 
 EXPOSE 7777 9877
-
-ENTRYPOINT ["./LinuxServer.sh"]
