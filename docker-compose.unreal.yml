@@ -17,11 +17,12 @@ services:
         --log-file=stdout \
         --fingerprint \
         --lt-cred-mech \
+        --use-auth-secret \
         --no-cli \
         --no-tls \
         --no-dtls \
         --realm="$$TURN_REALM" \
-        --user="$$TURN_USER:$$TURN_PASS" \
+        --static-auth-secret="$$TURN_SECRET" \
         --listening-port="$$TURN_PORT" \
         --listening-ip=0.0.0.0 \
         --external-ip="$$TURN_EXTERNAL_IP" \
@@ -33,6 +34,25 @@ services:
       - "${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp"
     networks:
       - vtuber_network
+
+  # Host-level whitelist sidecar to gate Pixel Streaming ports
+  whitelist-agent:
+    build:
+      context: ./tools/whitelist-agent
+      dockerfile: Dockerfile
+    container_name: vtuber-whitelist-agent
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - CONTROL_PLANE_URL=${CONTROL_PLANE_URL:-}
+      - NODE_ID=${NODE_ID:-}
+      - API_TOKEN=${API_TOKEN:-}
+      - WHITELIST_STATIC_CIDRS=${WHITELIST_STATIC_CIDRS:-}
+      - WHITELIST_PORTS=${WHITELIST_PORTS:-80,8888,8889,9877}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-5}
+      - FAIL_OPEN=${FAIL_OPEN:-true}
 
   # Embody app (monolith: signaling + runner + recorder-control)
   embody-app:
