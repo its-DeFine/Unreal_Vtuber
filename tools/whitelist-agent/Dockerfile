@@ -7,4 +7,4 @@ RUN apt-get update && \
 WORKDIR /app
 COPY agent.py /app/agent.py
 
-ENTRYPOINT ["python", "/app/agent.py"]
+ENTRYPOINT ["python", "-u", "/app/agent.py"]
