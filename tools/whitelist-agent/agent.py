@@ -11,7 +11,7 @@ FAIL_OPEN = os.environ.get("FAIL_OPEN", "true").lower() == "true"
 
 
 def run_cmd(args: List[str]) -> Tuple[int, str, str]:
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen([str(a) for a in args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     out, err = proc.communicate()
     return proc.returncode, out.strip(), err.strip()
 
