@@ -63,21 +63,27 @@ def apply_rules(cidrs, ports):
             print("[whitelist-agent] fail-open enabled; not dropping traffic")
             return
     for start, end, proto in ports:
-        for net in cidrs:
+        target_protos = [proto] if proto else ["tcp"]
+        for p in target_protos:
+            for net in cidrs:
+                args = ["iptables", "-A", CHAIN_NAME]
+                if p:
+                    args += ["-p", p]
+                args += ["-s", str(net)]
+                args += ["--dport", f"{start}:{end}"] if start != end else ["--dport", start]
+                args += ["-j", "ACCEPT"]
+                code, out, err = run_cmd(args)
+                if code != 0:
+                    print(f"[whitelist-agent] iptables add ACCEPT failed ({args}): {err}", file=sys.stderr)
+            # default drop for this port/range/proto
             args = ["iptables", "-A", CHAIN_NAME]
-            if proto:
-                args += ["-p", proto]
-            args += ["-s", str(net)]
+            if p:
+                args += ["-p", p]
             args += ["--dport", f"{start}:{end}"] if start != end else ["--dport", start]
-            args += ["-j", "ACCEPT"]
-            run_cmd(args)
-        # default drop for this port/range
-        args = ["iptables", "-A", CHAIN_NAME]
-        if proto:
-            args += ["-p", proto]
-        args += ["--dport", f"{start}:{end}"] if start != end else ["--dport", start]
-        args += ["-j", "DROP"]
-        run_cmd(args)
+            args += ["-j", "DROP"]
+            code, out, err = run_cmd(args)
+            if code != 0:
+                print(f"[whitelist-agent] iptables add DROP failed ({args}): {err}", file=sys.stderr)
 
 
 def loop():
