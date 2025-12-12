@@ -102,6 +102,7 @@ If you need to restrict access by client CIDR on the host (in addition to any cl
    WHITELIST_PORTS=8080,8888,8889,7777,9877,3478,49160-49200/udp \
    docker compose -f docker-compose.unreal.yml up -d whitelist-agent
    ```
+   Optional remote control-plane: set `CONTROL_PLANE_URL=<https://...>` (returns JSON with `cidrs` and `ports` arrays), plus `API_TOKEN` (Bearer) and `NODE_ID` if your control plane requires them. The sidecar polls every `POLL_INTERVAL_SECONDS` (default 30s).
 3. Verify:
    ```bash
    sudo ufw status

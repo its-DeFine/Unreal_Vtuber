@@ -48,6 +48,9 @@ services:
       - WHITELIST_CIDRS=${WHITELIST_CIDRS:-}
       - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-30}
       - FAIL_OPEN=${FAIL_OPEN:-true}
+      - CONTROL_PLANE_URL=${CONTROL_PLANE_URL:-}
+      - API_TOKEN=${API_TOKEN:-}
+      - NODE_ID=${NODE_ID:-}
 
   # Signaling Server - WebRTC signaling and web interface
   unreal-signaling:
