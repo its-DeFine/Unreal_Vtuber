@@ -1,0 +1,177 @@
+networks:
+  vtuber_network_b:
+    driver: bridge
+    name: vtuber_network_b
+
+services:
+  # TURN server for stack B (separate ports to avoid collisions with stack A)
+  turn-server-b:
+    image: ghcr.io/its-define/unreal_vtuber/embody-turn-server:latest
+    container_name: vtuber-turn-server-b
+    restart: unless-stopped
+    env_file:
+      - .env.turn.b
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      turnserver \
+        --log-file=stdout \
+        --fingerprint \
+        --lt-cred-mech \
+        --no-cli \
+        --no-tls \
+        --no-dtls \
+        --realm="$$TURN_REALM" \
+        --user="$$TURN_USER:$$TURN_PASS" \
+        --listening-port="$$TURN_PORT" \
+        --listening-ip=0.0.0.0 \
+        --external-ip="$$TURN_EXTERNAL_IP" \
+        --min-port="$$TURN_MIN_PORT" \
+        --max-port="$$TURN_MAX_PORT"
+    ports:
+      - "3479:3479"
+      - "3479:3479/udp"
+      - "49201-49240:49201-49240/udp"
+    networks:
+      - vtuber_network_b
+
+  unreal-signaling-b:
+    image: ghcr.io/its-define/unreal_vtuber/embody-signaling:latest
+    container_name: vtuber-unreal-signaling-b
+    restart: unless-stopped
+    depends_on:
+      - turn-server-b
+    env_file:
+      - .env.turn.b
+    environment:
+      PUBLIC_IP: ${PUBLIC_IP_B:-auto}
+      HTTP_PORT: "8083"
+      STREAMER_PORT: "8888"
+      SFU_PORT: "8889"
+      STUN_SERVER: ${STUN_SERVER_B:-stun.l.google.com:19302}
+      ENABLE_REST_API: ${ENABLE_REST_API_B:-0}
+    ports:
+      - "8083:80"
+      - "8884:8888"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - vtuber_network_b
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  unreal-game-b:
+    image: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest
+    container_name: vtuber-unreal-game-b
+    restart: unless-stopped
+    runtime: nvidia
+    ulimits:
+      nofile:
+        soft: ${HOST_ULIMIT_NOFILE_B:-1040}
+        hard: ${HOST_ULIMIT_NOFILE_B:-1040}
+    ports:
+      - "7778:7777"
+      - "9878:9877"
+    depends_on:
+      unreal-signaling-b:
+        condition: service_healthy
+    environment:
+      - PIXEL_STREAMING_URL=ws://vtuber-unreal-signaling-b:8888
+      - HOST_ULIMIT_NOFILE=${HOST_ULIMIT_NOFILE_B:-1040}
+      - ULIMIT_NOFILE=${HOST_ULIMIT_NOFILE_B:-1040}
+      - HOST_LIB_PATHS=/host-libs/usr/lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:/host-libs/lib64:/host-libs/usr/lib64:/host-libs/usr/lib/nvidia
+      - EMBODY_EXTRA_ARGS=-ForceRes -ResX=1920 -ResY=1080 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9
+      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES_B:-all}
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES_B:-all}
+    volumes:
+      - /usr/lib/x86_64-linux-gnu:/host-libs/usr/lib/x86_64-linux-gnu:ro
+      - /lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:ro
+      - /lib64:/host-libs/lib64:ro
+      - /usr/lib64:/host-libs/usr/lib64:ro
+      - /usr/lib/nvidia:/host-libs/usr/lib/nvidia:ro
+      - /usr/share/vulkan:/host-libs/usr/share/vulkan:ro
+      - /etc/vulkan:/host-libs/etc/vulkan:ro
+      - /usr/share/glvnd:/host-libs/usr/share/glvnd:ro
+      - ./pixel-streaming/config/ConsoleVariables.ini:/opt/embody/Embody/Saved/Config/LinuxNoEditor/ConsoleVariables.ini:ro
+      - ./pixel-streaming/config/GameUserSettings.ini:/opt/embody/Embody/Saved/Config/LinuxNoEditor/GameUserSettings.ini:ro
+      - ${VTUBER_SESSION_DIR_B:-/home/ubuntu/vtuber_sessions_b}:/opt/embody/sessions
+    networks:
+      - vtuber_network_b
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  vtuber-script-runner-b:
+    build:
+      context: ./unreal-script-runner
+    container_name: vtuber-script-runner-b
+    network_mode: "service:unreal-game-b"
+    environment:
+      - VTUBER_SESSION_ROOT=/opt/embody/sessions
+      - VTUBER_TCP_HOST=127.0.0.1
+      - VTUBER_TCP_PORT=7777
+      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES_B:-127.0.0.1,::1,172.18.0.1,172.20.0.1}
+    volumes:
+      - ${VTUBER_SESSION_DIR_B:-/home/ubuntu/vtuber_sessions_b}:/opt/embody/sessions
+    restart: unless-stopped
+    depends_on:
+      - unreal-game-b
+
+  recorder-control-b:
+    build:
+      context: ./tools/recorder
+      dockerfile: Dockerfile
+    container_name: vtuber-recorder-control-b
+    depends_on:
+      - unreal-signaling-b
+    env_file:
+      - .env.turn.b
+    environment:
+      - RECORDER_CTRL_PORT=8889
+      - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL_B:-ws://vtuber-unreal-signaling-b:80}
+      - RECORDER_OUTPUT_DIR=/recordings
+      - PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
+      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES_B:-127.0.0.1,::1,172.18.0.1,172.20.0.1}
+      - RECORDER_TURN_URL=${RECORDER_TURN_URL_B:-turn://${TURN_USER:-uvtb}:${TURN_PASS:-uvtb-pass}@vtuber-turn-server-b:${TURN_PORT:-3479}}
+    volumes:
+      - /recordings:/recordings
+    command: ["python3", "/opt/embody/recorder/control_server.py"]
+    restart: unless-stopped
+    networks:
+      - vtuber_network_b
+    ports:
+      - "8885:8889"
+
+  orchestrator-health-b:
+    build:
+      context: ./orchestrator-health
+      dockerfile: Dockerfile
+    command: ["python", "-m", "orchestrator_health.remote_health_service"]
+    container_name: vtuber-orchestrator-health-b
+    environment:
+      - MONITORED_SERVICES=${MONITORED_SERVICES_B:-vtuber-unreal-game-b,vtuber-unreal-signaling-b,vtuber-turn-server-b}
+      - ORCHESTRATOR_HEALTH_PORT=9090
+      - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS_B:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state
+    ports:
+      - "9095:9090"
+    restart: unless-stopped
+    networks:
+      - vtuber_network_b

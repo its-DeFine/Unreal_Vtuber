@@ -43,6 +43,7 @@ coverage.xml
 .env
 .env.*
 !.env.turn
+!.env.turn.b.example
 .venv
 env/
 venv/

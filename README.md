@@ -10,6 +10,7 @@ separate repository.
 ## Contents
 
 - `docker-compose.unreal.yml` – TURN, signaling, packaged Unreal container, script runner, orchestrator registration helper, and local health monitor.
+- `docker-compose.unreal.b.yml` – optional second stack (ports/GPU offsets) to run two Pixel Streaming stacks on one host.
 - `orchestrator-health/` – lightweight FastAPI service that exposes container health at `http://<host>:9090/health`.
 - `pixel-streaming/` – Pixel Streaming configuration overrides shipped with the Unreal build.
 - `tools/recorder/` – recorder-control sidecar (see `docs/recorder-control.md`).
@@ -78,6 +79,31 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    - Runner health: `curl http://<PUBLIC_IP>:9877/health`
    - Orchestrator monitor: `curl http://<PUBLIC_IP>:9090/health`
    - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
+
+### Running a second stack (stack B) on the same host
+
+Use this when you need two independent Pixel Streaming stacks on one GPU host (different ports, separate runner/recorder).
+
+1. Prepare TURN env for stack B (ports already offset from stack A):
+   ```bash
+   cp .env.turn .env.turn.b
+   # then edit .env.turn.b: TURN_EXTERNAL_IP, TURN_USER/PASS, TURN_PORT (3479), TURN_MIN/MAX (49201-49240)
+   ```
+2. Create the B network (harmless if it already exists):
+   ```bash
+   docker network create vtuber_network_b 2>/dev/null || true
+   ```
+3. Launch stack B:
+   ```bash
+   docker compose -f docker-compose.unreal.b.yml up -d
+   ```
+4. Ports / SG to open for stack B:
+   - HTTP 8083 (web UI), Streamer WS 8884, Recorder/API 8885
+   - Game TCP 7778/9878
+   - TURN 3479 UDP/TCP + relays 49201–49240/udp
+5. GPU placement: set `NVIDIA_VISIBLE_DEVICES_B` (and/or `NVIDIA_DRIVER_CAPABILITIES_B`) before `docker compose … up` if you want stack B on a specific GPU (defaults to `all`).
+6. Runner/recorder access control: `VTUBER_ALLOWED_ADDRESSES_B` defaults to local/bridge addresses only. Add your workstation IP if you need to POST to runner (9878) or recorder (8885) remotely.
+7. Defaults: sessions for stack B go to `/home/ubuntu/vtuber_sessions_b`; recordings still land in `/recordings`.
 
 ### Automatic script-runner recovery
 
