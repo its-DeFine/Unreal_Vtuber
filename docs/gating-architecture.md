@@ -37,6 +37,7 @@ Goal: gate user access to orchestrators without per-user IP whitelisting on the 
   ```
 - Sidecar applies ACCEPT for those CIDRs/ports and DROP otherwise (fail-open optional).
 - If no control plane URL is set, it uses static `WHITELIST_CIDRS`/`WHITELIST_PORTS` from env.
+- This removes manual whitelisting on orchestrators: add/remove edge IPs in the control plane, sidecars pick it up on the next poll.
 
 ## Token validation (app layer)
 - Token includes orchestrator id, expiry, and allowed services.
