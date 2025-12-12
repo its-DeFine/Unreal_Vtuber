@@ -23,6 +23,12 @@ Goal: gate user access to orchestrators without per-user IP whitelisting on the 
 - You can spin edge instances up/down behind stable IPs (Elastic IPs/static addresses) without updating orchestrator rules.
 - Geo routing handled at the edge; orchestrators stay locked down to a small set of ingress IPs.
 
+### Edge IP strategy (practical)
+- Keep a small, fixed pool of edge IPs per region (e.g., a couple of EIPs per region). Pre-whitelist these in sidecars (and any upstream firewall).
+- “Autoscale behind static IPs” = run a load balancer/NLB or an instance group that always presents the same public IP(s); you can add/remove edge instances without changing the IPs the orchestrators see.
+- You cannot “teleport” one IP between regions for latency; use separate IPs per region and have the control plane route users to the nearest region’s edge IP.
+- If you spin up edges with new IPs on demand, you must automate allowlist updates (sidecars + any upstream firewall) for all orchestrators before handing out the new endpoint—doable but more brittle than using a stable pool.
+
 ## Control plane contract (sidecar)
 - Sidecar polls `CONTROL_PLANE_URL` with optional `?node_id=<NODE_ID>` and `Authorization: Bearer <API_TOKEN>`.
 - Response JSON:
