@@ -15,6 +15,7 @@ separate repository.
 - `tools/recorder/` – recorder-control sidecar (see `docs/recorder-control.md`).
 - `scripts/` – utilities for onboarding and orchestration (`start_vtuber_unreal.sh`, `register_orchestrator.py`, etc.).
 - `docs/` – deployment, integration, and operations guides (each doc now calls out where to pull the payments backend).
+- `tools/whitelist-agent/` – optional host-level firewall sidecar (iptables) to whitelist client CIDRs to the Pixel Streaming ports.
 
 ## New deployment
 
@@ -78,6 +79,37 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    - Runner health: `curl http://<PUBLIC_IP>:9877/health`
    - Orchestrator monitor: `curl http://<PUBLIC_IP>:9090/health`
    - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
+
+### Optional: host firewall whitelisting (iptables/UFW)
+
+If you need to restrict access by client CIDR on the host (in addition to any cloud firewall):
+
+1. Ensure the host firewall (e.g., UFW) allows the Pixel Streaming ports you want to gate (default stack: 8080, 8888, 8889, 7777, 9877, TURN 3478 + 49160-49200/udp). Example:
+   ```bash
+   sudo ufw allow 22/tcp
+   sudo ufw allow 8080/tcp
+   sudo ufw allow 8888/tcp
+   sudo ufw allow 8889/tcp
+   sudo ufw allow 7777/tcp
+   sudo ufw allow 9877/tcp
+   sudo ufw allow 3478
+   sudo ufw allow 49160:49200/udp
+   sudo ufw reload
+   ```
+2. Set the allowlist CIDRs and ports (comma-separated) and start the sidecar:
+   ```bash
+   WHITELIST_CIDRS=203.0.113.10/32,198.51.100.0/24 \
+   WHITELIST_PORTS=8080,8888,8889,7777,9877,3478,49160-49200/udp \
+   docker compose -f docker-compose.unreal.yml up -d whitelist-agent
+   ```
+3. Verify:
+   ```bash
+   sudo ufw status
+   sudo iptables -L WHITELIST_AGENT -n
+   ```
+Notes:
+- The sidecar enforces only on ports already allowed by UFW; it cannot open closed ports.
+- `FAIL_OPEN=true` (default) leaves traffic untouched if no CIDRs are provided. Set `FAIL_OPEN=false` to drop when no allowlist is present.
 
 ### Automatic script-runner recovery
 

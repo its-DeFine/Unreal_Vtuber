@@ -34,6 +34,21 @@ services:
     networks:
       - vtuber_network
 
+  whitelist-agent:
+    build:
+      context: ./tools/whitelist-agent
+      dockerfile: Dockerfile
+    container_name: vtuber-whitelist-agent
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - WHITELIST_PORTS=${WHITELIST_PORTS:-8080,8888,8889,7777,9877,3478,49160-49200/udp}
+      - WHITELIST_CIDRS=${WHITELIST_CIDRS:-}
+      - POLL_INTERVAL_SECONDS=${POLL_INTERVAL_SECONDS:-30}
+      - FAIL_OPEN=${FAIL_OPEN:-true}
+
   # Signaling Server - WebRTC signaling and web interface
   unreal-signaling:
     image: ghcr.io/its-define/unreal_vtuber/embody-signaling:latest
