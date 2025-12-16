@@ -27,7 +27,7 @@ The helper script will:
 
 After the services come up in detached mode you should see:
 
-* Pixel Streaming UI – `http://localhost:8080`
+* Signaling health – `curl http://localhost:8080/healthz`
 * Unreal TCP loopback interface – reachable **inside** `vtuber-unreal-game` on `127.0.0.1:7777`
 * Orchestrator health endpoint – `http://localhost:9090/health` (surface status for the payments backend)
 
@@ -48,7 +48,7 @@ A carriage-return/line-feed terminator (`\r\n`) is required. Replace the path wi
 
 ## Updating audio assets
 
-1. Copy the new file onto the EC2 host: `scp local.mp3 ubuntu@<host>:/home/ubuntu/`.
+1. Copy the new file onto the EC2 host: `rsync -azP local.mp3 ubuntu@<host>:/home/ubuntu/`.
 2. Inject it into the container: `sudo docker cp local.mp3 vtuber-unreal-game:/opt/embody/`.
 3. Trigger playback with `TTS_BYOB_/opt/embody/local.mp3\r\n`.
 

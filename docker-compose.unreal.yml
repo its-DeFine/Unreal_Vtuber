@@ -34,7 +34,7 @@ services:
     networks:
       - vtuber_network
 
-  # Signaling Server - WebRTC signaling and web interface
+  # Signaling Server - WebRTC signaling (UI served from the edge/gateway)
   unreal-signaling:
     image: ghcr.io/its-define/unreal_vtuber/embody-signaling:latest
     container_name: vtuber-unreal-signaling
