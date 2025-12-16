@@ -31,7 +31,8 @@ All services share the external Docker network `vtuber_network`, so the streamer
 1. **Game Image (`embody-ue-ps:latest`)**
    - Dockerfile: `docker/pixel-streaming/game/Dockerfile`.
    - The CI workflow copies the packaged Pixel Streaming build into `linux-pixel-streaming/` before running `docker build`.
-   - The container entrypoint (`LinuxServer.sh`) launches the headless Unreal server and listens for TCP commands on port `9877`.
+   - The container entrypoint (`/usr/local/bin/start-embody.sh`) launches Xvfb (optional), applies `ulimit`, then runs `./Embody.sh` with `-RenderOffScreen` and `-PixelStreamingURL=...`.
+   - Note: use `COPY --chown=...` and avoid `chown -R` or broad `chmod` steps over the whole build tree; those create large duplicate layers and bloat the image.
 
 2. **Signaling Image (`embody-signaling:latest`)**
    - Dockerfile: `docker/embody-app/Dockerfile`.
