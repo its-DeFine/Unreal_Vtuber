@@ -1,0 +1,56 @@
+name: Build Service Images
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-service-images.yml"
+      - ".github/workflows/publish-service-images.yml"
+      - "docker/watchdog/**"
+      - "orchestrator-health/**"
+      - "scripts/Dockerfile.orchestrator-registration"
+      - "scripts/register_orchestrator.py"
+      - "tools/recorder/**"
+      - "unreal-script-runner/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: vtuber-script-runner
+            context: ./unreal-script-runner
+            file: ./unreal-script-runner/Dockerfile
+          - name: recorder-control
+            context: ./tools/recorder
+            file: ./tools/recorder/Dockerfile
+          - name: orchestrator-health
+            context: ./orchestrator-health
+            file: ./orchestrator-health/Dockerfile
+          - name: vtuber-watchdog
+            context: ./docker/watchdog
+            file: ./docker/watchdog/Dockerfile
+          - name: orchestrator-registration
+            context: ./scripts
+            file: ./scripts/Dockerfile.orchestrator-registration
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

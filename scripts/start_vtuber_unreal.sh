@@ -94,10 +94,16 @@ case "$COMMAND" in
         check_health
         ;;
 
+    pull)
+        echo -e "${YELLOW}Pulling Docker images...${NC}"
+        docker compose -f docker-compose.unreal.yml pull
+        echo -e "${GREEN}Pull complete!${NC}"
+        ;;
+
     build)
-        echo -e "${YELLOW}Building Docker images...${NC}"
-        docker compose -f docker-compose.unreal.yml build
-        echo -e "${GREEN}Build complete!${NC}"
+        echo -e "${YELLOW}No local builds are required; pulling images instead...${NC}"
+        docker compose -f docker-compose.unreal.yml pull
+        echo -e "${GREEN}Pull complete!${NC}"
         ;;
 
     test)
@@ -116,7 +122,8 @@ case "$COMMAND" in
         echo "  restart       Restart all services"
         echo "  logs [name]   Show logs (optionally for specific service)"
         echo "  ps, status    Show service status"
-        echo "  build         Build Docker images"
+        echo "  pull          Pull Docker images"
+        echo "  build         (alias for pull)"
         echo "  test          Send sample BYOB TTS command"
         echo "  help          Show this help message"
         echo ""

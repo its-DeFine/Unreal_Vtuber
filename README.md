@@ -68,6 +68,10 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    ```
 6. Register with the payments backend (retries until it succeeds):
    ```bash
+   docker compose -f docker-compose.unreal.yml run --rm orchestrator-registration
+   ```
+   Or, if you prefer to run it on the host:
+   ```bash
    PAYMENTS_API_URL=http://<payments-ip>:8081 \
    ORCHESTRATOR_ID=<your-id> \
    ORCHESTRATOR_ADDRESS=<your-wallet> \
@@ -83,6 +87,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
 
 - `ghcr.io/its-define/unreal_vtuber/embody-signaling:latest` is an “app bundle” image (it runs the SignallingWebServer plus a runner and recorder-control process under `supervisord`).
 - The default `docker-compose.unreal.yml` still runs `vtuber-script-runner` + `recorder-control` as separate containers because the Unreal command port binds to `127.0.0.1` inside `vtuber-unreal-game` and recordings need a mounted `/recordings` volume.
+- Service images (`vtuber-script-runner`, `recorder-control`, `orchestrator-health`, `vtuber-watchdog`, `orchestrator-registration`) are published under GHCR with `:latest` and `:sha-<gitsha>` tags; set `EMBODY_SERVICE_IMAGE_TAG=sha-…` in `.env` to pin them.
 
 ### Automatic script-runner recovery
 
@@ -123,7 +128,8 @@ Notes:
 ### Automatic image updates
 
 `vtuber-auto-updater` (backed by [containrrr/watchtower](https://containrrr.dev/watchtower/))
-watches `vtuber-unreal-game`, `vtuber-unreal-signaling`, and `vtuber-turn-server`. Every
+watches `vtuber-unreal-game`, `vtuber-unreal-signaling`, `vtuber-turn-server`, plus the
+service containers (runner/recorder/health/watchdog). Every
 `WATCHTOWER_INTERVAL` seconds (defaults to 900/15 minutes) it pulls the latest `:latest`
 tags and issues `docker compose … up -d --force-recreate` so the refreshed containers come
 up with the new images. Customize the cadence by exporting `WATCHTOWER_INTERVAL=<seconds>`
@@ -160,20 +166,11 @@ Repo and container images are public now—no GitHub auth or PAT needed to updat
    docker compose -f docker-compose.unreal.yml down
    docker compose -f docker-compose.unreal.yml up -d
    ```
-5. **Rebuild the runner**
-   ```bash
-   docker compose -f docker-compose.unreal.yml up -d --force-recreate vtuber-script-runner
-   ```
-6. **(One-time) ensure helper services exist**
+5. **(One-time) ensure helper services exist**
    ```bash
    docker compose -f docker-compose.unreal.yml up -d vtuber-watchdog vtuber-auto-updater
    ```
-7. **If orchestrator-health is missing modules after upgrade**  
-   ```bash
-   docker compose -f docker-compose.unreal.yml build --no-cache orchestrator-health
-   docker compose -f docker-compose.unreal.yml up -d orchestrator-health
-   ```
-8. **Validate traffic + health**
+6. **Validate traffic + health**
     - Pixel UI: `http://<PUBLIC_IP>:8080`
     - Runner: `curl http://<PUBLIC_IP>:9877/health`
 
