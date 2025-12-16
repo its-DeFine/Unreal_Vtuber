@@ -84,12 +84,11 @@ backend so this host shows up in `/api/orchestrators`.
 
 ## 4. Verify connectivity
 
-- **Pixel Streaming UI**: on the orchestrator, open `http://127.0.0.1:8080` (or
-  forward the port over SSH) and confirm the page loads.
+- **Signaling health**: `curl http://127.0.0.1:8080/healthz` should return `ok`.
 - **Runner API**: `curl http://127.0.0.1:9877/health` should return
   `{"status":"ok"}`.
-- **Recorder manager**: `curl http://127.0.0.1:9001/health` confirms the auto
-  recorder endpoint is reachable.
+- **Recorder control**: `curl http://127.0.0.1:8889/` should return
+  `{"service":"gs-recorder-control","active":false}` when idle.
 - **Payments backend**: `curl http://<PAYMENTS_IP>:8081/api/orchestrators`
   should list your `ORCHESTRATOR_ID` with `eligible_for_payments=true` once the
   health service reports healthy.

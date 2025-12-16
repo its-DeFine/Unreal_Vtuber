@@ -74,7 +74,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    python3 scripts/register_orchestrator.py
    ```
 7. Verify:
-   - Pixel Streaming UI: `http://<PUBLIC_IP>:8080`
+   - Signaling health: `curl http://<PUBLIC_IP>:8080/healthz`
    - Runner health: `curl http://<PUBLIC_IP>:9877/health`
    - Orchestrator monitor: `curl http://<PUBLIC_IP>:9090/health`
    - Registration: `curl http://<payments-ip>:8081/api/orchestrators`
