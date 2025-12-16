@@ -9,6 +9,6 @@ RUN apk add --no-cache ca-certificates curl docker-cli tzdata \
  && chmod +x /usr/libexec/docker/cli-plugins/docker-compose
 
 WORKDIR /workspace
-COPY scripts/vtuber_watchdog.sh /usr/local/bin/vtuber_watchdog.sh
+COPY vtuber_watchdog.sh /usr/local/bin/vtuber_watchdog.sh
 
 ENTRYPOINT ["vtuber_watchdog.sh"]

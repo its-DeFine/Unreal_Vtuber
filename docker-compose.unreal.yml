@@ -119,8 +119,8 @@ services:
               capabilities: [gpu]
 
   vtuber-script-runner:
-    build:
-      context: ./unreal-script-runner
+    image: ghcr.io/its-define/unreal_vtuber/vtuber-script-runner:${EMBODY_SERVICE_IMAGE_TAG:-latest}
+    container_name: vtuber-script-runner
     network_mode: "service:unreal-game"
     environment:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
@@ -134,9 +134,7 @@ services:
       - unreal-game
 
   vtuber-watchdog:
-    build:
-      context: .
-      dockerfile: docker/watchdog/Dockerfile
+    image: ghcr.io/its-define/unreal_vtuber/vtuber-watchdog:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-watchdog
     restart: unless-stopped
     depends_on:
@@ -148,11 +146,13 @@ services:
       - WATCHDOG_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-unreal_vtuber}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - .:/workspace:ro
+      - ./docker-compose.unreal.yml:/workspace/docker-compose.unreal.yml:ro
+      - ./.env:/workspace/.env:ro
+      - ./.env.turn:/workspace/.env.turn:ro
       - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state:ro
 
   orchestrator-registration:
-    image: python:3.11-slim
+    image: ghcr.io/its-define/unreal_vtuber/orchestrator-registration:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-orchestrator-registration
     depends_on:
       - unreal-game
@@ -162,21 +162,17 @@ services:
       # Point to the standalone payments backend maintained outside this repo
       - PAYMENTS_API_URL=${PAYMENTS_API_URL:-http://payments-backend:8081}
       - ORCHESTRATOR_REGISTRATION_DELAY=${ORCHESTRATOR_REGISTRATION_DELAY:-10}
-    volumes:
-      - .:/workspace:ro
-    working_dir: /workspace
     entrypoint:
-      - bash
+      - /bin/sh
       - -lc
-      - "sleep ${ORCHESTRATOR_REGISTRATION_DELAY:-10} && python3 scripts/register_orchestrator.py"
+      - "sleep ${ORCHESTRATOR_REGISTRATION_DELAY:-10} && python3 /app/register_orchestrator.py"
     restart: "no"
     networks:
       - vtuber_network
 
   orchestrator-health:
-    build:
-      context: ./orchestrator-health
-      dockerfile: Dockerfile
+    image: ghcr.io/its-define/unreal_vtuber/orchestrator-health:${EMBODY_SERVICE_IMAGE_TAG:-latest}
+    container_name: vtuber-orchestrator-health
     command: ["python", "-m", "orchestrator_health.remote_health_service"]
     environment:
       - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server}
@@ -212,12 +208,14 @@ services:
         "vtuber-turn-server",
         "vtuber-unreal-signaling",
         "vtuber-unreal-game",
+        "vtuber-script-runner",
+        "vtuber-recorder-control",
+        "vtuber-orchestrator-health",
+        "vtuber-watchdog",
       ]
 
   recorder-control:
-    build:
-      context: ./tools/recorder
-      dockerfile: Dockerfile
+    image: ghcr.io/its-define/unreal_vtuber/recorder-control:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-recorder-control
     depends_on:
       - unreal-signaling

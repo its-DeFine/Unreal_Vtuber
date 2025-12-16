@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir requests
+
+WORKDIR /app
+COPY register_orchestrator.py /app/register_orchestrator.py
+
+ENTRYPOINT ["python3", "/app/register_orchestrator.py"]
