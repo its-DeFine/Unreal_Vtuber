@@ -14,6 +14,7 @@ RUN apt-get update && \
       libxi6 \
       libsm6 \
       libglu1-mesa \
+      libvulkan1 \
       libpulse0 \
       libdbus-1-3 \
       libfontconfig1 \
