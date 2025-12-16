@@ -147,6 +147,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./docker-compose.unreal.yml:/workspace/docker-compose.unreal.yml:ro
+      - ./.env:/workspace/.env:ro
+      - ./.env.turn:/workspace/.env.turn:ro
       - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state:ro
 
   orchestrator-registration:
