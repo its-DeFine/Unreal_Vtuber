@@ -4,6 +4,13 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env.turn"
 
+# Preserve signaling args if the env file already exists (the TURN script should not wipe matchmaker config).
+EXISTING_SIGNALING_EXTRA_ARGS=""
+if [[ -f "${ENV_FILE}" ]]; then
+  EXISTING_SIGNALING_EXTRA_ARGS="$(grep -E '^SIGNALING_EXTRA_ARGS=' "${ENV_FILE}" | head -n 1 | sed 's/^SIGNALING_EXTRA_ARGS=//')"
+fi
+SIGNALING_EXTRA_ARGS="${SIGNALING_EXTRA_ARGS:-${EXISTING_SIGNALING_EXTRA_ARGS}}"
+
 # Allow overriding the realm, otherwise default
 TURN_REALM=${TURN_REALM:-pixel-streaming}
 MIN_PORT=${TURN_MIN_PORT:-49160}
@@ -46,7 +53,7 @@ TURN_MIN_PORT=${MIN_PORT}
 TURN_MAX_PORT=${MAX_PORT}
 TURN_PORT=${PORT}
 TURN_SERVER=${TURN_EXTERNAL_IP:-${PUBLIC_IP}}:${PORT}
-TURN_PORT=${PORT}
+SIGNALING_EXTRA_ARGS=${SIGNALING_EXTRA_ARGS}
 EOF_ENV
 
 chmod 600 "${ENV_FILE}"

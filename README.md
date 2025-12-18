@@ -89,14 +89,24 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    ```bash
    ./scripts/generate_turn_credentials.sh
    ```
-3. Copy and edit the orchestrator env:
+3. Configure matchmaker registration (required if using the edge/gateway `ps-gateway`):
+
+   Edit `.env.turn` and set `SIGNALING_EXTRA_ARGS`:
+   ```bash
+   SIGNALING_EXTRA_ARGS=--use_matchmaker --matchmaker_address ps-ca.embody.zone --matchmaker_port 8889 --public_ip <YOUR_PUBLIC_IP> --public_port 8080
+   ```
+
+   Notes:
+   - `./scripts/generate_turn_credentials.sh` preserves an existing `SIGNALING_EXTRA_ARGS=` line in `.env.turn`.
+   - Use the matchmaker host/port for your target edge (e.g. `3.128.159.66:8889`).
+4. Copy and edit the orchestrator env:
    ```bash
    cp orchestrator.env.example .env
    # edit .env with PAYMENTS_API_URL (point at the standalone backend),
    # ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP, and ORCHESTRATOR_HEALTH_URL
    # include VTUBER_ALLOWED_ADDRESSES=3.150.172.153 so the script runner accepts commands from the forwarder
    ```
-4. Open the firewall so the forwarder (3.150.172.153) and payments backend (3.141.111.200) can reach this host.
+5. Open the firewall so the forwarder (3.150.172.153) and payments backend (3.141.111.200) can reach this host.
 
 | Traffic source                     | Ports (TCP)                       | Ports (UDP)               |
 | --------------------------------- | ---------------------------------- | ------------------------- |
