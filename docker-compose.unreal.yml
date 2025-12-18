@@ -207,7 +207,6 @@ services:
         "--rolling-restart",
         "vtuber-turn-server",
         "vtuber-unreal-signaling",
-        "vtuber-unreal-game",
         "vtuber-script-runner",
         "vtuber-recorder-control",
         "vtuber-orchestrator-health",
