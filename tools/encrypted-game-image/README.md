@@ -34,6 +34,10 @@ Create an encrypted artifact from a locally-available Docker image:
   --out /tmp/embody-ue-ps.tar.zst.age
 ```
 
+Notes:
+- `--image` must exist **locally** on the producer machine. The tag does not need to exist in a registry.
+- Orchestrators will run whatever image name/tag is embedded in the tar stream; the default compose expects `ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest`.
+
 Upload with whatever mechanism you prefer (S3, GCS, etc.).
 
 ## Consumer (Orchestrator)
