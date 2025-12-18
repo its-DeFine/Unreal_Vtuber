@@ -22,7 +22,7 @@ separate repository.
 You can run the stack in two ways:
 
 - **Direct image pull** (requires registry access to the game image), or
-- **Encrypted game image distribution** (recommended): game image is loaded from an encrypted artifact (ex: S3) via a Payments-issued lease, so orchestrators do **not** need GHCR credentials.
+- **Encrypted game image distribution** (recommended): the **game** image is loaded from an encrypted artifact (ex: S3) via a Payments-issued lease, so orchestrators do **not** need registry credentials for the game payload.
 
 1. Clone the repo and enter it:
    ```bash
@@ -47,7 +47,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
 
 | Traffic source                     | Ports (TCP)                       | Ports (UDP)               |
 | --------------------------------- | ---------------------------------- | ------------------------- |
-| Forwarder / client (3.150.172.153) | 8080, 8888, 8889, 9876, 9877 | 3478, 49160‑49200 |
+| Forwarder / client (3.150.172.153) | 8080, 8888, 8889, 9877 | 3478, 49160‑49200 |
 | Payments backend (3.141.111.200) | 9090                          | –                |
 
    **Example (UFW)**
@@ -55,7 +55,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    CLIENT_IP=3.150.172.153          # Forwarder public IP
    PAYMENTS_IP=3.141.111.200        # Payments backend public IP
 
-   for PORT in 8080 8888 8889 9876 9877; do
+   for PORT in 8080 8888 8889 9877; do
      sudo ufw allow from $CLIENT_IP to any port $PORT proto tcp
    done
    sudo ufw allow from $CLIENT_IP to any port 3478 proto udp
@@ -70,6 +70,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    **Option A: encrypted game image distribution (recommended)**
 
    You need (a) an orchestrator license token file and (b) an encrypted artifact URL (public/presigned).
+   The host also needs `age`, `zstd`, `jq`, and `curl` installed (the script will error if missing).
 
    ```bash
    docker network create vtuber_network 2>/dev/null || true
