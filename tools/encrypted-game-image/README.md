@@ -48,6 +48,20 @@ Download + decrypt + `docker load` using a Payments-issued lease:
   --artifact-url "https://<public-or-presigned-url>"
 ```
 
+### Orchestrator rollout helper
+
+If you want an end-to-end “reload the game image and restart the stack” helper, use:
+
+```bash
+./tools/encrypted-game-image/rollout.sh \
+  --payments-api-url http://3.141.111.200:8081 \
+  --orch-token-file /path/to/orchestrator-license-token.txt \
+  --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1 \
+  --artifact-url "https://<public-or-presigned-url>"
+```
+
+This runs: `docker compose down` → `docker image rm` (game tag) → `consume.sh` → `docker compose up -d`.
+
 ## Notes
 
 - These scripts intentionally avoid printing secrets, but you should still treat shell history and process lists with care.

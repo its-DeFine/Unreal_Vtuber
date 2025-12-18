@@ -12,13 +12,17 @@ separate repository.
 - `docker-compose.unreal.yml` – TURN, signaling, packaged Unreal container, script runner, orchestrator registration helper, and local health monitor.
 - `orchestrator-health/` – lightweight FastAPI service that exposes container health at `http://<host>:9090/health`.
 - `pixel-streaming/` – Pixel Streaming configuration overrides shipped with the Unreal build.
+- `tools/encrypted-game-image/` – helper scripts to distribute the proprietary game image as an encrypted artifact (no GHCR creds needed on the orchestrator).
 - `tools/recorder/` – recorder-control sidecar (see `docs/recorder-control.md`).
 - `scripts/` – utilities for onboarding and orchestration (`start_vtuber_unreal.sh`, `register_orchestrator.py`, etc.).
 - `docs/` – deployment, integration, and operations guides (each doc now calls out where to pull the payments backend).
 
 ## New deployment
 
-Repo and images are now public—no GitHub CLI or PAT setup needed.
+You can run the stack in two ways:
+
+- **Direct image pull** (requires registry access to the game image), or
+- **Encrypted game image distribution** (recommended): game image is loaded from an encrypted artifact (ex: S3) via a Payments-issued lease, so orchestrators do **not** need GHCR credentials.
 
 1. Clone the repo and enter it:
    ```bash
@@ -61,7 +65,24 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
 
    sudo ufw reload
    ```
-5. Launch the Pixel Streaming stack (includes the health monitor service). Double-check `.env` still contains `VTUBER_ALLOWED_ADDRESSES=3.150.172.153` before running compose:
+5. Launch the Pixel Streaming stack (includes the health monitor service).
+
+   **Option A: encrypted game image distribution (recommended)**
+
+   You need (a) an orchestrator license token file and (b) an encrypted artifact URL (public/presigned).
+
+   ```bash
+   docker network create vtuber_network 2>/dev/null || true
+   ./tools/encrypted-game-image/rollout.sh \
+     --payments-api-url http://<payments-ip>:8081 \
+     --orch-token-file /path/to/orchestrator-license-token.txt \
+     --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1 \
+     --artifact-url "https://<public-or-presigned-url>"
+   ```
+
+   **Option B: direct image pull**
+
+   Double-check `.env` still contains `VTUBER_ALLOWED_ADDRESSES=3.150.172.153` before running compose:
    ```bash
    docker network create vtuber_network 2>/dev/null || true
    docker compose -f docker-compose.unreal.yml up -d
@@ -135,6 +156,10 @@ tags and issues `docker compose … up -d --force-recreate` so the refreshed con
 up with the new images. Customize the cadence by exporting `WATCHTOWER_INTERVAL=<seconds>`
 before running `docker compose up -d`. If you need to pause auto-updates entirely, stop
 `vtuber-auto-updater` with `docker compose -f docker-compose.unreal.yml stop vtuber-auto-updater`.
+
+**If you use encrypted game image distribution:** watchtower should not manage `vtuber-unreal-game`,
+otherwise it will try to pull the game image from the registry. Either stop the auto-updater, or
+remove `vtuber-unreal-game` from the watchtower container list in `docker-compose.unreal.yml`.
 
 ## Documentation
 
