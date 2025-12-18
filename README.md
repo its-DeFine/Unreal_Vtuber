@@ -24,6 +24,59 @@ This repo assumes **encrypted game image distribution** (required):
 - Orchestrators do **not** pull the game image from GHCR.
 - The non-game service images (signaling/runner/recorder/etc.) can remain on GHCR and should be public.
 
+### Admin setup (one-time)
+
+Before an orchestrator can deploy, an admin/operator must:
+
+1. Generate an `age` keypair (store the private identity securely; never commit it):
+   ```bash
+   age-keygen -o embody-ue-ps-enc-v1.agekey
+   age-keygen -y embody-ue-ps-enc-v1.agekey    # prints the public recipient (age1...)
+   ```
+2. Register the decryption secret in Payments and grant orchestrator access:
+   ```bash
+   PAYMENTS_API_URL="http://<payments-ip>:8081"
+   PAYMENTS_ADMIN_TOKEN="..." # X-Admin-Token
+   IMAGE_REF="ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1"
+
+   SECRET_B64="$(python3 - <<'PY'
+import base64, pathlib
+print(base64.b64encode(pathlib.Path("embody-ue-ps-enc-v1.agekey").read_bytes()).decode("ascii"))
+PY
+   )"
+
+   # 1) Upsert image secret
+   curl -sS -X PUT \
+     -H "X-Admin-Token: $PAYMENTS_ADMIN_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d "{\"image_ref\":\"$IMAGE_REF\",\"secret_b64\":\"$SECRET_B64\"}" \
+     "$PAYMENTS_API_URL/api/licenses/images"
+
+   # 2) Mint orchestrator token
+   ORCH_ID="<orchestrator-id>"
+   curl -sS -X POST \
+     -H "X-Admin-Token: $PAYMENTS_ADMIN_TOKEN" \
+     "$PAYMENTS_API_URL/api/licenses/orchestrators/$ORCH_ID/tokens"
+
+   # 3) Grant access
+   curl -sS -X POST \
+     -H "X-Admin-Token: $PAYMENTS_ADMIN_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d "{\"orchestrator_id\":\"$ORCH_ID\",\"image_ref\":\"$IMAGE_REF\"}" \
+     "$PAYMENTS_API_URL/api/licenses/access/grant"
+   ```
+3. Publish encrypted artifacts (per game build):
+   ```bash
+   # On a trusted build machine with the game image available locally:
+   ./tools/encrypted-game-image/produce.sh \
+     --image ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest \
+     --recipient "age1..." \
+     --out /tmp/embody-ue-ps.tar.zst.age
+
+   # Upload the artifact to S3 and produce a URL (public or presigned).
+   # The orchestrator will receive that URL as --artifact-url.
+   ```
+
 1. Clone the repo and enter it:
    ```bash
    git clone https://github.com/its-DeFine/Unreal_Vtuber.git
