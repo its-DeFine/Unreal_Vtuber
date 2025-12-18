@@ -259,8 +259,10 @@ Repo and container images are public now—no GitHub auth or PAT needed to updat
    docker compose -f docker-compose.unreal.yml up -d vtuber-watchdog vtuber-auto-updater
    ```
 6. **Validate traffic + health**
-    - Pixel UI: `http://<PUBLIC_IP>:8080`
-    - Runner: `curl http://<PUBLIC_IP>:9877/health`
+    - Signaling health: `curl http://<PUBLIC_IP>:8080/healthz`
+    - Runner health: `curl http://<PUBLIC_IP>:9877/health`
+
+> Note: the Pixel Streaming web UI is no longer bundled in the signaling image; deploy it separately (typically from an edge/gateway) and connect to signaling over WebSocket.
 
 ## License and allowed use
 
