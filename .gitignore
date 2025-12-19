@@ -42,7 +42,7 @@ coverage.xml
 # Environment variables
 .env
 .env.*
-!.env.turn
+!.env.turn.example
 .venv
 env/
 venv/
