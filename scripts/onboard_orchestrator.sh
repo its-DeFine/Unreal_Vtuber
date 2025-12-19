@@ -251,7 +251,7 @@ is_valid_eth_address() {
 
 is_zero_eth_address() {
   local addr="$1"
-  [[ "${addr,,}" == "0x0000000000000000000000000000000000000000" ]]
+  [[ "$addr" == "0x0000000000000000000000000000000000000000" ]]
 }
 
 is_valid_orchestrator_id() {
@@ -763,7 +763,7 @@ maybe_run_wizard() {
 
   echo "${STYLE_DIM}You will need:${STYLE_RESET}" >&2
   echo "  - A unique orchestrator ID (you choose)" >&2
-  echo "  - Payout wallet (0x...)" >&2
+  echo "  - Payout wallet address (0x...)" >&2
   echo "  - License token + encrypted artifact URL (admin provides)" >&2
   echo "${STYLE_DIM}Tip:${STYLE_RESET} run with ${STYLE_BOLD}--advanced${STYLE_RESET} to override Payments URL, forwarder IP, or host paths." >&2
 
@@ -944,7 +944,7 @@ maybe_run_wizard() {
 
   section "Preflight"
   local missing_deps=()
-  for cmd in python3 jq zstd age; do
+  for cmd in curl python3 jq zstd age; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
       missing_deps+=("$cmd")
     fi
@@ -955,7 +955,7 @@ maybe_run_wizard() {
       INSTALL_DEPS="1"
     fi
   else
-    ok "Deps: OK (python3/jq/zstd/age)"
+    ok "Deps: OK (curl/python3/jq/zstd/age)"
   fi
 
   if ! command -v docker >/dev/null 2>&1; then
@@ -983,8 +983,24 @@ maybe_run_wizard() {
   else
     ok "GPU driver: nvidia-smi present"
   fi
-  if prompt_yes_no "Install NVIDIA container toolkit if GPU runtime is missing?" "y"; then
-    INSTALL_NVIDIA_TOOLKIT="1"
+
+  if ! command -v docker >/dev/null 2>&1; then
+    note "NVIDIA container runtime: will check after Docker is installed."
+  elif ! command -v nvidia-smi >/dev/null 2>&1; then
+    note "NVIDIA container runtime: will check after the GPU driver is installed."
+  else
+    local docker_runtimes=""
+    if docker info >/dev/null 2>&1; then
+      docker_runtimes="$(docker info --format '{{json .Runtimes}}' 2>/dev/null || true)"
+    fi
+    if echo "$docker_runtimes" | grep -qi "nvidia"; then
+      ok "NVIDIA container runtime: configured"
+    else
+      warn "NVIDIA container runtime: missing"
+      if prompt_yes_no "Install NVIDIA container toolkit to enable the Docker GPU runtime?" "y"; then
+        INSTALL_NVIDIA_TOOLKIT="1"
+      fi
+    fi
   fi
 
   if prompt_yes_no "Proceed with setup now?" "y"; then
@@ -1103,39 +1119,40 @@ if [[ "$ROTATE_TURN" == "1" || ! -s "$TURN_ENV_FILE" ]]; then
 else
   note "Keeping existing $TURN_ENV_FILE (use --rotate-turn to regenerate)"
 fi
-	if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
-	  chown "$SUDO_USER":"$SUDO_USER" "$TURN_ENV_FILE" >/dev/null 2>&1 || true
-	fi
 
-	# Docker Compose interpolates ${TURN_*} from .env (not from env_file).
-	# Sync TURN vars so Compose doesn't warn and the recorder can build RECORDER_TURN_URL.
-	turn_user="$(read_env_value "$TURN_ENV_FILE" "TURN_USER" 2>/dev/null || true)"
-	turn_pass="$(read_env_value "$TURN_ENV_FILE" "TURN_PASS" 2>/dev/null || true)"
-	turn_port="$(read_env_value "$TURN_ENV_FILE" "TURN_PORT" 2>/dev/null || true)"
-	turn_realm="$(read_env_value "$TURN_ENV_FILE" "TURN_REALM" 2>/dev/null || true)"
-	turn_external_ip="$(read_env_value "$TURN_ENV_FILE" "TURN_EXTERNAL_IP" 2>/dev/null || true)"
-	turn_min_port="$(read_env_value "$TURN_ENV_FILE" "TURN_MIN_PORT" 2>/dev/null || true)"
-	turn_max_port="$(read_env_value "$TURN_ENV_FILE" "TURN_MAX_PORT" 2>/dev/null || true)"
-	turn_server="$(read_env_value "$TURN_ENV_FILE" "TURN_SERVER" 2>/dev/null || true)"
+if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
+  chown "$SUDO_USER":"$SUDO_USER" "$TURN_ENV_FILE" >/dev/null 2>&1 || true
+fi
 
-	if [[ -n "$turn_user" ]]; then upsert_env_kv "$ENV_FILE" "TURN_USER" "$turn_user"; fi
-	if [[ -n "$turn_pass" ]]; then upsert_env_kv "$ENV_FILE" "TURN_PASS" "$turn_pass"; fi
-	if [[ -n "$turn_port" ]]; then upsert_env_kv "$ENV_FILE" "TURN_PORT" "$turn_port"; fi
-	if [[ -n "$turn_realm" ]]; then upsert_env_kv "$ENV_FILE" "TURN_REALM" "$turn_realm"; fi
-	if [[ -n "$turn_external_ip" ]]; then upsert_env_kv "$ENV_FILE" "TURN_EXTERNAL_IP" "$turn_external_ip"; fi
-	if [[ -n "$turn_min_port" ]]; then upsert_env_kv "$ENV_FILE" "TURN_MIN_PORT" "$turn_min_port"; fi
-	if [[ -n "$turn_max_port" ]]; then upsert_env_kv "$ENV_FILE" "TURN_MAX_PORT" "$turn_max_port"; fi
-	if [[ -n "$turn_server" ]]; then upsert_env_kv "$ENV_FILE" "TURN_SERVER" "$turn_server"; fi
+# Docker Compose interpolates ${TURN_*} from .env (not from env_file).
+# Sync TURN vars so Compose doesn't warn and the recorder can build RECORDER_TURN_URL.
+turn_user="$(read_env_value "$TURN_ENV_FILE" "TURN_USER" 2>/dev/null || true)"
+turn_pass="$(read_env_value "$TURN_ENV_FILE" "TURN_PASS" 2>/dev/null || true)"
+turn_port="$(read_env_value "$TURN_ENV_FILE" "TURN_PORT" 2>/dev/null || true)"
+turn_realm="$(read_env_value "$TURN_ENV_FILE" "TURN_REALM" 2>/dev/null || true)"
+turn_external_ip="$(read_env_value "$TURN_ENV_FILE" "TURN_EXTERNAL_IP" 2>/dev/null || true)"
+turn_min_port="$(read_env_value "$TURN_ENV_FILE" "TURN_MIN_PORT" 2>/dev/null || true)"
+turn_max_port="$(read_env_value "$TURN_ENV_FILE" "TURN_MAX_PORT" 2>/dev/null || true)"
+turn_server="$(read_env_value "$TURN_ENV_FILE" "TURN_SERVER" 2>/dev/null || true)"
 
-	chmod 600 "$ENV_FILE" >/dev/null 2>&1 || true
-	if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
-	  chown "$SUDO_USER":"$SUDO_USER" "$ENV_FILE" >/dev/null 2>&1 || true
-	fi
+if [[ -n "$turn_user" ]]; then upsert_env_kv "$ENV_FILE" "TURN_USER" "$turn_user"; fi
+if [[ -n "$turn_pass" ]]; then upsert_env_kv "$ENV_FILE" "TURN_PASS" "$turn_pass"; fi
+if [[ -n "$turn_port" ]]; then upsert_env_kv "$ENV_FILE" "TURN_PORT" "$turn_port"; fi
+if [[ -n "$turn_realm" ]]; then upsert_env_kv "$ENV_FILE" "TURN_REALM" "$turn_realm"; fi
+if [[ -n "$turn_external_ip" ]]; then upsert_env_kv "$ENV_FILE" "TURN_EXTERNAL_IP" "$turn_external_ip"; fi
+if [[ -n "$turn_min_port" ]]; then upsert_env_kv "$ENV_FILE" "TURN_MIN_PORT" "$turn_min_port"; fi
+if [[ -n "$turn_max_port" ]]; then upsert_env_kv "$ENV_FILE" "TURN_MAX_PORT" "$turn_max_port"; fi
+if [[ -n "$turn_server" ]]; then upsert_env_kv "$ENV_FILE" "TURN_SERVER" "$turn_server"; fi
 
-	if [[ "$CONFIG_ONLY" == "1" ]]; then
-	  note "Config-only mode; exiting after writing env files."
-	  exit 0
-	fi
+chmod 600 "$ENV_FILE" >/dev/null 2>&1 || true
+if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
+  chown "$SUDO_USER":"$SUDO_USER" "$ENV_FILE" >/dev/null 2>&1 || true
+fi
+
+if [[ "$CONFIG_ONLY" == "1" ]]; then
+  note "Config-only mode; exiting after writing env files."
+  exit 0
+fi
 
 require_nvidia_prereqs() {
   if ! command -v nvidia-smi >/dev/null 2>&1; then
