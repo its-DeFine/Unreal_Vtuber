@@ -59,11 +59,9 @@ Behavior flags:
   --install-nvidia-toolkit    Attempt to install nvidia-container-toolkit (Ubuntu/Debian only)
   --rotate-turn               Regenerate .env.turn even if present
   --no-pull                   Skip docker compose pull
-  --skip-rollout              Skip encrypted image rollout (requires the game image already loaded locally)
   --skip-registration         Skip running orchestrator-registration
   --no-verify                 Skip rollout health checks
   --force-env                 Overwrite .env (otherwise upsert keys)
-  --config-only               Only write `.env`/`.env.turn` and exit (no docker actions)
 
 Examples:
   # Recommended: store the license token in a file (admin provides it)
@@ -836,44 +834,40 @@ maybe_run_wizard() {
 
   section "Encrypted Build"
 
-  if [[ "$SKIP_ROLLOUT" != "1" ]]; then
-    if ! prompt_yes_no "Do you have the admin-provided token + artifact URL and want to load the encrypted game image now?" "y"; then
-      SKIP_ROLLOUT="1"
-      warn "Skipping encrypted rollout: this host must already have the game image loaded locally."
-      if prompt_yes_no "Write config only and exit? (recommended if you don’t have the token/artifact yet)" "y"; then
-        CONFIG_ONLY="1"
+  if [[ "$SKIP_ROLLOUT" == "1" ]]; then
+    warn "--skip-rollout was set, but the interactive wizard requires loading the encrypted build. Continuing with encrypted rollout."
+    SKIP_ROLLOUT="0"
+  fi
+
+  note "You need the admin-provided license token + encrypted artifact URL to continue."
+  note "If you don’t have them yet, press Ctrl+C and request them from your admin."
+
+  ARTIFACT_URL="$(prompt_default "Encrypted artifact URL (.tar.zst.age)" "$ARTIFACT_URL")"
+  while [[ -z "$ARTIFACT_URL" ]]; do
+    ARTIFACT_URL="$(prompt_default "Encrypted artifact URL (.tar.zst.age)" "$ARTIFACT_URL")"
+  done
+
+  local default_token_file="$target_home/.embody/orch-license-token.txt"
+  if [[ -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" && -z "$ORCH_TOKEN" ]]; then
+    if [[ -s "$default_token_file" ]]; then
+      if prompt_yes_no "Use existing token file at $default_token_file?" "y"; then
+        ORCH_TOKEN_FILE="$default_token_file"
       fi
     fi
   fi
 
-  if [[ "$SKIP_ROLLOUT" != "1" ]]; then
-    ARTIFACT_URL="$(prompt_default "Encrypted artifact URL (.tar.zst.age)" "$ARTIFACT_URL")"
-    while [[ -z "$ARTIFACT_URL" ]]; do
-      ARTIFACT_URL="$(prompt_default "Encrypted artifact URL (.tar.zst.age)" "$ARTIFACT_URL")"
-    done
-
-    local default_token_file="$target_home/.embody/orch-license-token.txt"
-    if [[ -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" && -z "$ORCH_TOKEN" ]]; then
-      if [[ -s "$default_token_file" ]]; then
-        if prompt_yes_no "Use existing token file at $default_token_file?" "y"; then
-          ORCH_TOKEN_FILE="$default_token_file"
-        fi
-      fi
+  if [[ -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" && -z "$ORCH_TOKEN" ]]; then
+    local token_file
+    token_file="$(prompt_default "Token file path (leave blank to paste token)" "$default_token_file")"
+    if [[ -n "$token_file" && -f "$token_file" ]]; then
+      ORCH_TOKEN_FILE="$token_file"
+    else
+      ORCH_TOKEN="$(prompt_secret "Paste orchestrator license token (hidden input)")"
     fi
+  fi
 
-    if [[ -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" && -z "$ORCH_TOKEN" ]]; then
-      local token_file
-      token_file="$(prompt_default "Token file path (leave blank to paste token)" "$default_token_file")"
-      if [[ -n "$token_file" && -f "$token_file" ]]; then
-        ORCH_TOKEN_FILE="$token_file"
-      else
-        ORCH_TOKEN="$(prompt_secret "Paste orchestrator license token (hidden input)")"
-      fi
-    fi
-
-    if [[ -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
-      die "orchestrator token required to load encrypted image"
-    fi
+  if [[ -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
+    die "orchestrator token required to load encrypted image"
   fi
 
   section "Network"
@@ -1156,18 +1150,10 @@ fi
 
 require_nvidia_prereqs() {
   if ! command -v nvidia-smi >/dev/null 2>&1; then
-    note "NVIDIA driver not detected (nvidia-smi missing)."
-    if [[ "$INTERACTIVE" != "0" ]] && is_tty && prompt_yes_no "Write config only and exit? (install GPU driver + NVIDIA Container Toolkit, then rerun)" "y"; then
-      exit 0
-    fi
-    die "install NVIDIA driver (nvidia-smi) and rerun; or use --config-only"
+    die "NVIDIA driver not detected (nvidia-smi missing). Install the NVIDIA driver and rerun."
   fi
   if ! nvidia-smi >/dev/null 2>&1; then
-    note "NVIDIA driver detected but nvidia-smi failed."
-    if [[ "$INTERACTIVE" != "0" ]] && is_tty && prompt_yes_no "Write config only and exit? (fix driver, then rerun)" "y"; then
-      exit 0
-    fi
-    die "fix NVIDIA driver (nvidia-smi) and rerun; or use --config-only"
+    die "NVIDIA driver detected but nvidia-smi failed. Fix the NVIDIA driver and rerun."
   fi
 
   # Compose file uses `runtime: nvidia`; ensure Docker knows about the runtime.
@@ -1181,10 +1167,7 @@ require_nvidia_prereqs() {
     if [[ "$INSTALL_NVIDIA_TOOLKIT" == "1" ]]; then
       note "Tried to install NVIDIA container toolkit; you may need to restart Docker and/or log out/in."
     fi
-    if [[ "$INTERACTIVE" != "0" ]] && is_tty && prompt_yes_no "Write config only and exit? (install/configure nvidia-container-toolkit, then rerun)" "y"; then
-      exit 0
-    fi
-    die "install/configure nvidia-container-toolkit so Docker has an 'nvidia' runtime; or use --config-only"
+    die "install/configure nvidia-container-toolkit so Docker has an 'nvidia' runtime, then rerun."
   fi
 }
 
@@ -1203,7 +1186,7 @@ if [[ "$SKIP_ROLLOUT" == "1" ]]; then
   game_image="$(detect_game_image_from_compose "$COMPOSE_FILE" 2>/dev/null || true)"
   if [[ -n "$game_image" ]]; then
     if ! docker image inspect "$game_image" >/dev/null 2>&1; then
-      die "game image not found locally ($game_image). Re-run and provide the token + artifact URL to load the encrypted image (recommended), or run with --config-only until you have the token/artifact."
+      die "game image not found locally ($game_image). Re-run and provide the token + artifact URL to load the encrypted image."
     fi
   fi
   note "Starting compose stack (using existing local game image; skipping encrypted rollout)"
