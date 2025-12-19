@@ -35,6 +35,7 @@ Notes:
 - It will prompt for the required inputs (choose a unique orchestrator ID + payout wallet, plus token + artifact URL) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
 - By default it allowlists the forwarder IP (`3.150.172.153`) for runner/recorder/power endpoints; override with `--forwarder-ip`.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
+- For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).
 
 Non-interactive (for automation):
 ```bash

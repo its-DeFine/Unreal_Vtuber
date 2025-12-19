@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+USE_COLOR="0"
+USE_FX="0"
+COLOR_MODE="auto"
+FX_MODE="auto"
+
+STYLE_RESET=""
+STYLE_BOLD=""
+STYLE_DIM=""
+STYLE_RED=""
+STYLE_GRN=""
+STYLE_YLW=""
+STYLE_BLU=""
+STYLE_CYN=""
+
 usage() {
   cat <<'EOF'
 Interactive orchestrator onboarding (encrypted game image flow).
@@ -37,6 +51,8 @@ Behavior flags:
   --interactive               Force the CLI wizard (even if flags are provided)
   --non-interactive           Never prompt; error if required values are missing
   --advanced                  Prompt for optional settings (Payments URL, forwarder IP, paths)
+  --no-color                  Disable ANSI colors
+  --no-fx                     Disable transition effects
   --install-deps              Attempt apt-get install of curl/jq/zstd/age/python3 (Ubuntu/Debian only)
   --install-docker            Attempt apt-get install of docker + compose plugin (Ubuntu/Debian only)
   --install-nvidia-driver     Attempt to install the NVIDIA driver (Ubuntu/Debian only; requires reboot)
@@ -59,12 +75,20 @@ EOF
 }
 
 die() {
-  echo "error: $*" >&2
+  echo "${STYLE_RED}error:${STYLE_RESET} $*" >&2
   exit 1
 }
 
 note() {
-  echo "[onboard] $*" >&2
+  echo "${STYLE_CYN}[onboard]${STYLE_RESET} $*" >&2
+}
+
+warn() {
+  echo "${STYLE_YLW}[warn]${STYLE_RESET} $*" >&2
+}
+
+ok() {
+  echo "${STYLE_GRN}[ok]${STYLE_RESET} $*" >&2
 }
 
 require_cmd() {
@@ -75,12 +99,87 @@ is_tty() {
   [[ -t 0 && -t 1 ]]
 }
 
+supports_color() {
+  is_tty || return 1
+  [[ "${TERM:-}" != "dumb" ]] || return 1
+  [[ -z "${NO_COLOR:-}" ]] || return 1
+  return 0
+}
+
+supports_fx() {
+  is_tty || return 1
+  [[ "${TERM:-}" != "dumb" ]] || return 1
+  [[ -z "${CI:-}" ]] || return 1
+  return 0
+}
+
+init_ui() {
+  case "$COLOR_MODE" in
+    always) USE_COLOR="1" ;;
+    never) USE_COLOR="0" ;;
+    auto)
+      if supports_color; then USE_COLOR="1"; else USE_COLOR="0"; fi
+      ;;
+    *) USE_COLOR="0" ;;
+  esac
+
+  case "$FX_MODE" in
+    always) USE_FX="1" ;;
+    never) USE_FX="0" ;;
+    auto)
+      if supports_fx && [[ "$INTERACTIVE" != "0" ]]; then USE_FX="1"; else USE_FX="0"; fi
+      ;;
+    *) USE_FX="0" ;;
+  esac
+
+  if [[ "$USE_COLOR" == "1" ]]; then
+    STYLE_RESET=$'\033[0m'
+    STYLE_BOLD=$'\033[1m'
+    STYLE_DIM=$'\033[2m'
+    STYLE_RED=$'\033[31m'
+    STYLE_GRN=$'\033[32m'
+    STYLE_YLW=$'\033[33m'
+    STYLE_BLU=$'\033[34m'
+    STYLE_CYN=$'\033[36m'
+  fi
+}
+
+divider() {
+  printf '%s\n' "------------------------------------------------------------" >&2
+}
+
+section() {
+  echo >&2
+  echo "${STYLE_BOLD}${STYLE_BLU}==> $*${STYLE_RESET}" >&2
+}
+
+banner() {
+  divider
+  echo "${STYLE_BOLD}${STYLE_CYN}Embody Unreal Vtuber${STYLE_RESET} ${STYLE_DIM}— Orchestrator Onboarding${STYLE_RESET}" >&2
+  echo "${STYLE_DIM}Press Ctrl+C anytime to abort.${STYLE_RESET}" >&2
+  divider
+}
+
+fx_dots() {
+  local msg="$1"
+  if [[ "$USE_FX" != "1" ]]; then
+    note "$msg"
+    return
+  fi
+  printf "%s" "${STYLE_DIM}${msg}${STYLE_RESET}" >&2
+  for _ in 1 2 3; do
+    sleep 0.15
+    printf "." >&2
+  done
+  printf "\n" >&2
+}
+
 prompt_default() {
   local label="$1" default="$2" out
   if [[ -n "$default" ]]; then
-    read -r -p "${label} [${default}]: " out
+    read -r -p "${STYLE_BOLD}${label}${STYLE_RESET} [${STYLE_DIM}${default}${STYLE_RESET}]: " out
   else
-    read -r -p "${label}: " out
+    read -r -p "${STYLE_BOLD}${label}${STYLE_RESET}: " out
   fi
   if [[ -z "$out" ]]; then
     echo "$default"
@@ -102,7 +201,7 @@ prompt_yes_no() {
   if [[ "$default" == "y" ]]; then
     hint="[Y/n]"
   fi
-  read -r -p "${label} ${hint}: " out
+  read -r -p "${STYLE_BOLD}${label}${STYLE_RESET} ${STYLE_DIM}${hint}${STYLE_RESET}: " out
   out="${out:-$default}"
   case "$out" in
     y|Y|yes|YES) return 0 ;;
@@ -121,6 +220,16 @@ strip_inline_comment() {
   local s="$1"
   s="${s%%#*}"
   trim_whitespace "$s"
+}
+
+redact_url() {
+  local url="$1"
+  url="${url%%\?*}"
+  if [[ ${#url} -gt 96 ]]; then
+    echo "${url:0:93}..."
+  else
+    echo "$url"
+  fi
 }
 
 read_env_value() {
@@ -205,6 +314,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --advanced)
       ADVANCED="1"
+      shift 1
+      ;;
+    --no-color)
+      COLOR_MODE="never"
+      shift 1
+      ;;
+    --no-fx)
+      FX_MODE="never"
       shift 1
       ;;
     --payments-api-url)
@@ -306,6 +423,8 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+init_ui
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   die "compose file not found: $COMPOSE_FILE (are you in the repo?)"
@@ -620,7 +739,14 @@ maybe_run_wizard() {
     fi
   fi
 
-  note "Starting onboarding wizard…"
+  banner
+  fx_dots "Starting onboarding wizard"
+
+  echo "${STYLE_DIM}You will need:${STYLE_RESET}" >&2
+  echo "  - A unique orchestrator ID (you choose)" >&2
+  echo "  - Payout wallet (0x...)" >&2
+  echo "  - License token + encrypted artifact URL (admin provides)" >&2
+  echo "${STYLE_DIM}Tip:${STYLE_RESET} run with ${STYLE_BOLD}--advanced${STYLE_RESET} to override Payments URL, forwarder IP, or host paths." >&2
 
   local existing_orch_id existing_addr existing_payments existing_forwarder existing_session_dir existing_recordings_dir
   existing_orch_id="$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ID" 2>/dev/null || true)"
@@ -654,6 +780,8 @@ maybe_run_wizard() {
     PAYMENTS_API_URL="$(prompt_default "Payments API URL" "$PAYMENTS_API_URL")"
   fi
 
+  section "Identity"
+
   if [[ -z "$ORCH_ID" ]]; then
     if [[ -n "$existing_orch_id" ]] && is_valid_orchestrator_id "$existing_orch_id"; then
       ORCH_ID="$existing_orch_id"
@@ -681,6 +809,8 @@ maybe_run_wizard() {
       ORCH_ADDRESS=""
     fi
   done
+
+  section "Encrypted Build"
 
   if [[ "$SKIP_ROLLOUT" != "1" ]]; then
     if ! prompt_yes_no "Do you have the admin-provided token + artifact URL and want to load the encrypted game image now?" "y"; then
@@ -718,6 +848,8 @@ maybe_run_wizard() {
     fi
   fi
 
+  section "Network"
+
   if [[ -z "$FORWARDER_IP" || "$FORWARDER_IP" == "3.150.172.153" ]]; then
     FORWARDER_IP="${existing_forwarder:-$FORWARDER_IP}"
   fi
@@ -726,6 +858,7 @@ maybe_run_wizard() {
   fi
 
   if [[ "$PUBLIC_IP" == "auto" ]]; then
+    fx_dots "Detecting public IP"
     local detected
     detected="$(detect_public_ip || true)"
     if [[ -n "$detected" ]]; then
@@ -739,6 +872,8 @@ maybe_run_wizard() {
       PUBLIC_IP="$(prompt_default "Public IP" "")"
     fi
   fi
+
+  section "Storage"
 
   existing_session_dir="$(strip_inline_comment "$existing_session_dir")"
   existing_recordings_dir="$(strip_inline_comment "$existing_recordings_dir")"
@@ -757,7 +892,29 @@ maybe_run_wizard() {
     RECORDINGS_DIR="$(prompt_default "Recordings dir (host path)" "$RECORDINGS_DIR")"
   fi
 
-  note "Preflight:"
+  section "Summary"
+  divider
+  echo "Orchestrator ID:     $ORCH_ID" >&2
+  echo "Payout wallet:       $ORCH_ADDRESS" >&2
+  echo "Public IP:           $PUBLIC_IP" >&2
+  echo "Forwarder allowlist: $FORWARDER_IP" >&2
+  echo "Session dir:         $SESSION_DIR" >&2
+  echo "Recordings dir:      $RECORDINGS_DIR" >&2
+  if [[ "$SKIP_ROLLOUT" == "1" ]]; then
+    echo "Encrypted build:     skipped (will use existing local game image tag)" >&2
+  else
+    echo "Encrypted artifact:  $(redact_url "$ARTIFACT_URL")" >&2
+    if [[ -n "$ORCH_TOKEN_FILE" ]]; then
+      echo "License token:       file $(strip_inline_comment "$ORCH_TOKEN_FILE")" >&2
+    elif [[ -n "$ORCH_TOKEN_ENV" ]]; then
+      echo "License token:       env $ORCH_TOKEN_ENV" >&2
+    else
+      echo "License token:       provided (hidden)" >&2
+    fi
+  fi
+  divider
+
+  section "Preflight"
   local missing_deps=()
   for cmd in python3 jq zstd age; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -765,38 +922,38 @@ maybe_run_wizard() {
     fi
   done
   if ((${#missing_deps[@]})); then
-    note "Missing deps: ${missing_deps[*]}"
+    warn "Missing deps: ${missing_deps[*]}"
     if prompt_yes_no "Install missing deps now? (Ubuntu/Debian via apt-get)" "y"; then
       INSTALL_DEPS="1"
     fi
   else
-    note "Deps: OK (python3/jq/zstd/age)"
+    ok "Deps: OK (python3/jq/zstd/age)"
   fi
 
   if ! command -v docker >/dev/null 2>&1; then
-    note "Docker: missing"
+    warn "Docker: missing"
     if prompt_yes_no "Install Docker + Compose plugin now? (Ubuntu/Debian via apt-get)" "y"; then
       INSTALL_DOCKER="1"
     fi
   else
-    note "Docker: present"
+    ok "Docker: present"
     if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then
-      note "Compose: missing"
+      warn "Compose: missing"
       if prompt_yes_no "Install Compose plugin now? (Ubuntu/Debian via apt-get)" "y"; then
         INSTALL_DOCKER="1"
       fi
     else
-      note "Compose: present"
+      ok "Compose: present"
     fi
   fi
 
   if ! command -v nvidia-smi >/dev/null 2>&1; then
-    note "GPU driver: nvidia-smi missing (cannot start the game container yet)."
+    warn "GPU driver: nvidia-smi missing (cannot start the game container yet)."
     if prompt_yes_no "Install NVIDIA driver now? (Ubuntu/Debian via apt-get; requires reboot)" "y"; then
       INSTALL_NVIDIA_DRIVER="1"
     fi
   else
-    note "GPU driver: nvidia-smi present"
+    ok "GPU driver: nvidia-smi present"
   fi
   if prompt_yes_no "Install NVIDIA container toolkit if GPU runtime is missing?" "y"; then
     INSTALL_NVIDIA_TOOLKIT="1"
