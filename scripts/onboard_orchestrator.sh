@@ -366,7 +366,18 @@ install_docker_if_requested() {
   if [[ "$INSTALL_DOCKER" != "1" ]]; then
     return
   fi
-  apt_install docker.io docker-compose-plugin
+  apt_install docker.io
+
+  # Prefer the v2 compose plugin when available, but fall back to the classic
+  # `docker-compose` package on distros that don't ship the plugin.
+  if apt-cache show docker-compose-plugin >/dev/null 2>&1; then
+    apt_install docker-compose-plugin
+  elif apt-cache show docker-compose >/dev/null 2>&1; then
+    apt_install docker-compose
+  else
+    die "Docker Compose not available via apt on this host; install it manually"
+  fi
+
   if command -v systemctl >/dev/null 2>&1; then
     if [[ "$(id -u)" == "0" ]]; then
       systemctl enable --now docker >/dev/null 2>&1 || true
