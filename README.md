@@ -94,7 +94,7 @@ One-liner (recommended, interactive wizard):
 ```bash
 git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/onboard_orchestrator.sh
 ```
-The wizard will prompt you for the admin-provided inputs (orchestrator ID/address, token, artifact URL) and can install missing dependencies on Ubuntu/Debian.
+The wizard will prompt you for the admin-provided inputs (orchestrator ID/address, token, artifact URL) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
 
 Non-interactive (for automation):
 ```bash

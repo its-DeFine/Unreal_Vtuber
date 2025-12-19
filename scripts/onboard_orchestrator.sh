@@ -38,6 +38,7 @@ Behavior flags:
   --non-interactive           Never prompt; error if required values are missing
   --install-deps              Attempt apt-get install of curl/jq/zstd/age/python3 (Ubuntu/Debian only)
   --install-docker            Attempt apt-get install of docker + compose plugin (Ubuntu/Debian only)
+  --install-nvidia-driver     Attempt to install the NVIDIA driver (Ubuntu/Debian only; requires reboot)
   --install-nvidia-toolkit    Attempt to install nvidia-container-toolkit (Ubuntu/Debian only)
   --rotate-turn               Regenerate .env.turn even if present
   --no-pull                   Skip docker compose pull
@@ -153,6 +154,7 @@ RECORDINGS_DIR=""
 
 INSTALL_DEPS="0"
 INSTALL_DOCKER="0"
+INSTALL_NVIDIA_DRIVER="0"
 INSTALL_NVIDIA_TOOLKIT="0"
 ROTATE_TURN="0"
 NO_PULL="0"
@@ -232,6 +234,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --install-docker)
       INSTALL_DOCKER="1"
+      shift 1
+      ;;
+    --install-nvidia-driver)
+      INSTALL_NVIDIA_DRIVER="1"
       shift 1
       ;;
     --install-nvidia-toolkit)
@@ -368,6 +374,39 @@ install_docker_if_requested() {
       sudo systemctl enable --now docker >/dev/null 2>&1 || true
     fi
   fi
+}
+
+install_nvidia_driver_if_requested() {
+  if [[ "$INSTALL_NVIDIA_DRIVER" != "1" ]]; then
+    return
+  fi
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+    note "NVIDIA driver already installed (nvidia-smi OK); skipping."
+    return
+  fi
+
+  note "Installing NVIDIA driver (Ubuntu/Debian)"
+  apt_install ubuntu-drivers-common
+
+  if command -v ubuntu-drivers >/dev/null 2>&1; then
+    ubuntu-drivers devices || true
+    ubuntu-drivers autoinstall || true
+  else
+    die "ubuntu-drivers not available after install; install NVIDIA driver manually"
+  fi
+
+  note "NVIDIA driver install complete, but a reboot is usually required."
+  if [[ "$INTERACTIVE" != "0" ]] && is_tty; then
+    if prompt_yes_no "Reboot now?" "y"; then
+      if [[ "$(id -u)" == "0" ]]; then
+        reboot
+      else
+        sudo reboot
+      fi
+      exit 0
+    fi
+  fi
+  die "reboot required; run 'sudo reboot' then rerun ./scripts/onboard_orchestrator.sh"
 }
 
 install_nvidia_toolkit_if_requested() {
@@ -659,6 +698,9 @@ maybe_run_wizard() {
 
   if ! command -v nvidia-smi >/dev/null 2>&1; then
     note "GPU driver: nvidia-smi missing (cannot start the game container yet)."
+    if prompt_yes_no "Install NVIDIA driver now? (Ubuntu/Debian via apt-get; requires reboot)" "y"; then
+      INSTALL_NVIDIA_DRIVER="1"
+    fi
   else
     note "GPU driver: nvidia-smi present"
   fi
@@ -693,6 +735,7 @@ fi
 
 install_docker_if_requested
 install_deps_if_requested
+install_nvidia_driver_if_requested
 install_nvidia_toolkit_if_requested
 
 if [[ "$INTERACTIVE" == "0" ]]; then

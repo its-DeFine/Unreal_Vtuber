@@ -29,7 +29,7 @@ git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber &&
 
 Notes:
 - The script writes/updates `.env` and generates `.env.turn`.
-- It will prompt for the admin-provided inputs (orchestrator ID/address, token, artifact URL) and can install missing dependencies on Ubuntu/Debian.
+- It will prompt for the admin-provided inputs (orchestrator ID/address, token, artifact URL) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
 - By default it allowlists the forwarder IP (`3.150.172.153`) for runner/recorder/power endpoints; override with `--forwarder-ip`.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 
