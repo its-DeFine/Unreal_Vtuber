@@ -1,138 +1,67 @@
-# Orchestrator Onboarding (Local Workstation)
+# Orchestrator Onboarding
 
-Use this guide when you want to run the Unreal VTuber orchestrator on a local
-GPU machine (physical workstation or on-prem server) without provisioning any
-EC2 infrastructure. By the end you will have Pixel Streaming, the TURN/signaling
-stack, and the script runner talking to the remote payments backend.
+This guide covers the fastest path to run an authorized Unreal VTuber orchestrator on a GPU host (EC2 or on-prem). The recommended flow is a single onboarding command that generates config, loads the encrypted game image via a Payments lease, and starts the stack.
 
----
+## Requirements
 
-## 1. Requirements
+- NVIDIA driver + NVIDIA Container Toolkit (the game container uses `runtime: nvidia`)
+- Docker + Docker Compose plugin (or `docker-compose`)
+- Outbound internet access to pull service images and reach the Payments API
 
-- **Hardware / drivers**: NVIDIA GPU with the proprietary driver installed. The
-  `unreal-game` container mounts host libraries, so keep the driver up to date.
-- **Software**: Docker, Docker Compose plugin, `curl`, `python3`, and `bash`.
-- **Payments backend access**: Ensure you can reach the payments API (default
-  `http://3.141.111.200:8081`). If the backend restricts ingress, have the admin
-  allow your public IP on port 8081.
-- **Public IP**: Know the public IPv4 that WebRTC clients will use (for TURN and
-  signaling). You can find it with `curl https://api.ipify.org`.
+Admin provides:
+- Orchestrator ID (`ORCHESTRATOR_ID`) + payout wallet (`ORCHESTRATOR_ADDRESS`)
+- A Payments-issued orchestrator license token
+- An encrypted artifact URL (public/presigned) for the desired game build (`.tar.zst.age`)
 
----
+## Quickstart (single command)
 
-## 2. Prepare environment files
-
-1. Copy the orchestrator sample env into place (Compose reads `.env` by default):
-   ```bash
-   cd autonomy
-   cp orchestrator.env.example .env
-   ```
-2. Edit `.env` and fill in:
-    - `PAYMENTS_API_URL` – URL of the payments backend (`http://IP:8081`).
-    - `ORCHESTRATOR_ID` – unique identifier for this host (e.g. `orch-local-001`).
-    - `ORCHESTRATOR_ADDRESS` – payout wallet (must be in the top Livepeer set if
-      rank validation is on).
-    - `PUBLIC_IP` – the IPv4 you want TURN/signaling to advertise.
-    - `VTUBER_SESSION_DIR` – where to persist session assets on disk.
-    - Optional: `ORCHESTRATOR_CONTACT_EMAIL`, `VTUBER_ALLOWED_ADDRESSES`, etc.
-    - Recorder tuning (optional):
-        - `VTUBER_TCP_HOST` – TCP command target for the Unreal game (defaults to `unreal-game`).
-        - `VTUBER_ALLOWED_ADDRESSES` – optional comma-separated IPs allowed to send TCP commands.
-        - `RECORDER_VIDEO_BITRATE_KBPS`, `RECORDER_AUDIO_BITRATE_KBPS`, `RECORDER_FRAME_RATE` – change encoder settings for transcode mode.
-        - `RECORDER_SIGNALLING_URL`, `RECORDER_STREAMER_ID`, `RECORDER_MODE`, `RECORDER_RAW_REMUX_COMMAND` – overrides used when you invoke the recorder script manually.
-        - `RECORDER_ANSWER_START_BITRATE_KBPS`, `RECORDER_ANSWER_MAX_BITRATE_KBPS` – tweak the SDP bitrate hints advertised to the streamer.
-        - `RECORDER_ENCODER_MIN_QP`, `RECORDER_ENCODER_MAX_QP`, `RECORDER_ENCODER_MIN_BITRATE`, `RECORDER_ENCODER_TARGET_BITRATE`, `RECORDER_ENCODER_MAX_BITRATE` – values pushed via the data channel to clamp Unreal’s encoder quality.
-        - `RECORDER_WEBRTC_MIN_BITRATE`, `RECORDER_WEBRTC_START_BITRATE`, `RECORDER_WEBRTC_MAX_BITRATE` – WebRTC congestion-control hints (in bps) mirroring the Epic browser client.
-     
-   > The **dedicated client IP** is only required when you expose Pixel
-   > Streaming to remote viewers. For local-only recording, skip the public
-   > allowlist and access the UI via SSH tunneling instead.
-
-3. Generate TURN credentials (creates `.env.turn` used by the TURN container):
-   ```bash
-   ./scripts/generate_turn_credentials.sh
-   ```
-   The script respects `PUBLIC_IP` from `.env`; if unset it will auto-detect.
-
----
-
-## 3. Start the orchestrator stack
-
-1. Create the shared Docker network if it doesn’t exist yet:
-   ```bash
-   docker network create vtuber_network 2>/dev/null || true
-   ```
-2. Launch the services:
-   ```bash
-   docker compose -f docker-compose.unreal.yml up -d
-   ```
-   The compose file reads `.env` and `.env.turn` automatically.
-   It also mounts `pixel-streaming/config/ConsoleVariables.ini` into the Unreal
-   container so high-quality Pixel Streaming CVars are applied at boot. Adjust
-   that file if you need different defaults.
-3. Check container health:
-   ```bash
-   docker compose -f docker-compose.unreal.yml ps
-   docker compose -f docker-compose.unreal.yml logs -f unreal-signaling
-   ```
-
-The `orchestrator-registration` container waits the configured
-`ORCHESTRATOR_REGISTRATION_DELAY` (default 10 s) and then POSTs to the payments
-backend so this host shows up in `/api/orchestrators`.
-
----
-
-## 4. Verify connectivity
-
-- **Signaling health**: `curl http://127.0.0.1:8080/healthz` should return `ok`.
-- **Runner API**: `curl http://127.0.0.1:9877/health` should return
-  `{"status":"ok"}`.
-- **Recorder control**: `curl http://127.0.0.1:8889/` should return
-  `{"service":"gs-recorder-control","active":false}` when idle.
-- **Payments backend**: `curl http://<PAYMENTS_IP>:8081/api/orchestrators`
-  should list your `ORCHESTRATOR_ID` with `eligible_for_payments=true` once the
-  health service reports healthy.
-- **Audio/script test** (optional): from another terminal run
-  ```bash
-  cd autonomy/private_creator
-  python3 generate_vtuber_program.py --prompt "Quick hello" --session-id local-test
-  ```
-  to send audio + commands to the orchestrator.
-- **Firewall/ingress**: restrict inbound traffic to the orchestrator itself and
-  the payments backend. External clients no longer need 8080/8888/8889 or the
-  TURN relay range because captures are initiated from inside the host.
-
----
-
-## 5. Updating registration
-
-If the host’s public IP or metadata changes, rerun the registrar:
+1) Store the license token on the host (recommended):
 ```bash
-cd autonomy
-PAYMENTS_API_URL=... ORCHESTRATOR_ID=... ORCHESTRATOR_ADDRESS=... \
-python3 scripts/register_orchestrator.py --once
+mkdir -p ~/.embody && chmod 700 ~/.embody
+printf '%s' '<ORCH_TOKEN>' > ~/.embody/orch-license-token.txt
+chmod 600 ~/.embody/orch-license-token.txt
 ```
-You can execute it on the orchestrator or from another machine (set the env vars
-accordingly).
 
----
+2) Run the onboarding script:
+```bash
+git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && \
+  ./scripts/onboard_orchestrator.sh \
+    --orchestrator-id "<orchestrator-id>" \
+    --orchestrator-address "0x0000000000000000000000000000000000000000" \
+    --artifact-url "https://<public-or-presigned-url>" \
+    --orch-token-file ~/.embody/orch-license-token.txt
+```
 
-## 6. Maintenance & teardown
+Notes:
+- The script writes/updates `.env` and generates `.env.turn`.
+- On Ubuntu/Debian, add `--install-deps` to have the script install `curl`, `jq`, `zstd`, and `age` via `apt-get`.
+- By default it allowlists the forwarder IP (`3.150.172.153`) for runner/recorder/power endpoints; override with `--forwarder-ip`.
+- To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 
-- Restart the stack with `docker compose -f docker-compose.unreal.yml restart`.
-- Stop everything with `docker compose -f docker-compose.unreal.yml down`.
-- Logs are stored under `/home/<user>/vtuber_sessions` (override via
-  `VTUBER_SESSION_DIR` in `.env`).
-- To clean the TURN credentials, delete `.env.turn` and regenerate when needed.
+## Firewall / ingress checklist
 
----
+Ensure inbound allowlists / firewall rules are set:
+- Forwarder `3.150.172.153` -> TCP `8080,8888,8889,9877` and UDP `3478,49160-49200`
+- Payments backend -> TCP `9090` (health monitoring)
 
-## 7. Next steps
+## Verify
 
-- Keep the payments backend reachable on 8081 from this orchestrator and allow
-  payments->orchestrator health on 9090. Ensure security groups reflect those
-  two paths alongside the forwarder ingress listed above.
-- For cloud-hosted orchestrators, follow the same compose steps on a GPU host
-  (launch instance, install Docker + NVIDIA drivers, clone this repo, fill `.env`,
-  run `docker compose -f docker-compose.unreal.yml up -d`, then register with
-  the payments API).
+- Signaling health: `curl http://127.0.0.1:8080/healthz`
+- Runner health: `curl http://127.0.0.1:9877/health`
+- Orchestrator health: `curl http://127.0.0.1:9090/health`
+
+If the orchestrator doesn’t appear in Payments yet, rerun:
+```bash
+docker compose -f docker-compose.unreal.yml run --rm orchestrator-registration
+```
+
+## Updating (new game build)
+
+To load a new encrypted artifact and restart the stack:
+```bash
+./tools/encrypted-game-image/rollout.sh \
+  --payments-api-url http://<payments-ip>:8081 \
+  --orch-token-file ~/.embody/orch-license-token.txt \
+  --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1 \
+  --artifact-url "https://<public-or-presigned-url>"
+```

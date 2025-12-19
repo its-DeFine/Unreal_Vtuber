@@ -126,7 +126,7 @@ services:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
       - VTUBER_TCP_HOST=${VTUBER_TCP_HOST:-127.0.0.1}
       - VTUBER_TCP_PORT=7777
-      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.18.0.1,172.31.34.188}
+      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.17.0.1,172.18.0.1}
     volumes:
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     restart: unless-stopped
@@ -226,7 +226,7 @@ services:
       - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.18.0.1}
       - RECORDER_TURN_URL=${RECORDER_TURN_URL:-turn://${TURN_USER}:${TURN_PASS}@vtuber-turn-server:${TURN_PORT:-3478}}
     volumes:
-      - /recordings:/recordings
+      - ${VTUBER_RECORDINGS_DIR:-/recordings}:/recordings
     command: ["python3", "/opt/embody/recorder/control_server.py"]
     restart: unless-stopped
     networks:

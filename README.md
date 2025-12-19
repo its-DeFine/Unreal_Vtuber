@@ -1,6 +1,6 @@
 # Unreal VTuber Pixel Streaming Stack
 
-**ATTENTION:** Under active development, do not try to setup at this time.
+**Note:** This repo is under active development. Authorized orchestrators can deploy by following the quickstart below.
 
 This repository now hosts the Unreal Engine Pixel Streaming runtime plus the
 launcher scripts used to operate an orchestrator host. The registration helper
@@ -76,6 +76,38 @@ PY
    # Upload the artifact to S3 and produce a URL (public or presigned).
    # The orchestrator will receive that URL as --artifact-url.
    ```
+
+### Orchestrator setup (one command)
+
+Prereqs (admin provides):
+- A Payments-issued orchestrator **license token**
+- An encrypted artifact URL (public/presigned) for the desired game build
+
+Store the license token on the host (recommended):
+```bash
+mkdir -p ~/.embody && chmod 700 ~/.embody
+printf '%s' '<ORCH_TOKEN>' > ~/.embody/orch-license-token.txt
+chmod 600 ~/.embody/orch-license-token.txt
+```
+
+One-liner (recommended):
+```bash
+git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && \
+  ./scripts/onboard_orchestrator.sh \
+    --orchestrator-id "<orchestrator-id>" \
+    --orchestrator-address "0x0000000000000000000000000000000000000000" \
+    --artifact-url "https://<public-or-presigned-url>" \
+    --orch-token-file ~/.embody/orch-license-token.txt
+```
+On Ubuntu/Debian, add `--install-deps` to have the script install `curl`, `jq`, `zstd`, and `age` via `apt-get`.
+
+The onboarding script will:
+- Write/update `.env` (Payments URL, orchestrator ID/address, public IP, allowlists, storage paths).
+- Generate `.env.turn` (TURN credentials).
+- Load the encrypted game image via a Payments lease and start `docker-compose.unreal.yml`.
+- Run orchestrator registration (best-effort).
+
+### Manual setup (if you prefer)
 
 1. Clone the repo and enter it:
    ```bash
@@ -165,7 +197,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
 
 - `ghcr.io/its-define/unreal_vtuber/embody-signaling:latest` is an “app bundle” image (it runs the SignallingWebServer plus a runner and recorder-control process under `supervisord`).
 - The compose file still references the game image as `ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest`, but under the encrypted distribution flow this is just the **local tag** created by `docker load` (the game image is not pulled from GHCR).
-- The default `docker-compose.unreal.yml` still runs `vtuber-script-runner` + `recorder-control` as separate containers because the Unreal command port binds to `127.0.0.1` inside `vtuber-unreal-game` and recordings need a mounted `/recordings` volume.
+- The default `docker-compose.unreal.yml` still runs `vtuber-script-runner` + `recorder-control` as separate containers because the Unreal command port binds to `127.0.0.1` inside `vtuber-unreal-game` and recordings need a mounted `/recordings` volume (configured via `VTUBER_RECORDINGS_DIR`, defaults to `/recordings`).
 - Service images (`vtuber-script-runner`, `recorder-control`, `orchestrator-health`, `vtuber-watchdog`, `orchestrator-registration`) are published under GHCR with `:latest` and `:sha-<gitsha>` tags; set `EMBODY_SERVICE_IMAGE_TAG=sha-…` in `.env` to pin them.
 
 ### Automatic script-runner recovery

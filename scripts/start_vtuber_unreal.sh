@@ -19,9 +19,9 @@ fi
 
 echo -e "${YELLOW}Checking environment configuration...${NC}"
 
-if [ ! -f ".env.unreal" ]; then
-    echo -e "${RED}Error: .env.unreal file not found!${NC}"
-    echo "Copy .env.unreal.example to .env.unreal and update your game paths."
+if [ ! -f ".env" ]; then
+    echo -e "${RED}Error: .env file not found!${NC}"
+    echo "Copy orchestrator.env.example to .env and update your settings."
     exit 1
 fi
 
@@ -53,10 +53,10 @@ case "$COMMAND" in
 
         docker network create vtuber_network 2>/dev/null || true
 
-        set -a
-        source .env
-        source .env.unreal
-        set +a
+        if [ ! -s ".env.turn" ]; then
+            echo -e "${YELLOW}TURN credentials missing; generating .env.turn...${NC}"
+            ./scripts/generate_turn_credentials.sh
+        fi
 
         docker compose -f docker-compose.unreal.yml up $DETACHED
 
@@ -66,7 +66,9 @@ case "$COMMAND" in
             check_health
 
             echo -e "\n${GREEN}Access points:${NC}"
-            echo -e "  Pixel Streaming UI: ${YELLOW}http://localhost:8080${NC}"
+            echo -e "  Signaling health: ${YELLOW}http://localhost:8080/healthz${NC}"
+            echo -e "  Runner health: ${YELLOW}http://localhost:9877/health${NC}"
+            echo -e "  Orchestrator health: ${YELLOW}http://localhost:9090/health${NC}"
             echo -e "  Unreal TCP (in-container): ${YELLOW}vtuber-unreal-game:7777${NC}"
             echo -e "  Sample TTS trigger:${YELLOW} $0 test${NC}"
             echo -e "\n${GREEN}View logs with:${NC} $0 logs [service-name]"
@@ -96,13 +98,21 @@ case "$COMMAND" in
 
     pull)
         echo -e "${YELLOW}Pulling Docker images...${NC}"
-        docker compose -f docker-compose.unreal.yml pull
+        docker compose -f docker-compose.unreal.yml pull \
+          turn-server unreal-signaling \
+          vtuber-script-runner recorder-control \
+          orchestrator-health vtuber-watchdog vtuber-auto-updater \
+          orchestrator-registration
         echo -e "${GREEN}Pull complete!${NC}"
         ;;
 
     build)
         echo -e "${YELLOW}No local builds are required; pulling images instead...${NC}"
-        docker compose -f docker-compose.unreal.yml pull
+        docker compose -f docker-compose.unreal.yml pull \
+          turn-server unreal-signaling \
+          vtuber-script-runner recorder-control \
+          orchestrator-health vtuber-watchdog vtuber-auto-updater \
+          orchestrator-registration
         echo -e "${GREEN}Pull complete!${NC}"
         ;;
 
