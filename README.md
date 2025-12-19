@@ -90,16 +90,20 @@ printf '%s' '<ORCH_TOKEN>' > ~/.embody/orch-license-token.txt
 chmod 600 ~/.embody/orch-license-token.txt
 ```
 
-One-liner (recommended):
+One-liner (recommended, interactive wizard):
 ```bash
-git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && \
-  ./scripts/onboard_orchestrator.sh \
-    --orchestrator-id "<orchestrator-id>" \
-    --orchestrator-address "0x0000000000000000000000000000000000000000" \
-    --artifact-url "https://<public-or-presigned-url>" \
-    --orch-token-file ~/.embody/orch-license-token.txt
+git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/onboard_orchestrator.sh
 ```
-On Ubuntu/Debian, add `--install-deps` to have the script install `curl`, `jq`, `zstd`, and `age` via `apt-get`.
+The wizard will prompt you for the admin-provided inputs (orchestrator ID/address, token, artifact URL) and can install missing dependencies on Ubuntu/Debian.
+
+Non-interactive (for automation):
+```bash
+./scripts/onboard_orchestrator.sh --non-interactive \
+  --orchestrator-id "<orchestrator-id>" \
+  --orchestrator-address "0x0000000000000000000000000000000000000000" \
+  --artifact-url "https://<public-or-presigned-url>" \
+  --orch-token-file ~/.embody/orch-license-token.txt
+```
 
 The onboarding script will:
 - Write/update `.env` (Payments URL, orchestrator ID/address, public IP, allowlists, storage paths).

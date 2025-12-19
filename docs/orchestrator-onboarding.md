@@ -22,21 +22,25 @@ printf '%s' '<ORCH_TOKEN>' > ~/.embody/orch-license-token.txt
 chmod 600 ~/.embody/orch-license-token.txt
 ```
 
-2) Run the onboarding script:
+2) Run the onboarding script (interactive wizard):
 ```bash
-git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && \
-  ./scripts/onboard_orchestrator.sh \
-    --orchestrator-id "<orchestrator-id>" \
-    --orchestrator-address "0x0000000000000000000000000000000000000000" \
-    --artifact-url "https://<public-or-presigned-url>" \
-    --orch-token-file ~/.embody/orch-license-token.txt
+git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/onboard_orchestrator.sh
 ```
 
 Notes:
 - The script writes/updates `.env` and generates `.env.turn`.
-- On Ubuntu/Debian, add `--install-deps` to have the script install `curl`, `jq`, `zstd`, and `age` via `apt-get`.
+- It will prompt for the admin-provided inputs (orchestrator ID/address, token, artifact URL) and can install missing dependencies on Ubuntu/Debian.
 - By default it allowlists the forwarder IP (`3.150.172.153`) for runner/recorder/power endpoints; override with `--forwarder-ip`.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
+
+Non-interactive (for automation):
+```bash
+./scripts/onboard_orchestrator.sh --non-interactive \
+  --orchestrator-id "<orchestrator-id>" \
+  --orchestrator-address "0x0000000000000000000000000000000000000000" \
+  --artifact-url "https://<public-or-presigned-url>" \
+  --orch-token-file ~/.embody/orch-license-token.txt
+```
 
 ## Firewall / ingress checklist
 
