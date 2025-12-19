@@ -341,17 +341,21 @@ apt_install() {
   if [[ "$APT_UPDATED" != "1" ]]; then
     note "apt-get update"
     if [[ "$(id -u)" == "0" ]]; then
-      apt-get update -y
+      DEBIAN_FRONTEND=noninteractive apt-get update -y
     else
-      sudo apt-get update -y
+      sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
     fi
     APT_UPDATED="1"
   fi
   note "apt-get install: ${pkgs[*]}"
   if [[ "$(id -u)" == "0" ]]; then
-    apt-get install -y "${pkgs[@]}"
+    NEEDRESTART_MODE=a DEBIAN_FRONTEND=noninteractive \
+      apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+      "${pkgs[@]}"
   else
-    sudo apt-get install -y "${pkgs[@]}"
+    sudo NEEDRESTART_MODE=a DEBIAN_FRONTEND=noninteractive \
+      apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+      "${pkgs[@]}"
   fi
 }
 
