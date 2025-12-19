@@ -8,8 +8,11 @@ This guide covers the fastest path to run an authorized Unreal VTuber orchestrat
 - Docker + Docker Compose plugin (or `docker-compose`)
 - Outbound internet access to pull service images and reach the Payments API
 
+Orchestrator provides:
+- Choose a unique Orchestrator ID (`ORCHESTRATOR_ID`)
+- Payout wallet (`ORCHESTRATOR_ADDRESS`)
+
 Admin provides:
-- Orchestrator ID (`ORCHESTRATOR_ID`) + payout wallet (`ORCHESTRATOR_ADDRESS`)
 - A Payments-issued orchestrator license token
 - An encrypted artifact URL (public/presigned) for the desired game build (`.tar.zst.age`)
 
@@ -29,7 +32,7 @@ git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber &&
 
 Notes:
 - The script writes/updates `.env` and generates `.env.turn`.
-- It will prompt for the admin-provided inputs (orchestrator ID/address, token, artifact URL) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
+- It will prompt for the required inputs (choose a unique orchestrator ID + payout wallet, plus token + artifact URL) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
 - By default it allowlists the forwarder IP (`3.150.172.153`) for runner/recorder/power endpoints; override with `--forwarder-ip`.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 

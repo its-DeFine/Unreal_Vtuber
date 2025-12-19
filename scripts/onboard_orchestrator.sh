@@ -7,7 +7,7 @@ Interactive orchestrator onboarding (encrypted game image flow).
 
 If you run this script with no flags, it launches a CLI wizard that:
   - checks prerequisites (and can install missing deps on Ubuntu/Debian)
-  - asks for the admin-provided inputs (token + artifact URL + IDs)
+  - asks for the required inputs (orchestrator ID/address + token + artifact URL)
   - writes/updates `.env` + generates `.env.turn`
   - loads the encrypted game image via a Payments lease
   - starts `docker-compose.unreal.yml` and registers the orchestrator
@@ -138,6 +138,11 @@ read_env_value() {
 is_valid_eth_address() {
   local addr="$1"
   [[ "$addr" =~ ^0x[0-9a-fA-F]{40}$ ]]
+}
+
+is_valid_orchestrator_id() {
+  local id="$1"
+  [[ "$id" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$ ]]
 }
 
 SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
@@ -620,6 +625,8 @@ maybe_run_wizard() {
   local existing_orch_id existing_addr existing_payments existing_forwarder existing_session_dir existing_recordings_dir
   existing_orch_id="$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ID" 2>/dev/null || true)"
   existing_addr="$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ADDRESS" 2>/dev/null || true)"
+  existing_orch_id="$(trim_whitespace "$existing_orch_id")"
+  existing_addr="$(trim_whitespace "$existing_addr")"
   existing_payments="$(read_env_value "$ENV_FILE" "PAYMENTS_API_URL" 2>/dev/null || true)"
   if [[ -z "$existing_payments" ]]; then
     existing_payments="$(read_env_value "$ENV_TEMPLATE" "PAYMENTS_API_URL" 2>/dev/null || true)"
@@ -648,8 +655,23 @@ maybe_run_wizard() {
   fi
 
   if [[ -z "$ORCH_ID" ]]; then
-    local suggested_id="orch-$(hostname -s 2>/dev/null || hostname || echo 'orch-1')"
-    ORCH_ID="$(prompt_default "Orchestrator ID (from admin)" "${existing_orch_id:-$suggested_id}")"
+    if [[ -n "$existing_orch_id" ]] && is_valid_orchestrator_id "$existing_orch_id"; then
+      ORCH_ID="$existing_orch_id"
+    else
+      note "Choose a unique orchestrator ID (1-64 chars; letters/numbers/dot/underscore/dash)."
+      while [[ -z "$ORCH_ID" ]]; do
+        ORCH_ID="$(prompt_default "Orchestrator ID (unique; you choose)" "")"
+        ORCH_ID="$(trim_whitespace "$ORCH_ID")"
+        if [[ -z "$ORCH_ID" ]]; then
+          note "Orchestrator ID is required."
+          continue
+        fi
+        if ! is_valid_orchestrator_id "$ORCH_ID"; then
+          note "Invalid ID. Use 1-64 chars: letters/numbers/dot/underscore/dash (start with a letter/number)."
+          ORCH_ID=""
+        fi
+      done
+    fi
   fi
 
   while [[ -z "$ORCH_ADDRESS" ]]; do
@@ -791,9 +813,14 @@ maybe_run_wizard
 if [[ -z "$ORCH_ID" ]]; then
   die "--orchestrator-id is required (or run without --non-interactive to use the wizard)"
 fi
+ORCH_ID="$(trim_whitespace "$ORCH_ID")"
+if ! is_valid_orchestrator_id "$ORCH_ID"; then
+  die "ORCHESTRATOR_ID must be 1-64 chars: letters/numbers/dot/underscore/dash (start with a letter/number)"
+fi
 if [[ -z "$ORCH_ADDRESS" ]]; then
   die "--orchestrator-address is required (or run without --non-interactive to use the wizard)"
 fi
+ORCH_ADDRESS="$(trim_whitespace "$ORCH_ADDRESS")"
 if ! is_valid_eth_address "$ORCH_ADDRESS"; then
   die "ORCHESTRATOR_ADDRESS must look like 0x + 40 hex chars"
 fi
