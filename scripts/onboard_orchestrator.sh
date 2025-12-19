@@ -59,7 +59,7 @@ Behavior flags:
   --install-nvidia-toolkit    Attempt to install nvidia-container-toolkit (Ubuntu/Debian only)
   --rotate-turn               Regenerate .env.turn even if present
   --no-pull                   Skip docker compose pull
-  --skip-rollout              Skip encrypted image rollout; just docker compose up -d
+  --skip-rollout              Skip encrypted image rollout (requires the game image already loaded locally)
   --skip-registration         Skip running orchestrator-registration
   --no-verify                 Skip rollout health checks
   --force-env                 Overwrite .env (otherwise upsert keys)
@@ -249,9 +249,28 @@ is_valid_eth_address() {
   [[ "$addr" =~ ^0x[0-9a-fA-F]{40}$ ]]
 }
 
+is_zero_eth_address() {
+  local addr="$1"
+  [[ "${addr,,}" == "0x0000000000000000000000000000000000000000" ]]
+}
+
 is_valid_orchestrator_id() {
   local id="$1"
   [[ "$id" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$ ]]
+}
+
+detect_game_image_from_compose() {
+  local compose_file="$1"
+  awk '
+    /^[[:space:]]*unreal-game:[[:space:]]*$/ { in=1; next }
+    in && /^[[:space:]]*image:[[:space:]]*/ {
+      sub(/^[[:space:]]*image:[[:space:]]*/, "", $0)
+      gsub(/[[:space:]]+$/, "", $0)
+      print $0
+      exit
+    }
+    in && /^[^[:space:]]/ { in=0 }
+  ' "$compose_file"
 }
 
 SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
@@ -592,13 +611,13 @@ install_nvidia_toolkit_if_requested() {
   local keyring="/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
   note "Adding NVIDIA container toolkit apt repo (${distribution})"
   if [[ "$(id -u)" == "0" ]]; then
-    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o "$keyring"
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --batch --yes --dearmor -o "$keyring"
     curl -fsSL "https://nvidia.github.io/libnvidia-container/${distribution}/libnvidia-container.list" \
       | sed "s#deb https://#deb [signed-by=${keyring}] https://#g" \
       > /etc/apt/sources.list.d/nvidia-container-toolkit.list
   else
     curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-      | sudo gpg --dearmor -o "$keyring"
+      | sudo gpg --batch --yes --dearmor -o "$keyring"
     curl -fsSL "https://nvidia.github.io/libnvidia-container/${distribution}/libnvidia-container.list" \
       | sed "s#deb https://#deb [signed-by=${keyring}] https://#g" \
       | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
@@ -803,9 +822,14 @@ maybe_run_wizard() {
   fi
 
   while [[ -z "$ORCH_ADDRESS" ]]; do
-    ORCH_ADDRESS="$(prompt_default "Orchestrator payout wallet (0x...)" "${existing_addr:-}")"
+    ORCH_ADDRESS="$(prompt_default "Orchestrator payout wallet address (0x...)" "${existing_addr:-}")"
     if ! is_valid_eth_address "$ORCH_ADDRESS"; then
       note "Wallet address must look like 0x + 40 hex chars"
+      ORCH_ADDRESS=""
+      continue
+    fi
+    if is_zero_eth_address "$ORCH_ADDRESS"; then
+      note "Wallet address cannot be 0x0000000000000000000000000000000000000000"
       ORCH_ADDRESS=""
     fi
   done
@@ -815,6 +839,10 @@ maybe_run_wizard() {
   if [[ "$SKIP_ROLLOUT" != "1" ]]; then
     if ! prompt_yes_no "Do you have the admin-provided token + artifact URL and want to load the encrypted game image now?" "y"; then
       SKIP_ROLLOUT="1"
+      warn "Skipping encrypted rollout: this host must already have the game image loaded locally."
+      if prompt_yes_no "Write config only and exit? (recommended if you don’t have the token/artifact yet)" "y"; then
+        CONFIG_ONLY="1"
+      fi
     fi
   fi
 
@@ -981,6 +1009,9 @@ ORCH_ADDRESS="$(trim_whitespace "$ORCH_ADDRESS")"
 if ! is_valid_eth_address "$ORCH_ADDRESS"; then
   die "ORCHESTRATOR_ADDRESS must look like 0x + 40 hex chars"
 fi
+if is_zero_eth_address "$ORCH_ADDRESS"; then
+  die "ORCHESTRATOR_ADDRESS cannot be 0x0000000000000000000000000000000000000000"
+fi
 
 if [[ "$SKIP_ROLLOUT" != "1" ]]; then
   [[ -n "$ARTIFACT_URL" ]] || die "--artifact-url is required unless --skip-rollout is set"
@@ -1072,14 +1103,39 @@ if [[ "$ROTATE_TURN" == "1" || ! -s "$TURN_ENV_FILE" ]]; then
 else
   note "Keeping existing $TURN_ENV_FILE (use --rotate-turn to regenerate)"
 fi
-if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
-  chown "$SUDO_USER":"$SUDO_USER" "$TURN_ENV_FILE" >/dev/null 2>&1 || true
-fi
+	if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
+	  chown "$SUDO_USER":"$SUDO_USER" "$TURN_ENV_FILE" >/dev/null 2>&1 || true
+	fi
 
-if [[ "$CONFIG_ONLY" == "1" ]]; then
-  note "Config-only mode; exiting after writing env files."
-  exit 0
-fi
+	# Docker Compose interpolates ${TURN_*} from .env (not from env_file).
+	# Sync TURN vars so Compose doesn't warn and the recorder can build RECORDER_TURN_URL.
+	turn_user="$(read_env_value "$TURN_ENV_FILE" "TURN_USER" 2>/dev/null || true)"
+	turn_pass="$(read_env_value "$TURN_ENV_FILE" "TURN_PASS" 2>/dev/null || true)"
+	turn_port="$(read_env_value "$TURN_ENV_FILE" "TURN_PORT" 2>/dev/null || true)"
+	turn_realm="$(read_env_value "$TURN_ENV_FILE" "TURN_REALM" 2>/dev/null || true)"
+	turn_external_ip="$(read_env_value "$TURN_ENV_FILE" "TURN_EXTERNAL_IP" 2>/dev/null || true)"
+	turn_min_port="$(read_env_value "$TURN_ENV_FILE" "TURN_MIN_PORT" 2>/dev/null || true)"
+	turn_max_port="$(read_env_value "$TURN_ENV_FILE" "TURN_MAX_PORT" 2>/dev/null || true)"
+	turn_server="$(read_env_value "$TURN_ENV_FILE" "TURN_SERVER" 2>/dev/null || true)"
+
+	if [[ -n "$turn_user" ]]; then upsert_env_kv "$ENV_FILE" "TURN_USER" "$turn_user"; fi
+	if [[ -n "$turn_pass" ]]; then upsert_env_kv "$ENV_FILE" "TURN_PASS" "$turn_pass"; fi
+	if [[ -n "$turn_port" ]]; then upsert_env_kv "$ENV_FILE" "TURN_PORT" "$turn_port"; fi
+	if [[ -n "$turn_realm" ]]; then upsert_env_kv "$ENV_FILE" "TURN_REALM" "$turn_realm"; fi
+	if [[ -n "$turn_external_ip" ]]; then upsert_env_kv "$ENV_FILE" "TURN_EXTERNAL_IP" "$turn_external_ip"; fi
+	if [[ -n "$turn_min_port" ]]; then upsert_env_kv "$ENV_FILE" "TURN_MIN_PORT" "$turn_min_port"; fi
+	if [[ -n "$turn_max_port" ]]; then upsert_env_kv "$ENV_FILE" "TURN_MAX_PORT" "$turn_max_port"; fi
+	if [[ -n "$turn_server" ]]; then upsert_env_kv "$ENV_FILE" "TURN_SERVER" "$turn_server"; fi
+
+	chmod 600 "$ENV_FILE" >/dev/null 2>&1 || true
+	if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
+	  chown "$SUDO_USER":"$SUDO_USER" "$ENV_FILE" >/dev/null 2>&1 || true
+	fi
+
+	if [[ "$CONFIG_ONLY" == "1" ]]; then
+	  note "Config-only mode; exiting after writing env files."
+	  exit 0
+	fi
 
 require_nvidia_prereqs() {
   if ! command -v nvidia-smi >/dev/null 2>&1; then
@@ -1127,7 +1183,13 @@ if [[ "$NO_PULL" != "1" ]]; then
 fi
 
 if [[ "$SKIP_ROLLOUT" == "1" ]]; then
-  note "Starting compose stack (skipping encrypted rollout)"
+  game_image="$(detect_game_image_from_compose "$COMPOSE_FILE" 2>/dev/null || true)"
+  if [[ -n "$game_image" ]]; then
+    if ! docker image inspect "$game_image" >/dev/null 2>&1; then
+      die "game image not found locally ($game_image). Re-run and provide the token + artifact URL to load the encrypted image (recommended), or run with --config-only until you have the token/artifact."
+    fi
+  fi
+  note "Starting compose stack (using existing local game image; skipping encrypted rollout)"
   "${compose_cmd[@]}" -f "$COMPOSE_FILE" up -d
 else
   require_cmd jq

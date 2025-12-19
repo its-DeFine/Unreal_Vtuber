@@ -95,13 +95,13 @@ One-liner (recommended, interactive wizard):
 git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/onboard_orchestrator.sh
 ```
 The wizard will prompt you for the required inputs (choose a unique orchestrator ID + payout wallet, plus the admin-provided token + artifact URL) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit). Optional settings (Payments URL, forwarder IP, host paths) default from `orchestrator.env.example`; run with `--advanced` to override them interactively.
-For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).
+For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions). If you don’t have the token/artifact yet, use `--config-only` and rerun later to load the encrypted build.
 
 Non-interactive (for automation):
 ```bash
 ./scripts/onboard_orchestrator.sh --non-interactive \
   --orchestrator-id "<orchestrator-id>" \
-  --orchestrator-address "0x0000000000000000000000000000000000000000" \
+  --orchestrator-address "0x1111111111111111111111111111111111111111" \
   --artifact-url "https://<public-or-presigned-url>" \
   --orch-token-file ~/.embody/orch-license-token.txt
 ```
