@@ -36,6 +36,7 @@ Host paths (written into .env):
 Behavior flags:
   --interactive               Force the CLI wizard (even if flags are provided)
   --non-interactive           Never prompt; error if required values are missing
+  --advanced                  Prompt for optional settings (Payments URL, forwarder IP, paths)
   --install-deps              Attempt apt-get install of curl/jq/zstd/age/python3 (Ubuntu/Debian only)
   --install-docker            Attempt apt-get install of docker + compose plugin (Ubuntu/Debian only)
   --install-nvidia-driver     Attempt to install the NVIDIA driver (Ubuntu/Debian only; requires reboot)
@@ -109,6 +110,19 @@ prompt_yes_no() {
   esac
 }
 
+trim_whitespace() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+strip_inline_comment() {
+  local s="$1"
+  s="${s%%#*}"
+  trim_whitespace "$s"
+}
+
 read_env_value() {
   local file="$1" key="$2"
   [[ -f "$file" ]] || return 1
@@ -165,6 +179,10 @@ FORCE_ENV="0"
 CONFIG_ONLY="0"
 
 INTERACTIVE="auto"
+ADVANCED="0"
+
+SESSION_DIR_SET="0"
+RECORDINGS_DIR_SET="0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -178,6 +196,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --non-interactive)
       INTERACTIVE="0"
+      shift 1
+      ;;
+    --advanced)
+      ADVANCED="1"
       shift 1
       ;;
     --payments-api-url)
@@ -222,10 +244,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --session-dir)
       SESSION_DIR="${2:-}"
+      SESSION_DIR_SET="1"
       shift 2
       ;;
     --recordings-dir)
       RECORDINGS_DIR="${2:-}"
+      RECORDINGS_DIR_SET="1"
       shift 2
       ;;
     --install-deps)
@@ -597,14 +621,31 @@ maybe_run_wizard() {
   existing_orch_id="$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ID" 2>/dev/null || true)"
   existing_addr="$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ADDRESS" 2>/dev/null || true)"
   existing_payments="$(read_env_value "$ENV_FILE" "PAYMENTS_API_URL" 2>/dev/null || true)"
+  if [[ -z "$existing_payments" ]]; then
+    existing_payments="$(read_env_value "$ENV_TEMPLATE" "PAYMENTS_API_URL" 2>/dev/null || true)"
+  fi
+
   existing_forwarder="$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null | awk -F, '{print $3}' || true)"
+  if [[ -z "$existing_forwarder" ]]; then
+    existing_forwarder="$(read_env_value "$ENV_TEMPLATE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null | awk -F, '{print $3}' || true)"
+  fi
+
   existing_session_dir="$(read_env_value "$ENV_FILE" "VTUBER_SESSION_DIR" 2>/dev/null || true)"
+  if [[ -z "$existing_session_dir" ]]; then
+    existing_session_dir="$(read_env_value "$ENV_TEMPLATE" "VTUBER_SESSION_DIR" 2>/dev/null || true)"
+  fi
+
   existing_recordings_dir="$(read_env_value "$ENV_FILE" "VTUBER_RECORDINGS_DIR" 2>/dev/null || true)"
+  if [[ -z "$existing_recordings_dir" ]]; then
+    existing_recordings_dir="$(read_env_value "$ENV_TEMPLATE" "VTUBER_RECORDINGS_DIR" 2>/dev/null || true)"
+  fi
 
   if [[ -z "$PAYMENTS_API_URL" || "$PAYMENTS_API_URL" == "http://3.141.111.200:8081" ]]; then
     PAYMENTS_API_URL="${existing_payments:-$PAYMENTS_API_URL}"
   fi
-  PAYMENTS_API_URL="$(prompt_default "Payments API URL" "$PAYMENTS_API_URL")"
+  if [[ "$ADVANCED" == "1" || -z "$PAYMENTS_API_URL" ]]; then
+    PAYMENTS_API_URL="$(prompt_default "Payments API URL" "$PAYMENTS_API_URL")"
+  fi
 
   if [[ -z "$ORCH_ID" ]]; then
     local suggested_id="orch-$(hostname -s 2>/dev/null || hostname || echo 'orch-1')"
@@ -658,25 +699,41 @@ maybe_run_wizard() {
   if [[ -z "$FORWARDER_IP" || "$FORWARDER_IP" == "3.150.172.153" ]]; then
     FORWARDER_IP="${existing_forwarder:-$FORWARDER_IP}"
   fi
-  FORWARDER_IP="$(prompt_default "Forwarder IP (allowlisted for runner/recorder/power)" "$FORWARDER_IP")"
+  if [[ "$ADVANCED" == "1" || -z "$FORWARDER_IP" ]]; then
+    FORWARDER_IP="$(prompt_default "Forwarder IP (allowlisted for runner/recorder/power)" "$FORWARDER_IP")"
+  fi
 
   if [[ "$PUBLIC_IP" == "auto" ]]; then
     local detected
     detected="$(detect_public_ip || true)"
     if [[ -n "$detected" ]]; then
       note "Detected public IP: $detected"
-      if prompt_yes_no "Use detected public IP ($detected)?" "y"; then
-        PUBLIC_IP="$detected"
+      if [[ "$ADVANCED" == "1" ]]; then
+        PUBLIC_IP="$(prompt_default "Public IP" "$detected")"
       else
-        PUBLIC_IP="$(prompt_default "Public IP" "")"
+        PUBLIC_IP="$detected"
       fi
     else
       PUBLIC_IP="$(prompt_default "Public IP" "")"
     fi
   fi
 
-  SESSION_DIR="$(prompt_default "Session dir (host path)" "${existing_session_dir:-$SESSION_DIR}")"
-  RECORDINGS_DIR="$(prompt_default "Recordings dir (host path)" "${existing_recordings_dir:-$RECORDINGS_DIR}")"
+  existing_session_dir="$(strip_inline_comment "$existing_session_dir")"
+  existing_recordings_dir="$(strip_inline_comment "$existing_recordings_dir")"
+
+  if [[ "$SESSION_DIR_SET" != "1" && -n "$existing_session_dir" ]]; then
+    SESSION_DIR="$existing_session_dir"
+  fi
+  if [[ "$RECORDINGS_DIR_SET" != "1" && -n "$existing_recordings_dir" ]]; then
+    RECORDINGS_DIR="$existing_recordings_dir"
+  fi
+
+  if [[ "$ADVANCED" == "1" || -z "$SESSION_DIR" ]]; then
+    SESSION_DIR="$(prompt_default "Session dir (host path)" "$SESSION_DIR")"
+  fi
+  if [[ "$ADVANCED" == "1" || -z "$RECORDINGS_DIR" ]]; then
+    RECORDINGS_DIR="$(prompt_default "Recordings dir (host path)" "$RECORDINGS_DIR")"
+  fi
 
   note "Preflight:"
   local missing_deps=()
