@@ -257,18 +257,12 @@ is_valid_orchestrator_id() {
   [[ "$id" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$ ]]
 }
 
-detect_game_image_from_compose() {
-  local compose_file="$1"
-  awk '
-    /^[[:space:]]*unreal-game:[[:space:]]*$/ { in=1; next }
-    in && /^[[:space:]]*image:[[:space:]]*/ {
-      sub(/^[[:space:]]*image:[[:space:]]*/, "", $0)
-      gsub(/[[:space:]]+$/, "", $0)
-      print $0
-      exit
-    }
-    in && /^[^[:space:]]/ { in=0 }
-  ' "$compose_file"
+is_valid_email() {
+  local email="$1"
+  [[ "$email" == *"@"* ]] || return 1
+  [[ "$email" != "@"* ]] || return 1
+  [[ "$email" != *"@" ]] || return 1
+  return 0
 }
 
 SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
@@ -289,6 +283,7 @@ PUBLIC_IP="auto"
 
 ORCH_ID=""
 ORCH_ADDRESS=""
+ORCH_CONTACT_EMAIL=""
 ARTIFACT_URL=""
 ORCH_TOKEN=""
 ORCH_TOKEN_FILE=""
@@ -303,11 +298,9 @@ INSTALL_NVIDIA_DRIVER="0"
 INSTALL_NVIDIA_TOOLKIT="0"
 ROTATE_TURN="0"
 NO_PULL="0"
-SKIP_ROLLOUT="0"
 SKIP_REGISTRATION="0"
 NO_VERIFY="0"
 FORCE_ENV="0"
-CONFIG_ONLY="0"
 
 INTERACTIVE="auto"
 ADVANCED="0"
@@ -415,10 +408,6 @@ while [[ $# -gt 0 ]]; do
       NO_PULL="1"
       shift 1
       ;;
-    --skip-rollout)
-      SKIP_ROLLOUT="1"
-      shift 1
-      ;;
     --skip-registration)
       SKIP_REGISTRATION="1"
       shift 1
@@ -429,10 +418,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --force-env)
       FORCE_ENV="1"
-      shift 1
-      ;;
-    --config-only)
-      CONFIG_ONLY="1"
       shift 1
       ;;
     *)
@@ -446,6 +431,8 @@ init_ui
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   die "compose file not found: $COMPOSE_FILE (are you in the repo?)"
 fi
+
+cd "$REPO_ROOT"
 
 maybe_rerun_with_sudo_for_docker() {
   if [[ "$(id -u)" == "0" ]]; then
@@ -732,13 +719,11 @@ maybe_run_wizard() {
     if [[ -z "$ORCH_ID" || -z "$ORCH_ADDRESS" ]]; then
       need_prompt="1"
     fi
-    if [[ "$SKIP_ROLLOUT" != "1" ]]; then
-      if [[ -z "$ARTIFACT_URL" ]]; then
-        need_prompt="1"
-      fi
-      if [[ -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
-        need_prompt="1"
-      fi
+    if [[ -z "$ARTIFACT_URL" ]]; then
+      need_prompt="1"
+    fi
+    if [[ -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
+      need_prompt="1"
     fi
   fi
 
@@ -832,12 +817,24 @@ maybe_run_wizard() {
     fi
   done
 
-  section "Encrypted Build"
-
-  if [[ "$SKIP_ROLLOUT" == "1" ]]; then
-    warn "--skip-rollout was set, but the interactive wizard requires loading the encrypted build. Continuing with encrypted rollout."
-    SKIP_ROLLOUT="0"
+  local existing_email
+  existing_email="$(read_env_value "$ENV_FILE" "ORCHESTRATOR_CONTACT_EMAIL" 2>/dev/null || true)"
+  if [[ -z "$existing_email" ]]; then
+    existing_email="$(read_env_value "$ENV_TEMPLATE" "ORCHESTRATOR_CONTACT_EMAIL" 2>/dev/null || true)"
   fi
+  existing_email="$(trim_whitespace "$existing_email")"
+  existing_email="$(strip_inline_comment "$existing_email")"
+
+  if [[ -z "$ORCH_CONTACT_EMAIL" ]]; then
+    ORCH_CONTACT_EMAIL="$(prompt_default "Contact email (optional)" "$existing_email")"
+    ORCH_CONTACT_EMAIL="$(trim_whitespace "$ORCH_CONTACT_EMAIL")"
+    if [[ -n "$ORCH_CONTACT_EMAIL" ]] && ! is_valid_email "$ORCH_CONTACT_EMAIL"; then
+      note "Contact email must include '@' (or leave blank)"
+      ORCH_CONTACT_EMAIL=""
+    fi
+  fi
+
+  section "Encrypted Build"
 
   note "You need the admin-provided license token + encrypted artifact URL to continue."
   note "If you don’t have them yet, press Ctrl+C and request them from your admin."
@@ -850,20 +847,18 @@ maybe_run_wizard() {
   local default_token_file="$target_home/.embody/orch-license-token.txt"
   if [[ -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" && -z "$ORCH_TOKEN" ]]; then
     if [[ -s "$default_token_file" ]]; then
-      if prompt_yes_no "Use existing token file at $default_token_file?" "y"; then
+      if prompt_yes_no "Use token file at $default_token_file?" "y"; then
         ORCH_TOKEN_FILE="$default_token_file"
+      else
+        ORCH_TOKEN="$(prompt_secret "Paste orchestrator license token (hidden input)")"
       fi
-    fi
-  fi
-
-  if [[ -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" && -z "$ORCH_TOKEN" ]]; then
-    local token_file
-    token_file="$(prompt_default "Token file path (leave blank to paste token)" "$default_token_file")"
-    if [[ -n "$token_file" && -f "$token_file" ]]; then
-      ORCH_TOKEN_FILE="$token_file"
     else
       ORCH_TOKEN="$(prompt_secret "Paste orchestrator license token (hidden input)")"
     fi
+  fi
+
+  if [[ -n "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
+    note "We will save it to $default_token_file (chmod 600) so you don't have to paste again."
   fi
 
   if [[ -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
@@ -918,21 +913,20 @@ maybe_run_wizard() {
   divider
   echo "Orchestrator ID:     $ORCH_ID" >&2
   echo "Payout wallet:       $ORCH_ADDRESS" >&2
+  if [[ -n "$ORCH_CONTACT_EMAIL" ]]; then
+    echo "Contact email:       $ORCH_CONTACT_EMAIL" >&2
+  fi
   echo "Public IP:           $PUBLIC_IP" >&2
   echo "Forwarder allowlist: $FORWARDER_IP" >&2
   echo "Session dir:         $SESSION_DIR" >&2
   echo "Recordings dir:      $RECORDINGS_DIR" >&2
-  if [[ "$SKIP_ROLLOUT" == "1" ]]; then
-    echo "Encrypted build:     skipped (will use existing local game image tag)" >&2
+  echo "Encrypted artifact:  $(redact_url "$ARTIFACT_URL")" >&2
+  if [[ -n "$ORCH_TOKEN_FILE" ]]; then
+    echo "License token:       file $(strip_inline_comment "$ORCH_TOKEN_FILE")" >&2
+  elif [[ -n "$ORCH_TOKEN_ENV" ]]; then
+    echo "License token:       env $ORCH_TOKEN_ENV" >&2
   else
-    echo "Encrypted artifact:  $(redact_url "$ARTIFACT_URL")" >&2
-    if [[ -n "$ORCH_TOKEN_FILE" ]]; then
-      echo "License token:       file $(strip_inline_comment "$ORCH_TOKEN_FILE")" >&2
-    elif [[ -n "$ORCH_TOKEN_ENV" ]]; then
-      echo "License token:       env $ORCH_TOKEN_ENV" >&2
-    else
-      echo "License token:       provided (hidden)" >&2
-    fi
+    echo "License token:       provided (hidden)" >&2
   fi
   divider
 
@@ -1023,11 +1017,9 @@ if is_zero_eth_address "$ORCH_ADDRESS"; then
   die "ORCHESTRATOR_ADDRESS cannot be 0x0000000000000000000000000000000000000000"
 fi
 
-if [[ "$SKIP_ROLLOUT" != "1" ]]; then
-  [[ -n "$ARTIFACT_URL" ]] || die "--artifact-url is required unless --skip-rollout is set"
-  if [[ -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
-    die "orchestrator token required (use --orch-token-file or --orch-token-env)"
-  fi
+[[ -n "$ARTIFACT_URL" ]] || die "--artifact-url is required"
+if [[ -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
+  die "orchestrator token required (use --orch-token-file or --orch-token-env)"
 fi
 
 install_docker_if_requested
@@ -1086,6 +1078,9 @@ ensure_env_file_exists
 upsert_env_kv "$ENV_FILE" "PAYMENTS_API_URL" "$PAYMENTS_API_URL"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_ID" "$ORCH_ID"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_ADDRESS" "$ORCH_ADDRESS"
+if [[ -n "$ORCH_CONTACT_EMAIL" ]]; then
+  upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_CONTACT_EMAIL" "$ORCH_CONTACT_EMAIL"
+fi
 upsert_env_kv "$ENV_FILE" "PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HOST_PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" "http://$PUBLIC_IP:9090/health"
@@ -1143,11 +1138,6 @@ if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
   chown "$SUDO_USER":"$SUDO_USER" "$ENV_FILE" >/dev/null 2>&1 || true
 fi
 
-if [[ "$CONFIG_ONLY" == "1" ]]; then
-  note "Config-only mode; exiting after writing env files."
-  exit 0
-fi
-
 require_nvidia_prereqs() {
   if ! command -v nvidia-smi >/dev/null 2>&1; then
     die "NVIDIA driver not detected (nvidia-smi missing). Install the NVIDIA driver and rerun."
@@ -1182,45 +1172,39 @@ if [[ "$NO_PULL" != "1" ]]; then
     vtuber-auto-updater recorder-control
 fi
 
-if [[ "$SKIP_ROLLOUT" == "1" ]]; then
-  game_image="$(detect_game_image_from_compose "$COMPOSE_FILE" 2>/dev/null || true)"
-  if [[ -n "$game_image" ]]; then
-    if ! docker image inspect "$game_image" >/dev/null 2>&1; then
-      die "game image not found locally ($game_image). Re-run and provide the token + artifact URL to load the encrypted image."
-    fi
-  fi
-  note "Starting compose stack (using existing local game image; skipping encrypted rollout)"
-  "${compose_cmd[@]}" -f "$COMPOSE_FILE" up -d
-else
-  require_cmd jq
-  require_cmd zstd
-  require_cmd age
+require_cmd jq
+require_cmd zstd
+require_cmd age
 
-  rollout_args=()
-  if [[ "$NO_VERIFY" == "1" ]]; then
-    rollout_args+=(--no-verify)
-  fi
-
-  note "Rolling out encrypted game image + starting compose stack"
-  token_args=()
-  if [[ -n "$ORCH_TOKEN_ENV" ]]; then
-    token_args+=(--orch-token-env "$ORCH_TOKEN_ENV")
-  elif [[ -n "$ORCH_TOKEN_FILE" ]]; then
-    token_args+=(--orch-token-file "$ORCH_TOKEN_FILE")
-  elif [[ -n "$ORCH_TOKEN" ]]; then
-    token_args+=(--orch-token "$ORCH_TOKEN")
-  fi
-  "$REPO_ROOT/tools/encrypted-game-image/rollout.sh" \
-    --payments-api-url "$PAYMENTS_API_URL" \
-    --image-ref "$IMAGE_REF" \
-    --artifact-url "$ARTIFACT_URL" \
-    "${token_args[@]}" \
-    "${rollout_args[@]}"
+rollout_args=()
+if [[ "$NO_VERIFY" == "1" ]]; then
+  rollout_args+=(--no-verify)
 fi
+
+note "Rolling out encrypted game image + starting compose stack"
+token_args=()
+if [[ -n "$ORCH_TOKEN_ENV" ]]; then
+  token_args+=(--orch-token-env "$ORCH_TOKEN_ENV")
+elif [[ -n "$ORCH_TOKEN_FILE" ]]; then
+  token_args+=(--orch-token-file "$ORCH_TOKEN_FILE")
+elif [[ -n "$ORCH_TOKEN" ]]; then
+  token_args+=(--orch-token "$ORCH_TOKEN")
+fi
+"$REPO_ROOT/tools/encrypted-game-image/rollout.sh" \
+  --payments-api-url "$PAYMENTS_API_URL" \
+  --image-ref "$IMAGE_REF" \
+  --artifact-url "$ARTIFACT_URL" \
+  "${token_args[@]}" \
+  "${rollout_args[@]}"
 
 if [[ "$SKIP_REGISTRATION" != "1" ]]; then
   note "Registering orchestrator with Payments (best-effort)"
-  "${compose_cmd[@]}" -f "$COMPOSE_FILE" run --rm orchestrator-registration >/dev/null 2>&1 || true
+  reg_args=(--once --api-url "$PAYMENTS_API_URL" --orchestrator-id "$ORCH_ID" --orchestrator-address "$ORCH_ADDRESS")
+  if [[ -n "$ORCH_CONTACT_EMAIL" ]]; then
+    reg_args+=(--contact-email "$ORCH_CONTACT_EMAIL")
+  fi
+  reg_args+=(--host-public-ip "$PUBLIC_IP" --health-url "http://$PUBLIC_IP:9090/health")
+  python3 "$REPO_ROOT/scripts/register_orchestrator.py" "${reg_args[@]}" || true
 fi
 
 note "Health checks (best-effort)"
