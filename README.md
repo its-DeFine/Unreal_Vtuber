@@ -10,7 +10,7 @@ separate repository.
 ## Contents
 
 - `docker-compose.unreal.yml` – TURN, signaling, packaged Unreal container, script runner, orchestrator registration helper, and local health monitor.
-- `orchestrator-health/` – lightweight FastAPI service that exposes container health at `http://<host>:9090/health`.
+- `orchestrator-health/` – lightweight FastAPI service that exposes power control at `http://<host>:9090/power` (and optionally health at `/health`).
 - `pixel-streaming/` – Pixel Streaming configuration overrides shipped with the Unreal build.
 - `tools/encrypted-game-image/` – helper scripts to distribute the proprietary game image as an encrypted artifact (no GHCR creds needed on the orchestrator).
 - `tools/recorder/` – recorder-control sidecar (see `docs/recorder-control.md`).
@@ -93,7 +93,8 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    ```bash
    cp orchestrator.env.example .env
    # edit .env with PAYMENTS_API_URL (point at the standalone backend),
-   # ORCHESTRATOR_ID/ADDRESS, PUBLIC_IP, and ORCHESTRATOR_HEALTH_URL
+   # ORCHESTRATOR_ID/ADDRESS and PUBLIC_IP
+   # (optional) set ORCHESTRATOR_HEALTH_URL unless you run a forwarder-side watcher and set ORCHESTRATOR_DISABLE_HEALTH_URL=1
    # include VTUBER_ALLOWED_ADDRESSES=3.150.172.153 so the script runner accepts commands from the forwarder
    ```
 4. Open the firewall so the forwarder (3.150.172.153) and payments backend (3.141.111.200) can reach this host.
@@ -101,12 +102,11 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
 | Traffic source                     | Ports (TCP)                       | Ports (UDP)               |
 | --------------------------------- | ---------------------------------- | ------------------------- |
 | Forwarder / client (3.150.172.153) | 8080, 8888, 8889, 9877 | 3478, 49160‑49200 |
-| Payments backend (3.141.111.200) | 9090                          | –                |
+| Forwarder / watcher (3.150.172.153) | 9090 (power API)                  | –                |
 
    **Example (UFW)**
    ```bash
    CLIENT_IP=3.150.172.153          # Forwarder public IP
-   PAYMENTS_IP=3.141.111.200        # Payments backend public IP
 
    for PORT in 8080 8888 8889 9877; do
      sudo ufw allow from $CLIENT_IP to any port $PORT proto tcp
@@ -114,7 +114,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
    sudo ufw allow from $CLIENT_IP to any port 3478 proto udp
    sudo ufw allow from $CLIENT_IP to any port 49160:49200 proto udp
 
-   sudo ufw allow from $PAYMENTS_IP to any port 9090 proto tcp
+   sudo ufw allow from $CLIENT_IP to any port 9090 proto tcp
 
    sudo ufw reload
    ```
@@ -236,7 +236,7 @@ Repo and container images are public now—no GitHub auth or PAT needed to updat
    ```
 2. **Make sure allowlists match the new deployment**
    - Repeat the firewall steps from “New deployment” so the forwarder and payments backend can still reach the host.
-   - If the orchestrator’s public IP changed, refresh the allowlist and update `.env` (`PUBLIC_IP`, `ORCHESTRATOR_HEALTH_URL`).
+   - If the orchestrator’s public IP changed, refresh the allowlist and update `.env` (`PUBLIC_IP`, and optionally `ORCHESTRATOR_HEALTH_URL` unless using `ORCHESTRATOR_DISABLE_HEALTH_URL=1`).
 3. **Refresh non-game container images**
    ```bash
    docker compose -f docker-compose.unreal.yml pull \

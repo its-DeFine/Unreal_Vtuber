@@ -29,7 +29,8 @@ After the services come up in detached mode you should see:
 
 * Signaling health – `curl http://localhost:8080/healthz`
 * Unreal TCP loopback interface – reachable **inside** `vtuber-unreal-game` on `127.0.0.1:7777`
-* Orchestrator health endpoint – `http://localhost:9090/health` (surface status for the payments backend)
+* Orchestrator power endpoint – `http://localhost:9090/power` (used by forwarder automation to sleep/wake containers)
+* Orchestrator health endpoint – `http://localhost:9090/health` (optional; Payments can instead rely on forwarder-reported health)
 
 Use `./scripts/start_vtuber_unreal.sh ps` to confirm container status or `./scripts/start_vtuber_unreal.sh logs unreal-game` for tailing output.
 

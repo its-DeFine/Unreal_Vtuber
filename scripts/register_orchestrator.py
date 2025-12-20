@@ -79,6 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host-public-ip", default=env_default("ORCHESTRATOR_HOST_PUBLIC_IP"), help="Optional public IP metadata")
     parser.add_argument("--health-url", default=env_default("ORCHESTRATOR_HEALTH_URL"), help="Optional override for the orchestrator health endpoint URL")
     parser.add_argument(
+        "--disable-health-url",
+        action="store_true",
+        default=env_default("ORCHESTRATOR_DISABLE_HEALTH_URL", "").strip().lower() in {"1", "true", "yes", "y", "on"},
+        help="Do not include health_url in the registration payload (use when a forwarder watcher reports health)",
+    )
+    parser.add_argument(
         "--health-port",
         type=int,
         default=int(env_default("ORCHESTRATOR_HEALTH_PORT", "9090")),
@@ -141,11 +147,12 @@ def build_payload(args: argparse.Namespace) -> Dict[str, Any]:
     if host_ip:
         payload["host_public_ip"] = host_ip
 
-    health_url = args.health_url
-    if not health_url and host_ip:
-        health_url = f"http://{host_ip}:{args.health_port}/health"
-    if health_url:
-        payload["health_url"] = health_url
+    if not args.disable_health_url:
+        health_url = args.health_url
+        if not health_url and host_ip:
+            health_url = f"http://{host_ip}:{args.health_port}/health"
+        if health_url:
+            payload["health_url"] = health_url
 
     if args.health_timeout is not None:
         payload["health_timeout"] = args.health_timeout
