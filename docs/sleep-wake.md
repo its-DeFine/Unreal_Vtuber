@@ -14,7 +14,7 @@ skips recovery while sleeping.
 
 ## Auth / allowlist
 - `POWER_ALLOWED_IPS` governs which source IPs can access `/power`. Set it in `.env`,
-  e.g. `POWER_ALLOWED_IPS=127.0.0.1,::1,3.150.172.153`.
+  e.g. `POWER_ALLOWED_IPS=127.0.0.1,::1,<edge-ip>`.
 - Requests from other IPs receive a 403.
 
 ## Behavior
@@ -53,4 +53,3 @@ curl -X POST -H "Content-Type: application/json" \
   -d '{"action":"wake"}' \
   http://<host>:9090/power
 ```
-

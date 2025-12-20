@@ -13,6 +13,10 @@ No additional application containers are required for S1/TTS processing.
 
 ## Launching the stack
 
+For first-time orchestrator deployments, use the one-command onboarding flow in `docs/orchestrator-onboarding.md`.
+
+For day-to-day start/stop on a host that already has `.env` + `.env.turn` configured:
+
 ```bash
 ./scripts/start_vtuber_unreal.sh start -d
 ```
@@ -22,7 +26,7 @@ An orchestrator registration helper (`orchestrator-registration` service) now ru
 The helper script will:
 
 1. Ensure `vtuber_network` exists.
-2. Load values from `.env` and `.env.unreal` (create them from the provided examples if missing).
+2. Ensure `.env` exists (copy from `orchestrator.env.example` if needed) and `.env.turn` is present (generate it if missing).
 3. Start the Unreal Pixel Streaming compose file. Launch the payments backend from its dedicated repo when payouts are required.
 
 After the services come up in detached mode you should see:

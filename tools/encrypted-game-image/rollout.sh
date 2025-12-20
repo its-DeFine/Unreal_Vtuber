@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+USE_COLOR="0"
+COLOR_MODE="auto"
+
+STYLE_RESET=""
+STYLE_BOLD=""
+STYLE_DIM=""
+STYLE_RED=""
+STYLE_GRN=""
+STYLE_CYN=""
+STYLE_MAG=""
+
 usage() {
   cat <<'EOF'
 Usage:
-  rollout.sh --payments-api-url <url> --image-ref <ref> --artifact-url <url> (--orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
+  rollout.sh --payments-api-url <url> --image-ref <ref> [--artifact-url <url>] (--orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
 
 This is an orchestrator helper that:
   1) Stops the compose stack
@@ -15,7 +26,7 @@ This is an orchestrator helper that:
 Options:
   --payments-api-url     Payments backend base URL (example: http://3.141.111.200:8081)
   --image-ref            Image ref registered in Payments licenses (example: ghcr.io/...:enc-v1)
-  --artifact-url         Public or presigned URL to the encrypted artifact (.tar.zst.age)
+  --artifact-url         Optional override: public/presigned URL to the encrypted artifact (.tar.zst.age). If omitted, Payments returns a fresh URL per lease.
   --orch-token           Orchestrator license token (NOT recommended; may leak via shell history)
   --orch-token-file      Read orchestrator license token from file (recommended)
   --orch-token-env       Read orchestrator license token from env var name (recommended)
@@ -27,8 +38,46 @@ EOF
 }
 
 die() {
-  echo "error: $*" >&2
+  echo "${STYLE_RED}${STYLE_BOLD}✖${STYLE_RESET} $*" >&2
   exit 1
+}
+
+is_tty() {
+  [[ -t 2 ]]
+}
+
+supports_color() {
+  is_tty || return 1
+  [[ "${TERM:-}" != "dumb" ]] || return 1
+  [[ -z "${NO_COLOR:-}" ]] || return 1
+  return 0
+}
+
+init_ui() {
+  case "$COLOR_MODE" in
+    always) USE_COLOR="1" ;;
+    never) USE_COLOR="0" ;;
+    auto) if supports_color; then USE_COLOR="1"; else USE_COLOR="0"; fi ;;
+    *) USE_COLOR="0" ;;
+  esac
+
+  if [[ "$USE_COLOR" == "1" ]]; then
+    STYLE_RESET=$'\033[0m'
+    STYLE_BOLD=$'\033[1m'
+    STYLE_DIM=$'\033[2m'
+    STYLE_RED=$'\033[31m'
+    STYLE_GRN=$'\033[32m'
+    STYLE_CYN=$'\033[36m'
+    STYLE_MAG=$'\033[35m'
+  fi
+}
+
+note() {
+  echo "${STYLE_MAG}${STYLE_BOLD}▸${STYLE_RESET} ${STYLE_CYN}$*${STYLE_RESET}" >&2
+}
+
+ok() {
+  echo "${STYLE_GRN}${STYLE_BOLD}✓${STYLE_RESET} $*" >&2
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -87,15 +136,20 @@ while [[ $# -gt 0 ]]; do
       usage
       exit 0
       ;;
+    --no-color)
+      COLOR_MODE="never"
+      shift 1
+      ;;
     *)
       die "unknown arg: $1"
       ;;
   esac
 done
 
+init_ui
+
 [[ -n "$payments_api_url" ]] || die "--payments-api-url is required"
 [[ -n "$image_ref" ]] || die "--image-ref is required"
-[[ -n "$artifact_url" ]] || die "--artifact-url is required"
 
 command -v docker >/dev/null 2>&1 || die "missing dependency: docker"
 command -v curl >/dev/null 2>&1 || die "missing dependency: curl"
@@ -147,27 +201,27 @@ fi
 
 cd "$REPO_ROOT"
 
-echo "[rollout] ensuring vtuber_network exists"
+note "Ensuring vtuber_network exists"
 docker network create vtuber_network 2>/dev/null || true
 
-echo "[rollout] stopping stack"
+note "Stopping compose stack"
 "${compose_cmd[@]}" -f "$compose_file" down
 
-echo "[rollout] removing local game image tag: $game_image"
+note "Removing local game image tag: $game_image"
 docker image rm -f "$game_image" >/dev/null 2>&1 || true
 
-echo "[rollout] loading encrypted game image via Payments lease"
-"$SCRIPT_DIR/consume.sh" \
-  --payments-api-url "$payments_api_url" \
-  --image-ref "$image_ref" \
-  --artifact-url "$artifact_url" \
-  "${token_args[@]}"
+note "Loading encrypted game image via Payments lease"
+consume_args=(--payments-api-url "$payments_api_url" --image-ref "$image_ref")
+if [[ -n "$artifact_url" ]]; then
+  consume_args+=(--artifact-url "$artifact_url")
+fi
+"$SCRIPT_DIR/consume.sh" "${consume_args[@]}" "${token_args[@]}"
 
-echo "[rollout] starting stack"
+note "Starting compose stack"
 "${compose_cmd[@]}" -f "$compose_file" up -d
 
 if [[ "$verify" == "1" ]]; then
-  echo "[rollout] verifying local health (best-effort)"
+  note "Verifying local health (best-effort)"
   for _ in $(seq 1 60); do
     if curl -fsS --max-time 2 http://127.0.0.1:9877/health >/dev/null 2>&1; then
       break
@@ -177,4 +231,4 @@ if [[ "$verify" == "1" ]]; then
   curl -fsS --max-time 2 http://127.0.0.1:9877/health >/dev/null 2>&1 || die "runner health check failed on 127.0.0.1:9877"
 fi
 
-echo "[rollout] done"
+ok "Rollout complete"

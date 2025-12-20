@@ -16,29 +16,25 @@ This sidecar runs alongside the Pixel Streaming stack to control the GStreamer c
 - Optional token: set `RECORDINGS_API_TOKEN` to require Bearer auth; leave unset to rely on IP allowlist only.
 
 ## Compose (already wired)
-`docker-compose.unreal.yml` includes:
+`docker-compose.unreal.yml` already exposes the sidecar on port `8889` and mounts a host recordings directory to `/recordings`:
 ```yaml
   recorder-control:
-    build:
-      context: ./tools/recorder
-      dockerfile: Dockerfile
-    depends_on: [unreal-signaling]
-    env:
-      RECORDER_CTRL_PORT=8889
-      RECORDER_SIGNALING_URL=ws://unreal-signaling:80
-      RECORDER_OUTPUT_DIR=/recordings
-  PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
-  VTUBER_ALLOWED_ADDRESSES=... # set in .env (defaults to 127.0.0.1,::1,172.18.0.1)
-  RECORDER_SIGNALING_URL=ws://unreal-signaling:80 # override if your streamer socket differs (e.g., 8888)
-  RECORDINGS_API_TOKEN=... # optional bearer token; leave unset to rely on IP allowlist
+    image: ghcr.io/its-define/unreal_vtuber/recorder-control:${EMBODY_SERVICE_IMAGE_TAG:-latest}
+    environment:
+      - RECORDER_CTRL_PORT=8889
+      - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL:-ws://vtuber-unreal-signaling:80}
+      - RECORDER_OUTPUT_DIR=/recordings
+      - PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
+      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.17.0.1,172.18.0.1}
+      - RECORDINGS_API_TOKEN=${RECORDINGS_API_TOKEN:-}
     volumes:
-      - /recordings:/recordings
+      - ${VTUBER_RECORDINGS_DIR:-/recordings}:/recordings
     command: ["python3", "/opt/embody/recorder/control_server.py"]
     ports:
       - "8889:8889"
     networks: [vtuber_network]
 ```
-Ensure `/recordings` is a host path/volume shared where you want outputs stored/pulled from.
+Set `VTUBER_RECORDINGS_DIR` in `.env` to control where recordings are stored on the host (defaults to `/recordings`).
 
 ## Usage
 ```
@@ -57,4 +53,4 @@ curl -X POST http://<host>:8889/recordings/stop
 ## Notes
 - The recorder connects to signaling via `RECORDER_SIGNALING_URL` and writes MKVs to `/recordings` (no re-encode).
 - Keep the sidecar on the same host/bridge as signaling for minimal latency; avoid TURN by staying local.
-- Downloads are not exposed here; fetch files from `/recordings` via SSH/volume or add a private download endpoint if needed.
+- Downloads are not exposed here; fetch files from the host recordings directory (mounted to `/recordings`) via SSH/volume or add a private download endpoint if needed.

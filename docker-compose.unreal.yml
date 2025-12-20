@@ -52,6 +52,8 @@ services:
       STREAMER_PORT: "8888"
       SFU_PORT: "8889"
       STUN_SERVER: ${STUN_SERVER:-stun.l.google.com:19302}
+      # Optional additional Wilbur/start.sh CLI flags (example: matchmaker registration).
+      SIGNALING_EXTRA_ARGS: ${SIGNALING_EXTRA_ARGS:-}
       ENABLE_REST_API: ${ENABLE_REST_API:-0}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]
@@ -126,7 +128,7 @@ services:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
       - VTUBER_TCP_HOST=${VTUBER_TCP_HOST:-127.0.0.1}
       - VTUBER_TCP_PORT=7777
-      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.18.0.1,172.31.34.188}
+      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.17.0.1,172.18.0.1}
     volumes:
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     restart: unless-stopped
@@ -218,15 +220,19 @@ services:
     container_name: vtuber-recorder-control
     depends_on:
       - unreal-signaling
+    env_file:
+      - .env.turn
     environment:
       - RECORDER_CTRL_PORT=8889
       - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL:-ws://vtuber-unreal-signaling:80}
       - RECORDER_OUTPUT_DIR=/recordings
       - PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
-      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.18.0.1}
-      - RECORDER_TURN_URL=${RECORDER_TURN_URL:-turn://${TURN_USER}:${TURN_PASS}@vtuber-turn-server:${TURN_PORT:-3478}}
+      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.17.0.1,172.18.0.1}
+      # Recorder connects on the docker network; default TURN host is the local coturn service.
+      - RECORDER_TURN_HOST=${RECORDER_TURN_HOST:-vtuber-turn-server}
+      - RECORDINGS_API_TOKEN=${RECORDINGS_API_TOKEN:-}
     volumes:
-      - /recordings:/recordings
+      - ${VTUBER_RECORDINGS_DIR:-/recordings}:/recordings
     command: ["python3", "/opt/embody/recorder/control_server.py"]
     restart: unless-stopped
     networks:
