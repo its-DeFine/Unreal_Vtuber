@@ -129,14 +129,14 @@ fi
 
 detect_game_image_from_compose() {
   awk '
-    /^[[:space:]]*unreal-game:[[:space:]]*$/ { in=1; next }
-    in && /^[[:space:]]*image:[[:space:]]*/ {
+    /^[[:space:]]*unreal-game:[[:space:]]*$/ { in_game=1; next }
+    in_game && /^[[:space:]]*image:[[:space:]]*/ {
       sub(/^[[:space:]]*image:[[:space:]]*/, "", $0)
       gsub(/[[:space:]]+$/, "", $0)
       print $0
       exit
     }
-    in && /^[^[:space:]]/ { in=0 }
+    in_game && /^[^[:space:]]/ { in_game=0 }
   ' "$1"
 }
 
