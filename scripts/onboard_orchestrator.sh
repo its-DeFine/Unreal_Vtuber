@@ -61,6 +61,8 @@ Behavior flags:
   --no-pull                   Skip docker compose pull
   --skip-registration         Skip running orchestrator-registration
   --no-verify                 Skip rollout health checks
+  --apply-firewall            Attempt to apply inbound allowlist rules (default: on for interactive wizard)
+  --no-apply-firewall         Do not modify firewall / security group rules
   --force-env                 Overwrite .env (otherwise upsert keys)
 
 Examples:
@@ -301,6 +303,7 @@ NO_PULL="0"
 SKIP_REGISTRATION="0"
 NO_VERIFY="0"
 FORCE_ENV="0"
+APPLY_FIREWALL="auto"
 
 INTERACTIVE="auto"
 ADVANCED="0"
@@ -414,6 +417,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-verify)
       NO_VERIFY="1"
+      shift 1
+      ;;
+    --apply-firewall)
+      APPLY_FIREWALL="1"
+      shift 1
+      ;;
+    --no-apply-firewall)
+      APPLY_FIREWALL="0"
       shift 1
       ;;
     --force-env)
@@ -645,6 +656,243 @@ detect_public_ip() {
     return 0
   fi
   curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true
+}
+
+extract_host_from_url() {
+  local url="$1" hostport host
+  hostport="${url#*://}"
+  hostport="${hostport%%/*}"
+  host="${hostport%%:*}"
+  echo "$host"
+}
+
+is_ipv4() {
+  local ip="$1"
+  [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+}
+
+imds_get() {
+  local path="$1" token
+  token="$(curl -fsS --max-time 2 -X PUT "http://169.254.169.254/latest/api/token" \
+    -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null || true)"
+  if [[ -n "$token" ]]; then
+    curl -fsS --max-time 2 -H "X-aws-ec2-metadata-token: $token" \
+      "http://169.254.169.254/latest/${path}" 2>/dev/null || true
+  else
+    curl -fsS --max-time 2 "http://169.254.169.254/latest/${path}" 2>/dev/null || true
+  fi
+}
+
+is_ec2() {
+  local iid
+  iid="$(imds_get meta-data/instance-id || true)"
+  [[ -n "$iid" ]]
+}
+
+run_as_target_user() {
+  if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
+    sudo -u "$SUDO_USER" -E "$@"
+  else
+    "$@"
+  fi
+}
+
+should_apply_firewall() {
+  case "$APPLY_FIREWALL" in
+    1) return 0 ;;
+    0) return 1 ;;
+    auto)
+      if [[ "$INTERACTIVE" != "0" ]] && is_tty; then
+        return 0
+      fi
+      return 1
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+ensure_ufw_rules_best_effort() {
+  if ! command -v ufw >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! ufw status 2>/dev/null | grep -qi "Status: active"; then
+    return 0
+  fi
+
+  local ufw_cmd=(ufw)
+  if [[ "$(id -u)" != "0" ]]; then
+    ufw_cmd=(sudo ufw)
+  fi
+
+  local payments_host payments_ip
+  payments_host="$(extract_host_from_url "$PAYMENTS_API_URL")"
+  if is_ipv4 "$payments_host"; then
+    payments_ip="$payments_host"
+  else
+    payments_ip=""
+  fi
+
+  note "UFW detected (active); applying inbound allowlist rules"
+
+  local forwarder_cidr="${FORWARDER_IP}/32"
+  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 8080 proto tcp >/dev/null 2>&1 || true
+  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 8888 proto tcp >/dev/null 2>&1 || true
+  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 8889 proto tcp >/dev/null 2>&1 || true
+  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 9877 proto tcp >/dev/null 2>&1 || true
+  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 3478 proto udp >/dev/null 2>&1 || true
+  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 49160:49200 proto udp >/dev/null 2>&1 || true
+
+  if [[ -n "$payments_ip" ]]; then
+    "${ufw_cmd[@]}" allow from "${payments_ip}/32" to any port 9090 proto tcp >/dev/null 2>&1 || true
+  fi
+
+  "${ufw_cmd[@]}" reload >/dev/null 2>&1 || true
+}
+
+ensure_ec2_sg_rules_best_effort() {
+  if ! is_ec2; then
+    return 0
+  fi
+
+  local region instance_id
+  instance_id="$(imds_get meta-data/instance-id || true)"
+  region="$(imds_get dynamic/instance-identity/document | jq -r '.region // empty' 2>/dev/null || true)"
+  if [[ -z "$instance_id" || -z "$region" ]]; then
+    return 0
+  fi
+
+  if ! command -v aws >/dev/null 2>&1; then
+    if [[ "$INTERACTIVE" != "0" ]] && is_tty && prompt_yes_no "AWS CLI not found. Install awscli to auto-apply EC2 security group rules?" "y"; then
+      apt_install awscli
+    fi
+  fi
+  if ! command -v aws >/dev/null 2>&1; then
+    warn "AWS CLI not available; cannot auto-apply EC2 security group rules."
+    return 0
+  fi
+
+  if ! run_as_target_user aws sts get-caller-identity --output json >/dev/null 2>&1; then
+    warn "AWS credentials/permissions not available on this host; cannot auto-apply EC2 security group rules."
+    return 0
+  fi
+
+  local sg_json sg_count selected_idx sg_id
+  sg_json="$(run_as_target_user aws ec2 describe-instances --region "$region" --instance-ids "$instance_id" --output json \
+    --query 'Reservations[0].Instances[0].SecurityGroups' 2>/dev/null || true)"
+  sg_count="$(echo "$sg_json" | jq 'length' 2>/dev/null || echo 0)"
+  if [[ "$sg_count" -le 0 ]]; then
+    warn "Could not determine EC2 security groups for instance $instance_id"
+    return 0
+  fi
+
+  selected_idx="0"
+  if [[ "$sg_count" -gt 1 && "$INTERACTIVE" != "0" ]] && is_tty; then
+    note "Security groups attached to this instance:"
+    echo "$sg_json" | jq -r 'to_entries[] | "  [\(.key+1)] \(.value.GroupId) (\(.value.GroupName))"' >&2
+    local picked
+    picked="$(prompt_default "Select security group to modify" "1")"
+    if [[ "$picked" =~ ^[0-9]+$ ]] && ((picked >= 1 && picked <= sg_count)); then
+      selected_idx="$((picked - 1))"
+    fi
+  fi
+
+  sg_id="$(echo "$sg_json" | jq -r ".[${selected_idx}].GroupId // empty" 2>/dev/null || true)"
+  if [[ -z "$sg_id" ]]; then
+    warn "Could not select a security group to modify"
+    return 0
+  fi
+
+  local payments_host payments_ip
+  payments_host="$(extract_host_from_url "$PAYMENTS_API_URL")"
+  if is_ipv4 "$payments_host"; then
+    payments_ip="$payments_host"
+  else
+    payments_ip=""
+  fi
+
+  note "Ensuring EC2 security group ingress rules on $sg_id (region $region)"
+
+  aws_authorize_ingress() {
+    local proto="$1" port="$2" cidr="$3" out
+    out="$(run_as_target_user aws ec2 authorize-security-group-ingress --region "$region" \
+      --group-id "$sg_id" --protocol "$proto" --port "$port" --cidr "$cidr" 2>&1)" || true
+    if [[ -z "$out" ]]; then
+      ok "SG rule ensured: $proto $port from $cidr"
+      return 0
+    fi
+    if echo "$out" | grep -q "InvalidPermission.Duplicate"; then
+      ok "SG rule present: $proto $port from $cidr"
+      return 0
+    fi
+    if echo "$out" | grep -qi "UnauthorizedOperation\\|AccessDenied"; then
+      warn "AWS denied updating SG rules: $proto $port from $cidr"
+      warn "  $out"
+      return 0
+    fi
+    # Some AWS CLI versions print JSON on success; treat non-error as ok.
+    if echo "$out" | grep -q "\"Return\"[[:space:]]*:[[:space:]]*true"; then
+      ok "SG rule ensured: $proto $port from $cidr"
+      return 0
+    fi
+    warn "Failed to ensure SG rule: $proto $port from $cidr"
+    warn "  $out"
+    return 0
+  }
+
+  local forwarder_cidr="${FORWARDER_IP}/32"
+  aws_authorize_ingress tcp 8080 "$forwarder_cidr"
+  aws_authorize_ingress tcp 8888 "$forwarder_cidr"
+  aws_authorize_ingress tcp 8889 "$forwarder_cidr"
+  aws_authorize_ingress tcp 9877 "$forwarder_cidr"
+  aws_authorize_ingress udp 3478 "$forwarder_cidr"
+  aws_authorize_ingress udp 49160-49200 "$forwarder_cidr"
+
+  if [[ -n "$payments_ip" ]]; then
+    aws_authorize_ingress tcp 9090 "${payments_ip}/32"
+  else
+    warn "Payments API host is not an IPv4; skipping SG rule for TCP 9090 (health monitoring)."
+  fi
+}
+
+ensure_inbound_rules_best_effort() {
+  if ! should_apply_firewall; then
+    return 0
+  fi
+  note "Checking/applying inbound allowlist rules (best-effort)"
+
+  # Try host-level firewall first (if present), then EC2 SG rules (if available).
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "Status: active"; then
+    ensure_ufw_rules_best_effort
+  fi
+  ensure_ec2_sg_rules_best_effort
+}
+
+verify_payments_registration_best_effort() {
+  local url json
+  url="${PAYMENTS_API_URL%/}/api/orchestrators"
+  fx_dots "Verifying registration in Payments"
+
+  for _ in $(seq 1 20); do
+    json="$(curl -fsS --max-time 5 "$url" 2>/dev/null || true)"
+    if [[ -n "$json" ]]; then
+      if echo "$json" | jq -e --arg id "$ORCH_ID" '
+        if type == "array" then
+          any(.[]; (.orchestrator_id? == $id) or (.orchestratorId? == $id) or (.id? == $id))
+        elif (.orchestrators? | type) == "array" then
+          any(.orchestrators[]; (.orchestrator_id? == $id) or (.orchestratorId? == $id) or (.id? == $id))
+        else
+          false
+        end
+      ' >/dev/null 2>&1; then
+        ok "Registration verified in Payments (orchestrator_id=$ORCH_ID)"
+        return 0
+      fi
+    fi
+    sleep 2
+  done
+
+  warn "Could not verify registration in Payments yet (orchestrator_id=$ORCH_ID)."
+  warn "If this persists, check firewall rules (TCP 9090 from Payments, and forwarder allowlists) and rerun registration."
 }
 
 ensure_env_file_exists() {
@@ -1197,14 +1445,17 @@ fi
   "${token_args[@]}" \
   "${rollout_args[@]}"
 
+ensure_inbound_rules_best_effort
+
 if [[ "$SKIP_REGISTRATION" != "1" ]]; then
-  note "Registering orchestrator with Payments (best-effort)"
-  reg_args=(--once --api-url "$PAYMENTS_API_URL" --orchestrator-id "$ORCH_ID" --orchestrator-address "$ORCH_ADDRESS")
+  note "Registering orchestrator with Payments"
+  reg_args=(--api-url "$PAYMENTS_API_URL" --orchestrator-id "$ORCH_ID" --orchestrator-address "$ORCH_ADDRESS" --max-retry-seconds 120)
   if [[ -n "$ORCH_CONTACT_EMAIL" ]]; then
     reg_args+=(--contact-email "$ORCH_CONTACT_EMAIL")
   fi
   reg_args+=(--host-public-ip "$PUBLIC_IP" --health-url "http://$PUBLIC_IP:9090/health")
   python3 "$REPO_ROOT/scripts/register_orchestrator.py" "${reg_args[@]}" || true
+  verify_payments_registration_best_effort || true
 fi
 
 note "Health checks (best-effort)"
@@ -1217,7 +1468,7 @@ cat >&2 <<EOF
 [onboard] Done.
 
 Next:
-  1) Ensure inbound allowlists / firewall rules are set:
+  1) Ensure inbound allowlists / firewall rules are set (the wizard can auto-apply on EC2 if AWS CLI + permissions are available):
      - Forwarder ${FORWARDER_IP} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
      - Payments backend -> TCP 9090 (health monitoring)
 
@@ -1227,5 +1478,6 @@ Next:
      - Orchestrator health: curl http://127.0.0.1:9090/health
 
   3) If registration didn’t show up yet, rerun:
-     ${compose_cmd[*]} -f docker-compose.unreal.yml run --rm orchestrator-registration
+     PAYMENTS_API_URL="${PAYMENTS_API_URL}" ORCHESTRATOR_ID="${ORCH_ID}" ORCHESTRATOR_ADDRESS="${ORCH_ADDRESS}" \\
+       python3 scripts/register_orchestrator.py
 EOF

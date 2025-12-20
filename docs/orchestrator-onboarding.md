@@ -53,6 +53,8 @@ Ensure inbound allowlists / firewall rules are set:
 - Forwarder `3.150.172.153` -> TCP `8080,8888,8889,9877` and UDP `3478,49160-49200`
 - Payments backend -> TCP `9090` (health monitoring)
 
+On EC2, the onboarding wizard will try to apply these rules automatically (best-effort) if `aws` CLI + permissions are available (instance profile/IAM role). Disable with `--no-apply-firewall`.
+
 ## Verify
 
 - Signaling health: `curl http://127.0.0.1:8080/healthz`
