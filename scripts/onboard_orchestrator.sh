@@ -1134,9 +1134,9 @@ print(data.get("detail") or "")
 PY
     )"
     case "$http_code" in
-      404) die "Invite code not found (or already redeemed). Ask your admin for a fresh code." ;;
+      404) die "Invite code not found (or already redeemed). If you already redeemed it earlier, re-run without --invite-code so we use the stored token at $target_home/.embody/orch-license-token.txt. Otherwise ask your admin for a fresh code." ;;
       403) die "Invite code rejected (wallet mismatch or revoked). Double-check your payout wallet address and ask your admin for a new code." ;;
-      409) die "Invite code already redeemed (or redemption in progress). Ask your admin for a new code." ;;
+      409) die "Invite code already redeemed (or redemption in progress). If you already redeemed it earlier, re-run without --invite-code so we use the stored token at $target_home/.embody/orch-license-token.txt. Otherwise ask your admin for a new code." ;;
       410) die "Invite code expired. Ask your admin for a fresh code." ;;
       *) die "Invite redeem failed (HTTP $http_code)${detail:+: $detail}" ;;
     esac
