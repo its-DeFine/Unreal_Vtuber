@@ -14,6 +14,7 @@ STYLE_GRN=""
 STYLE_YLW=""
 STYLE_BLU=""
 STYLE_CYN=""
+STYLE_MAG=""
 
 usage() {
   cat <<'EOF'
@@ -41,6 +42,8 @@ Common options:
   --payments-api-url <url>    (default: http://3.141.111.200:8081)
   --image-ref <ref>           (default: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1)
   --forwarder-ip <ip>         (default: 3.150.172.153)
+  --allowed-ip <ip>           Additional allowlisted caller IP (repeatable; e.g. edge IPs)
+  --allowed-ips <csv>         Additional allowlisted caller IPs (comma-separated)
   --public-ip <ip|auto>       (default: auto; tries EC2 IMDSv2 then ipify)
 
 Host paths (written into .env):
@@ -75,20 +78,20 @@ EOF
 }
 
 die() {
-  echo "${STYLE_RED}error:${STYLE_RESET} $*" >&2
+  echo "${STYLE_RED}${STYLE_BOLD}✖${STYLE_RESET} $*" >&2
   exit 1
 }
 
 note() {
-  echo "${STYLE_CYN}[onboard]${STYLE_RESET} $*" >&2
+  echo "${STYLE_MAG}${STYLE_BOLD}▸${STYLE_RESET} ${STYLE_CYN}$*${STYLE_RESET}" >&2
 }
 
 warn() {
-  echo "${STYLE_YLW}[warn]${STYLE_RESET} $*" >&2
+  echo "${STYLE_YLW}${STYLE_BOLD}⚠${STYLE_RESET} $*" >&2
 }
 
 ok() {
-  echo "${STYLE_GRN}[ok]${STYLE_RESET} $*" >&2
+  echo "${STYLE_GRN}${STYLE_BOLD}✓${STYLE_RESET} $*" >&2
 }
 
 require_cmd() {
@@ -141,23 +144,37 @@ init_ui() {
     STYLE_YLW=$'\033[33m'
     STYLE_BLU=$'\033[34m'
     STYLE_CYN=$'\033[36m'
+    STYLE_MAG=$'\033[35m'
   fi
 }
 
 divider() {
-  printf '%s\n' "------------------------------------------------------------" >&2
+  if [[ "$USE_COLOR" == "1" ]] && is_tty; then
+    printf '%s\n' "${STYLE_DIM}${STYLE_MAG}┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄${STYLE_RESET}" >&2
+  else
+    printf '%s\n' "------------------------------------------------------------" >&2
+  fi
 }
 
 section() {
   echo >&2
-  echo "${STYLE_BOLD}${STYLE_BLU}==> $*${STYLE_RESET}" >&2
+  echo "${STYLE_MAG}${STYLE_BOLD}⟫⟫${STYLE_RESET} ${STYLE_BOLD}${STYLE_CYN}$*${STYLE_RESET}" >&2
 }
 
 banner() {
-  divider
-  echo "${STYLE_BOLD}${STYLE_CYN}Embody Unreal Vtuber${STYLE_RESET} ${STYLE_DIM}— Orchestrator Onboarding${STYLE_RESET}" >&2
-  echo "${STYLE_DIM}Press Ctrl+C anytime to abort.${STYLE_RESET}" >&2
-  divider
+  if [[ "$USE_COLOR" == "1" ]] && is_tty; then
+    cat >&2 <<EOF
+${STYLE_MAG}${STYLE_BOLD}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${STYLE_RESET}
+${STYLE_MAG}${STYLE_BOLD}┃  EMBODY // UNREAL VTUBER ORCHESTRATOR SETUP  ┃${STYLE_RESET}
+${STYLE_MAG}${STYLE_BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${STYLE_RESET}
+${STYLE_DIM}Press Ctrl+C anytime to abort.${STYLE_RESET}
+EOF
+  else
+    divider
+    echo "Embody Unreal Vtuber — Orchestrator Onboarding" >&2
+    echo "Press Ctrl+C anytime to abort." >&2
+    divider
+  fi
 }
 
 fx_dots() {
@@ -222,6 +239,49 @@ strip_inline_comment() {
   trim_whitespace "$s"
 }
 
+extract_first_nonlocal_ip() {
+  local csv="$1"
+  local raw ip
+  IFS=',' read -r -a raw <<<"$csv"
+  for ip in "${raw[@]}"; do
+    ip="$(trim_whitespace "$ip")"
+    ip="$(strip_inline_comment "$ip")"
+    [[ -n "$ip" ]] || continue
+    case "$ip" in
+      127.0.0.1|::1|172.17.0.1|172.18.0.1) continue ;;
+    esac
+    echo "$ip"
+    return 0
+  done
+  return 1
+}
+
+dedupe_list() {
+  local out=()
+  local item existing found
+  for item in "$@"; do
+    item="$(trim_whitespace "$item")"
+    item="$(strip_inline_comment "$item")"
+    [[ -n "$item" ]] || continue
+    found="0"
+    for existing in "${out[@]}"; do
+      if [[ "$existing" == "$item" ]]; then
+        found="1"
+        break
+      fi
+    done
+    if [[ "$found" != "1" ]]; then
+      out+=("$item")
+    fi
+  done
+  printf '%s\n' "${out[@]}"
+}
+
+join_csv() {
+  local IFS=,
+  echo "$*"
+}
+
 redact_url() {
   local url="$1"
   url="${url%%\?*}"
@@ -267,6 +327,17 @@ is_valid_email() {
   return 0
 }
 
+is_safe_allowlist_token() {
+  local token="$1"
+  [[ -n "$token" ]] || return 1
+  [[ "$token" != *","* ]] || return 1
+  [[ "$token" != *" "* ]] || return 1
+  [[ "$token" != *$'\t'* ]] || return 1
+  [[ "$token" != *$'\n'* ]] || return 1
+  [[ "$token" != *$'\r'* ]] || return 1
+  [[ "$token" =~ ^[0-9A-Za-z:._/-]+$ ]]
+}
+
 SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -282,6 +353,7 @@ PAYMENTS_API_URL="http://3.141.111.200:8081"
 IMAGE_REF="ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1"
 FORWARDER_IP="3.150.172.153"
 PUBLIC_IP="auto"
+EXTRA_ALLOWED_IPS=()
 
 ORCH_ID=""
 ORCH_ADDRESS=""
@@ -293,6 +365,9 @@ ORCH_TOKEN_ENV=""
 
 SESSION_DIR=""
 RECORDINGS_DIR=""
+
+EXTRA_ALLOWED_IPS=()
+CONTROL_IPS=()
 
 INSTALL_DEPS="0"
 INSTALL_DOCKER="0"
@@ -347,6 +422,38 @@ while [[ $# -gt 0 ]]; do
       ;;
     --forwarder-ip)
       FORWARDER_IP="${2:-}"
+      shift 2
+      ;;
+    --allowed-ip)
+      if [[ -z "${2:-}" ]]; then
+        die "--allowed-ip requires a value"
+      fi
+      EXTRA_ALLOWED_IPS+=("$(trim_whitespace "${2:-}")")
+      shift 2
+      ;;
+    --allowed-ips)
+      if [[ -z "${2:-}" ]]; then
+        die "--allowed-ips requires a value"
+      fi
+      IFS=',' read -r -a _allowed_csv <<<"${2:-}"
+      for _ip in "${_allowed_csv[@]}"; do
+        _ip="$(trim_whitespace "$_ip")"
+        [[ -n "$_ip" ]] && EXTRA_ALLOWED_IPS+=("$_ip")
+      done
+      unset _allowed_csv _ip
+      shift 2
+      ;;
+    --allowed-ip)
+      EXTRA_ALLOWED_IPS+=("${2:-}")
+      shift 2
+      ;;
+    --allowed-ips)
+      IFS=',' read -r -a _extra <<<"${2:-}"
+      for _ip in "${_extra[@]}"; do
+        _ip="$(trim_whitespace "$_ip")"
+        [[ -n "$_ip" ]] || continue
+        EXTRA_ALLOWED_IPS+=("$_ip")
+      done
       shift 2
       ;;
     --public-ip)
@@ -734,13 +841,20 @@ ensure_ufw_rules_best_effort() {
 
   note "UFW detected (active); applying inbound allowlist rules"
 
-  local forwarder_cidr="${FORWARDER_IP}/32"
-  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 8080 proto tcp >/dev/null 2>&1 || true
-  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 8888 proto tcp >/dev/null 2>&1 || true
-  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 8889 proto tcp >/dev/null 2>&1 || true
-  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 9877 proto tcp >/dev/null 2>&1 || true
-  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 3478 proto udp >/dev/null 2>&1 || true
-  "${ufw_cmd[@]}" allow from "$forwarder_cidr" to any port 49160:49200 proto udp >/dev/null 2>&1 || true
+  local ip cidr
+  for ip in "${CONTROL_IPS[@]}"; do
+    if ! is_ipv4 "$ip"; then
+      warn "Skipping non-IPv4 allowlisted caller for UFW rules: $ip"
+      continue
+    fi
+    cidr="${ip}/32"
+    "${ufw_cmd[@]}" allow from "$cidr" to any port 8080 proto tcp >/dev/null 2>&1 || true
+    "${ufw_cmd[@]}" allow from "$cidr" to any port 8888 proto tcp >/dev/null 2>&1 || true
+    "${ufw_cmd[@]}" allow from "$cidr" to any port 8889 proto tcp >/dev/null 2>&1 || true
+    "${ufw_cmd[@]}" allow from "$cidr" to any port 9877 proto tcp >/dev/null 2>&1 || true
+    "${ufw_cmd[@]}" allow from "$cidr" to any port 3478 proto udp >/dev/null 2>&1 || true
+    "${ufw_cmd[@]}" allow from "$cidr" to any port 49160:49200 proto udp >/dev/null 2>&1 || true
+  done
 
   if [[ -n "$payments_ip" ]]; then
     "${ufw_cmd[@]}" allow from "${payments_ip}/32" to any port 9090 proto tcp >/dev/null 2>&1 || true
@@ -851,13 +965,20 @@ ensure_ec2_sg_rules_best_effort() {
     return 0
   }
 
-  local forwarder_cidr="${FORWARDER_IP}/32"
-  aws_authorize_ingress tcp 8080 "$forwarder_cidr"
-  aws_authorize_ingress tcp 8888 "$forwarder_cidr"
-  aws_authorize_ingress tcp 8889 "$forwarder_cidr"
-  aws_authorize_ingress tcp 9877 "$forwarder_cidr"
-  aws_authorize_ingress udp 3478 "$forwarder_cidr"
-  aws_authorize_ingress udp 49160-49200 "$forwarder_cidr"
+  local ip cidr
+  for ip in "${CONTROL_IPS[@]}"; do
+    if ! is_ipv4 "$ip"; then
+      warn "Skipping non-IPv4 allowlisted caller for SG rules: $ip"
+      continue
+    fi
+    cidr="${ip}/32"
+    aws_authorize_ingress tcp 8080 "$cidr"
+    aws_authorize_ingress tcp 8888 "$cidr"
+    aws_authorize_ingress tcp 8889 "$cidr"
+    aws_authorize_ingress tcp 9877 "$cidr"
+    aws_authorize_ingress udp 3478 "$cidr"
+    aws_authorize_ingress udp 49160-49200 "$cidr"
+  done
 
   if [[ -n "$payments_ip" ]]; then
     aws_authorize_ingress tcp 9090 "${payments_ip}/32"
@@ -1020,9 +1141,9 @@ maybe_run_wizard() {
     existing_payments="$(read_env_value "$ENV_TEMPLATE" "PAYMENTS_API_URL" 2>/dev/null || true)"
   fi
 
-  existing_forwarder="$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null | awk -F, '{print $3}' || true)"
+  existing_forwarder="$(extract_first_nonlocal_ip "$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)" 2>/dev/null || true)"
   if [[ -z "$existing_forwarder" ]]; then
-    existing_forwarder="$(read_env_value "$ENV_TEMPLATE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null | awk -F, '{print $3}' || true)"
+    existing_forwarder="$(extract_first_nonlocal_ip "$(read_env_value "$ENV_TEMPLATE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)" 2>/dev/null || true)"
   fi
 
   existing_session_dir="$(read_env_value "$ENV_FILE" "VTUBER_SESSION_DIR" 2>/dev/null || true)"
@@ -1344,7 +1465,19 @@ fi
 upsert_env_kv "$ENV_FILE" "PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HOST_PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" "http://$PUBLIC_IP:9090/health"
-upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "127.0.0.1,::1,$FORWARDER_IP"
+allowed_addresses="127.0.0.1,::1,$FORWARDER_IP"
+for ip in "${EXTRA_ALLOWED_IPS[@]}"; do
+  ip="$(trim_whitespace "$ip")"
+  [[ -n "$ip" ]] || continue
+  if ! is_safe_allowlist_token "$ip"; then
+    die "invalid --allowed-ip value: $ip"
+  fi
+  case ",$allowed_addresses," in
+    *",$ip,"*) ;;
+    *) allowed_addresses="${allowed_addresses},${ip}" ;;
+  esac
+done
+upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allowed_addresses"
 upsert_env_kv "$ENV_FILE" "VTUBER_SESSION_DIR" "$SESSION_DIR"
 upsert_env_kv "$ENV_FILE" "VTUBER_RECORDINGS_DIR" "$RECORDINGS_DIR"
 
@@ -1475,12 +1608,34 @@ curl -fsS --max-time 2 http://127.0.0.1:9877/health >/dev/null 2>&1 || true
 curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1 || true
 curl -fsS --max-time 2 http://127.0.0.1:9090/health >/dev/null 2>&1 || true
 
-cat >&2 <<EOF
+if [[ "$USE_COLOR" == "1" ]] && is_tty; then
+  cat >&2 <<EOF
 
-[onboard] Done.
+${STYLE_MAG}${STYLE_BOLD}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${STYLE_RESET}
+${STYLE_GRN}${STYLE_BOLD}┃  SETUP COMPLETE // ORCHESTRATOR ONLINE       ┃${STYLE_RESET}
+${STYLE_MAG}${STYLE_BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${STYLE_RESET}
+
+${STYLE_MAG}${STYLE_BOLD}NEXT STEPS${STYLE_RESET}
+  ${STYLE_DIM}1) Inbound allowlists (auto-applied when possible):${STYLE_RESET}
+     - Forwarder ${FORWARDER_IP} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
+     - Payments backend -> TCP 9090 (health monitoring)
+
+  ${STYLE_DIM}2) Local health:${STYLE_RESET}
+     - Signaling:    curl http://127.0.0.1:8080/healthz
+     - Runner:       curl http://127.0.0.1:9877/health
+     - Orchestrator: curl http://127.0.0.1:9090/health
+
+  ${STYLE_DIM}3) If registration didn’t show up yet:${STYLE_RESET}
+     PAYMENTS_API_URL="${PAYMENTS_API_URL}" ORCHESTRATOR_ID="${ORCH_ID}" ORCHESTRATOR_ADDRESS="${ORCH_ADDRESS}" \\
+       python3 scripts/register_orchestrator.py
+EOF
+else
+  cat >&2 <<EOF
+
+Done.
 
 Next:
-  1) Ensure inbound allowlists / firewall rules are set (the wizard can auto-apply on EC2 if AWS CLI + permissions are available):
+  1) Ensure inbound allowlists / firewall rules are set:
      - Forwarder ${FORWARDER_IP} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
      - Payments backend -> TCP 9090 (health monitoring)
 
@@ -1493,3 +1648,4 @@ Next:
      PAYMENTS_API_URL="${PAYMENTS_API_URL}" ORCHESTRATOR_ID="${ORCH_ID}" ORCHESTRATOR_ADDRESS="${ORCH_ADDRESS}" \\
        python3 scripts/register_orchestrator.py
 EOF
+fi

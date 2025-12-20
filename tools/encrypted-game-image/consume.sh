@@ -34,8 +34,28 @@ EOF
 }
 
 die() {
-  echo "error: $*" >&2
+  echo "${STYLE_RED}${STYLE_BOLD}✖${STYLE_RESET} $*" >&2
   exit 1
+}
+
+trim_whitespace() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+strip_wrapping_quotes() {
+  local s="$1"
+  if [[ "$s" == \"*\" && "$s" == *\" ]]; then
+    s="${s#\"}"
+    s="${s%\"}"
+  fi
+  if [[ "$s" == \'*\' && "$s" == *\' ]]; then
+    s="${s#\'}"
+    s="${s%\'}"
+  fi
+  printf '%s' "$s"
 }
 
 is_tty() {
@@ -84,11 +104,11 @@ init_ui() {
 }
 
 note() {
-  echo "${STYLE_CYN}[consume]${STYLE_RESET} $*" >&2
+  echo "${STYLE_MAG}${STYLE_BOLD}▸${STYLE_RESET} ${STYLE_CYN}$*${STYLE_RESET}" >&2
 }
 
 ok() {
-  echo "${STYLE_GRN}[ok]${STYLE_RESET} $*" >&2
+  echo "${STYLE_GRN}${STYLE_BOLD}✓${STYLE_RESET} $*" >&2
 }
 
 fx_dots() {
@@ -111,7 +131,7 @@ banner() {
   fi
   cat >&2 <<EOF
 ${STYLE_MAG}${STYLE_BOLD}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${STYLE_RESET}
-${STYLE_MAG}${STYLE_BOLD}┃  EMBODY // ENCRYPTED ARTIFACT CONSUME        ┃${STYLE_RESET}
+${STYLE_MAG}${STYLE_BOLD}┃  EMBODY // CRYPTOLINK IMAGE LOADER           ┃${STYLE_RESET}
 ${STYLE_MAG}${STYLE_BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${STYLE_RESET}
 EOF
 }
@@ -234,6 +254,166 @@ finally:
 PY
 }
 
+docker_load_with_meter() {
+  python3 - "$@" <<'PY'
+import os
+import select
+import subprocess
+import sys
+import time
+
+
+def human_bytes(num: float) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    value = float(num)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)}{unit}"
+            return f"{value:.1f}{unit}"
+        value /= 1024.0
+    return f"{value:.1f}TB"
+
+
+label = sys.argv[1] if len(sys.argv) > 1 else "LOAD"
+use_tty = sys.stderr.isatty()
+term = os.environ.get("TERM", "")
+use_color = use_tty and term != "dumb" and not os.environ.get("NO_COLOR")
+
+RESET = "\033[0m" if use_color else ""
+DIM = "\033[2m" if use_color else ""
+RED = "\033[31m" if use_color else ""
+GRN = "\033[32m" if use_color else ""
+YLW = "\033[33m" if use_color else ""
+CYN = "\033[36m" if use_color else ""
+MAG = "\033[35m" if use_color else ""
+
+bar_len = 28
+pulse_len = 7
+
+fd = sys.stdin.fileno()
+err = sys.stderr
+
+start = time.time()
+last_update = start
+last_bytes_at = start
+total = 0
+delta_bytes = 0
+
+docker_proc = None
+docker_out = b""
+docker_err = b""
+
+
+def render(now: float, *, final: bool = False) -> None:
+    global last_update, delta_bytes, total
+    elapsed = max(now - start, 0.0001)
+    since = max(now - last_update, 0.0001)
+    inst_bps = delta_bytes / since
+    avg_bps = total / elapsed
+    idle = now - last_bytes_at
+
+    span = bar_len - 1
+    phase = int((now * 12) % (2 * span))
+    pos = phase if phase <= span else (2 * span - phase)
+
+    bar = ["░"] * bar_len
+    for i in range(pulse_len):
+        bar[(pos + i) % bar_len] = "█"
+    bar_s = "".join(bar)
+
+    idle_s = ""
+    if idle >= 5 and not final:
+        idle_s = f" {YLW}idle {idle:.0f}s{RESET}"
+
+    line = (
+        f"{MAG}{label}{RESET} "
+        f"{CYN}⟦{bar_s}⟧{RESET} "
+        f"{GRN}{human_bytes(total)}{RESET} "
+        f"{DIM}@{RESET} {human_bytes(inst_bps)}/s "
+        f"{DIM}(avg {human_bytes(avg_bps)}/s){RESET}"
+        f"{idle_s}"
+    )
+
+    if use_tty:
+        err.write("\r\033[2K" + line)
+        if final:
+            err.write("\n")
+        err.flush()
+    else:
+        if final or (now - last_update) >= 15:
+            err.write(line + "\n")
+            err.flush()
+
+    last_update = now
+    delta_bytes = 0
+
+
+def hint_block() -> str:
+    return (
+        f"{DIM}Hints:{RESET}\n"
+        f"  - Ensure the artifact URL is a full https URL (if you pasted `PRESIGNED_URL=...`, remove the prefix).\n"
+        f"  - If it's a presigned URL, it may be expired; request a fresh one.\n"
+        f"  - Verify the URL is reachable from this host: `curl -I <url>` should return 200/302.\n"
+        f"  - If decryption fails, the token/artifact may not match the image ref; ask your admin.\n"
+    )
+
+
+try:
+    while True:
+        now = time.time()
+        timeout = 0.25 if use_tty else 1.0
+        r, _, _ = select.select([fd], [], [], timeout)
+        if not r:
+            render(time.time())
+            continue
+        chunk = os.read(fd, 1024 * 1024)
+        if not chunk:
+            break
+
+        if docker_proc is None:
+            docker_proc = subprocess.Popen(
+                ["docker", "load"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+        assert docker_proc.stdin is not None
+        docker_proc.stdin.write(chunk)
+        total += len(chunk)
+        delta_bytes += len(chunk)
+        last_bytes_at = now
+
+        if use_tty and (now - last_update) >= 0.25:
+            render(now)
+
+    if docker_proc is None:
+        render(time.time(), final=True)
+        err.write(f"{RED}error:{RESET} received 0 bytes after decrypt/decompress; cannot load image.\n")
+        err.write(hint_block())
+        sys.exit(1)
+
+    assert docker_proc.stdin is not None
+    docker_proc.stdin.close()
+    docker_out, docker_err = docker_proc.communicate()
+    render(time.time(), final=True)
+
+    rc = docker_proc.returncode or 0
+    if rc != 0:
+        # Print docker output after the meter so it doesn't get overwritten.
+        if docker_err:
+            err.write(docker_err.decode("utf-8", errors="replace").rstrip() + "\n")
+        err.write(hint_block())
+        sys.exit(rc)
+
+    if docker_out:
+        err.write(docker_out.decode("utf-8", errors="replace").rstrip() + "\n")
+except BrokenPipeError:
+    sys.exit(1)
+PY
+}
+
 payments_api_url=""
 image_ref=""
 artifact_url=""
@@ -292,7 +472,15 @@ done
 
 [[ -n "$payments_api_url" ]] || die "--payments-api-url is required"
 [[ -n "$image_ref" ]] || die "--image-ref is required"
+artifact_url="$(trim_whitespace "$artifact_url")"
+artifact_url="${artifact_url#PRESIGNED_URL=}"
+artifact_url="${artifact_url#ARTIFACT_URL=}"
+artifact_url="$(strip_wrapping_quotes "$artifact_url")"
+artifact_url="$(trim_whitespace "$artifact_url")"
 [[ -n "$artifact_url" ]] || die "--artifact-url is required"
+if [[ "$artifact_url" != http://* && "$artifact_url" != https://* ]]; then
+  die "--artifact-url must be an http(s) URL"
+fi
 command -v curl >/dev/null 2>&1 || die "missing dependency: curl"
 command -v jq >/dev/null 2>&1 || die "missing dependency: jq"
 command -v zstd >/dev/null 2>&1 || die "missing dependency: zstd"
@@ -371,9 +559,8 @@ fi
 note "Streaming artifact → decrypt → decompress → docker load (this can take a while)"
 curl -fL --connect-timeout 10 --retry 3 --retry-delay 2 --retry-connrefused -sS "$artifact_url" \
   | age --decrypt -i "$identity_file" \
-  | zstd -d -q -c \
-  | progress_pipe "LOAD" \
-  | docker load
+  | zstd -d -c \
+  | docker_load_with_meter "NEON-LOAD"
 
 if is_tty; then
   cat >&2 <<EOF
