@@ -1031,12 +1031,26 @@ ensure_inbound_rules_best_effort() {
 }
 
 verify_payments_registration_best_effort() {
+  # /api/orchestrators is protected by X-Admin-Token (admin or viewer token). Orchestrators typically
+  # do not have these tokens, so this step is best-effort and usually skipped.
+  local token=""
+  if [[ -n "${PAYMENTS_VIEWER_TOKEN:-}" ]]; then
+    token="${PAYMENTS_VIEWER_TOKEN}"
+  elif [[ -n "${PAYMENTS_ADMIN_TOKEN:-}" ]]; then
+    token="${PAYMENTS_ADMIN_TOKEN}"
+  fi
+  if [[ -z "$token" ]]; then
+    note "Skipping Payments verification (requires viewer/admin token for /api/orchestrators)."
+    REGISTRATION_VERIFIED="1"
+    return 0
+  fi
+
   local url json
   url="${PAYMENTS_API_URL%/}/api/orchestrators"
   fx_dots "Verifying registration in Payments"
 
   for _ in $(seq 1 20); do
-    json="$(curl -fsS --max-time 5 "$url" 2>/dev/null || true)"
+    json="$(curl -fsS --max-time 5 -H "X-Admin-Token: $token" "$url" 2>/dev/null || true)"
     if [[ -n "$json" ]]; then
       if echo "$json" | jq -e --arg id "$ORCH_ID" '
         if type == "array" then
@@ -1048,6 +1062,7 @@ verify_payments_registration_best_effort() {
         end
       ' >/dev/null 2>&1; then
         ok "Registration verified in Payments (orchestrator_id=$ORCH_ID)"
+        REGISTRATION_VERIFIED="1"
         return 0
       fi
     fi
@@ -1055,7 +1070,7 @@ verify_payments_registration_best_effort() {
   done
 
   warn "Could not verify registration in Payments yet (orchestrator_id=$ORCH_ID)."
-  warn "If this persists, check firewall rules (TCP 9090 from Payments, and edge/gateway allowlists) and rerun registration."
+  warn "If this persists, ask your admin to check Payments, or rerun registration."
   return 1
 }
 
