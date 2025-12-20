@@ -354,7 +354,8 @@ def hint_block() -> str:
         f"{DIM}Hints:{RESET}\n"
         f"  - Ensure the artifact URL is a full https URL (if you pasted `PRESIGNED_URL=...`, remove the prefix).\n"
         f"  - If it's a presigned URL, it may be expired; request a fresh one.\n"
-        f"  - Verify the URL is reachable from this host: `curl -I <url>` should return 200/302.\n"
+        f"  - Verify the URL is reachable from this host: `curl -fL --range 0-63 <url> | head -n1` should print `age-encryption.org/v1`.\n"
+        f"    (For presigned GET URLs, `curl -I`/HEAD may 403 even when the URL is valid.)\n"
         f"  - If decryption fails, the token/artifact may not match the image ref; ask your admin.\n"
     )
 
