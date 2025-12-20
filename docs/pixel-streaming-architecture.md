@@ -59,7 +59,7 @@ All services share the external Docker network `vtuber_network`, so the streamer
 2. `./scripts/generate_turn_credentials.sh`
 3. (Optional) `docker/aws-pixel-streaming/package-embody.sh /path/to/Embody/Linux`
 4. `docker compose -f docker-compose.unreal.yml build unreal-signaling`
-5. (Ensure `.env` includes `VTUBER_ALLOWED_ADDRESSES=3.150.172.153`, then) `docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game turn-server`
+5. (Ensure `.env` includes `VTUBER_ALLOWED_ADDRESSES=<edge-ip>` (example: `3.150.172.153`), then) `docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game turn-server`
 6. Verify logs and ulimit: `docker logs vtuber-unreal-signaling --tail 20`, `docker exec vtuber-unreal-game bash -lc 'ulimit -n'`
 7. Connect via browser on the orchestrator (`http://127.0.0.1:8080`, or tunnel the port over SSH if you need to view it remotely)
 

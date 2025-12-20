@@ -26,8 +26,8 @@ Notes:
 - The script writes/updates `.env` and generates `.env.turn`.
 - It will prompt for the required inputs (choose a unique orchestrator ID + payout wallet, then paste your invite code) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
 - The wizard redeems the invite code, stores a license token (chmod 600), then requests a Payments lease which includes a fresh download URL for the encrypted build.
-- By default it allowlists the forwarder IP (`3.150.172.153`) for runner/recorder/power endpoints; override with `--forwarder-ip`.
-- If you have multiple edge/forwarder IPs, add them with `--allowed-ip <ip>` (repeatable) or `--allowed-ips <csv>`.
+- It allowlists the primary Embody edge/gateway IP (`3.150.172.153` by default). Override with `--edge-ip` (or `--forwarder-ip` for backwards compatibility).
+- If you have multiple edge/gateway IPs, add them with `--allowed-ip <ip>` (repeatable) or `--allowed-ips <csv>`.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 - For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).
 - If you don’t have an invite code yet, abort and request one from your admin.
@@ -43,7 +43,7 @@ Non-interactive (for automation):
 ## Firewall / ingress checklist
 
 Ensure inbound allowlists / firewall rules are set:
-- Forwarder `3.150.172.153` -> TCP `8080,8888,8889,9877` and UDP `3478,49160-49200`
+- Edge/gateway `3.150.172.153` -> TCP `8080,8888,8889,9877` and UDP `3478,49160-49200`
 - Payments backend -> TCP `9090` (health monitoring)
 
 The onboarding wizard will apply these rules to UFW (best-effort) if UFW is active on the host. Disable with `--no-apply-firewall`.

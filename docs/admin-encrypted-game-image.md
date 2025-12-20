@@ -85,6 +85,7 @@ curl -fsS -X POST \
 
 Send the orchestrator:
 - the invite `code` from the response
+- the Embody edge/gateway IP(s) they should allowlist (closest region; can be comma-separated)
 
 They will run the onboarding wizard and paste that code.
 

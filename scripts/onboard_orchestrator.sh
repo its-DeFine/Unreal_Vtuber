@@ -40,7 +40,8 @@ Usage:
 Common options:
   --payments-api-url <url>    (default: http://3.141.111.200:8081)
   --image-ref <ref>           (default: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1)
-  --forwarder-ip <ip>         (default: 3.150.172.153)
+  --edge-ip <ip>              Primary Embody edge/gateway IP (default: 3.150.172.153)
+  --forwarder-ip <ip>         Alias for --edge-ip (backwards compatible)
   --allowed-ip <ip>           Additional allowlisted caller IP (repeatable; e.g. edge IPs)
   --allowed-ips <csv>         Additional allowlisted caller IPs (comma-separated)
   --public-ip <ip|auto>       (default: auto; tries EC2 IMDSv2 then ipify)
@@ -53,7 +54,7 @@ Host paths (written into .env):
 Behavior flags:
   --interactive               Force the CLI wizard (even if flags are provided)
   --non-interactive           Never prompt; error if required values are missing
-  --advanced                  Prompt for optional settings (Payments URL, forwarder IP, paths)
+  --advanced                  Prompt for optional settings (Payments URL, extra edge IPs, host paths)
   --no-color                  Disable ANSI colors
   --no-fx                     Disable transition effects
   --install-deps              Attempt apt-get install of curl/jq/zstd/age/python3 (Ubuntu/Debian only)
@@ -367,7 +368,7 @@ ENV_TEMPLATE="$REPO_ROOT/orchestrator.env.example"
 
 PAYMENTS_API_URL="http://3.141.111.200:8081"
 IMAGE_REF="ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1"
-FORWARDER_IP="3.150.172.153"
+EDGE_IP="3.150.172.153"
 PUBLIC_IP="auto"
 EXTRA_ALLOWED_IPS=()
 
@@ -438,8 +439,12 @@ while [[ $# -gt 0 ]]; do
       IMAGE_REF="${2:-}"
       shift 2
       ;;
+    --edge-ip)
+      EDGE_IP="${2:-}"
+      shift 2
+      ;;
     --forwarder-ip)
-      FORWARDER_IP="${2:-}"
+      EDGE_IP="${2:-}"
       shift 2
       ;;
     --allowed-ip)
@@ -1050,7 +1055,7 @@ verify_payments_registration_best_effort() {
   done
 
   warn "Could not verify registration in Payments yet (orchestrator_id=$ORCH_ID)."
-  warn "If this persists, check firewall rules (TCP 9090 from Payments, and forwarder allowlists) and rerun registration."
+  warn "If this persists, check firewall rules (TCP 9090 from Payments, and edge/gateway allowlists) and rerun registration."
   return 1
 }
 
@@ -1253,9 +1258,9 @@ maybe_run_wizard() {
   echo "  - A unique orchestrator ID (you choose)" >&2
   echo "  - Payout wallet address (0x...)" >&2
   echo "  - A one-time invite code (admin provides; bound to your payout wallet)" >&2
-  echo "${STYLE_DIM}Tip:${STYLE_RESET} run with ${STYLE_BOLD}--advanced${STYLE_RESET} to override Payments URL, forwarder IP, or host paths." >&2
+  echo "${STYLE_DIM}Tip:${STYLE_RESET} run with ${STYLE_BOLD}--advanced${STYLE_RESET} for extra edge IPs and host path overrides." >&2
 
-  local existing_orch_id existing_addr existing_payments existing_allowlist_csv existing_forwarder existing_extra_allowlist_csv existing_session_dir existing_recordings_dir
+  local existing_orch_id existing_addr existing_payments existing_allowlist_csv existing_edge existing_extra_allowlist_csv existing_session_dir existing_recordings_dir
   local existing_nonlocal_allowlist=()
   existing_orch_id="$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ID" 2>/dev/null || true)"
   existing_addr="$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ADDRESS" 2>/dev/null || true)"
@@ -1276,7 +1281,7 @@ maybe_run_wizard() {
       existing_nonlocal_allowlist+=("$token")
     done < <(extract_nonlocal_allowlist_tokens "$existing_allowlist_csv" || true)
   fi
-  existing_forwarder="${existing_nonlocal_allowlist[0]:-}"
+  existing_edge="${existing_nonlocal_allowlist[0]:-}"
   if ((${#existing_nonlocal_allowlist[@]} > 1)); then
     existing_extra_allowlist_csv="$(join_csv "${existing_nonlocal_allowlist[@]:1}")"
   else
@@ -1379,12 +1384,11 @@ maybe_run_wizard() {
 
   section "Network"
 
-  if [[ -z "$FORWARDER_IP" || "$FORWARDER_IP" == "3.150.172.153" ]]; then
-    FORWARDER_IP="${existing_forwarder:-$FORWARDER_IP}"
+  if [[ -z "$EDGE_IP" || "$EDGE_IP" == "3.150.172.153" ]]; then
+    EDGE_IP="${existing_edge:-$EDGE_IP}"
   fi
-  if [[ "$ADVANCED" == "1" || -z "$FORWARDER_IP" ]]; then
-    FORWARDER_IP="$(prompt_default "Forwarder IP (allowlisted for runner/recorder/power)" "$FORWARDER_IP")"
-  fi
+  note "Ask your admin for the Embody Zone edge/gateway IP that should connect to this orchestrator (closest region)."
+  EDGE_IP="$(prompt_default "Primary edge/gateway IP (allowlisted)" "$EDGE_IP")"
 
   # Preserve any extra allowlisted caller IPs from existing config unless explicitly provided via flags.
   if [[ ${#EXTRA_ALLOWED_IPS[@]} -eq 0 ]] && [[ -n "$existing_extra_allowlist_csv" ]]; then
@@ -1406,7 +1410,7 @@ maybe_run_wizard() {
     else
       default_extra_csv=""
     fi
-    note "Optional: add extra edge/forwarder IPs that will connect to this host (ask your admin)."
+    note "Optional: add extra edge/gateway IPs that may connect to this host."
     extra_csv="$(prompt_default "Additional allowed caller IPs (comma-separated; optional)" "$default_extra_csv")"
     extra_csv="$(trim_whitespace "$extra_csv")"
     EXTRA_ALLOWED_IPS=()
@@ -1466,7 +1470,7 @@ maybe_run_wizard() {
     echo "Contact email:       $ORCH_CONTACT_EMAIL" >&2
   fi
   echo "Public IP:           $PUBLIC_IP" >&2
-  echo "Forwarder allowlist: $FORWARDER_IP" >&2
+  echo "Edge allowlist:      $EDGE_IP" >&2
   if ((${#EXTRA_ALLOWED_IPS[@]})); then
     echo "Extra allowlist:     $(join_csv "${EXTRA_ALLOWED_IPS[@]}")" >&2
   fi
@@ -1638,12 +1642,12 @@ fi
 upsert_env_kv "$ENV_FILE" "PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HOST_PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" "http://$PUBLIC_IP:9090/health"
-FORWARDER_IP="$(trim_whitespace "$FORWARDER_IP")"
-if ! is_safe_allowlist_token "$FORWARDER_IP"; then
-  die "invalid --forwarder-ip value: $FORWARDER_IP"
+EDGE_IP="$(trim_whitespace "$EDGE_IP")"
+if ! is_safe_allowlist_token "$EDGE_IP"; then
+  die "invalid --edge-ip value: $EDGE_IP"
 fi
 
-CONTROL_IPS=("$FORWARDER_IP")
+CONTROL_IPS=("$EDGE_IP")
 for ip in "${EXTRA_ALLOWED_IPS[@]}"; do
   ip="$(trim_whitespace "$ip")"
   [[ -n "$ip" ]] || continue
@@ -1816,7 +1820,7 @@ ${STYLE_MAG}${STYLE_BOLD}┗━━━━━━━━━━━━━━━━━�
 
 ${STYLE_MAG}${STYLE_BOLD}NEXT STEPS${STYLE_RESET}
   ${STYLE_DIM}1) Inbound allowlists (required):${STYLE_RESET}
-     - Allowlisted callers ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
+     - Allowlisted edge/gateway IPs ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
      - Payments backend -> TCP 9090 (health monitoring)
      - ${STYLE_DIM}Auto-apply notes:${STYLE_RESET} UFW only (if active). EC2 security groups only with ${STYLE_BOLD}--apply-aws-sg${STYLE_RESET}.
      - ${STYLE_DIM}Edge IPs:${STYLE_RESET} add with ${STYLE_BOLD}--allowed-ip${STYLE_RESET} or ${STYLE_BOLD}--allowed-ips${STYLE_RESET} (or rerun with ${STYLE_BOLD}--advanced${STYLE_RESET}).
@@ -1841,7 +1845,7 @@ Done.
 
 Next:
   1) Ensure inbound allowlists / firewall rules are set:
-     - Allowlisted callers ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
+     - Allowlisted edge/gateway IPs ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
      - Payments backend -> TCP 9090 (health monitoring)
      - Auto-apply notes: UFW only (if active). EC2 security groups only with --apply-aws-sg.
      - Edge IPs: add with --allowed-ip/--allowed-ips (or rerun with --advanced).
