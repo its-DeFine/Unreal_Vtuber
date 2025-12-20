@@ -13,39 +13,30 @@ Orchestrator provides:
 - Payout wallet (`ORCHESTRATOR_ADDRESS`)
 
 Admin provides:
-- A one-time invite code (recommended) or a Payments-issued orchestrator license token
-- An encrypted artifact URL (public/presigned) for the desired game build (`.tar.zst.age`)
+- A one-time invite code (recommended; bound to the payout wallet)
 
 ## Quickstart (single command)
 
-1) If you were given a license token, store it on the host (recommended):
-```bash
-mkdir -p ~/.embody && chmod 700 ~/.embody
-printf '%s' '<ORCH_TOKEN>' > ~/.embody/orch-license-token.txt
-chmod 600 ~/.embody/orch-license-token.txt
-```
-
-2) Run the onboarding script (interactive wizard):
+Run the onboarding script (interactive wizard):
 ```bash
 git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/onboard_orchestrator.sh
 ```
 
 Notes:
 - The script writes/updates `.env` and generates `.env.turn`.
-- It will prompt for the required inputs (choose a unique orchestrator ID + payout wallet, plus token + artifact URL) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
-- If you were given a one-time invite code, paste it when prompted and the wizard will redeem it and store a license token for you.
+- It will prompt for the required inputs (choose a unique orchestrator ID + payout wallet, then paste your invite code) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
+- The wizard redeems the invite code, stores a license token (chmod 600), then requests a Payments lease which includes a fresh download URL for the encrypted build.
 - By default it allowlists the forwarder IP (`3.150.172.153`) for runner/recorder/power endpoints; override with `--forwarder-ip`.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 - For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).
-- If you don’t have the token/artifact yet, abort and request them from your admin.
+- If you don’t have an invite code yet, abort and request one from your admin.
 
 Non-interactive (for automation):
 ```bash
 ./scripts/onboard_orchestrator.sh --non-interactive \
   --orchestrator-id "<orchestrator-id>" \
   --orchestrator-address "0x1111111111111111111111111111111111111111" \
-  --artifact-url "https://<public-or-presigned-url>" \
-  --orch-token-file ~/.embody/orch-license-token.txt
+  --invite-code "ABCD-EFGH-IJKL-MNOP-QRST"
 ```
 
 ## Firewall / ingress checklist
@@ -74,6 +65,5 @@ To load a new encrypted artifact and restart the stack:
 ./tools/encrypted-game-image/rollout.sh \
   --payments-api-url http://<payments-ip>:8081 \
   --orch-token-file ~/.embody/orch-license-token.txt \
-  --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1 \
-  --artifact-url "https://<public-or-presigned-url>"
+  --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1
 ```

@@ -1,34 +1,32 @@
 # Unreal VTuber Orchestrator (Pixel Streaming)
 
-Run Embody/Atumera’s packaged Unreal Engine Pixel Streaming avatar on your own GPU host as an **authorized orchestrator**.
+Run Embody’s packaged Unreal Engine Pixel Streaming avatar on your own GPU host as an **authorized orchestrator**.
 
-This repo contains the runtime Compose stack (TURN, signaling, game container, script-runner, recorder control, health/registration) plus a one-command onboarding wizard that gets a fresh machine online fast.
+This repo contains the runtime Compose stack (TURN, signaling, game container, script-runner, recorder control, health/registration) plus a one-command onboarding wizard.
+
+Key properties:
+- **Single-command onboarding** (interactive wizard)
+- **Encrypted game delivery** (no registry credentials on the orchestrator)
+- **Short-lived decryption leases** issued by the Payments backend
+- **Best-effort firewall automation** on EC2 (optional)
 
 ## Quickstart (one command)
 
 You’ll need:
-- From your admin: a **one-time invite code** (recommended) *or* an **orchestrator license token**, plus an **encrypted artifact URL** (`.tar.zst.age`)
+- From your admin: a **one-time invite code** (bound to your payout wallet)
 - From you: a **unique orchestrator ID** + a **payout wallet address** (`0x…`)
-- A GPU host with NVIDIA driver + Docker (Ubuntu 22.04 recommended)
+- A GPU host with an NVIDIA GPU (Ubuntu 22.04 recommended)
 
-1) If you were given a license token, save it on the host (recommended):
-```bash
-mkdir -p ~/.embody && chmod 700 ~/.embody
-printf '%s' '<ORCH_LICENSE_TOKEN>' > ~/.embody/orch-license-token.txt
-chmod 600 ~/.embody/orch-license-token.txt
-```
-
-2) Run the onboarding wizard:
+Run:
 ```bash
 git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/onboard_orchestrator.sh
 ```
 
-If you were given an invite code, the wizard will redeem it and store a license token for you.
-
 The wizard will:
 - Preflight your host (and can install missing deps on Ubuntu/Debian)
 - Write/update `.env`, generate `.env.turn`
-- Fetch + decrypt + load the **encrypted** game image via a Payments lease (no GHCR creds needed)
+- Redeem your invite code and store a license token (chmod 600)
+- Fetch + decrypt + load the **encrypted** game image via a Payments lease (no artifact URLs to paste)
 - Start `docker-compose.unreal.yml`, register your orchestrator, and verify registration best-effort
 - Try to apply required inbound rules on EC2 best-effort (disable with `--no-apply-firewall`)
 

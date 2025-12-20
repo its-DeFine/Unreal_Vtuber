@@ -48,8 +48,7 @@ Download + decrypt + `docker load` using a Payments-issued lease:
 ./tools/encrypted-game-image/consume.sh \
   --payments-api-url http://3.141.111.200:8081 \
   --orch-token-file /path/to/orchestrator-license-token.txt \
-  --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1 \
-  --artifact-url "https://<public-or-presigned-url>"
+  --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1
 ```
 
 ### Orchestrator rollout helper
@@ -60,8 +59,7 @@ If you want an end-to-end “reload the game image and restart the stack” help
 ./tools/encrypted-game-image/rollout.sh \
   --payments-api-url http://3.141.111.200:8081 \
   --orch-token-file /path/to/orchestrator-license-token.txt \
-  --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1 \
-  --artifact-url "https://<public-or-presigned-url>"
+  --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1
 ```
 
 This runs: `docker compose down` → `docker image rm` (game tag) → `consume.sh` → `docker compose up -d`.
@@ -70,4 +68,4 @@ This runs: `docker compose down` → `docker image rm` (game tag) → `consume.s
 
 - These scripts intentionally avoid printing secrets, but you should still treat shell history and process lists with care.
 - Use digest-based, content-addressed filenames for artifacts (recommended) so the payload can be cached safely.
-- For production “pay → unlock download”, the Payments backend can additionally mint a presigned download URL per lease.
+- For production, configure the Payments backend to store an `artifact_s3_uri` per `image_ref` so it can mint a fresh presigned download URL per lease.

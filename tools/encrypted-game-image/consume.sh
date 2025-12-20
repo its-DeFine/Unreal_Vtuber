@@ -18,12 +18,12 @@ STYLE_MAG=""
 usage() {
   cat <<'EOF'
 Usage:
-  consume.sh --payments-api-url <url> --image-ref <ref> --artifact-url <url> (--orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
+  consume.sh --payments-api-url <url> --image-ref <ref> [--artifact-url <url>] (--orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
 
 Options:
   --payments-api-url     Payments backend base URL (example: http://3.141.111.200:8081)
   --image-ref            Image ref registered in Payments licenses (example: ghcr.io/...:enc-v1)
-  --artifact-url         Public or presigned URL to the encrypted artifact (.age)
+  --artifact-url         Optional override: public/presigned URL to the encrypted artifact (.age). If omitted, Payments returns a fresh URL per lease.
   --orch-token           Orchestrator license token (NOT recommended; may leak via shell history)
   --orch-token-file      Read orchestrator license token from file (recommended)
   --orch-token-env       Read orchestrator license token from env var name (recommended)
@@ -478,9 +478,8 @@ artifact_url="${artifact_url#PRESIGNED_URL=}"
 artifact_url="${artifact_url#ARTIFACT_URL=}"
 artifact_url="$(strip_wrapping_quotes "$artifact_url")"
 artifact_url="$(trim_whitespace "$artifact_url")"
-[[ -n "$artifact_url" ]] || die "--artifact-url is required"
-if [[ "$artifact_url" != http://* && "$artifact_url" != https://* ]]; then
-  die "--artifact-url must be an http(s) URL"
+if [[ -n "$artifact_url" ]] && [[ "$artifact_url" != http://* && "$artifact_url" != https://* ]]; then
+  die "--artifact-url must be an http(s) URL (or omit it to let Payments provide one)"
 fi
 command -v curl >/dev/null 2>&1 || die "missing dependency: curl"
 command -v jq >/dev/null 2>&1 || die "missing dependency: jq"
@@ -511,10 +510,24 @@ lease_json="$(curl -fsS --connect-timeout 10 --max-time 60 -X POST \
 
 lease_id="$(echo "$lease_json" | jq -r '.lease_id // empty')"
 secret_b64="$(echo "$lease_json" | jq -r '.secret_b64 // empty')"
+artifact_url_from_lease="$(echo "$lease_json" | jq -r '.artifact_url // empty')"
 lease_seconds="$(echo "$lease_json" | jq -r '.lease_seconds // 900')"
 
 [[ -n "$lease_id" ]] || die "missing lease_id from payments response"
 [[ -n "$secret_b64" ]] || die "missing secret_b64 from payments response"
+
+if [[ -z "$artifact_url" ]]; then
+  artifact_url="$artifact_url_from_lease"
+  artifact_url="$(trim_whitespace "$artifact_url")"
+  artifact_url="${artifact_url#PRESIGNED_URL=}"
+  artifact_url="${artifact_url#ARTIFACT_URL=}"
+  artifact_url="$(strip_wrapping_quotes "$artifact_url")"
+  artifact_url="$(trim_whitespace "$artifact_url")"
+fi
+[[ -n "$artifact_url" ]] || die "Payments did not provide an artifact_url for this image_ref; ask your admin to configure the artifact in Payments"
+if [[ "$artifact_url" != http://* && "$artifact_url" != https://* ]]; then
+  die "invalid artifact_url from Payments (expected http(s))"
+fi
 ok "Lease acquired (lease_id=${lease_id}, seconds=${lease_seconds})"
 
 hb_pid=""

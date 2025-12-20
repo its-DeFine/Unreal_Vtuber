@@ -22,7 +22,7 @@ Interactive orchestrator onboarding (encrypted game image flow).
 
 If you run this script with no flags, it launches a CLI wizard that:
   - checks prerequisites (and can install missing deps on Ubuntu/Debian)
-  - asks for the required inputs (orchestrator ID/address + token + artifact URL)
+  - asks for the required inputs (orchestrator ID + payout wallet + invite code)
   - writes/updates `.env` + generates `.env.turn`
   - loads the encrypted game image via a Payments lease
   - starts `docker-compose.unreal.yml` and registers the orchestrator
@@ -35,7 +35,6 @@ Usage:
   ./scripts/onboard_orchestrator.sh --non-interactive \
     --orchestrator-id <id> \
     --orchestrator-address <0x...> \
-    --artifact-url <https://...tar.zst.age> \
     (--invite-code <code> | --orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
 
 Common options:
@@ -1095,7 +1094,7 @@ redeem_invite_code_if_needed() {
   require_cmd curl
   require_cmd python3
 
-  local url payload response http_code body token
+  local url payload response http_code body token image_ref
   url="${PAYMENTS_API_URL%/}/api/licenses/invites/redeem"
 
   payload="$(INVITE_CODE="$INVITE_CODE" ORCH_ID="$ORCH_ID" ORCH_ADDRESS="$ORCH_ADDRESS" ORCH_CONTACT_EMAIL="$ORCH_CONTACT_EMAIL" \
@@ -1136,6 +1135,7 @@ PY
     )"
     case "$http_code" in
       404) die "Invite code not found (or already redeemed). Ask your admin for a fresh code." ;;
+      403) die "Invite code rejected (wallet mismatch or revoked). Double-check your payout wallet address and ask your admin for a new code." ;;
       409) die "Invite code already redeemed (or redemption in progress). Ask your admin for a new code." ;;
       410) die "Invite code expired. Ask your admin for a fresh code." ;;
       *) die "Invite redeem failed (HTTP $http_code)${detail:+: $detail}" ;;
@@ -1149,6 +1149,16 @@ print(data.get("token", "") or "")
 PY
   )"
   [[ -n "$token" ]] || die "Invite redeem succeeded but no token was returned"
+
+  image_ref="$(python3 - <<'PY' <<<"$body"
+import json, sys
+data = json.load(sys.stdin)
+print(data.get("image_ref", "") or "")
+PY
+  )"
+  if [[ -n "$image_ref" ]]; then
+    IMAGE_REF="$image_ref"
+  fi
 
   ORCH_TOKEN="$token"
   INVITE_CODE=""
@@ -1167,9 +1177,6 @@ maybe_run_wizard() {
   fi
   if [[ "$need_prompt" != "1" ]]; then
     if [[ -z "$ORCH_ID" || -z "$ORCH_ADDRESS" ]]; then
-      need_prompt="1"
-    fi
-    if [[ -z "$ARTIFACT_URL" ]]; then
       need_prompt="1"
     fi
     if [[ -z "$INVITE_CODE" && -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
@@ -1197,7 +1204,7 @@ maybe_run_wizard() {
   echo "${STYLE_DIM}You will need:${STYLE_RESET}" >&2
   echo "  - A unique orchestrator ID (you choose)" >&2
   echo "  - Payout wallet address (0x...)" >&2
-  echo "  - License token + encrypted artifact URL (admin provides)" >&2
+  echo "  - A one-time invite code (admin provides; bound to your payout wallet)" >&2
   echo "${STYLE_DIM}Tip:${STYLE_RESET} run with ${STYLE_BOLD}--advanced${STYLE_RESET} to override Payments URL, forwarder IP, or host paths." >&2
 
   local existing_orch_id existing_addr existing_payments existing_forwarder existing_session_dir existing_recordings_dir
@@ -1284,32 +1291,20 @@ maybe_run_wizard() {
     fi
   fi
 
-  section "Encrypted Build"
-
-  note "You need the admin-provided license token + encrypted artifact URL to continue."
-  note "If you don’t have them yet, press Ctrl+C and request them from your admin."
-
-  ARTIFACT_URL="$(prompt_default "Encrypted artifact URL (.tar.zst.age)" "$ARTIFACT_URL")"
-  while [[ -z "$ARTIFACT_URL" ]]; do
-    ARTIFACT_URL="$(prompt_default "Encrypted artifact URL (.tar.zst.age)" "$ARTIFACT_URL")"
-  done
+  section "License"
 
   local default_token_file="$target_home/.embody/orch-license-token.txt"
   if [[ -z "$INVITE_CODE" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" && -z "$ORCH_TOKEN" ]]; then
     if [[ -s "$default_token_file" ]]; then
-      if prompt_yes_no "Use token file at $default_token_file?" "y"; then
-        ORCH_TOKEN_FILE="$default_token_file"
-      elif prompt_yes_no "Redeem a one-time invite code instead?" "y"; then
-        INVITE_CODE="$(prompt_secret "Paste invite code (hidden input)")"
-      else
-        ORCH_TOKEN="$(prompt_secret "Paste orchestrator license token (hidden input)")"
-      fi
+      ok "Found existing license token at $default_token_file"
+      ORCH_TOKEN_FILE="$default_token_file"
     else
-      if prompt_yes_no "Redeem a one-time invite code instead of pasting a license token?" "y"; then
-        INVITE_CODE="$(prompt_secret "Paste invite code (hidden input)")"
-      else
-        ORCH_TOKEN="$(prompt_secret "Paste orchestrator license token (hidden input)")"
-      fi
+      note "Paste the one-time invite code from your admin."
+      note "This invite code is bound to your payout wallet address."
+      while [[ -z "$INVITE_CODE" ]]; do
+        INVITE_CODE="$(prompt_secret "Invite code (hidden input)")"
+        INVITE_CODE="$(trim_whitespace "$INVITE_CODE")"
+      done
     fi
   fi
 
@@ -1376,7 +1371,6 @@ maybe_run_wizard() {
   echo "Forwarder allowlist: $FORWARDER_IP" >&2
   echo "Session dir:         $SESSION_DIR" >&2
   echo "Recordings dir:      $RECORDINGS_DIR" >&2
-  echo "Encrypted artifact:  $(redact_url "$ARTIFACT_URL")" >&2
   if [[ -n "$ORCH_TOKEN_FILE" ]]; then
     echo "License token:       file $(strip_inline_comment "$ORCH_TOKEN_FILE")" >&2
   elif [[ -n "$ORCH_TOKEN_ENV" ]]; then
@@ -1475,7 +1469,6 @@ if is_zero_eth_address "$ORCH_ADDRESS"; then
   die "ORCHESTRATOR_ADDRESS cannot be 0x0000000000000000000000000000000000000000"
 fi
 
-[[ -n "$ARTIFACT_URL" ]] || die "--artifact-url is required"
 if [[ -z "$INVITE_CODE" && -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
   die "license token or invite code required (use --invite-code, --orch-token-file, or --orch-token-env)"
 fi
@@ -1673,12 +1666,16 @@ elif [[ -n "$ORCH_TOKEN_FILE" ]]; then
 elif [[ -n "$ORCH_TOKEN" ]]; then
   token_args+=(--orch-token "$ORCH_TOKEN")
 fi
-"$REPO_ROOT/tools/encrypted-game-image/rollout.sh" \
-  --payments-api-url "$PAYMENTS_API_URL" \
-  --image-ref "$IMAGE_REF" \
-  --artifact-url "$ARTIFACT_URL" \
-  "${token_args[@]}" \
-  "${rollout_args[@]}"
+rollout_cmd=(
+  "$REPO_ROOT/tools/encrypted-game-image/rollout.sh"
+  --payments-api-url "$PAYMENTS_API_URL"
+  --image-ref "$IMAGE_REF"
+)
+if [[ -n "$ARTIFACT_URL" ]]; then
+  rollout_cmd+=(--artifact-url "$ARTIFACT_URL")
+fi
+rollout_cmd+=("${token_args[@]}" "${rollout_args[@]}")
+"${rollout_cmd[@]}"
 
 ensure_inbound_rules_best_effort
 

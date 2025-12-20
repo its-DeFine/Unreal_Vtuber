@@ -15,7 +15,7 @@ STYLE_MAG=""
 usage() {
   cat <<'EOF'
 Usage:
-  rollout.sh --payments-api-url <url> --image-ref <ref> --artifact-url <url> (--orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
+  rollout.sh --payments-api-url <url> --image-ref <ref> [--artifact-url <url>] (--orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
 
 This is an orchestrator helper that:
   1) Stops the compose stack
@@ -26,7 +26,7 @@ This is an orchestrator helper that:
 Options:
   --payments-api-url     Payments backend base URL (example: http://3.141.111.200:8081)
   --image-ref            Image ref registered in Payments licenses (example: ghcr.io/...:enc-v1)
-  --artifact-url         Public or presigned URL to the encrypted artifact (.tar.zst.age)
+  --artifact-url         Optional override: public/presigned URL to the encrypted artifact (.tar.zst.age). If omitted, Payments returns a fresh URL per lease.
   --orch-token           Orchestrator license token (NOT recommended; may leak via shell history)
   --orch-token-file      Read orchestrator license token from file (recommended)
   --orch-token-env       Read orchestrator license token from env var name (recommended)
@@ -150,7 +150,6 @@ init_ui
 
 [[ -n "$payments_api_url" ]] || die "--payments-api-url is required"
 [[ -n "$image_ref" ]] || die "--image-ref is required"
-[[ -n "$artifact_url" ]] || die "--artifact-url is required"
 
 command -v docker >/dev/null 2>&1 || die "missing dependency: docker"
 command -v curl >/dev/null 2>&1 || die "missing dependency: curl"
@@ -212,11 +211,11 @@ note "Removing local game image tag: $game_image"
 docker image rm -f "$game_image" >/dev/null 2>&1 || true
 
 note "Loading encrypted game image via Payments lease"
-"$SCRIPT_DIR/consume.sh" \
-  --payments-api-url "$payments_api_url" \
-  --image-ref "$image_ref" \
-  --artifact-url "$artifact_url" \
-  "${token_args[@]}"
+consume_args=(--payments-api-url "$payments_api_url" --image-ref "$image_ref")
+if [[ -n "$artifact_url" ]]; then
+  consume_args+=(--artifact-url "$artifact_url")
+fi
+"$SCRIPT_DIR/consume.sh" "${consume_args[@]}" "${token_args[@]}"
 
 note "Starting compose stack"
 "${compose_cmd[@]}" -f "$compose_file" up -d
