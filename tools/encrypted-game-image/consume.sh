@@ -579,6 +579,9 @@ elif command -v base64 >/dev/null 2>&1 && base64 --help 2>&1 | grep -q -- ' -D';
 else
   die "base64 decode not available"
 fi
+if ! grep -q '^AGE-SECRET-KEY-1' "$identity_file" 2>/dev/null; then
+  die "Payments returned an invalid decryption identity (secret_b64 decoded but no AGE-SECRET-KEY-1 line found)"
+fi
 
 note "Downloading artifact → decrypt → decompress → load game image (this can take a while)"
 log_dir="$(mktemp -d)"
