@@ -165,6 +165,7 @@ Our test environment runs on AWS g4dn.xlarge: NVIDIA T4 (16 GB VRAM, ~65 TFL
 
 - `ghcr.io/its-define/unreal_vtuber/embody-signaling:latest` is an “app bundle” image (it runs the SignallingWebServer plus a runner and recorder-control process under `supervisord`).
 - The compose file still references the game image as `ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest`, but under the encrypted distribution flow this is just the **local tag** created by `docker load` (the game image is not pulled from GHCR).
+- If you can pull a proprietary game image from GHCR, that is a mistake — the game should only be distributed as an encrypted artifact (e.g. S3 `.tar.zst.age`) and loaded locally.
 - The default `docker-compose.unreal.yml` still runs `vtuber-script-runner` + `recorder-control` as separate containers because the Unreal command port binds to `127.0.0.1` inside `vtuber-unreal-game` and recordings need a mounted `/recordings` volume.
 - Service images (`vtuber-script-runner`, `recorder-control`, `orchestrator-health`, `vtuber-watchdog`, `orchestrator-registration`) are published under GHCR with `:latest` and `:sha-<gitsha>` tags; set `EMBODY_SERVICE_IMAGE_TAG=sha-…` in `.env` to pin them.
 
