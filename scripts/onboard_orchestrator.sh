@@ -1175,10 +1175,10 @@ else:
 PY
     )"
     case "$http_code" in
-      404) die "Invite code not found (or already redeemed). If you already redeemed it earlier, re-run without --invite-code so we use the stored token at $target_home/.embody/orch-license-token.txt. Otherwise ask your admin for a fresh code." ;;
-      403) die "Invite code rejected (wallet mismatch or revoked). Double-check your payout wallet address and ask your admin for a new code." ;;
-      409) die "Invite code already redeemed (or redemption in progress). If you already redeemed it earlier, re-run without --invite-code so we use the stored token at $target_home/.embody/orch-license-token.txt. Otherwise ask your admin for a new code." ;;
-      410) die "Invite code expired. Ask your admin for a fresh code." ;;
+      404) die "Invite code not found (or already redeemed)${detail:+: $detail}. If you already redeemed it earlier, re-run without --invite-code so we use the stored token at $target_home/.embody/orch-license-token.txt. Otherwise ask your admin for a fresh code." ;;
+      403) die "Invite code rejected (wallet mismatch or revoked)${detail:+: $detail}. Double-check your payout wallet address and ask your admin for a new code." ;;
+      409) die "Invite code already redeemed (or redemption in progress)${detail:+: $detail}. If you already redeemed it earlier, re-run without --invite-code so we use the stored token at $target_home/.embody/orch-license-token.txt. Otherwise ask your admin for a new code." ;;
+      410) die "Invite code expired${detail:+: $detail}. Ask your admin for a fresh code." ;;
       *) die "Invite redeem failed (HTTP $http_code)${detail:+: $detail}" ;;
     esac
   fi
@@ -1360,10 +1360,26 @@ maybe_run_wizard() {
   section "License"
 
   local default_token_file="$target_home/.embody/orch-license-token.txt"
+  local root_token_file="/root/.embody/orch-license-token.txt"
   if [[ -z "$INVITE_CODE" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" && -z "$ORCH_TOKEN" ]]; then
     if [[ -s "$default_token_file" ]]; then
       ok "Found existing license token at $default_token_file"
       ORCH_TOKEN_FILE="$default_token_file"
+    elif [[ "$INTERACTIVE" != "0" ]] && is_tty && [[ "$target_home" != "/root" ]] && [[ -s "$root_token_file" ]]; then
+      warn "Found a license token at $root_token_file (likely from a prior run as root)."
+      warn "Using a token minted for a different wallet/orchestrator can break registration and licensing."
+      if prompt_yes_no "Copy that token to $default_token_file for user $target_user?" "n"; then
+        mkdir -p "$(dirname "$default_token_file")"
+        chmod 700 "$(dirname "$default_token_file")" >/dev/null 2>&1 || true
+        cp -f "$root_token_file" "$default_token_file"
+        chmod 600 "$default_token_file" >/dev/null 2>&1 || true
+        if [[ -n "$target_user" ]] && command -v chown >/dev/null 2>&1; then
+          chown "$target_user":"$target_user" "$default_token_file" >/dev/null 2>&1 || true
+          chown "$target_user":"$target_user" "$(dirname "$default_token_file")" >/dev/null 2>&1 || true
+        fi
+        ok "Copied token to $default_token_file"
+        ORCH_TOKEN_FILE="$default_token_file"
+      fi
     else
       note "Paste the one-time invite code from your admin."
       note "This invite code is bound to your payout wallet address."
