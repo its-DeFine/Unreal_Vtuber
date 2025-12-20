@@ -18,6 +18,10 @@ curl <artifact-url> | age --decrypt -i <identity> | zstd -d | docker load
 
 The `secret_b64` returned by `POST /api/licenses/lease` is expected to be **base64(identity-file-bytes)**.
 
+Important:
+- `--image-ref` is a **Payments license identifier** (a string key). It does **not** need to exist as a Docker image in any registry.
+- The proprietary game image should **not** be published to GHCR; orchestrators load it only from the encrypted artifact URL.
+
 ## Dependencies
 
 - Producer: `docker`, `zstd`, `age`
