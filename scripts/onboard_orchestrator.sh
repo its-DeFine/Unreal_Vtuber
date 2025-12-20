@@ -1123,14 +1123,20 @@ PY
 
   if [[ "$http_code" != "200" ]]; then
     local detail
-    detail="$(python3 - <<'PY' <<<"$body"
-import json, sys
+    detail="$(BODY="$body" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ.get("BODY", "") or ""
 try:
-    data = json.load(sys.stdin)
+    data = json.loads(raw) if raw else {}
 except Exception:
+    data = {}
+detail = data.get("detail")
+if isinstance(detail, str):
+    print(detail)
+else:
     print("")
-    raise SystemExit(0)
-print(data.get("detail") or "")
 PY
     )"
     case "$http_code" in
@@ -1142,17 +1148,29 @@ PY
     esac
   fi
 
-  token="$(python3 - <<'PY' <<<"$body"
-import json, sys
-data = json.load(sys.stdin)
+  token="$(BODY="$body" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ.get("BODY", "") or ""
+try:
+    data = json.loads(raw) if raw else {}
+except Exception:
+    data = {}
 print(data.get("token", "") or "")
 PY
   )"
   [[ -n "$token" ]] || die "Invite redeem succeeded but no token was returned"
 
-  image_ref="$(python3 - <<'PY' <<<"$body"
-import json, sys
-data = json.load(sys.stdin)
+  image_ref="$(BODY="$body" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ.get("BODY", "") or ""
+try:
+    data = json.loads(raw) if raw else {}
+except Exception:
+    data = {}
 print(data.get("image_ref", "") or "")
 PY
   )"
