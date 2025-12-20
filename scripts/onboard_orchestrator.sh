@@ -762,12 +762,24 @@ ensure_ec2_sg_rules_best_effort() {
   fi
 
   if ! command -v aws >/dev/null 2>&1; then
-    if [[ "$INTERACTIVE" != "0" ]] && is_tty && prompt_yes_no "AWS CLI not found. Install awscli to auto-apply EC2 security group rules?" "y"; then
-      apt_install awscli
+    if command -v apt-get >/dev/null 2>&1; then
+      if [[ "$INTERACTIVE" != "0" ]] && is_tty; then
+        if prompt_yes_no "AWS CLI not found. Install awscli to auto-apply EC2 security group rules?" "y"; then
+          note "Installing awscli (best-effort)"
+          if [[ "$(id -u)" == "0" ]]; then
+            DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
+            NEEDRESTART_MODE=a DEBIAN_FRONTEND=noninteractive apt-get install -y awscli >/dev/null 2>&1 || true
+          else
+            sudo DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
+            sudo NEEDRESTART_MODE=a DEBIAN_FRONTEND=noninteractive apt-get install -y awscli >/dev/null 2>&1 || true
+          fi
+        fi
+      fi
     fi
   fi
+
   if ! command -v aws >/dev/null 2>&1; then
-    warn "AWS CLI not available; cannot auto-apply EC2 security group rules."
+    warn "AWS CLI not available; cannot auto-apply EC2 security group rules (install awscli + provide credentials/instance role)."
     return 0
   fi
 
