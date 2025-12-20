@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+USE_COLOR="0"
+USE_FX="0"
+COLOR_MODE="auto"
+FX_MODE="auto"
+
+STYLE_RESET=""
+STYLE_BOLD=""
+STYLE_DIM=""
+STYLE_RED=""
+STYLE_GRN=""
+STYLE_YLW=""
+STYLE_CYN=""
+STYLE_MAG=""
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -14,12 +28,210 @@ Options:
   --orch-token-file      Read orchestrator license token from file (recommended)
   --orch-token-env       Read orchestrator license token from env var name (recommended)
   --no-heartbeat         Do not heartbeat the lease while loading
+  --no-color             Disable ANSI colors
+  --no-fx                Disable transition effects
 EOF
 }
 
 die() {
   echo "error: $*" >&2
   exit 1
+}
+
+is_tty() {
+  [[ -t 2 ]]
+}
+
+supports_color() {
+  is_tty || return 1
+  [[ "${TERM:-}" != "dumb" ]] || return 1
+  [[ -z "${NO_COLOR:-}" ]] || return 1
+  return 0
+}
+
+supports_fx() {
+  is_tty || return 1
+  [[ "${TERM:-}" != "dumb" ]] || return 1
+  [[ -z "${CI:-}" ]] || return 1
+  return 0
+}
+
+init_ui() {
+  case "$COLOR_MODE" in
+    always) USE_COLOR="1" ;;
+    never) USE_COLOR="0" ;;
+    auto) if supports_color; then USE_COLOR="1"; else USE_COLOR="0"; fi ;;
+    *) USE_COLOR="0" ;;
+  esac
+
+  case "$FX_MODE" in
+    always) USE_FX="1" ;;
+    never) USE_FX="0" ;;
+    auto) if supports_fx; then USE_FX="1"; else USE_FX="0"; fi ;;
+    *) USE_FX="0" ;;
+  esac
+
+  if [[ "$USE_COLOR" == "1" ]]; then
+    STYLE_RESET=$'\033[0m'
+    STYLE_BOLD=$'\033[1m'
+    STYLE_DIM=$'\033[2m'
+    STYLE_RED=$'\033[31m'
+    STYLE_GRN=$'\033[32m'
+    STYLE_YLW=$'\033[33m'
+    STYLE_CYN=$'\033[36m'
+    STYLE_MAG=$'\033[35m'
+  fi
+}
+
+note() {
+  echo "${STYLE_CYN}[consume]${STYLE_RESET} $*" >&2
+}
+
+ok() {
+  echo "${STYLE_GRN}[ok]${STYLE_RESET} $*" >&2
+}
+
+fx_dots() {
+  local msg="$1"
+  if [[ "$USE_FX" != "1" ]]; then
+    note "$msg"
+    return
+  fi
+  printf "%s" "${STYLE_DIM}${msg}${STYLE_RESET}" >&2
+  for _ in 1 2 3; do
+    sleep 0.15
+    printf "." >&2
+  done
+  printf "\n" >&2
+}
+
+banner() {
+  if ! is_tty; then
+    return
+  fi
+  cat >&2 <<EOF
+${STYLE_MAG}${STYLE_BOLD}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${STYLE_RESET}
+${STYLE_MAG}${STYLE_BOLD}┃  EMBODY // ENCRYPTED ARTIFACT CONSUME        ┃${STYLE_RESET}
+${STYLE_MAG}${STYLE_BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${STYLE_RESET}
+EOF
+}
+
+progress_pipe() {
+  python3 - "$@" <<'PY'
+import os
+import select
+import sys
+import time
+
+
+def human_bytes(num: float) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    value = float(num)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)}{unit}"
+            return f"{value:.1f}{unit}"
+        value /= 1024.0
+    return f"{value:.1f}TB"
+
+
+label = sys.argv[1] if len(sys.argv) > 1 else "stream"
+use_tty = sys.stderr.isatty()
+term = os.environ.get("TERM", "")
+use_color = use_tty and term != "dumb" and not os.environ.get("NO_COLOR")
+
+RESET = "\033[0m" if use_color else ""
+DIM = "\033[2m" if use_color else ""
+CYN = "\033[36m" if use_color else ""
+MAG = "\033[35m" if use_color else ""
+GRN = "\033[32m" if use_color else ""
+YLW = "\033[33m" if use_color else ""
+
+bar_len = 24
+pulse_len = 6
+
+fd = sys.stdin.fileno()
+out = sys.stdout.buffer
+err = sys.stderr
+
+start = time.time()
+last_update = start
+last_bytes_at = start
+total = 0
+delta_bytes = 0
+
+def print_status(now: float, final: bool = False) -> None:
+    global last_update, last_bytes_at, total, delta_bytes
+    elapsed = max(now - start, 0.0001)
+    since = max(now - last_update, 0.0001)
+    inst_bps = delta_bytes / since
+    avg_bps = total / elapsed
+    idle = now - last_bytes_at
+
+    # Ping-pong pulse bar
+    span = bar_len - 1
+    phase = int((now * 10) % (2 * span))
+    pos = phase if phase <= span else (2 * span - phase)
+    bar = ["-"] * bar_len
+    for i in range(pulse_len):
+        bar[(pos + i) % bar_len] = "#"
+    bar_s = "".join(bar)
+
+    idle_s = ""
+    if idle >= 5 and not final:
+        idle_s = f" {YLW}idle {idle:.0f}s{RESET}"
+
+    line = (
+        f"{CYN}[{label}]{RESET} "
+        f"{MAG}[{bar_s}]{RESET} "
+        f"{GRN}{human_bytes(total)}{RESET} "
+        f"{DIM}@{RESET} {human_bytes(inst_bps)}/s "
+        f"{DIM}(avg {human_bytes(avg_bps)}/s){RESET}"
+        f"{idle_s}"
+    )
+
+    if use_tty:
+        err.write("\r\033[2K" + line)
+        if final:
+            err.write("\n")
+        err.flush()
+    else:
+        # Log periodically without spamming non-TTY logs.
+        if final or (now - last_update) >= 15:
+            err.write(line + "\n")
+            err.flush()
+
+    last_update = now
+    delta_bytes = 0
+
+
+try:
+    while True:
+        now = time.time()
+        # Update UI even when upstream stalls.
+        timeout = 0.25 if use_tty else 1.0
+        r, _, _ = select.select([fd], [], [], timeout)
+        if not r:
+            print_status(time.time())
+            continue
+        chunk = os.read(fd, 1024 * 1024)
+        if not chunk:
+            break
+        out.write(chunk)
+        total += len(chunk)
+        delta_bytes += len(chunk)
+        last_bytes_at = now
+        # Refresh UI at most ~4x/sec.
+        if use_tty and (now - last_update) >= 0.25:
+            print_status(now)
+except BrokenPipeError:
+    # Downstream closed the pipe (likely due to an error).
+    sys.exit(1)
+finally:
+    # Final status line
+    print_status(time.time(), final=True)
+PY
 }
 
 payments_api_url=""
@@ -64,6 +276,14 @@ while [[ $# -gt 0 ]]; do
       usage
       exit 0
       ;;
+    --no-color)
+      COLOR_MODE="never"
+      shift 1
+      ;;
+    --no-fx)
+      FX_MODE="never"
+      shift 1
+      ;;
     *)
       die "unknown arg: $1"
       ;;
@@ -78,6 +298,10 @@ command -v jq >/dev/null 2>&1 || die "missing dependency: jq"
 command -v zstd >/dev/null 2>&1 || die "missing dependency: zstd"
 command -v docker >/dev/null 2>&1 || die "missing dependency: docker"
 command -v age >/dev/null 2>&1 || die "missing dependency: age"
+command -v python3 >/dev/null 2>&1 || die "missing dependency: python3"
+
+init_ui
+banner
 
 if [[ -n "$orch_token_env" ]]; then
   orch_token="${!orch_token_env:-}"
@@ -89,7 +313,8 @@ fi
 [[ -n "$orch_token" ]] || die "orchestrator token required (use --orch-token-file or --orch-token-env)"
 
 payload="$(jq -nc --arg image_ref "$image_ref" '{image_ref:$image_ref}')"
-lease_json="$(curl -sS -X POST \
+fx_dots "Requesting a decryption lease from Payments"
+lease_json="$(curl -fsS --connect-timeout 10 --max-time 60 -X POST \
   -H "Authorization: Bearer $orch_token" \
   -H "Content-Type: application/json" \
   -d "$payload" \
@@ -101,6 +326,7 @@ lease_seconds="$(echo "$lease_json" | jq -r '.lease_seconds // 900')"
 
 [[ -n "$lease_id" ]] || die "missing lease_id from payments response"
 [[ -n "$secret_b64" ]] || die "missing secret_b64 from payments response"
+ok "Lease acquired (lease_id=${lease_id}, seconds=${lease_seconds})"
 
 hb_pid=""
 identity_file=""
@@ -122,7 +348,8 @@ if [[ "$heartbeat" == "1" ]]; then
   (
     while true; do
       sleep "$interval" || break
-      curl -sS -X POST -H "Authorization: Bearer $orch_token" \
+      curl -fsS --connect-timeout 5 --max-time 10 -X POST \
+        -H "Authorization: Bearer $orch_token" \
         "$payments_api_url/api/licenses/lease/$lease_id/heartbeat" >/dev/null || true
     done
   ) &
@@ -141,9 +368,18 @@ else
   die "base64 decode not available"
 fi
 
-curl -fsSL "$artifact_url" \
+note "Streaming artifact → decrypt → decompress → docker load (this can take a while)"
+curl -fL --connect-timeout 10 --retry 3 --retry-delay 2 --retry-connrefused -sS "$artifact_url" \
   | age --decrypt -i "$identity_file" \
   | zstd -d -q -c \
+  | progress_pipe "LOAD" \
   | docker load
 
+if is_tty; then
+  cat >&2 <<EOF
+${STYLE_MAG}${STYLE_BOLD}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${STYLE_RESET}
+${STYLE_GRN}${STYLE_BOLD}┃  IMAGE LOADED // AUTHORIZED                  ┃${STYLE_RESET}
+${STYLE_MAG}${STYLE_BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${STYLE_RESET}
+EOF
+fi
 echo "Loaded encrypted image via lease_id=$lease_id"
