@@ -28,11 +28,11 @@ SIGNALING_URL = os.environ.get("RECORDER_SIGNALING_URL", "ws://127.0.0.1:80")
 OUTPUT_DIR = Path(os.environ.get("RECORDER_OUTPUT_DIR", "/recordings"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # TURN configuration via env; leave unset to skip TURN
-TURN_URL = os.environ.get("RECORDER_TURN_URL")
-TURN_USER = os.environ.get("RECORDER_TURN_USER")
-TURN_PASS = os.environ.get("RECORDER_TURN_PASS")
-TURN_HOST = os.environ.get("RECORDER_TURN_HOST")
-TURN_PORT = int(os.environ.get("RECORDER_TURN_PORT", "3478"))
+TURN_URL = os.environ.get("RECORDER_TURN_URL") or os.environ.get("TURN_URL")
+TURN_USER = os.environ.get("RECORDER_TURN_USER") or os.environ.get("TURN_USER")
+TURN_PASS = os.environ.get("RECORDER_TURN_PASS") or os.environ.get("TURN_PASS")
+TURN_HOST = os.environ.get("RECORDER_TURN_HOST") or os.environ.get("TURN_HOST")
+TURN_PORT = int(os.environ.get("RECORDER_TURN_PORT") or os.environ.get("TURN_PORT") or "3478")
 
 def _sanitize_label(raw: str) -> str:
     cleaned = "".join(c if c.isalnum() or c in ("-", "_") else "-" for c in raw.strip())

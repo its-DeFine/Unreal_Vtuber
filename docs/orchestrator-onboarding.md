@@ -62,6 +62,52 @@ If the orchestrator doesn’t appear in Payments yet, rerun:
 docker compose -f docker-compose.unreal.yml run --rm orchestrator-registration
 ```
 
+## Post-onboarding verification (multi-edge)
+
+In the current multi-edge setup, user traffic hits a regional **edge** (running `ps-gateway` + matchmaker + TURN DNAT),
+and the edge routes/proxies to your **orchestrator** (this host).
+
+Quick diagram:
+```
+browser/app.embody.zone -> edge-<id>.app.embody.zone (ps-gateway + matchmaker + TURN)
+                           -> orchestrator (signaling + game + runner + recorder)
+```
+
+### 1) Verify TURN advertises the edge IP (DNAT)
+
+On the orchestrator host:
+```bash
+grep -E '^(TURN_EXTERNAL_IP|TURN_SERVER)=' .env.turn
+```
+
+Expected:
+- `TURN_EXTERNAL_IP=<EDGE_IP>`
+- `TURN_SERVER=<EDGE_IP>:3478`
+
+### 2) Verify the orchestrator is registered on the intended edge matchmaker
+
+From anywhere with network access (including this host), check the edge status:
+```bash
+curl -fsS https://edge-<id>.app.embody.zone/api/status | jq
+```
+
+Look for your orchestrator address in `.servers[]` with `ready: true`.
+
+If your orchestrator is missing:
+- Ensure your signaling server is configured to register with the edge matchmaker:
+  - In `.env` set:
+    - `SIGNALING_EXTRA_ARGS="--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889"`
+  - Restart: `docker compose -f docker-compose.unreal.yml up -d unreal-signaling`
+- Check signaling logs for matchmaker connectivity:
+  - `docker logs vtuber-unreal-signaling --tail 200 | grep -E "Matchmaker|Connected|register" || true`
+- Confirm outbound TCP to the edge matchmaker port from the orchestrator host:
+  - `nc -vz <EDGE_IP> 8889` (or `telnet <EDGE_IP> 8889`)
+
+### 3) End-to-end allocation smoke test (admin)
+
+Once the edge shows your orchestrator as `ready`, an admin can allocate a session via the front door and confirm it lands
+on the same edge. See the ops runbook in the `infra-gating` repo for “allocate → run → record → download”.
+
 ## Updating (new game build)
 
 To load a new encrypted artifact and restart the stack:
