@@ -28,6 +28,7 @@ Options:
   --orch-token-file      Read orchestrator license token from file (recommended)
   --orch-token-env       Read orchestrator license token from env var name (recommended)
   --no-heartbeat         Do not heartbeat the lease while loading
+  --debug                Keep detailed stderr logs on disk (prints path on failure/success)
   --no-color             Disable ANSI colors
   --no-fx                Disable transition effects
 EOF
@@ -422,6 +423,7 @@ orch_token=""
 orch_token_file=""
 orch_token_env=""
 heartbeat="1"
+debug="0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -451,6 +453,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-heartbeat)
       heartbeat="0"
+      shift 1
+      ;;
+    --debug)
+      debug="1"
       shift 1
       ;;
     -h|--help)
@@ -532,12 +538,16 @@ ok "Lease acquired (lease_id=${lease_id}, seconds=${lease_seconds})"
 
 hb_pid=""
 identity_file=""
+log_dir=""
 cleanup() {
   if [[ -n "$hb_pid" ]]; then
     kill "$hb_pid" >/dev/null 2>&1 || true
   fi
   if [[ -n "$identity_file" ]]; then
     rm -f "$identity_file" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$log_dir" ]] && [[ "$debug" != "1" ]]; then
+    rm -rf "$log_dir" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -571,10 +581,75 @@ else
 fi
 
 note "Downloading artifact → decrypt → decompress → load game image (this can take a while)"
-curl -fL --connect-timeout 10 --retry 3 --retry-delay 2 --retry-connrefused -sS "$artifact_url" \
-  | age --decrypt -i "$identity_file" \
-  | zstd -d -c \
+log_dir="$(mktemp -d)"
+chmod 700 "$log_dir"
+curl_err="$log_dir/curl.err"
+age_err="$log_dir/age.err"
+zstd_err="$log_dir/zstd.err"
+curl_head_err="$log_dir/curl.head.err"
+curl_head_prefix="$log_dir/curl.head.prefix"
+
+print_err_tail() {
+  local label="$1"
+  local path="$2"
+  if [[ -s "$path" ]]; then
+    echo "" >&2
+    echo "${STYLE_MAG}${STYLE_BOLD}${label}${STYLE_RESET}" >&2
+    tail -n 60 "$path" >&2
+  fi
+}
+
+note "Validating artifact header (expects age-encryption.org/v1)"
+set +e
+curl -fL --connect-timeout 10 --max-time 20 --retry 2 --retry-delay 1 --retry-connrefused -sS --range 0-127 "$artifact_url" \
+  -o "$curl_head_prefix" 2>"$curl_head_err"
+curl_head_rc="$?"
+set -e
+if [[ "$curl_head_rc" -ne 0 ]]; then
+  print_err_tail "curl (header) stderr:" "$curl_head_err"
+  die "failed to fetch artifact header (URL expired/unreachable). Re-run to request a fresh lease."
+fi
+artifact_header="$(head -n1 "$curl_head_prefix" || true)"
+if [[ "$artifact_header" != age-encryption.org/v1* ]]; then
+  print_err_tail "curl (header) stderr:" "$curl_head_err"
+  die "artifact does not look age-encrypted (expected header age-encryption.org/v1, got: ${artifact_header:-<empty>})"
+fi
+ok "Artifact header OK"
+
+set +e
+curl -fL --connect-timeout 10 --retry 3 --retry-delay 2 --retry-connrefused -sS "$artifact_url" 2>"$curl_err" \
+  | age --decrypt -i "$identity_file" 2>"$age_err" \
+  | zstd -d -c 2>"$zstd_err" \
   | docker_load_with_meter "LOADING"
+pipeline_rc=$?
+curl_rc="${PIPESTATUS[0]:-}"
+age_rc="${PIPESTATUS[1]:-}"
+zstd_rc="${PIPESTATUS[2]:-}"
+docker_rc="${PIPESTATUS[3]:-}"
+set -e
+
+if [[ "$pipeline_rc" -ne 0 ]]; then
+  echo "" >&2
+  echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} image load pipeline failed (curl=${curl_rc:-?} age=${age_rc:-?} zstd=${zstd_rc:-?} docker=${docker_rc:-?})." >&2
+  if [[ "${curl_rc:-}" == "23" ]]; then
+    echo "${STYLE_DIM}note:${STYLE_RESET} curl exit 23 usually means a broken pipe (downstream decrypt/decompress/load exited early)." >&2
+  fi
+  print_err_tail "curl stderr:" "$curl_err"
+  print_err_tail "age stderr:" "$age_err"
+  print_err_tail "zstd stderr:" "$zstd_err"
+  echo "" >&2
+  if [[ "$debug" == "1" ]]; then
+    note "Debug logs kept at: $log_dir"
+  fi
+  die "failed to load encrypted image; see errors above"
+fi
+
+if [[ "$debug" == "1" ]]; then
+  note "Debug logs kept at: $log_dir"
+else
+  rm -rf "$log_dir" >/dev/null 2>&1 || true
+  log_dir=""
+fi
 
 if is_tty; then
   cat >&2 <<EOF
