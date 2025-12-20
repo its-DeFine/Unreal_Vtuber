@@ -621,11 +621,7 @@ curl -fL --connect-timeout 10 --retry 3 --retry-delay 2 --retry-connrefused -sS 
   | age --decrypt -i "$identity_file" 2>"$age_err" \
   | zstd -d -c 2>"$zstd_err" \
   | docker_load_with_meter "LOADING"
-pipeline_rc=$?
-curl_rc="${PIPESTATUS[0]:-}"
-age_rc="${PIPESTATUS[1]:-}"
-zstd_rc="${PIPESTATUS[2]:-}"
-docker_rc="${PIPESTATUS[3]:-}"
+pipeline_rc=$? curl_rc="${PIPESTATUS[0]:-}" age_rc="${PIPESTATUS[1]:-}" zstd_rc="${PIPESTATUS[2]:-}" docker_rc="${PIPESTATUS[3]:-}"
 set -e
 
 if [[ "$pipeline_rc" -ne 0 ]]; then
@@ -640,6 +636,9 @@ if [[ "$pipeline_rc" -ne 0 ]]; then
   echo "" >&2
   if [[ "$debug" == "1" ]]; then
     note "Debug logs kept at: $log_dir"
+  else
+    note "Debug logs saved at: $log_dir"
+    debug="1"
   fi
   die "failed to load encrypted image; see errors above"
 fi
