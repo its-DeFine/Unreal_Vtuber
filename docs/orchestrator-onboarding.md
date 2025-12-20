@@ -27,6 +27,7 @@ Notes:
 - It will prompt for the required inputs (choose a unique orchestrator ID + payout wallet, then paste your invite code) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
 - The wizard redeems the invite code, stores a license token (chmod 600), then requests a Payments lease which includes a fresh download URL for the encrypted build.
 - By default it allowlists the forwarder IP (`3.150.172.153`) for runner/recorder/power endpoints; override with `--forwarder-ip`.
+- If you have multiple edge/forwarder IPs, add them with `--allowed-ip <ip>` (repeatable) or `--allowed-ips <csv>`.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 - For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).
 - If you don’t have an invite code yet, abort and request one from your admin.
