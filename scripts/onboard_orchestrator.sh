@@ -366,7 +366,6 @@ ORCH_TOKEN_ENV=""
 SESSION_DIR=""
 RECORDINGS_DIR=""
 
-EXTRA_ALLOWED_IPS=()
 CONTROL_IPS=()
 
 INSTALL_DEPS="0"
@@ -441,19 +440,6 @@ while [[ $# -gt 0 ]]; do
         [[ -n "$_ip" ]] && EXTRA_ALLOWED_IPS+=("$_ip")
       done
       unset _allowed_csv _ip
-      shift 2
-      ;;
-    --allowed-ip)
-      EXTRA_ALLOWED_IPS+=("${2:-}")
-      shift 2
-      ;;
-    --allowed-ips)
-      IFS=',' read -r -a _extra <<<"${2:-}"
-      for _ip in "${_extra[@]}"; do
-        _ip="$(trim_whitespace "$_ip")"
-        [[ -n "$_ip" ]] || continue
-        EXTRA_ALLOWED_IPS+=("$_ip")
-      done
       shift 2
       ;;
     --public-ip)
@@ -539,6 +525,11 @@ while [[ $# -gt 0 ]]; do
       shift 1
       ;;
     *)
+      case "$1" in
+        --config-only|--skip-rollout)
+          die "'$1' was removed. This wizard now always performs the full setup (including encrypted rollout). Try: ./scripts/onboard_orchestrator.sh --force-env --rotate-turn"
+          ;;
+      esac
       die "unknown arg: $1 (run with --help)"
       ;;
   esac
@@ -1465,18 +1456,29 @@ fi
 upsert_env_kv "$ENV_FILE" "PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HOST_PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" "http://$PUBLIC_IP:9090/health"
-allowed_addresses="127.0.0.1,::1,$FORWARDER_IP"
+FORWARDER_IP="$(trim_whitespace "$FORWARDER_IP")"
+if ! is_safe_allowlist_token "$FORWARDER_IP"; then
+  die "invalid --forwarder-ip value: $FORWARDER_IP"
+fi
+
+CONTROL_IPS=("$FORWARDER_IP")
 for ip in "${EXTRA_ALLOWED_IPS[@]}"; do
   ip="$(trim_whitespace "$ip")"
   [[ -n "$ip" ]] || continue
   if ! is_safe_allowlist_token "$ip"; then
     die "invalid --allowed-ip value: $ip"
   fi
-  case ",$allowed_addresses," in
-    *",$ip,"*) ;;
-    *) allowed_addresses="${allowed_addresses},${ip}" ;;
-  esac
+  CONTROL_IPS+=("$ip")
 done
+
+deduped_control_ips=()
+while IFS= read -r ip; do
+  deduped_control_ips+=("$ip")
+done < <(dedupe_list "${CONTROL_IPS[@]}")
+CONTROL_IPS=("${deduped_control_ips[@]}")
+CONTROL_IPS_CSV="$(join_csv "${CONTROL_IPS[@]}")"
+
+allowed_addresses="$(join_csv 127.0.0.1 ::1 172.17.0.1 172.18.0.1 "${CONTROL_IPS[@]}")"
 upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allowed_addresses"
 upsert_env_kv "$ENV_FILE" "VTUBER_SESSION_DIR" "$SESSION_DIR"
 upsert_env_kv "$ENV_FILE" "VTUBER_RECORDINGS_DIR" "$RECORDINGS_DIR"
@@ -1617,7 +1619,7 @@ ${STYLE_MAG}${STYLE_BOLD}┗━━━━━━━━━━━━━━━━━�
 
 ${STYLE_MAG}${STYLE_BOLD}NEXT STEPS${STYLE_RESET}
   ${STYLE_DIM}1) Inbound allowlists (auto-applied when possible):${STYLE_RESET}
-     - Forwarder ${FORWARDER_IP} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
+     - Allowlisted callers ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
      - Payments backend -> TCP 9090 (health monitoring)
 
   ${STYLE_DIM}2) Local health:${STYLE_RESET}
@@ -1636,7 +1638,7 @@ Done.
 
 Next:
   1) Ensure inbound allowlists / firewall rules are set:
-     - Forwarder ${FORWARDER_IP} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
+     - Allowlisted callers ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
      - Payments backend -> TCP 9090 (health monitoring)
 
   2) Verify locally:
