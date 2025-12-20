@@ -257,6 +257,21 @@ extract_first_nonlocal_ip() {
   return 1
 }
 
+extract_nonlocal_allowlist_tokens() {
+  local csv="$1"
+  local raw token
+  IFS=',' read -r -a raw <<<"$csv"
+  for token in "${raw[@]}"; do
+    token="$(trim_whitespace "$token")"
+    token="$(strip_inline_comment "$token")"
+    [[ -n "$token" ]] || continue
+    case "$token" in
+      127.0.0.1|::1|172.17.0.1|172.18.0.1) continue ;;
+    esac
+    echo "$token"
+  done
+}
+
 dedupe_list() {
   local out=()
   local item existing found
@@ -377,6 +392,7 @@ INSTALL_NVIDIA_TOOLKIT="0"
 ROTATE_TURN="0"
 NO_PULL="0"
 SKIP_REGISTRATION="0"
+REGISTRATION_VERIFIED="0"
 NO_VERIFY="0"
 FORCE_ENV="0"
 APPLY_FIREWALL="auto"
@@ -1035,6 +1051,7 @@ verify_payments_registration_best_effort() {
 
   warn "Could not verify registration in Payments yet (orchestrator_id=$ORCH_ID)."
   warn "If this persists, check firewall rules (TCP 9090 from Payments, and forwarder allowlists) and rerun registration."
+  return 1
 }
 
 ensure_env_file_exists() {
@@ -1238,7 +1255,8 @@ maybe_run_wizard() {
   echo "  - A one-time invite code (admin provides; bound to your payout wallet)" >&2
   echo "${STYLE_DIM}Tip:${STYLE_RESET} run with ${STYLE_BOLD}--advanced${STYLE_RESET} to override Payments URL, forwarder IP, or host paths." >&2
 
-  local existing_orch_id existing_addr existing_payments existing_forwarder existing_session_dir existing_recordings_dir
+  local existing_orch_id existing_addr existing_payments existing_allowlist_csv existing_forwarder existing_extra_allowlist_csv existing_session_dir existing_recordings_dir
+  local existing_nonlocal_allowlist=()
   existing_orch_id="$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ID" 2>/dev/null || true)"
   existing_addr="$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ADDRESS" 2>/dev/null || true)"
   existing_orch_id="$(trim_whitespace "$existing_orch_id")"
@@ -1248,9 +1266,21 @@ maybe_run_wizard() {
     existing_payments="$(read_env_value "$ENV_TEMPLATE" "PAYMENTS_API_URL" 2>/dev/null || true)"
   fi
 
-  existing_forwarder="$(extract_first_nonlocal_ip "$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)" 2>/dev/null || true)"
-  if [[ -z "$existing_forwarder" ]]; then
-    existing_forwarder="$(extract_first_nonlocal_ip "$(read_env_value "$ENV_TEMPLATE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)" 2>/dev/null || true)"
+  existing_allowlist_csv="$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)"
+  if [[ -z "$existing_allowlist_csv" ]]; then
+    existing_allowlist_csv="$(read_env_value "$ENV_TEMPLATE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)"
+  fi
+  if [[ -n "$existing_allowlist_csv" ]]; then
+    local token
+    while IFS= read -r token; do
+      existing_nonlocal_allowlist+=("$token")
+    done < <(extract_nonlocal_allowlist_tokens "$existing_allowlist_csv" || true)
+  fi
+  existing_forwarder="${existing_nonlocal_allowlist[0]:-}"
+  if ((${#existing_nonlocal_allowlist[@]} > 1)); then
+    existing_extra_allowlist_csv="$(join_csv "${existing_nonlocal_allowlist[@]:1}")"
+  else
+    existing_extra_allowlist_csv=""
   fi
 
   existing_session_dir="$(read_env_value "$ENV_FILE" "VTUBER_SESSION_DIR" 2>/dev/null || true)"
@@ -1356,6 +1386,43 @@ maybe_run_wizard() {
     FORWARDER_IP="$(prompt_default "Forwarder IP (allowlisted for runner/recorder/power)" "$FORWARDER_IP")"
   fi
 
+  # Preserve any extra allowlisted caller IPs from existing config unless explicitly provided via flags.
+  if [[ ${#EXTRA_ALLOWED_IPS[@]} -eq 0 ]] && [[ -n "$existing_extra_allowlist_csv" ]]; then
+    local _ip
+    local _raw_extra=()
+    IFS=',' read -r -a _raw_extra <<<"$existing_extra_allowlist_csv"
+    for _ip in "${_raw_extra[@]}"; do
+      _ip="$(trim_whitespace "$_ip")"
+      _ip="$(strip_inline_comment "$_ip")"
+      [[ -n "$_ip" ]] || continue
+      EXTRA_ALLOWED_IPS+=("$_ip")
+    done
+  fi
+
+  if [[ "$ADVANCED" == "1" ]]; then
+    local default_extra_csv extra_csv
+    if [[ ${#EXTRA_ALLOWED_IPS[@]} -gt 0 ]]; then
+      default_extra_csv="$(join_csv "${EXTRA_ALLOWED_IPS[@]}")"
+    else
+      default_extra_csv=""
+    fi
+    note "Optional: add extra edge/forwarder IPs that will connect to this host (ask your admin)."
+    extra_csv="$(prompt_default "Additional allowed caller IPs (comma-separated; optional)" "$default_extra_csv")"
+    extra_csv="$(trim_whitespace "$extra_csv")"
+    EXTRA_ALLOWED_IPS=()
+    if [[ -n "$extra_csv" ]]; then
+      local _ip
+      local _raw_extra=()
+      IFS=',' read -r -a _raw_extra <<<"$extra_csv"
+      for _ip in "${_raw_extra[@]}"; do
+        _ip="$(trim_whitespace "$_ip")"
+        _ip="$(strip_inline_comment "$_ip")"
+        [[ -n "$_ip" ]] || continue
+        EXTRA_ALLOWED_IPS+=("$_ip")
+      done
+    fi
+  fi
+
   if [[ "$PUBLIC_IP" == "auto" ]]; then
     fx_dots "Detecting public IP"
     local detected
@@ -1400,6 +1467,9 @@ maybe_run_wizard() {
   fi
   echo "Public IP:           $PUBLIC_IP" >&2
   echo "Forwarder allowlist: $FORWARDER_IP" >&2
+  if ((${#EXTRA_ALLOWED_IPS[@]})); then
+    echo "Extra allowlist:     $(join_csv "${EXTRA_ALLOWED_IPS[@]}")" >&2
+  fi
   echo "Session dir:         $SESSION_DIR" >&2
   echo "Recordings dir:      $RECORDINGS_DIR" >&2
   if [[ -n "$ORCH_TOKEN_FILE" ]]; then
@@ -1718,13 +1788,24 @@ if [[ "$SKIP_REGISTRATION" != "1" ]]; then
   fi
   reg_args+=(--host-public-ip "$PUBLIC_IP" --health-url "http://$PUBLIC_IP:9090/health")
   python3 "$REPO_ROOT/scripts/register_orchestrator.py" "${reg_args[@]}" || true
-  verify_payments_registration_best_effort || true
+  if verify_payments_registration_best_effort; then
+    REGISTRATION_VERIFIED="1"
+  fi
 fi
 
 note "Health checks (best-effort)"
 curl -fsS --max-time 2 http://127.0.0.1:9877/health >/dev/null 2>&1 || true
 curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1 || true
 curl -fsS --max-time 2 http://127.0.0.1:9090/health >/dev/null 2>&1 || true
+
+show_reg_help="0"
+reg_help_label="If registration didn’t show up yet"
+if [[ "$SKIP_REGISTRATION" == "1" ]]; then
+  show_reg_help="1"
+  reg_help_label="Register with Payments (skipped)"
+elif [[ "$REGISTRATION_VERIFIED" != "1" ]]; then
+  show_reg_help="1"
+fi
 
 if [[ "$USE_COLOR" == "1" ]] && is_tty; then
   cat >&2 <<EOF
@@ -1734,20 +1815,25 @@ ${STYLE_GRN}${STYLE_BOLD}┃  SETUP COMPLETE // ORCHESTRATOR ONLINE       ┃${S
 ${STYLE_MAG}${STYLE_BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${STYLE_RESET}
 
 ${STYLE_MAG}${STYLE_BOLD}NEXT STEPS${STYLE_RESET}
-  ${STYLE_DIM}1) Inbound allowlists (auto-applied when possible):${STYLE_RESET}
+  ${STYLE_DIM}1) Inbound allowlists (required):${STYLE_RESET}
      - Allowlisted callers ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
      - Payments backend -> TCP 9090 (health monitoring)
      - ${STYLE_DIM}Auto-apply notes:${STYLE_RESET} UFW only (if active). EC2 security groups only with ${STYLE_BOLD}--apply-aws-sg${STYLE_RESET}.
+     - ${STYLE_DIM}Edge IPs:${STYLE_RESET} add with ${STYLE_BOLD}--allowed-ip${STYLE_RESET} or ${STYLE_BOLD}--allowed-ips${STYLE_RESET} (or rerun with ${STYLE_BOLD}--advanced${STYLE_RESET}).
 
   ${STYLE_DIM}2) Local health:${STYLE_RESET}
      - Signaling:    curl http://127.0.0.1:8080/healthz
      - Runner:       curl http://127.0.0.1:9877/health
      - Orchestrator: curl http://127.0.0.1:9090/health
+EOF
+  if [[ "$show_reg_help" == "1" ]]; then
+    cat >&2 <<EOF
 
-  ${STYLE_DIM}3) If registration didn’t show up yet:${STYLE_RESET}
+  ${STYLE_DIM}3) ${reg_help_label}:${STYLE_RESET}
      PAYMENTS_API_URL="${PAYMENTS_API_URL}" ORCHESTRATOR_ID="${ORCH_ID}" ORCHESTRATOR_ADDRESS="${ORCH_ADDRESS}" \\
        python3 scripts/register_orchestrator.py
 EOF
+  fi
 else
   cat >&2 <<EOF
 
@@ -1758,14 +1844,19 @@ Next:
      - Allowlisted callers ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
      - Payments backend -> TCP 9090 (health monitoring)
      - Auto-apply notes: UFW only (if active). EC2 security groups only with --apply-aws-sg.
+     - Edge IPs: add with --allowed-ip/--allowed-ips (or rerun with --advanced).
 
   2) Verify locally:
      - Signaling health:    curl http://127.0.0.1:8080/healthz
      - Runner health:       curl http://127.0.0.1:9877/health
      - Orchestrator health: curl http://127.0.0.1:9090/health
+EOF
+  if [[ "$show_reg_help" == "1" ]]; then
+    cat >&2 <<EOF
 
-  3) If registration didn’t show up yet, rerun:
+  3) ${reg_help_label}:
      PAYMENTS_API_URL="${PAYMENTS_API_URL}" ORCHESTRATOR_ID="${ORCH_ID}" ORCHESTRATOR_ADDRESS="${ORCH_ADDRESS}" \\
        python3 scripts/register_orchestrator.py
 EOF
+  fi
 fi
