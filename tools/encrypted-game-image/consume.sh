@@ -138,7 +138,10 @@ EOF
 }
 
 progress_pipe() {
-  python3 - "$@" <<'PY'
+  local script rc
+  script="$(mktemp)"
+  rc=0
+  cat >"$script" <<'PY'
 import os
 import select
 import sys
@@ -253,10 +256,16 @@ finally:
     # Final status line
     print_status(time.time(), final=True)
 PY
+  python3 "$script" "$@" || rc=$?
+  rm -f "$script" >/dev/null 2>&1 || true
+  return "$rc"
 }
 
 docker_load_with_meter() {
-  python3 - "$@" <<'PY'
+  local script rc
+  script="$(mktemp)"
+  rc=0
+  cat >"$script" <<'PY'
 import os
 import select
 import subprocess
@@ -414,6 +423,9 @@ try:
 except BrokenPipeError:
     sys.exit(1)
 PY
+  python3 "$script" "$@" || rc=$?
+  rm -f "$script" >/dev/null 2>&1 || true
+  return "$rc"
 }
 
 payments_api_url=""
