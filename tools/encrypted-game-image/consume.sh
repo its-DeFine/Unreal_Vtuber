@@ -129,9 +129,9 @@ banner() {
   if ! is_tty; then
     return
   fi
-  cat >&2 <<EOF
+	cat >&2 <<EOF
 ${STYLE_MAG}${STYLE_BOLD}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${STYLE_RESET}
-${STYLE_MAG}${STYLE_BOLD}┃  EMBODY // CRYPTOLINK IMAGE LOADER           ┃${STYLE_RESET}
+${STYLE_MAG}${STYLE_BOLD}┃  EMBODY // GAME IMAGE LOADER                ┃${STYLE_RESET}
 ${STYLE_MAG}${STYLE_BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${STYLE_RESET}
 EOF
 }
