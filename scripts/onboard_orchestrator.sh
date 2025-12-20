@@ -1683,12 +1683,13 @@ fi
 note "Ensuring vtuber_network exists"
 docker network create vtuber_network 2>/dev/null || true
 
-if [[ "$ROTATE_TURN" == "1" || ! -s "$TURN_ENV_FILE" ]]; then
-  note "Generating TURN credentials (.env.turn)"
-  (cd "$REPO_ROOT" && PUBLIC_IP="$PUBLIC_IP" ./scripts/generate_turn_credentials.sh)
-else
-  note "Keeping existing $TURN_ENV_FILE (use --rotate-turn to regenerate)"
-fi
+  if [[ "$ROTATE_TURN" == "1" || ! -s "$TURN_ENV_FILE" ]]; then
+    note "Generating TURN credentials (.env.turn)"
+    # When the orchestrator sits behind an edge/gateway DNAT, TURN must advertise the edge/gateway IP.
+    (cd "$REPO_ROOT" && PUBLIC_IP="$PUBLIC_IP" TURN_EXTERNAL_IP="$EDGE_IP" ./scripts/generate_turn_credentials.sh)
+  else
+    note "Keeping existing $TURN_ENV_FILE (use --rotate-turn to regenerate)"
+  fi
 
 if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
   chown "$SUDO_USER":"$SUDO_USER" "$TURN_ENV_FILE" >/dev/null 2>&1 || true

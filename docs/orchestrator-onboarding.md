@@ -27,6 +27,7 @@ Notes:
 - It will prompt for the required inputs (choose a unique orchestrator ID + payout wallet, then paste your invite code) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
 - The wizard redeems the invite code, stores a license token (chmod 600), then requests a Payments lease which includes a fresh download URL for the encrypted build.
 - It allowlists the primary Embody edge/gateway IP (`3.150.172.153` by default). Override with `--edge-ip` (or `--forwarder-ip` for backwards compatibility).
+- TURN will advertise `--edge-ip` as `TURN_EXTERNAL_IP` (needed when the orchestrator is behind an edge/gateway DNAT).
 - If you have multiple edge/gateway IPs, add them with `--allowed-ip <ip>` (repeatable) or `--allowed-ips <csv>`.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 - For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).

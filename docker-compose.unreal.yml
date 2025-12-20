@@ -223,8 +223,9 @@ services:
       - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL:-ws://vtuber-unreal-signaling:80}
       - RECORDER_OUTPUT_DIR=/recordings
       - PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
-      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.18.0.1}
+      - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.17.0.1,172.18.0.1}
       - RECORDER_TURN_URL=${RECORDER_TURN_URL:-turn://${TURN_USER}:${TURN_PASS}@vtuber-turn-server:${TURN_PORT:-3478}}
+      - RECORDINGS_API_TOKEN=${RECORDINGS_API_TOKEN:-}
     volumes:
       - ${VTUBER_RECORDINGS_DIR:-/recordings}:/recordings
     command: ["python3", "/opt/embody/recorder/control_server.py"]
