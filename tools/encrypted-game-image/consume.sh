@@ -556,11 +556,11 @@ else
   die "base64 decode not available"
 fi
 
-note "Streaming artifact → decrypt → decompress → docker load (this can take a while)"
+note "Downloading artifact → decrypt → decompress → load game image (this can take a while)"
 curl -fL --connect-timeout 10 --retry 3 --retry-delay 2 --retry-connrefused -sS "$artifact_url" \
   | age --decrypt -i "$identity_file" \
   | zstd -d -c \
-  | docker_load_with_meter "NEON-LOAD"
+  | docker_load_with_meter "LOADING"
 
 if is_tty; then
   cat >&2 <<EOF
