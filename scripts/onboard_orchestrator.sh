@@ -36,7 +36,7 @@ Usage:
     --orchestrator-id <id> \
     --orchestrator-address <0x...> \
     --artifact-url <https://...tar.zst.age> \
-    (--orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
+    (--invite-code <code> | --orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
 
 Common options:
   --payments-api-url <url>    (default: http://3.141.111.200:8081)
@@ -45,6 +45,7 @@ Common options:
   --allowed-ip <ip>           Additional allowlisted caller IP (repeatable; e.g. edge IPs)
   --allowed-ips <csv>         Additional allowlisted caller IPs (comma-separated)
   --public-ip <ip|auto>       (default: auto; tries EC2 IMDSv2 then ipify)
+  --invite-code <code>        One-time invite code (mints + stores a license token)
 
 Host paths (written into .env):
   --session-dir <path>        (default: <target-home>/vtuber_sessions)
@@ -362,6 +363,7 @@ ARTIFACT_URL=""
 ORCH_TOKEN=""
 ORCH_TOKEN_FILE=""
 ORCH_TOKEN_ENV=""
+INVITE_CODE=""
 
 SESSION_DIR=""
 RECORDINGS_DIR=""
@@ -468,6 +470,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --orch-token-env)
       ORCH_TOKEN_ENV="${2:-}"
+      shift 2
+      ;;
+    --invite-code)
+      INVITE_CODE="${2:-}"
       shift 2
       ;;
     --session-dir)
@@ -1078,6 +1084,78 @@ write_token_file_if_needed() {
   ORCH_TOKEN=""
 }
 
+redeem_invite_code_if_needed() {
+  if [[ -z "$INVITE_CODE" ]]; then
+    return
+  fi
+  if [[ -n "$ORCH_TOKEN" || -n "$ORCH_TOKEN_FILE" || -n "$ORCH_TOKEN_ENV" ]]; then
+    return
+  fi
+
+  require_cmd curl
+  require_cmd python3
+
+  local url payload response http_code body token
+  url="${PAYMENTS_API_URL%/}/api/licenses/invites/redeem"
+
+  payload="$(INVITE_CODE="$INVITE_CODE" ORCH_ID="$ORCH_ID" ORCH_ADDRESS="$ORCH_ADDRESS" ORCH_CONTACT_EMAIL="$ORCH_CONTACT_EMAIL" \
+    python3 - <<'PY'
+import json
+import os
+
+payload = {
+    "code": os.environ.get("INVITE_CODE", ""),
+    "orchestrator_id": os.environ.get("ORCH_ID", ""),
+    "address": os.environ.get("ORCH_ADDRESS", ""),
+}
+email = (os.environ.get("ORCH_CONTACT_EMAIL") or "").strip()
+if email:
+    payload["contact_email"] = email
+print(json.dumps(payload))
+PY
+  )"
+
+  fx_dots "Redeeming invite code with Payments"
+
+  response="$(curl -sS -X POST -H "Content-Type: application/json" -d "$payload" \
+    -w $'\n%{http_code}' "$url")" || true
+  http_code="${response##*$'\n'}"
+  body="${response%$'\n'*}"
+
+  if [[ "$http_code" != "200" ]]; then
+    local detail
+    detail="$(python3 - <<'PY' <<<"$body"
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print("")
+    raise SystemExit(0)
+print(data.get("detail") or "")
+PY
+    )"
+    case "$http_code" in
+      404) die "Invite code not found (or already redeemed). Ask your admin for a fresh code." ;;
+      409) die "Invite code already redeemed (or redemption in progress). Ask your admin for a new code." ;;
+      410) die "Invite code expired. Ask your admin for a fresh code." ;;
+      *) die "Invite redeem failed (HTTP $http_code)${detail:+: $detail}" ;;
+    esac
+  fi
+
+  token="$(python3 - <<'PY' <<<"$body"
+import json, sys
+data = json.load(sys.stdin)
+print(data.get("token", "") or "")
+PY
+  )"
+  [[ -n "$token" ]] || die "Invite redeem succeeded but no token was returned"
+
+  ORCH_TOKEN="$token"
+  INVITE_CODE=""
+  ok "Invite redeemed; storing license token"
+  write_token_file_if_needed
+}
+
 maybe_run_wizard() {
   local need_prompt="0"
 
@@ -1094,7 +1172,7 @@ maybe_run_wizard() {
     if [[ -z "$ARTIFACT_URL" ]]; then
       need_prompt="1"
     fi
-    if [[ -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
+    if [[ -z "$INVITE_CODE" && -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
       need_prompt="1"
     fi
   fi
@@ -1217,15 +1295,21 @@ maybe_run_wizard() {
   done
 
   local default_token_file="$target_home/.embody/orch-license-token.txt"
-  if [[ -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" && -z "$ORCH_TOKEN" ]]; then
+  if [[ -z "$INVITE_CODE" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" && -z "$ORCH_TOKEN" ]]; then
     if [[ -s "$default_token_file" ]]; then
       if prompt_yes_no "Use token file at $default_token_file?" "y"; then
         ORCH_TOKEN_FILE="$default_token_file"
+      elif prompt_yes_no "Redeem a one-time invite code instead?" "y"; then
+        INVITE_CODE="$(prompt_secret "Paste invite code (hidden input)")"
       else
         ORCH_TOKEN="$(prompt_secret "Paste orchestrator license token (hidden input)")"
       fi
     else
-      ORCH_TOKEN="$(prompt_secret "Paste orchestrator license token (hidden input)")"
+      if prompt_yes_no "Redeem a one-time invite code instead of pasting a license token?" "y"; then
+        INVITE_CODE="$(prompt_secret "Paste invite code (hidden input)")"
+      else
+        ORCH_TOKEN="$(prompt_secret "Paste orchestrator license token (hidden input)")"
+      fi
     fi
   fi
 
@@ -1233,8 +1317,8 @@ maybe_run_wizard() {
     note "We will save it to $default_token_file (chmod 600) so you don't have to paste again."
   fi
 
-  if [[ -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
-    die "orchestrator token required to load encrypted image"
+  if [[ -z "$INVITE_CODE" && -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
+    die "license token (or invite code) required to load encrypted image"
   fi
 
   section "Network"
@@ -1297,6 +1381,8 @@ maybe_run_wizard() {
     echo "License token:       file $(strip_inline_comment "$ORCH_TOKEN_FILE")" >&2
   elif [[ -n "$ORCH_TOKEN_ENV" ]]; then
     echo "License token:       env $ORCH_TOKEN_ENV" >&2
+  elif [[ -n "$INVITE_CODE" ]]; then
+    echo "License token:       invite code (will redeem)" >&2
   else
     echo "License token:       provided (hidden)" >&2
   fi
@@ -1390,8 +1476,8 @@ if is_zero_eth_address "$ORCH_ADDRESS"; then
 fi
 
 [[ -n "$ARTIFACT_URL" ]] || die "--artifact-url is required"
-if [[ -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
-  die "orchestrator token required (use --orch-token-file or --orch-token-env)"
+if [[ -z "$INVITE_CODE" && -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
+  die "license token or invite code required (use --invite-code, --orch-token-file, or --orch-token-env)"
 fi
 
 install_docker_if_requested
@@ -1406,6 +1492,8 @@ fi
 require_cmd docker
 require_cmd curl
 require_cmd python3
+
+redeem_invite_code_if_needed
 
 if ! docker info >/dev/null 2>&1; then
   note "Waiting for Docker daemon..."

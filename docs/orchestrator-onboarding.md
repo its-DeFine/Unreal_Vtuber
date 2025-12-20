@@ -13,12 +13,12 @@ Orchestrator provides:
 - Payout wallet (`ORCHESTRATOR_ADDRESS`)
 
 Admin provides:
-- A Payments-issued orchestrator license token
+- A one-time invite code (recommended) or a Payments-issued orchestrator license token
 - An encrypted artifact URL (public/presigned) for the desired game build (`.tar.zst.age`)
 
 ## Quickstart (single command)
 
-1) Store the license token on the host (recommended):
+1) If you were given a license token, store it on the host (recommended):
 ```bash
 mkdir -p ~/.embody && chmod 700 ~/.embody
 printf '%s' '<ORCH_TOKEN>' > ~/.embody/orch-license-token.txt
@@ -33,6 +33,7 @@ git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber &&
 Notes:
 - The script writes/updates `.env` and generates `.env.turn`.
 - It will prompt for the required inputs (choose a unique orchestrator ID + payout wallet, plus token + artifact URL) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
+- If you were given a one-time invite code, paste it when prompted and the wizard will redeem it and store a license token for you.
 - By default it allowlists the forwarder IP (`3.150.172.153`) for runner/recorder/power endpoints; override with `--forwarder-ip`.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 - For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).

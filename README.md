@@ -7,11 +7,11 @@ This repo contains the runtime Compose stack (TURN, signaling, game container, s
 ## Quickstart (one command)
 
 You’ll need:
-- From your admin: an **orchestrator license token** + an **encrypted artifact URL** (`.tar.zst.age`)
+- From your admin: a **one-time invite code** (recommended) *or* an **orchestrator license token**, plus an **encrypted artifact URL** (`.tar.zst.age`)
 - From you: a **unique orchestrator ID** + a **payout wallet address** (`0x…`)
 - A GPU host with NVIDIA driver + Docker (Ubuntu 22.04 recommended)
 
-1) Save the license token on the host (recommended):
+1) If you were given a license token, save it on the host (recommended):
 ```bash
 mkdir -p ~/.embody && chmod 700 ~/.embody
 printf '%s' '<ORCH_LICENSE_TOKEN>' > ~/.embody/orch-license-token.txt
@@ -22,6 +22,8 @@ chmod 600 ~/.embody/orch-license-token.txt
 ```bash
 git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/onboard_orchestrator.sh
 ```
+
+If you were given an invite code, the wizard will redeem it and store a license token for you.
 
 The wizard will:
 - Preflight your host (and can install missing deps on Ubuntu/Debian)
@@ -60,4 +62,3 @@ Program terms, eligibility, and payout rules are governed by the legal docs belo
 - EULA: `legal/UNREAL_VTUBER_EULA.md`
 - Terms: `legal/Terms and Conditions.pdf`
 - Privacy: `legal/Privacy Policy.pdf`
-
