@@ -405,8 +405,12 @@ try:
         err.write(hint_block())
         sys.exit(1)
 
-    assert docker_proc.stdin is not None
-    docker_proc.stdin.close()
+    # NOTE: Python's subprocess.communicate() may try to flush stdin; avoid
+    # "ValueError: flush of closed file" by detaching stdin before calling it.
+    stdin = docker_proc.stdin
+    docker_proc.stdin = None
+    if stdin is not None:
+        stdin.close()
     docker_out, docker_err = docker_proc.communicate()
     render(time.time(), final=True)
 
