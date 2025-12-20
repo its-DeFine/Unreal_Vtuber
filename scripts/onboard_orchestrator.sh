@@ -64,8 +64,9 @@ Behavior flags:
   --no-pull                   Skip docker compose pull
   --skip-registration         Skip running orchestrator-registration
   --no-verify                 Skip rollout health checks
-  --apply-firewall            Attempt to apply inbound allowlist rules (default: on for interactive wizard)
-  --no-apply-firewall         Do not modify firewall / security group rules
+  --apply-firewall            Apply host firewall rules (UFW if active) best-effort (default: on for interactive wizard)
+  --no-apply-firewall         Do not modify host firewall rules
+  --apply-aws-sg              Apply EC2 security group ingress rules best-effort (requires awscli + IAM role/creds; off by default)
   --force-env                 Overwrite .env (otherwise upsert keys)
 
 Examples:
@@ -379,6 +380,7 @@ SKIP_REGISTRATION="0"
 NO_VERIFY="0"
 FORCE_ENV="0"
 APPLY_FIREWALL="auto"
+APPLY_AWS_SG="0"
 
 INTERACTIVE="auto"
 ADVANCED="0"
@@ -523,6 +525,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-apply-firewall)
       APPLY_FIREWALL="0"
+      shift 1
+      ;;
+    --apply-aws-sg|--apply-ec2-sg)
+      APPLY_AWS_SG="1"
+      APPLY_FIREWALL="1"
       shift 1
       ;;
     --force-env)
@@ -814,6 +821,10 @@ should_apply_firewall() {
   esac
 }
 
+should_apply_aws_sg() {
+  [[ "$APPLY_AWS_SG" == "1" ]]
+}
+
 ensure_ufw_rules_best_effort() {
   if ! command -v ufw >/dev/null 2>&1; then
     return 0
@@ -989,11 +1000,13 @@ ensure_inbound_rules_best_effort() {
   fi
   note "Checking/applying inbound allowlist rules (best-effort)"
 
-  # Try host-level firewall first (if present), then EC2 SG rules (if available).
+  # Host-level firewall first (if present). EC2 SG rules are opt-in via --apply-aws-sg.
   if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "Status: active"; then
     ensure_ufw_rules_best_effort
   fi
-  ensure_ec2_sg_rules_best_effort
+  if should_apply_aws_sg; then
+    ensure_ec2_sg_rules_best_effort
+  fi
 }
 
 verify_payments_registration_best_effort() {
@@ -1724,6 +1737,7 @@ ${STYLE_MAG}${STYLE_BOLD}NEXT STEPS${STYLE_RESET}
   ${STYLE_DIM}1) Inbound allowlists (auto-applied when possible):${STYLE_RESET}
      - Allowlisted callers ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
      - Payments backend -> TCP 9090 (health monitoring)
+     - ${STYLE_DIM}Auto-apply notes:${STYLE_RESET} UFW only (if active). EC2 security groups only with ${STYLE_BOLD}--apply-aws-sg${STYLE_RESET}.
 
   ${STYLE_DIM}2) Local health:${STYLE_RESET}
      - Signaling:    curl http://127.0.0.1:8080/healthz
@@ -1743,6 +1757,7 @@ Next:
   1) Ensure inbound allowlists / firewall rules are set:
      - Allowlisted callers ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
      - Payments backend -> TCP 9090 (health monitoring)
+     - Auto-apply notes: UFW only (if active). EC2 security groups only with --apply-aws-sg.
 
   2) Verify locally:
      - Signaling health:    curl http://127.0.0.1:8080/healthz

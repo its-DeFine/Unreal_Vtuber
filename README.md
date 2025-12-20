@@ -28,7 +28,8 @@ The wizard will:
 - Redeem your invite code and store a license token (chmod 600)
 - Fetch + decrypt + load the **encrypted** game image via a Payments lease (no artifact URLs to paste)
 - Start `docker-compose.unreal.yml`, register your orchestrator, and verify registration best-effort
-- Try to apply required inbound rules on EC2 best-effort (disable with `--no-apply-firewall`)
+- Apply required inbound rules on UFW if active (best-effort; disable with `--no-apply-firewall`)
+- EC2 security group auto-apply is opt-in: pass `--apply-aws-sg` (requires awscli + IAM role/creds)
 
 Full guide: `docs/orchestrator-onboarding.md`
 

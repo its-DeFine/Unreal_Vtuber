@@ -45,7 +45,9 @@ Ensure inbound allowlists / firewall rules are set:
 - Forwarder `3.150.172.153` -> TCP `8080,8888,8889,9877` and UDP `3478,49160-49200`
 - Payments backend -> TCP `9090` (health monitoring)
 
-On EC2, the onboarding wizard will try to apply these rules automatically (best-effort) if `aws` CLI + permissions are available (instance profile/IAM role). Disable with `--no-apply-firewall`.
+The onboarding wizard will apply these rules to UFW (best-effort) if UFW is active on the host. Disable with `--no-apply-firewall`.
+
+On EC2, security group auto-apply is opt-in: pass `--apply-aws-sg` (requires `aws` CLI + permissions via instance profile/IAM role/credentials).
 
 ## Verify
 
