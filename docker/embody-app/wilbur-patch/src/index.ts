@@ -200,6 +200,11 @@ program
         config_file.matchmaker_port || '9999'
     )
     .option(
+        '--streamer_id <id>',
+        'Optional streamer/avatar identifier to send to the Matchmaker for routing.',
+        config_file.streamer_id || ''
+    )
+    .option(
         '--matchmaker_retry_interval <seconds>',
         'Seconds to wait before reconnecting to the Matchmaker after disconnect.',
         config_file.matchmaker_retry_interval || '5'
@@ -400,6 +405,7 @@ if (options.use_matchmaker) {
             publicAddress: publicIp,
             publicPort: publicPort,
             publicHttps: Boolean(options.https),
+            streamerId: String(options.streamer_id || '') || undefined,
             retryIntervalSeconds: parseInt(String(options.matchmaker_retry_interval || '5'), 10),
             keepAliveIntervalSeconds: parseInt(String(options.matchmaker_keep_alive_interval || '30'), 10)
         },

@@ -1800,7 +1800,6 @@ fi
 
 note "Health checks (best-effort)"
 curl -fsS --max-time 2 http://127.0.0.1:9877/health >/dev/null 2>&1 || true
-curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1 || true
 curl -fsS --max-time 2 http://127.0.0.1:9090/health >/dev/null 2>&1 || true
 
 show_reg_help="0"
@@ -1827,7 +1826,6 @@ ${STYLE_MAG}${STYLE_BOLD}NEXT STEPS${STYLE_RESET}
      - ${STYLE_DIM}Edge IPs:${STYLE_RESET} add with ${STYLE_BOLD}--allowed-ip${STYLE_RESET} or ${STYLE_BOLD}--allowed-ips${STYLE_RESET} (or rerun with ${STYLE_BOLD}--advanced${STYLE_RESET}).
 
   ${STYLE_DIM}2) Local health:${STYLE_RESET}
-     - Signaling:    curl http://127.0.0.1:8080/healthz
      - Runner:       curl http://127.0.0.1:9877/health
      - Orchestrator: curl http://127.0.0.1:9090/health
 EOF
@@ -1852,7 +1850,6 @@ Next:
      - Edge IPs: add with --allowed-ip/--allowed-ips (or rerun with --advanced).
 
   2) Verify locally:
-     - Signaling health:    curl http://127.0.0.1:8080/healthz
      - Runner health:       curl http://127.0.0.1:9877/health
      - Orchestrator health: curl http://127.0.0.1:9090/health
 EOF

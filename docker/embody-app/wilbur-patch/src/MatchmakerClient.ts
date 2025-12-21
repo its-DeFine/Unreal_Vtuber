@@ -8,6 +8,7 @@ export type MatchmakerClientConfig = {
     publicAddress: string;
     publicPort: number;
     publicHttps: boolean;
+    streamerId?: string;
     retryIntervalSeconds: number;
     keepAliveIntervalSeconds: number;
 };
@@ -23,6 +24,7 @@ type MatchmakerMessage =
           address: string;
           port: number;
           https: boolean;
+          streamer_id?: string;
           ready: boolean;
           playerConnected: boolean;
       }
@@ -133,6 +135,7 @@ export class MatchmakerClient {
             address: this.cfg.publicAddress,
             port: this.cfg.publicPort,
             https: this.cfg.publicHttps,
+            streamer_id: this.cfg.streamerId || undefined,
             ready: this.stateProvider.getReady(),
             playerConnected: this.stateProvider.getPlayerConnected()
         };
@@ -166,4 +169,3 @@ export class MatchmakerClient {
         }
     }
 }
-

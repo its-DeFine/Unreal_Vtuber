@@ -36,7 +36,7 @@ Full guide: `docs/orchestrator-onboarding.md`
 Multi-edge deployments:
 - The edge/gateway IP you provide (default `3.150.172.153`) is used for allowlists and TURN DNAT (`TURN_EXTERNAL_IP`).
 - Verify the orchestrator registers on the intended edge matchmaker after onboarding (see `docs/orchestrator-onboarding.md`).
-- If needed, set `SIGNALING_EXTRA_ARGS` in `.env` (example: `--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889`).
+- If needed, set `SIGNALING_EXTRA_ARGS` in `.env` (example: `--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889 --streamer_id <AVATAR_ID>`).
 
 ## What’s inside
 

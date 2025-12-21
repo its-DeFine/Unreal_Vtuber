@@ -53,7 +53,6 @@ On EC2, security group auto-apply is opt-in: pass `--apply-aws-sg` (requires `aw
 
 ## Verify
 
-- Signaling health: `curl http://127.0.0.1:8080/healthz`
 - Runner health: `curl http://127.0.0.1:9877/health`
 - Orchestrator health: `curl http://127.0.0.1:9090/health`
 
@@ -97,6 +96,8 @@ If your orchestrator is missing:
 - Ensure your signaling server is configured to register with the edge matchmaker:
   - In `.env` set:
     - `SIGNALING_EXTRA_ARGS="--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889"`
+    - Optionally include an avatar routing hint (so the edge can allocate the right orchestrator):
+      - `SIGNALING_EXTRA_ARGS="--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889 --streamer_id <AVATAR_ID>"`
   - Restart: `docker compose -f docker-compose.unreal.yml up -d unreal-signaling`
 - Check signaling logs for matchmaker connectivity:
   - `docker logs vtuber-unreal-signaling --tail 200 | grep -E "Matchmaker|Connected|register" || true`
