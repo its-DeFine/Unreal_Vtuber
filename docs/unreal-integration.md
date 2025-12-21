@@ -21,6 +21,12 @@ For day-to-day start/stop on a host that already has `.env` + `.env.turn` config
 ./scripts/start_vtuber_unreal.sh start -d
 ```
 
+If the host has multiple GPUs, select one explicitly:
+
+```bash
+./scripts/start_vtuber_unreal.sh start --gpu 0 -d
+```
+
 An orchestrator registration helper (`orchestrator-registration` service) now runs alongside the Unreal compose file. Configure `PAYMENTS_API_URL` plus the `ORCHESTRATOR_*` variables in `.env` so the helper can post to the payments backend when the stack boots. Start the backend independently from its dedicated repository. The helper retries with backoff for up to five minutes but exits cleanly even if the backend is unreachable.
 
 The helper script will:

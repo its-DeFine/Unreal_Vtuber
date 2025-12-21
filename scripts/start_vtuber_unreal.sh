@@ -17,38 +17,116 @@ if [ ! -f "docker-compose.unreal.yml" ]; then
     exit 1
 fi
 
-echo -e "${YELLOW}Checking environment configuration...${NC}"
-
-if [ ! -f ".env" ]; then
-    echo -e "${RED}Error: .env file not found!${NC}"
-    echo "Copy orchestrator.env.example to .env and update your settings."
-    exit 1
-fi
-
-echo -e "${YELLOW}Reminder: start the payments backend from its separate repository if payouts are required.${NC}"
-
-COMMAND=${1:-up}
+COMMAND="up"
 DETACHED=""
-if [ "$2" == "-d" ] || [ "$1" == "-d" ]; then
-    DETACHED="-d"
-fi
+GPU_SELECTION=""
+LOG_SERVICE=""
+
+print_help() {
+    echo "Usage: $0 [COMMAND] [OPTIONS] [ARGS]"
+    echo ""
+    echo "Commands:"
+    echo "  up, start     Start all services"
+    echo "  down, stop    Stop all services"
+    echo "  restart       Restart all services"
+    echo "  logs [name]   Show logs (optionally for specific service)"
+    echo "  ps, status    Show service status"
+    echo "  pull          Pull Docker images"
+    echo "  build         (alias for pull)"
+    echo "  test          Send sample BYOB TTS command"
+    echo "  help          Show this help message"
+    echo ""
+    echo "Options:"
+    echo "  -d, --detach              Run in detached mode (background)"
+    echo "  --gpu <id|all|none>       Select which NVIDIA GPU to expose (sets NVIDIA_VISIBLE_DEVICES)"
+    echo ""
+    echo "Examples:"
+    echo "  $0 start -d                # Start in background"
+    echo "  $0 start --gpu 0 -d         # Start using GPU 0"
+    echo "  $0 logs unreal-game         # Show game logs"
+    echo "  $0 test                     # Trigger sample BYOB playback"
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -d|--detach)
+            DETACHED="-d"
+            shift
+            ;;
+        --gpu)
+            if [ -z "${2:-}" ]; then
+                echo -e "${RED}Error: --gpu requires a value (e.g. --gpu 0, --gpu all).${NC}"
+                exit 1
+            fi
+            GPU_SELECTION="$2"
+            shift 2
+            ;;
+        --gpu=*)
+            GPU_SELECTION="${1#*=}"
+            if [ -z "$GPU_SELECTION" ]; then
+                echo -e "${RED}Error: --gpu requires a value (e.g. --gpu=0).${NC}"
+                exit 1
+            fi
+            shift
+            ;;
+        help|--help|-h)
+            COMMAND="help"
+            shift
+            ;;
+        up|start|down|stop|restart|logs|ps|status|pull|build|test)
+            COMMAND="$1"
+            shift
+            ;;
+        *)
+            if [ "$COMMAND" = "logs" ] && [ -z "$LOG_SERVICE" ]; then
+                LOG_SERVICE="$1"
+                shift
+            else
+                echo -e "${RED}Unknown argument: $1${NC}"
+                echo "Run '$0 help' for usage information"
+                exit 1
+            fi
+            ;;
+    esac
+done
+
+compose() {
+    if [ -n "$GPU_SELECTION" ]; then
+        NVIDIA_VISIBLE_DEVICES="$GPU_SELECTION" docker compose -f docker-compose.unreal.yml "$@"
+    else
+        docker compose -f docker-compose.unreal.yml "$@"
+    fi
+}
+
+ensure_env() {
+    if [ ! -f ".env" ]; then
+        echo -e "${RED}Error: .env file not found!${NC}"
+        echo "Copy orchestrator.env.example to .env and update your settings."
+        exit 1
+    fi
+}
+
+echo -e "${YELLOW}Checking environment configuration...${NC}"
 
 check_health() {
     echo -e "\n${YELLOW}Checking service health...${NC}"
-    docker compose -f docker-compose.unreal.yml ps
+    compose ps
 }
 
 show_logs() {
     local SERVICE=$1
     if [ -z "$SERVICE" ]; then
-        docker compose -f docker-compose.unreal.yml logs --tail=50
+        compose logs --tail=50
     else
-        docker compose -f docker-compose.unreal.yml logs --tail=50 "$SERVICE"
+        compose logs --tail=50 "$SERVICE"
     fi
 }
 
 case "$COMMAND" in
     up|start)
+        ensure_env
+        echo -e "${YELLOW}Reminder: start the payments backend from its separate repository if payouts are required.${NC}"
+
         echo -e "${GREEN}Starting VTuber with Unreal Engine...${NC}"
 
         docker network create vtuber_network 2>/dev/null || true
@@ -58,7 +136,11 @@ case "$COMMAND" in
             ./scripts/generate_turn_credentials.sh
         fi
 
-        docker compose -f docker-compose.unreal.yml up $DETACHED
+        if [ -n "$GPU_SELECTION" ]; then
+            echo -e "${YELLOW}Using NVIDIA_VISIBLE_DEVICES=${GPU_SELECTION}${NC}"
+        fi
+
+        compose up $DETACHED
 
         if [ "$DETACHED" == "-d" ]; then
             echo -e "\n${GREEN}Services started in background!${NC}"
@@ -77,19 +159,25 @@ case "$COMMAND" in
 
     down|stop)
         echo -e "${YELLOW}Stopping VTuber and Unreal Engine...${NC}"
-        docker compose -f docker-compose.unreal.yml down
+        compose down
         echo -e "${GREEN}Services stopped!${NC}"
         ;;
 
     restart)
+        ensure_env
+        echo -e "${YELLOW}Reminder: start the payments backend from its separate repository if payouts are required.${NC}"
+
         echo -e "${YELLOW}Restarting services...${NC}"
-        $0 stop
+        compose down
         sleep 2
-        $0 start $DETACHED
+        if [ -n "$GPU_SELECTION" ]; then
+            echo -e "${YELLOW}Using NVIDIA_VISIBLE_DEVICES=${GPU_SELECTION}${NC}"
+        fi
+        compose up $DETACHED
         ;;
 
     logs)
-        show_logs $2
+        show_logs "$LOG_SERVICE"
         ;;
 
     ps|status)
@@ -97,8 +185,9 @@ case "$COMMAND" in
         ;;
 
     pull)
+        ensure_env
         echo -e "${YELLOW}Pulling Docker images...${NC}"
-        docker compose -f docker-compose.unreal.yml pull \
+        compose pull \
           turn-server unreal-signaling \
           vtuber-script-runner recorder-control \
           orchestrator-health vtuber-watchdog vtuber-auto-updater \
@@ -107,8 +196,9 @@ case "$COMMAND" in
         ;;
 
     build)
+        ensure_env
         echo -e "${YELLOW}No local builds are required; pulling images instead...${NC}"
-        docker compose -f docker-compose.unreal.yml pull \
+        compose pull \
           turn-server unreal-signaling \
           vtuber-script-runner recorder-control \
           orchestrator-health vtuber-watchdog vtuber-auto-updater \
@@ -124,26 +214,7 @@ case "$COMMAND" in
         ;;
 
     help|--help|-h)
-        echo "Usage: $0 [COMMAND] [OPTIONS]"
-        echo ""
-        echo "Commands:"
-        echo "  up, start     Start all services"
-        echo "  down, stop    Stop all services"
-        echo "  restart       Restart all services"
-        echo "  logs [name]   Show logs (optionally for specific service)"
-        echo "  ps, status    Show service status"
-        echo "  pull          Pull Docker images"
-        echo "  build         (alias for pull)"
-        echo "  test          Send sample BYOB TTS command"
-        echo "  help          Show this help message"
-        echo ""
-        echo "Options:"
-        echo "  -d            Run in detached mode (background)"
-        echo ""
-        echo "Examples:"
-        echo "  $0 start -d              # Start in background"
-        echo "  $0 logs unreal-game      # Show game logs"
-        echo "  $0 test                  # Trigger sample BYOB playback"
+        print_help
         ;;
 
     *)
