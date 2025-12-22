@@ -19,7 +19,7 @@ You’ll need:
 
 Run:
 ```bash
-git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/onboard_orchestrator.sh
+git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/embody_cli.sh
 ```
 
 The wizard will:
@@ -34,14 +34,15 @@ The wizard will:
 Full guide: `docs/orchestrator-onboarding.md`
 
 Multi-edge deployments:
-- The edge/gateway IP you provide (default `3.150.172.153`) is used for allowlists and TURN DNAT (`TURN_EXTERNAL_IP`).
+- The edge/gateway IP you provide is used for allowlists and TURN DNAT (`TURN_EXTERNAL_IP`).
 - Verify the orchestrator registers on the intended edge matchmaker after onboarding (see `docs/orchestrator-onboarding.md`).
 - If needed, set `SIGNALING_EXTRA_ARGS` in `.env` (example: `--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889`).
 
 ## What’s inside
 
 - `docker-compose.unreal.yml` – the Pixel Streaming + orchestration stack
-- `scripts/onboard_orchestrator.sh` – one-command onboarding wizard
+- `scripts/embody_cli.sh` – onboarding + day-to-day CLI entrypoint
+- `scripts/onboard_orchestrator.sh` – deprecated alias for onboarding (calls `embody_cli.sh setup`)
 - `tools/encrypted-game-image/` – encrypted artifact consume/rollout helpers
 - `orchestrator-health/` – host-visible health endpoint (`http://<host>:9090/health`)
 - `docs/` – architecture + operational guides

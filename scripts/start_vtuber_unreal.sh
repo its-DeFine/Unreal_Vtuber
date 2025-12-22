@@ -7,13 +7,22 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+COMPOSE_FILE="${REPO_ROOT}/docker-compose.unreal.yml"
+ENV_FILE="${REPO_ROOT}/.env"
+TURN_ENV_FILE="${REPO_ROOT}/.env.turn"
+
+cd "${REPO_ROOT}"
+
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}     VTuber + Unreal Engine Pixel Streaming Launcher${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 
-if [ ! -f "docker-compose.unreal.yml" ]; then
+if [ ! -f "${COMPOSE_FILE}" ]; then
     echo -e "${RED}Error: docker-compose.unreal.yml not found!${NC}"
+    echo "Expected at: ${COMPOSE_FILE}"
     exit 1
 fi
 
@@ -41,7 +50,7 @@ print_help() {
     echo "  --gpu <id|all|none>       Select which NVIDIA GPU to expose (sets NVIDIA_VISIBLE_DEVICES)"
     echo ""
     echo "Examples:"
-    echo "  $0 start -d                # Start in background"
+    echo "  $0 start                   # Start in background"
     echo "  $0 start --gpu 0 -d         # Start using GPU 0"
     echo "  $0 logs unreal-game         # Show game logs"
     echo "  $0 test                     # Trigger sample BYOB playback"
@@ -90,16 +99,20 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+if [ "$COMMAND" = "start" ] && [ -z "$DETACHED" ]; then
+    DETACHED="-d"
+fi
+
 compose() {
     if [ -n "$GPU_SELECTION" ]; then
-        NVIDIA_VISIBLE_DEVICES="$GPU_SELECTION" docker compose -f docker-compose.unreal.yml "$@"
+        NVIDIA_VISIBLE_DEVICES="$GPU_SELECTION" docker compose -f "${COMPOSE_FILE}" "$@"
     else
-        docker compose -f docker-compose.unreal.yml "$@"
+        docker compose -f "${COMPOSE_FILE}" "$@"
     fi
 }
 
 ensure_env() {
-    if [ ! -f ".env" ]; then
+    if [ ! -f "${ENV_FILE}" ]; then
         echo -e "${RED}Error: .env file not found!${NC}"
         echo "Copy orchestrator.env.example to .env and update your settings."
         exit 1
@@ -131,7 +144,7 @@ case "$COMMAND" in
 
         docker network create vtuber_network 2>/dev/null || true
 
-        if [ ! -s ".env.turn" ]; then
+        if [ ! -s "${TURN_ENV_FILE}" ]; then
             echo -e "${YELLOW}TURN credentials missing; generating .env.turn...${NC}"
             ./scripts/generate_turn_credentials.sh
         fi
