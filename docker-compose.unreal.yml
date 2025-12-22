@@ -206,7 +206,6 @@ services:
         "${WATCHTOWER_INTERVAL:-900}",
         "--cleanup",
         "--include-restarting",
-        "--rolling-restart",
         "vtuber-turn-server",
         "vtuber-unreal-signaling",
         "vtuber-script-runner",
