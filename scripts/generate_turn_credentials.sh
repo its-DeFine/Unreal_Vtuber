@@ -2,7 +2,29 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${REPO_ROOT}/.env.turn"
+ENV_FILE="${TURN_ENV_FILE:-${REPO_ROOT}/.env.turn}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o|--output)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --output requires a file path." >&2
+        exit 1
+      fi
+      ENV_FILE="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      echo "Usage: $0 [--output <path>]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ "$ENV_FILE" != /* ]]; then
+  ENV_FILE="${REPO_ROOT}/${ENV_FILE}"
+fi
 
 # Allow overriding the realm, otherwise default
 TURN_REALM=${TURN_REALM:-pixel-streaming}

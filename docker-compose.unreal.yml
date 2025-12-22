@@ -7,10 +7,10 @@ services:
   # TURN server to relay WebRTC traffic when direct peer connections fail
   turn-server:
     image: ghcr.io/its-define/unreal_vtuber/embody-turn-server:latest
-    container_name: vtuber-turn-server
+    container_name: ${VTUBER_CONTAINER_PREFIX:-vtuber}-turn-server
     restart: unless-stopped
     env_file:
-      - .env.turn
+      - ${TURN_ENV_FILE:-.env.turn}
     entrypoint: ['/bin/sh', '-c']
     command: |
       turnserver \
@@ -37,20 +37,20 @@ services:
   # Signaling Server - WebRTC signaling (UI served from the edge/gateway)
   unreal-signaling:
     image: ghcr.io/its-define/unreal_vtuber/embody-signaling:latest
-    container_name: vtuber-unreal-signaling
+    container_name: ${VTUBER_CONTAINER_PREFIX:-vtuber}-unreal-signaling
     restart: unless-stopped
     depends_on:
       - turn-server
     env_file:
-      - .env.turn
+      - ${TURN_ENV_FILE:-.env.turn}
     ports:
-      - "8080:80"       # HTTP web interface
-      - "8888:8888"     # Streamer port
+      - "${SIGNALING_HTTP_HOST_PORT:-8080}:80"       # HTTP web interface
+      - "${SIGNALING_STREAMER_HOST_PORT:-8888}:8888" # Streamer port
     environment:
       PUBLIC_IP: ${PUBLIC_IP:-auto}
-      HTTP_PORT: "8080"
-      STREAMER_PORT: "8888"
-      SFU_PORT: "8889"
+      HTTP_PORT: "${SIGNALING_HTTP_HOST_PORT:-8080}"
+      STREAMER_PORT: "${SIGNALING_STREAMER_HOST_PORT:-8888}"
+      SFU_PORT: "${RECORDER_CTRL_HOST_PORT:-8889}"
       STUN_SERVER: ${STUN_SERVER:-stun.l.google.com:19302}
       # Optional additional Wilbur/start.sh CLI flags (example: matchmaker registration).
       SIGNALING_EXTRA_ARGS: ${SIGNALING_EXTRA_ARGS:-}
@@ -72,7 +72,7 @@ services:
   # Embody Game - Headless Unreal Engine with Pixel Streaming
   unreal-game:
     image: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest
-    container_name: vtuber-unreal-game
+    container_name: ${VTUBER_CONTAINER_PREFIX:-vtuber}-unreal-game
     restart: unless-stopped
     runtime: nvidia
     ulimits:
@@ -80,8 +80,8 @@ services:
         soft: ${HOST_ULIMIT_NOFILE:-1040}
         hard: ${HOST_ULIMIT_NOFILE:-1040}
     ports:
-      - "7777:7777"
-      - "9877:9877"
+      - "${VTUBER_GAME_TCP_HOST_PORT:-7777}:7777"
+      - "${VTUBER_RUNNER_HOST_PORT:-9877}:9877"
     depends_on:
       unreal-signaling:
         condition: service_healthy
@@ -122,7 +122,7 @@ services:
 
   vtuber-script-runner:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-script-runner:${EMBODY_SERVICE_IMAGE_TAG:-latest}
-    container_name: vtuber-script-runner
+    container_name: ${VTUBER_CONTAINER_PREFIX:-vtuber}-script-runner
     network_mode: "service:unreal-game"
     environment:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
@@ -137,25 +137,25 @@ services:
 
   vtuber-watchdog:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-watchdog:${EMBODY_SERVICE_IMAGE_TAG:-latest}
-    container_name: vtuber-watchdog
+    container_name: ${VTUBER_CONTAINER_PREFIX:-vtuber}-watchdog
     restart: unless-stopped
     depends_on:
       - unreal-game
     environment:
       - WATCHDOG_COMPOSE_FILE=/workspace/docker-compose.unreal.yml
       - WATCHDOG_RUNNER_SERVICE=vtuber-script-runner
-      - WATCHDOG_GAME_CONTAINER=vtuber-unreal-game
+      - WATCHDOG_GAME_CONTAINER=${VTUBER_CONTAINER_PREFIX:-vtuber}-unreal-game
       - WATCHDOG_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-unreal_vtuber}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./docker-compose.unreal.yml:/workspace/docker-compose.unreal.yml:ro
       - ./.env:/workspace/.env:ro
-      - ./.env.turn:/workspace/.env.turn:ro
+      - ./${TURN_ENV_FILE:-.env.turn}:/workspace/.env.turn:ro
       - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state:ro
 
   orchestrator-registration:
     image: ghcr.io/its-define/unreal_vtuber/orchestrator-registration:${EMBODY_SERVICE_IMAGE_TAG:-latest}
-    container_name: vtuber-orchestrator-registration
+    container_name: ${VTUBER_CONTAINER_PREFIX:-vtuber}-orchestrator-registration
     depends_on:
       - unreal-game
     env_file:
@@ -174,24 +174,24 @@ services:
 
   orchestrator-health:
     image: ghcr.io/its-define/unreal_vtuber/orchestrator-health:${EMBODY_SERVICE_IMAGE_TAG:-latest}
-    container_name: vtuber-orchestrator-health
+    container_name: ${VTUBER_CONTAINER_PREFIX:-vtuber}-orchestrator-health
     command: ["python", "-m", "orchestrator_health.remote_health_service"]
     environment:
-      - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server}
+      - MONITORED_SERVICES=${MONITORED_SERVICES:-${VTUBER_CONTAINER_PREFIX:-vtuber}-unreal-game,${VTUBER_CONTAINER_PREFIX:-vtuber}-unreal-signaling,${VTUBER_CONTAINER_PREFIX:-vtuber}-turn-server}
       - ORCHESTRATOR_HEALTH_PORT=9090
       - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state
     ports:
-      - "9090:9090"
+      - "${ORCHESTRATOR_HEALTH_HOST_PORT:-9090}:9090"
     restart: unless-stopped
     networks:
       - vtuber_network
 
   vtuber-auto-updater:
     image: containrrr/watchtower:1.7.1
-    container_name: vtuber-auto-updater
+    container_name: ${VTUBER_CONTAINER_PREFIX:-vtuber}-auto-updater
     restart: unless-stopped
     depends_on:
       - unreal-game
@@ -207,29 +207,29 @@ services:
         "--cleanup",
         "--include-restarting",
         "--rolling-restart",
-        "vtuber-turn-server",
-        "vtuber-unreal-signaling",
-        "vtuber-script-runner",
-        "vtuber-recorder-control",
-        "vtuber-orchestrator-health",
-        "vtuber-watchdog",
+        "${VTUBER_CONTAINER_PREFIX:-vtuber}-turn-server",
+        "${VTUBER_CONTAINER_PREFIX:-vtuber}-unreal-signaling",
+        "${VTUBER_CONTAINER_PREFIX:-vtuber}-script-runner",
+        "${VTUBER_CONTAINER_PREFIX:-vtuber}-recorder-control",
+        "${VTUBER_CONTAINER_PREFIX:-vtuber}-orchestrator-health",
+        "${VTUBER_CONTAINER_PREFIX:-vtuber}-watchdog",
       ]
 
   recorder-control:
     image: ghcr.io/its-define/unreal_vtuber/recorder-control:${EMBODY_SERVICE_IMAGE_TAG:-latest}
-    container_name: vtuber-recorder-control
+    container_name: ${VTUBER_CONTAINER_PREFIX:-vtuber}-recorder-control
     depends_on:
       - unreal-signaling
     env_file:
-      - .env.turn
+      - ${TURN_ENV_FILE:-.env.turn}
     environment:
       - RECORDER_CTRL_PORT=8889
-      - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL:-ws://vtuber-unreal-signaling:80}
+      - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL:-ws://unreal-signaling:80}
       - RECORDER_OUTPUT_DIR=/recordings
       - PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
       - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.17.0.1,172.18.0.1}
       # Recorder connects on the docker network; default TURN host is the local coturn service.
-      - RECORDER_TURN_HOST=${RECORDER_TURN_HOST:-vtuber-turn-server}
+      - RECORDER_TURN_HOST=${RECORDER_TURN_HOST:-turn-server}
       - RECORDINGS_API_TOKEN=${RECORDINGS_API_TOKEN:-}
     volumes:
       - ${VTUBER_RECORDINGS_DIR:-/recordings}:/recordings
@@ -238,9 +238,9 @@ services:
     networks:
       - vtuber_network
     ports:
-      - "8889:8889"
+      - "${RECORDER_CTRL_HOST_PORT:-8889}:8889"
 
 networks:
   vtuber_network:
     external: true
-    name: vtuber_network
+    name: ${VTUBER_NETWORK_NAME:-vtuber_network}
