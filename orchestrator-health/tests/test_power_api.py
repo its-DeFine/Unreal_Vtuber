@@ -45,3 +45,24 @@ def test_power_state_roundtrip(power_app):
     resp = client.get("/power")
     assert resp.status_code == 200
     assert resp.json()["state"] == "sleeping"
+
+
+def test_wake_with_awake_seconds_sets_awake_until(power_app, monkeypatch):
+    app, svc = power_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_wake_all_containers", lambda *args, **kwargs: {})
+    scheduled: dict[str, object] = {}
+
+    def fake_schedule(seconds: int, reason: str) -> None:
+        scheduled["seconds"] = seconds
+        scheduled["reason"] = reason
+
+    monkeypatch.setattr(svc, "_schedule_auto_sleep", fake_schedule)
+
+    resp = client.post("/power", json={"action": "wake", "awake_seconds": 10, "reason": "pytest"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["state"] == "awake"
+    assert data["awake_until"] is not None
+    assert scheduled["seconds"] == 10

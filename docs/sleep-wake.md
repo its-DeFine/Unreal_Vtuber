@@ -1,15 +1,16 @@
 # Sleep / Wake Control (Power API)
 
 The orchestrator health service (port **9090**) exposes a power API to deliberately
-stop/start the Unreal game without the watchdog undoing it. State is persisted in
+stop/start the Pixel Streaming stack for power conservation. State is persisted in
 `/var/lib/vtuber/power-state/power_state.json` and shared with the watchdog so it
 skips recovery while sleeping.
 
 ## Endpoints
-- `GET /power` – returns current state: `{"state":"awake|sleeping","reason":...}`
+- `GET /power` – returns current state: `{"state":"awake|sleeping","reason":...,"awake_until":...}`
 - `POST /power` – body:
-  - `{"action":"sleep","reason":"maintenance"}` – stop the game (and runner if default).
-  - `{"action":"wake"}` – start the game, wait for running, restart runner.
+  - `{"action":"sleep","reason":"maintenance"}` – stop all orchestrator containers (except `orchestrator-health`).
+  - `{"action":"wake"}` – start all containers in dependency order.
+  - `{"action":"wake","awake_seconds":3600}` – start all containers, then auto-sleep after `awake_seconds`.
 - `GET /health` – continues to report service status; while sleeping, game shows as exited.
 
 ## Auth / allowlist
@@ -18,10 +19,9 @@ skips recovery while sleeping.
 - Requests from other IPs receive a 403.
 
 ## Behavior
-- `sleep` writes state first, then stops the game (and runner if
-  `POWER_STOP_RUNNER_ON_SLEEP` is default). Watchdog ignores game events while sleeping.
-- `wake` flips state to `awake`, starts the game, waits for running, and restarts the
-  runner to reattach to the game namespace.
+- `sleep` writes state first, then stops every container in the compose project except itself.
+- `wake` flips state to `awake`, starts the stack in dependency order (TURN → signaling → game → runner/recorder/watchdog).
+- If `awake_seconds` is provided on wake, the service schedules an automatic `sleep` after that TTL (best-effort).
 
 ## Compose wiring
 `docker-compose.unreal.yml` already mounts the shared power-state file and passes the
@@ -48,8 +48,13 @@ curl -X POST -H "Content-Type: application/json" \
   -d '{"action":"sleep","reason":"maintenance"}' \
   http://<host>:9090/power
 
-# wake
+# wake (until manually slept)
 curl -X POST -H "Content-Type: application/json" \
   -d '{"action":"wake"}' \
+  http://<host>:9090/power
+
+# wake for 1 hour, then auto-sleep
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"action":"wake","awake_seconds":3600,"reason":"session TTL"}' \
   http://<host>:9090/power
 ```
