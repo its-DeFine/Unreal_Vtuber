@@ -24,8 +24,12 @@ POWER_STATE_FILE = Path(os.environ.get("POWER_STATE_FILE", "/var/lib/vtuber/powe
 
 def _parse_ip_list(primary_env: str, fallback_env: str | None = None, default: str = "") -> list[str]:
     raw = os.environ.get(primary_env)
+    if raw is not None and not raw.strip():
+        raw = None
     if (raw is None) and fallback_env:
         raw = os.environ.get(fallback_env)
+        if raw is not None and not raw.strip():
+            raw = None
     if raw is None:
         raw = default
     return [addr.strip() for addr in raw.split(",") if addr.strip()]

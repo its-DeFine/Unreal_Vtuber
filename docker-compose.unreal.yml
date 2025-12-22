@@ -176,6 +176,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/orchestrator-health:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-orchestrator-health
     command: ["python", "-m", "orchestrator_health.remote_health_service"]
+    env_file:
+      - .env
     environment:
       - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server}
       - ORCHESTRATOR_HEALTH_PORT=9090

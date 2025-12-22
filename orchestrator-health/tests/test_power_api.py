@@ -35,6 +35,15 @@ def test_allowed_ips_uses_primary_if_set(monkeypatch):
     assert svc.POWER_ALLOWED_IPS == ["3.3.3.3"]
 
 
+def test_allowed_ips_empty_primary_falls_back_to_vtuber(monkeypatch):
+    monkeypatch.setenv("POWER_ALLOWED_IPS", "")
+    monkeypatch.setenv("VTUBER_ALLOWED_ADDRESSES", "1.1.1.1")
+    import orchestrator_health.remote_health_service as svc
+
+    importlib.reload(svc)
+    assert svc.POWER_ALLOWED_IPS == ["1.1.1.1"]
+
+
 def test_power_state_roundtrip(power_app):
     app, svc = power_app
     client = TestClient(app)
