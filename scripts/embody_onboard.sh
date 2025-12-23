@@ -44,8 +44,8 @@ Common options:
   --forwarder-ip <ip>         Alias for --edge-ip (backwards compatible)
   --allowed-ip <ip>           Additional allowlisted caller IP (repeatable; e.g. edge IPs)
   --allowed-ips <csv>         Additional allowlisted caller IPs (comma-separated)
-  --edge-config-url <url>     Optional edge-config control-plane URL (used by orchestrator-edge-rotator)
-  --edge-config-token <tok>   Optional edge-config plane read token (stored in .env)
+  --edge-config-url <url>     Optional edge-config control-plane URL (used by orchestrator-edge-rotator). If unset, may be auto-provided via invite-code redemption or env var `EMBODY_EDGE_CONFIG_URL_DEFAULT`.
+  --edge-config-token <tok>   Optional edge-config plane read token (stored in .env). If unset, may be auto-provided via invite-code redemption.
   --public-ip <ip|auto>       (default: auto; tries EC2 IMDSv2 then ipify)
   --gpu-devices <value>       Set NVIDIA_VISIBLE_DEVICES (default: all; e.g. 0 or 0,1)
   --invite-code <code>        One-time invite code (mints + stores a license token)
@@ -385,6 +385,7 @@ PUBLIC_IP="auto"
 EXTRA_ALLOWED_IPS=()
 EDGE_CONFIG_URL="${EDGE_CONFIG_URL:-}"
 EDGE_CONFIG_TOKEN="${EDGE_CONFIG_TOKEN:-}"
+EMBODY_EDGE_CONFIG_URL_DEFAULT="${EMBODY_EDGE_CONFIG_URL_DEFAULT:-}"
 
 ORCH_ID=""
 ORCH_ADDRESS=""
@@ -595,6 +596,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "$EDGE_CONFIG_URL" ]]; then
+  EMBODY_EDGE_CONFIG_URL_DEFAULT="$(trim_whitespace "$EMBODY_EDGE_CONFIG_URL_DEFAULT")"
+  EMBODY_EDGE_CONFIG_URL_DEFAULT="$(strip_inline_comment "$EMBODY_EDGE_CONFIG_URL_DEFAULT")"
+  if [[ -n "$EMBODY_EDGE_CONFIG_URL_DEFAULT" ]]; then
+    EDGE_CONFIG_URL="$EMBODY_EDGE_CONFIG_URL_DEFAULT"
+  fi
+fi
+
 init_ui
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
@@ -602,6 +611,17 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
 fi
 
 cd "$REPO_ROOT"
+
+if [[ -z "$EDGE_CONFIG_URL" ]]; then
+  EDGE_CONFIG_URL="$(read_env_value "$ENV_FILE" "EDGE_CONFIG_URL" 2>/dev/null || true)"
+  EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
+  EDGE_CONFIG_URL="$(strip_inline_comment "$EDGE_CONFIG_URL")"
+fi
+if [[ -z "$EDGE_CONFIG_TOKEN" ]]; then
+  EDGE_CONFIG_TOKEN="$(read_env_value "$ENV_FILE" "EDGE_CONFIG_TOKEN" 2>/dev/null || true)"
+  EDGE_CONFIG_TOKEN="$(trim_whitespace "$EDGE_CONFIG_TOKEN")"
+  EDGE_CONFIG_TOKEN="$(strip_inline_comment "$EDGE_CONFIG_TOKEN")"
+fi
 
 maybe_rerun_with_sudo_for_docker() {
   if [[ "$(id -u)" == "0" ]]; then
@@ -1238,6 +1258,43 @@ print(data.get("token", "") or "")
 PY
   )"
   [[ -n "$token" ]] || die "Invite redeem succeeded but no token was returned"
+
+  # Optional: Payments can return edge-config plane details so the orchestrator
+  # doesn't need extra flags. Adopt them only if the user didn't explicitly set
+  # them via CLI args/env.
+  local edge_config_url_from_invite edge_config_token_from_invite
+  edge_config_url_from_invite="$(BODY="$body" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ.get("BODY", "") or ""
+try:
+    data = json.loads(raw) if raw else {}
+except Exception:
+    data = {}
+print(data.get("edge_config_url", "") or "")
+PY
+  )"
+  edge_config_token_from_invite="$(BODY="$body" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ.get("BODY", "") or ""
+try:
+    data = json.loads(raw) if raw else {}
+except Exception:
+    data = {}
+print(data.get("edge_config_token", "") or "")
+PY
+  )"
+  edge_config_url_from_invite="$(trim_whitespace "$edge_config_url_from_invite")"
+  edge_config_token_from_invite="$(trim_whitespace "$edge_config_token_from_invite")"
+  if [[ -z "$EDGE_CONFIG_URL" && -n "$edge_config_url_from_invite" ]]; then
+    EDGE_CONFIG_URL="$edge_config_url_from_invite"
+  fi
+  if [[ -z "$EDGE_CONFIG_TOKEN" && -n "$edge_config_token_from_invite" ]]; then
+    EDGE_CONFIG_TOKEN="$edge_config_token_from_invite"
+  fi
 
   image_ref="$(BODY="$body" python3 - <<'PY'
 import json
