@@ -52,6 +52,16 @@ The onboarding wizard will apply these rules to UFW (best-effort) if UFW is acti
 
 On EC2, security group auto-apply is opt-in: pass `--apply-aws-sg` (requires `aws` CLI + permissions via instance profile/IAM role/credentials).
 
+### Optional: automate edge rotation (no SSH / no AWS SG edits)
+If your orchestrator host uses UFW/host firewall allowlists, enable the `orchestrator-edge-rotator` sidecar to:
+- Poll a control plane for the desired edge assignment
+- Update host firewall allowlists (via `iptables`)
+- Rewrite `.env` `SIGNALING_MATCHMAKER_ARGS=...` and recreate signaling so it re-registers on the chosen edge
+
+Minimum `.env`:
+- `EDGE_CONFIG_URL=https://<control-plane>/orchestrator-edge`
+- `EDGE_FIREWALL_EXTRA_CIDRS=<payments-ip>/32` (so Payments can still reach `:9090/health`)
+
 ## Verify
 
 - Signaling health: `curl http://127.0.0.1:8080/healthz`
@@ -97,7 +107,7 @@ Look for your orchestrator address in `.servers[]` with `ready: true`.
 If your orchestrator is missing:
 - Ensure your signaling server is configured to register with the edge matchmaker:
   - In `.env` set:
-    - `SIGNALING_EXTRA_ARGS="--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889"`
+    - `SIGNALING_MATCHMAKER_ARGS="--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889"`
   - Restart: `docker compose -f docker-compose.unreal.yml up -d unreal-signaling`
 - Check signaling logs for matchmaker connectivity:
   - `docker logs vtuber-unreal-signaling --tail 200 | grep -E "Matchmaker|Connected|register" || true`

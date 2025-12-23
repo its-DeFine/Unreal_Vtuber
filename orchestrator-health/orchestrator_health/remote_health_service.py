@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import ipaddress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -35,7 +36,17 @@ def _parse_ip_list(primary_env: str, fallback_env: str | None = None, default: s
     return [addr.strip() for addr in raw.split(",") if addr.strip()]
 
 
+def _parse_csv(primary_env: str, default: str = "") -> list[str]:
+    raw = os.environ.get(primary_env)
+    if raw is None:
+        raw = default
+    return [token.strip() for token in raw.split(",") if token.strip()]
+
+
 POWER_ALLOWED_IPS = _parse_ip_list("POWER_ALLOWED_IPS", fallback_env="VTUBER_ALLOWED_ADDRESSES")
+POWER_ALLOWED_IPS_FILE_RAW = os.environ.get("POWER_ALLOWED_IPS_FILE", "").strip()
+POWER_ALLOWED_IPS_FILE = Path(POWER_ALLOWED_IPS_FILE_RAW) if POWER_ALLOWED_IPS_FILE_RAW else None
+POWER_KEEP_RUNNING_SERVICES = set(_parse_csv("POWER_KEEP_RUNNING_SERVICES"))
 POWER_GAME_SERVICE = os.environ.get("POWER_GAME_SERVICE", "unreal-game")
 POWER_GAME_CONTAINER = os.environ.get("POWER_GAME_CONTAINER", "vtuber-unreal-game")
 POWER_RUNNER_SERVICE = os.environ.get("POWER_RUNNER_SERVICE", "vtuber-script-runner")
@@ -68,11 +79,42 @@ class PowerRequest(BaseModel):
 
 
 def _require_auth(request: Request) -> None:
-    if not POWER_ALLOWED_IPS:
+    allowed = _get_power_allowed_ips()
+    if not allowed:
         return
     client_ip = request.client.host if request.client else None
-    if client_ip not in POWER_ALLOWED_IPS:
+    if (not client_ip) or (not _ip_in_allowlist(client_ip, allowed)):
         raise HTTPException(status_code=403, detail="client address not allowed")
+
+
+def _get_power_allowed_ips() -> list[str]:
+    if POWER_ALLOWED_IPS_FILE is None:
+        return POWER_ALLOWED_IPS
+    try:
+        raw = POWER_ALLOWED_IPS_FILE.read_text().strip()
+    except FileNotFoundError:
+        return POWER_ALLOWED_IPS
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to read POWER_ALLOWED_IPS_FILE=%s: %s", POWER_ALLOWED_IPS_FILE, exc)
+        return POWER_ALLOWED_IPS
+
+    entries = [addr.strip() for addr in raw.split(",") if addr.strip()]
+    return entries or POWER_ALLOWED_IPS
+
+
+def _ip_in_allowlist(client_ip: str, allowlist: list[str]) -> bool:
+    try:
+        ip = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+    for token in allowlist:
+        try:
+            network = ipaddress.ip_network(token, strict=False)
+        except ValueError:
+            continue
+        if ip in network:
+            return True
+    return False
 
 
 def _read_power_state() -> PowerState:
@@ -273,6 +315,20 @@ def _is_self_container(container: Any) -> bool:
     return False
 
 
+def _should_keep_running(container: Any) -> bool:
+    if not POWER_KEEP_RUNNING_SERVICES:
+        return False
+    try:
+        if container.name in POWER_KEEP_RUNNING_SERVICES:
+            return True
+        service = (container.labels or {}).get("com.docker.compose.service", "")
+        if service and service in POWER_KEEP_RUNNING_SERVICES:
+            return True
+    except Exception:  # pragma: no cover - defensive
+        return False
+    return False
+
+
 def _sleep_all_containers(*, reason: str | None = None) -> dict[str, str]:
     """Stop every container in this compose project except this orchestrator-health container."""
     containers = _list_project_containers()
@@ -304,6 +360,8 @@ def _sleep_all_containers(*, reason: str | None = None) -> dict[str, str]:
     results: dict[str, str] = {}
     for container in sorted(containers, key=stop_key):
         if _is_self_container(container):
+            continue
+        if _should_keep_running(container):
             continue
         try:
             container.reload()

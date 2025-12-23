@@ -14,12 +14,15 @@ skips recovery while sleeping.
 - `GET /health` – continues to report service status; while sleeping, game shows as exited.
 
 ## Auth / allowlist
-- `POWER_ALLOWED_IPS` governs which source IPs can access `/power`. Set it in `.env`,
-  e.g. `POWER_ALLOWED_IPS=127.0.0.1,::1,<edge-ip>`.
+- `POWER_ALLOWED_IPS` governs which source IPs can access `/power`. If unset, it falls back to
+  `VTUBER_ALLOWED_ADDRESSES`.
+- `POWER_ALLOWED_IPS_FILE` (optional) points at a host-mounted file containing the same CSV allowlist.
+  If present and non-empty, it overrides `POWER_ALLOWED_IPS` (useful when another service rotates edges).
 - Requests from other IPs receive a 403.
 
 ## Behavior
-- `sleep` writes state first, then stops every container in the compose project except itself.
+- `sleep` writes state first, then stops every container in the compose project except itself (and any service
+  listed in `POWER_KEEP_RUNNING_SERVICES`).
 - `wake` flips state to `awake`, starts the stack in dependency order (TURN → signaling → game → runner/recorder/watchdog).
 - If `awake_seconds` is provided on wake, the service schedules an automatic `sleep` after that TTL (best-effort).
 
@@ -30,6 +33,8 @@ allowlist to orchestrator-health/watchdog:
 orchestrator-health:
   environment:
     - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-}
+    - POWER_ALLOWED_IPS_FILE=${EDGE_POWER_ALLOWED_IPS_FILE-/var/lib/vtuber/power-state/power_allowed_ips.txt}
+    - POWER_KEEP_RUNNING_SERVICES=${POWER_KEEP_RUNNING_SERVICES-orchestrator-edge-rotator}
   volumes:
     - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state
 ...

@@ -8,6 +8,7 @@ on:
       - ".github/workflows/build-service-images.yml"
       - ".github/workflows/publish-service-images.yml"
       - "docker/watchdog/**"
+      - "orchestrator-edge-rotator/**"
       - "orchestrator-health/**"
       - "scripts/Dockerfile.orchestrator-registration"
       - "scripts/register_orchestrator.py"
@@ -30,6 +31,9 @@ jobs:
           - name: recorder-control
             context: ./tools/recorder
             file: ./tools/recorder/Dockerfile
+          - name: orchestrator-edge-rotator
+            context: ./orchestrator-edge-rotator
+            file: ./orchestrator-edge-rotator/Dockerfile
           - name: orchestrator-health
             context: ./orchestrator-health
             file: ./orchestrator-health/Dockerfile

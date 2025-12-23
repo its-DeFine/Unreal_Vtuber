@@ -53,7 +53,7 @@ services:
       SFU_PORT: "8889"
       STUN_SERVER: ${STUN_SERVER:-stun.l.google.com:19302}
       # Optional additional Wilbur/start.sh CLI flags (example: matchmaker registration).
-      SIGNALING_EXTRA_ARGS: ${SIGNALING_EXTRA_ARGS:-}
+      SIGNALING_EXTRA_ARGS: "${SIGNALING_EXTRA_ARGS:-} ${SIGNALING_MATCHMAKER_ARGS:-}"
       ENABLE_REST_API: ${ENABLE_REST_API:-0}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]
@@ -182,6 +182,8 @@ services:
       - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server}
       - ORCHESTRATOR_HEALTH_PORT=9090
       - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-}
+      - POWER_KEEP_RUNNING_SERVICES=${POWER_KEEP_RUNNING_SERVICES-orchestrator-edge-rotator}
+      - POWER_ALLOWED_IPS_FILE=${EDGE_POWER_ALLOWED_IPS_FILE-/var/lib/vtuber/power-state/power_allowed_ips.txt}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state
@@ -190,6 +192,33 @@ services:
     restart: unless-stopped
     networks:
       - vtuber_network
+
+  orchestrator-edge-rotator:
+    image: ghcr.io/its-define/unreal_vtuber/orchestrator-edge-rotator:${EMBODY_SERVICE_IMAGE_TAG:-latest}
+    container_name: vtuber-orchestrator-edge-rotator
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    env_file:
+      - .env
+    environment:
+      - EDGE_CONFIG_URL=${EDGE_CONFIG_URL:-}
+      - EDGE_CONFIG_TOKEN=${EDGE_CONFIG_TOKEN:-}
+      - EDGE_POLL_INTERVAL_SECONDS=${EDGE_POLL_INTERVAL_SECONDS:-15}
+      - EDGE_PROJECT_DIR=${EDGE_PROJECT_DIR:-/home/ubuntu/Unreal_Vtuber}
+      - EDGE_ALLOW_PORTS=${EDGE_ALLOW_PORTS:-}
+      - EDGE_ENFORCE_EXCLUSIVE=${EDGE_ENFORCE_EXCLUSIVE:-1}
+      - EDGE_SIGNALING_PUBLIC_PORT=${EDGE_SIGNALING_PUBLIC_PORT:-8080}
+      - EDGE_MATCHMAKER_DEFAULT_PORT=${EDGE_MATCHMAKER_DEFAULT_PORT:-8889}
+      - EDGE_UPDATE_TURN=${EDGE_UPDATE_TURN:-0}
+      - EDGE_WAKE_SETTLE_SECONDS=${EDGE_WAKE_SETTLE_SECONDS:-60}
+      - EDGE_FIREWALL_EXTRA_CIDRS=${EDGE_FIREWALL_EXTRA_CIDRS:-}
+      - EDGE_POWER_ALLOWED_IPS_FILE=${EDGE_POWER_ALLOWED_IPS_FILE-/var/lib/vtuber/power-state/power_allowed_ips.txt}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state
+      - ${EDGE_PROJECT_DIR:-/home/ubuntu/Unreal_Vtuber}:${EDGE_PROJECT_DIR:-/home/ubuntu/Unreal_Vtuber}
 
   vtuber-auto-updater:
     image: containrrr/watchtower:1.7.1
@@ -213,6 +242,7 @@ services:
         "vtuber-unreal-signaling",
         "vtuber-script-runner",
         "vtuber-recorder-control",
+        "vtuber-orchestrator-edge-rotator",
         "vtuber-orchestrator-health",
         "vtuber-watchdog",
       ]

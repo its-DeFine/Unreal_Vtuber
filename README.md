@@ -36,7 +36,8 @@ Full guide: `docs/orchestrator-onboarding.md`
 Multi-edge deployments:
 - The edge/gateway IP you provide is used for allowlists and TURN DNAT (`TURN_EXTERNAL_IP`).
 - Verify the orchestrator registers on the intended edge matchmaker after onboarding (see `docs/orchestrator-onboarding.md`).
-- If needed, set `SIGNALING_EXTRA_ARGS` in `.env` (example: `--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889`).
+- If needed, set `SIGNALING_MATCHMAKER_ARGS` in `.env` (example: `--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889`).
+- To rotate edges without SSH, configure the optional `orchestrator-edge-rotator` sidecar (`docs/orchestrator-onboarding.md`).
 
 ## What’s inside
 

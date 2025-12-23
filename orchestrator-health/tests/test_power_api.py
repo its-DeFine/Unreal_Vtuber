@@ -56,6 +56,25 @@ def test_power_state_roundtrip(power_app):
     assert resp.json()["state"] == "sleeping"
 
 
+def test_ip_allowlist_supports_cidrs(power_app):
+    _app, svc = power_app
+    assert svc._ip_in_allowlist("1.1.1.1", ["1.1.1.1"])
+    assert svc._ip_in_allowlist("1.1.1.1", ["1.1.1.0/24"])
+    assert not svc._ip_in_allowlist("2.2.2.2", ["1.1.1.0/24"])
+
+
+def test_allowed_ips_file_overrides_env(monkeypatch, tmp_path):
+    allow_file = tmp_path / "allowed.txt"
+    allow_file.write_text("10.0.0.0/8\n")
+    monkeypatch.setenv("POWER_ALLOWED_IPS_FILE", str(allow_file))
+    monkeypatch.setenv("POWER_ALLOWED_IPS", "1.1.1.1")
+
+    import orchestrator_health.remote_health_service as svc
+
+    importlib.reload(svc)
+    assert svc._get_power_allowed_ips() == ["10.0.0.0/8"]
+
+
 def test_wake_with_awake_seconds_sets_awake_until(power_app, monkeypatch):
     app, svc = power_app
     client = TestClient(app)
