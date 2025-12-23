@@ -30,6 +30,7 @@ Notes:
 - It allowlists the primary Embody edge/gateway IP you provide (pass `--edge-ip`, or `--forwarder-ip` for backwards compatibility).
 - TURN will advertise `--edge-ip` as `TURN_EXTERNAL_IP` (needed when the orchestrator is behind an edge/gateway DNAT).
 - If you have multiple edge/gateway IPs, add them with `--allowed-ip <ip>` (repeatable) or `--allowed-ips <csv>`.
+- Optional: enable automatic edge routing by passing `--edge-config-url <url>` (and optionally `--edge-config-token <tok>`). This config is used by the `orchestrator-edge-rotator` sidecar.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 - For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).
 - If you don’t have an invite code yet, abort and request one from your admin.

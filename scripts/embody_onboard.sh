@@ -44,6 +44,8 @@ Common options:
   --forwarder-ip <ip>         Alias for --edge-ip (backwards compatible)
   --allowed-ip <ip>           Additional allowlisted caller IP (repeatable; e.g. edge IPs)
   --allowed-ips <csv>         Additional allowlisted caller IPs (comma-separated)
+  --edge-config-url <url>     Optional edge-config control-plane URL (used by orchestrator-edge-rotator)
+  --edge-config-token <tok>   Optional edge-config plane read token (stored in .env)
   --public-ip <ip|auto>       (default: auto; tries EC2 IMDSv2 then ipify)
   --gpu-devices <value>       Set NVIDIA_VISIBLE_DEVICES (default: all; e.g. 0 or 0,1)
   --invite-code <code>        One-time invite code (mints + stores a license token)
@@ -381,6 +383,8 @@ IMAGE_REF="ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1"
 EDGE_IP=""
 PUBLIC_IP="auto"
 EXTRA_ALLOWED_IPS=()
+EDGE_CONFIG_URL="${EDGE_CONFIG_URL:-}"
+EDGE_CONFIG_TOKEN="${EDGE_CONFIG_TOKEN:-}"
 
 ORCH_ID=""
 ORCH_ADDRESS=""
@@ -475,6 +479,14 @@ while [[ $# -gt 0 ]]; do
         [[ -n "$_ip" ]] && EXTRA_ALLOWED_IPS+=("$_ip")
       done
       unset _allowed_csv _ip
+      shift 2
+      ;;
+    --edge-config-url)
+      EDGE_CONFIG_URL="${2:-}"
+      shift 2
+      ;;
+    --edge-config-token)
+      EDGE_CONFIG_TOKEN="${2:-}"
       shift 2
       ;;
     --public-ip)
@@ -1476,6 +1488,20 @@ maybe_run_wizard() {
     fi
   fi
 
+  if [[ "$ADVANCED" == "1" ]]; then
+    section "Edge Config Plane (optional)"
+    note "Optional: configure a control plane for automatic edge routing (orchestrator-edge-rotator)."
+    note "If set, the orchestrator can rotate its matchmaker target + ingress allowlist without SSH."
+    EDGE_CONFIG_URL="$(prompt_default "Edge config URL (blank = disabled)" "$EDGE_CONFIG_URL")"
+    EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
+    EDGE_CONFIG_URL="$(strip_inline_comment "$EDGE_CONFIG_URL")"
+
+    if [[ -n "$EDGE_CONFIG_URL" ]]; then
+      EDGE_CONFIG_TOKEN="$(prompt_secret "Edge config read token (blank = none)")"
+      EDGE_CONFIG_TOKEN="$(trim_whitespace "$EDGE_CONFIG_TOKEN")"
+    fi
+  fi
+
   if [[ "$PUBLIC_IP" == "auto" ]]; then
     fx_dots "Detecting public IP"
     local detected
@@ -1722,6 +1748,16 @@ fi
 upsert_env_kv "$ENV_FILE" "PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HOST_PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" "http://$PUBLIC_IP:9090/health"
+
+EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
+EDGE_CONFIG_URL="$(strip_inline_comment "$EDGE_CONFIG_URL")"
+if [[ -n "$EDGE_CONFIG_URL" ]]; then
+  upsert_env_kv "$ENV_FILE" "EDGE_CONFIG_URL" "$EDGE_CONFIG_URL"
+  EDGE_CONFIG_TOKEN="$(trim_whitespace "$EDGE_CONFIG_TOKEN")"
+  if [[ -n "$EDGE_CONFIG_TOKEN" ]]; then
+    upsert_env_kv "$ENV_FILE" "EDGE_CONFIG_TOKEN" "$EDGE_CONFIG_TOKEN"
+  fi
+fi
 EDGE_IP="$(trim_whitespace "$EDGE_IP")"
 if ! is_safe_allowlist_token "$EDGE_IP"; then
   die "invalid --edge-ip value: $EDGE_IP"
