@@ -19,6 +19,7 @@ except ImportError:  # pragma: no cover - environment without requests
 DEFAULT_RETRY_SECONDS = 5.0
 DEFAULT_RETRY_MULTIPLIER = 1.8
 DEFAULT_MAX_RETRY_SECONDS = 300.0
+DEFAULT_TIMEOUT_SECONDS = 15.0
 METADATA_BASE = "http://169.254.169.254/latest"
 
 
@@ -101,7 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=parse_optional_float(env_default("ORCHESTRATOR_MIN_SERVICE_UPTIME", None)),
         help="Minimum uptime percentage required for eligibility",
     )
-    parser.add_argument("--timeout", type=float, default=float(env_default("PAYMENTS_API_TIMEOUT", "5")), help="HTTP request timeout in seconds")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=float(env_default("PAYMENTS_API_TIMEOUT", str(DEFAULT_TIMEOUT_SECONDS))),
+        help="HTTP request timeout in seconds",
+    )
     parser.add_argument("--retry-seconds", type=float, default=float(env_default("PAYMENTS_REGISTRATION_RETRY_SECONDS", str(DEFAULT_RETRY_SECONDS))), help="Initial retry delay in seconds")
     parser.add_argument("--retry-multiplier", type=float, default=float(env_default("PAYMENTS_REGISTRATION_RETRY_MULTIPLIER", str(DEFAULT_RETRY_MULTIPLIER))), help="Exponential backoff multiplier")
     parser.add_argument("--max-retry-seconds", type=float, default=float(env_default("PAYMENTS_REGISTRATION_MAX_SECONDS", str(DEFAULT_MAX_RETRY_SECONDS))), help="Maximum total time to keep retrying")
@@ -196,7 +202,15 @@ def main() -> int:
         validate_args(args)
     except ValueError as exc:
         print(f"[registrar] configuration error: {exc}", file=sys.stderr)
-        return 0
+        print(
+            "[registrar] Ensure PAYMENTS_API_URL, ORCHESTRATOR_ID, and ORCHESTRATOR_ADDRESS are set (typically via `.env`).",
+            file=sys.stderr,
+        )
+        print(
+            "[registrar] Tip: on a fresh host, run `./scripts/embody_cli.sh setup` to generate `.env` / `.env.turn`.",
+            file=sys.stderr,
+        )
+        return 2
 
     start = time.time()
     delay = max(args.retry_seconds, 0.5)
@@ -206,10 +220,10 @@ def main() -> int:
         attempt += 1
         try:
             status, body = attempt_registration(args)
-        except error.URLError as exc:
+        except (error.URLError, TimeoutError) as exc:
             print(f"[registrar] network error on attempt {attempt}: {exc}", file=sys.stderr)
             status = None
-            body = {}
+            body = {"detail": str(exc)}
         else:
             if status == 200:
                 message = body.get("message", "registered")
@@ -218,6 +232,12 @@ def main() -> int:
                     f"[registrar] registration succeeded (attempt {attempt}): {message}, balance={balance}"
                 )
                 return 0
+            if status is None or status == 0:
+                detail = body.get("detail") or body
+                print(
+                    f"[registrar] network/timeout on attempt {attempt}: {detail}",
+                    file=sys.stderr,
+                )
             else:
                 detail = body.get("detail") or body
                 print(
@@ -264,17 +284,22 @@ def _attempt_with_urllib(url: str, payload: bytes, *, timeout: float) -> Tuple[O
             if location:
                 return 307, {"Location": location}
         return exc.code, data
+    except TimeoutError as exc:
+        return None, {"detail": str(exc) or "timed out"}
     except error.URLError as exc:
         return None, {"detail": str(exc)}
 
 
 def _attempt_with_curl(url: str, payload: Dict[str, Any], *, timeout: float) -> Tuple[int, Dict[str, Any]]:
+    connect_timeout = min(max(timeout, 1.0), 5.0)
     cmd = [
         "curl",
         "-sS",
         "-L",
+        "--connect-timeout",
+        str(connect_timeout),
         "--max-time",
-        str(int(max(timeout, 1))),
+        str(timeout),
         "-H",
         "Content-Type: application/json",
         "-d",
@@ -287,7 +312,8 @@ def _attempt_with_curl(url: str, payload: Dict[str, Any], *, timeout: float) -> 
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        return 0, {"detail": result.stderr.strip() or f"curl exited with {result.returncode}"}
+        detail = result.stderr.strip() or f"curl exited with {result.returncode}"
+        return 0, {"detail": detail, "curl_exit_code": result.returncode}
     stdout = result.stdout.rstrip("\n")
     if "\n" in stdout:
         body_text, status_text = stdout.rsplit("\n", 1)

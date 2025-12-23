@@ -19,23 +19,25 @@ Admin provides:
 
 Run the onboarding script (interactive wizard):
 ```bash
-git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/onboard_orchestrator.sh
+git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/embody_cli.sh
 ```
 
 Notes:
 - The script writes/updates `.env` and generates `.env.turn`.
 - It will prompt for the required inputs (choose a unique orchestrator ID + payout wallet, then paste your invite code) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
+- On multi-GPU hosts, it will offer to pin Unreal to a specific GPU via `NVIDIA_VISIBLE_DEVICES` (you can also pass `--gpu-devices 0`).
 - The wizard redeems the invite code, stores a license token (chmod 600), then requests a Payments lease which includes a fresh download URL for the encrypted build.
-- It allowlists the primary Embody edge/gateway IP (`3.150.172.153` by default). Override with `--edge-ip` (or `--forwarder-ip` for backwards compatibility).
+- It allowlists the primary Embody edge/gateway IP you provide (pass `--edge-ip`, or `--forwarder-ip` for backwards compatibility).
 - TURN will advertise `--edge-ip` as `TURN_EXTERNAL_IP` (needed when the orchestrator is behind an edge/gateway DNAT).
 - If you have multiple edge/gateway IPs, add them with `--allowed-ip <ip>` (repeatable) or `--allowed-ips <csv>`.
+- Optional: enable automatic edge routing by passing `--edge-config-url <url>` (and optionally `--edge-config-token <tok>`). This config is used by the `orchestrator-edge-rotator` sidecar.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 - For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).
 - If you don’t have an invite code yet, abort and request one from your admin.
 
 Non-interactive (for automation):
 ```bash
-./scripts/onboard_orchestrator.sh --non-interactive \
+./scripts/embody_cli.sh setup --non-interactive \
   --orchestrator-id "<orchestrator-id>" \
   --orchestrator-address "0x1111111111111111111111111111111111111111" \
   --invite-code "ABCD-EFGH-IJKL-MNOP-QRST"
@@ -44,12 +46,22 @@ Non-interactive (for automation):
 ## Firewall / ingress checklist
 
 Ensure inbound allowlists / firewall rules are set:
-- Edge/gateway `3.150.172.153` -> TCP `8080,8888,8889,9877` and UDP `3478,49160-49200`
+- Your edge/gateway IP -> TCP `8080,8888,8889,9877` and UDP `3478,49160-49200`
 - Payments backend -> TCP `9090` (health monitoring)
 
 The onboarding wizard will apply these rules to UFW (best-effort) if UFW is active on the host. Disable with `--no-apply-firewall`.
 
 On EC2, security group auto-apply is opt-in: pass `--apply-aws-sg` (requires `aws` CLI + permissions via instance profile/IAM role/credentials).
+
+### Optional: automate edge rotation (no SSH / no AWS SG edits)
+If your orchestrator host uses UFW/host firewall allowlists, enable the `orchestrator-edge-rotator` sidecar to:
+- Poll a control plane for the desired edge assignment
+- Update host firewall allowlists (via `iptables`)
+- Rewrite `.env` `SIGNALING_MATCHMAKER_ARGS=...` and recreate signaling so it re-registers on the chosen edge
+
+Minimum `.env`:
+- `EDGE_CONFIG_URL=https://<control-plane>/orchestrator-edge`
+- `EDGE_FIREWALL_EXTRA_CIDRS=<payments-ip>/32` (so Payments can still reach `:9090/health`)
 
 ## Verify
 
@@ -96,7 +108,7 @@ Look for your orchestrator address in `.servers[]` with `ready: true`.
 If your orchestrator is missing:
 - Ensure your signaling server is configured to register with the edge matchmaker:
   - In `.env` set:
-    - `SIGNALING_EXTRA_ARGS="--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889"`
+    - `SIGNALING_MATCHMAKER_ARGS="--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889"`
   - Restart: `docker compose -f docker-compose.unreal.yml up -d unreal-signaling`
 - Check signaling logs for matchmaker connectivity:
   - `docker logs vtuber-unreal-signaling --tail 200 | grep -E "Matchmaker|Connected|register" || true`
