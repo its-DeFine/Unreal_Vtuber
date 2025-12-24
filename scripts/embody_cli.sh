@@ -502,6 +502,29 @@ PY
 
   if [[ -n "$mm_env_host" ]]; then
     vinfo "Edge matchmaker status"
+    local expected_streamer_ip public_ip_env
+    expected_streamer_ip=""
+    public_ip_env="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "PUBLIC_IP" 2>/dev/null || true)")"
+    if [[ -n "$public_ip_env" && "$public_ip_env" != "auto" ]]; then
+      expected_streamer_ip="$public_ip_env"
+    else
+      expected_streamer_ip="$(curl -fsS --max-time 2 https://api.ipify.org 2>/dev/null || true)"
+      expected_streamer_ip="$(trim_whitespace "$expected_streamer_ip")"
+    fi
+
+    local mm_port_to_test
+    mm_port_to_test="${mm_env_port:-8889}"
+    if [[ -n "$mm_port_to_test" ]]; then
+      vinfo "Matchmaker connectivity (${mm_env_host}:${mm_port_to_test})"
+      if command -v timeout >/dev/null 2>&1; then
+        timeout 2 bash -c "cat < /dev/null > /dev/tcp/$1/$2" _ "$mm_env_host" "$mm_port_to_test" 2>/dev/null \
+          && vok "Outbound TCP OK (${mm_env_host}:${mm_port_to_test})" \
+          || vwarn "Outbound TCP failed (${mm_env_host}:${mm_port_to_test})"
+      else
+        vwarn "Skipping TCP connectivity check (timeout not installed)"
+      fi
+    fi
+
     local status_url status_json
     status_url="https://${mm_env_host}/api/status"
     status_json="$(curl -fsS --max-time 5 "$status_url" 2>/dev/null || true)"
@@ -513,18 +536,22 @@ PY
       vfail "Unable to fetch edge /api/status from ${mm_env_host}"
     else
       if command -v python3 >/dev/null 2>&1; then
-        printf '%s' "$status_json" | python3 - <<'PY' || true
-import json, sys
+        printf '%s' "$status_json" | EXPECTED_STREAMER_IP="$expected_streamer_ip" python3 - <<'PY' || true
+import json
+import os
+import sys
 try:
     data = json.load(sys.stdin)
 except Exception:
     print("[WARN] edge /api/status returned non-JSON")
     sys.exit(0)
+expected_ip = (os.environ.get("EXPECTED_STREAMER_IP") or "").strip()
 servers = data.get("servers") if isinstance(data, dict) else None
 if not isinstance(servers, list):
     print("[WARN] edge /api/status missing servers[]")
     sys.exit(0)
 print(f"[OK] edge reports {len(servers)} server(s)")
+found_expected = False
 for s in servers[:5]:
     if not isinstance(s, dict):
         continue
@@ -532,7 +559,14 @@ for s in servers[:5]:
     port = s.get("port")
     ready = s.get("ready")
     clients = s.get("numConnectedClients")
+    if expected_ip and addr == expected_ip:
+        found_expected = True
     print(f"[INFO] - {addr}:{port} ready={ready} clients={clients}")
+if expected_ip:
+    if found_expected:
+        print(f"[OK] this host is registered on edge ({expected_ip})")
+    else:
+        print(f"[WARN] this host does not appear on edge ({expected_ip})")
 PY
       else
         vok "Fetched edge /api/status (${status_url})"
