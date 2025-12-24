@@ -349,6 +349,101 @@ path.write_text("\n".join(out) + "\n")
 PY
 }
 
+fetch_edge_config_from_payments() {
+  local payments_url="$1"
+  local token_file="$2"
+  [[ -n "$payments_url" ]] || return 1
+  [[ -s "$token_file" ]] || return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+
+  PAYMENTS_API_URL="$payments_url" ORCH_TOKEN_FILE="$token_file" python3 - <<'PY' 2>/dev/null
+import json
+import os
+import sys
+import urllib.request
+
+api = (os.environ.get("PAYMENTS_API_URL") or "").strip().rstrip("/")
+token_file = (os.environ.get("ORCH_TOKEN_FILE") or "").strip()
+if not api or not token_file:
+    sys.exit(1)
+
+try:
+    token = open(token_file, encoding="utf-8").read().strip()
+except Exception:
+    sys.exit(1)
+if not token:
+    sys.exit(1)
+
+url = f"{api}/api/orchestrators/bootstrap"
+req = urllib.request.Request(
+    url,
+    headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+    method="GET",
+)
+
+try:
+    with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+        payload = json.loads(resp.read().decode("utf-8"))
+except Exception:
+    sys.exit(1)
+
+if not isinstance(payload, dict):
+    sys.exit(1)
+
+edge_url = payload.get("edge_config_url") if isinstance(payload.get("edge_config_url"), str) else ""
+edge_token = payload.get("edge_config_token") if isinstance(payload.get("edge_config_token"), str) else ""
+edge_url = edge_url.strip()
+edge_token = edge_token.strip()
+
+print(f"edge_config_url={edge_url}")
+print(f"edge_config_token={edge_token}")
+PY
+}
+
+adopt_edge_config_from_payments() {
+  local payments_url="$1"
+  local token_file="$2"
+
+  if [[ ! -f "$ENV_FILE" ]]; then
+    return 1
+  fi
+
+  local current_url
+  current_url="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_CONFIG_URL" 2>/dev/null || true)")"
+  current_url="$(trim_whitespace "$current_url")"
+  if [[ -n "$current_url" ]]; then
+    return 1
+  fi
+
+  local bootstrap new_url new_token
+  bootstrap="$(fetch_edge_config_from_payments "$payments_url" "$token_file" 2>/dev/null || true)"
+  new_url=""
+  new_token=""
+  if [[ -n "$bootstrap" ]]; then
+    while IFS='=' read -r k v; do
+      case "$k" in
+        edge_config_url) new_url="$v" ;;
+        edge_config_token) new_token="$v" ;;
+      esac
+    done <<<"$bootstrap"
+  fi
+  new_url="$(trim_whitespace "${new_url:-}")"
+  new_token="$(trim_whitespace "${new_token:-}")"
+
+  [[ -n "$new_url" ]] || return 1
+
+  env_upsert_kv "$ENV_FILE" "EDGE_CONFIG_URL" "$new_url"
+  env_upsert_kv "$ENV_FILE" "EDGE_PROJECT_DIR" "$REPO_ROOT"
+  if [[ -n "$new_token" ]]; then
+    env_upsert_kv "$ENV_FILE" "EDGE_CONFIG_TOKEN" "$new_token"
+  fi
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    chown "$SUDO_USER":"$SUDO_USER" "$ENV_FILE" 2>/dev/null || true
+  fi
+  return 0
+}
+
 docker_container_status() {
   local name="$1"
   docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null
@@ -458,6 +553,19 @@ PY
       banner "REGISTRATION"
       echo "${STYLE_GRN}${STYLE_BOLD}✓${STYLE_RESET} Registration already complete for ${STYLE_BOLD}${orch_id}${STYLE_RESET} (${state_match})." >&2
       echo "${STYLE_DIM}Refusing to re-register. Use --force if you really need to.${STYLE_RESET}" >&2
+
+      local existing_edge_url
+      existing_edge_url="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_CONFIG_URL" 2>/dev/null || true)")"
+      existing_edge_url="$(trim_whitespace "$existing_edge_url")"
+      if [[ -z "$existing_edge_url" && -n "$payments_url" && -s "$TOKEN_FILE_DEFAULT" ]]; then
+        echo "" >&2
+        fx_dots "Bootstrapping edge-config from Payments"
+        if adopt_edge_config_from_payments "$payments_url" "$TOKEN_FILE_DEFAULT"; then
+          echo "${STYLE_GRN}${STYLE_BOLD}✓${STYLE_RESET} Adopted EDGE_CONFIG_URL from Payments." >&2
+        else
+          echo "${STYLE_YLW}${STYLE_BOLD}[WARN]${STYLE_RESET} Unable to auto-fetch EDGE_CONFIG_URL from Payments (missing token or backend not configured)." >&2
+        fi
+      fi
       return 0
     fi
   fi
@@ -481,6 +589,21 @@ PY
       chown "$SUDO_USER":"$SUDO_USER" "$REGISTRATION_STATE_FILE_DEFAULT" 2>/dev/null || true
     fi
     echo "${STYLE_GRN}${STYLE_BOLD}✓${STYLE_RESET} Saved registration state: ${STYLE_DIM}${REGISTRATION_STATE_FILE_DEFAULT}${STYLE_RESET}"
+
+    local existing_edge_url
+    existing_edge_url="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_CONFIG_URL" 2>/dev/null || true)")"
+    existing_edge_url="$(trim_whitespace "$existing_edge_url")"
+    if [[ -z "$existing_edge_url" && -n "$payments_url" && -s "$TOKEN_FILE_DEFAULT" ]]; then
+      echo "" >&2
+      fx_dots "Bootstrapping edge-config from Payments"
+      if adopt_edge_config_from_payments "$payments_url" "$TOKEN_FILE_DEFAULT"; then
+        echo "${STYLE_GRN}${STYLE_BOLD}✓${STYLE_RESET} Adopted EDGE_CONFIG_URL from Payments." >&2
+        fx_dots "Starting edge rotator"
+        (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" up -d orchestrator-edge-rotator) || true
+      else
+        echo "${STYLE_YLW}${STYLE_BOLD}[WARN]${STYLE_RESET} Unable to auto-fetch EDGE_CONFIG_URL from Payments (missing token or backend not configured)." >&2
+      fi
+    fi
     return 0
   fi
   echo "${STYLE_RED}${STYLE_BOLD}✖${STYLE_RESET} Registration failed. Check PAYMENTS_API_URL and network access, then retry." >&2
@@ -986,32 +1109,52 @@ PY
       (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" up -d "${deduped_restart[@]}") || true
     fi
 
-    if [[ -z "${edge_config_url:-}" ]] && is_tty; then
+    if [[ -z "${edge_config_url:-}" ]]; then
       vwarn "Edge routing is disabled (EDGE_CONFIG_URL unset)."
-      if prompt_yes_no "Enable edge routing via control plane now?" "y"; then
-        local new_url new_token
-        echo ""
-        read -r -p "EDGE_CONFIG_URL: " new_url || true
-        new_url="$(trim_whitespace "${new_url:-}")"
-        if [[ -n "$new_url" ]]; then
-          read -r -s -p "EDGE_CONFIG_TOKEN (optional, hidden): " new_token || true
-          echo ""
-          new_token="$(trim_whitespace "${new_token:-}")"
 
-          env_upsert_kv "$ENV_FILE" "EDGE_CONFIG_URL" "$new_url"
-          env_upsert_kv "$ENV_FILE" "EDGE_PROJECT_DIR" "$REPO_ROOT"
-          if [[ -n "$new_token" ]]; then
-            env_upsert_kv "$ENV_FILE" "EDGE_CONFIG_TOKEN" "$new_token"
-          fi
-          chmod 600 "$ENV_FILE" 2>/dev/null || true
-          if [[ -n "${SUDO_USER:-}" ]]; then
-            chown "$SUDO_USER":"$SUDO_USER" "$ENV_FILE" 2>/dev/null || true
-          fi
+      local payments_url
+      payments_url="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "PAYMENTS_API_URL" 2>/dev/null || true)")"
+      payments_url="$(trim_whitespace "$payments_url")"
 
+      if [[ -n "$payments_url" && -s "$token_path" ]]; then
+        fx_dots "Bootstrapping edge-config from Payments"
+        if adopt_edge_config_from_payments "$payments_url" "$token_path"; then
+          vok "Adopted EDGE_CONFIG_URL from Payments."
           fx_dots "Starting edge rotator"
           (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" up -d orchestrator-edge-rotator) || true
         else
-          vwarn "Skipped enabling edge routing (EDGE_CONFIG_URL empty)."
+          vwarn "Unable to auto-fetch EDGE_CONFIG_URL from Payments (missing token or backend not configured)."
+        fi
+      else
+        vwarn "Missing PAYMENTS_API_URL or license token; cannot auto-fetch EDGE_CONFIG_URL."
+      fi
+
+      if [[ -z "$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_CONFIG_URL" 2>/dev/null || true)")" ]] && is_tty; then
+        if prompt_yes_no "Enable edge routing manually (paste control plane URL)?" "n"; then
+          local new_url new_token
+          echo ""
+          read -r -p "EDGE_CONFIG_URL: " new_url || true
+          new_url="$(trim_whitespace "${new_url:-}")"
+          if [[ -n "$new_url" ]]; then
+            read -r -s -p "EDGE_CONFIG_TOKEN (optional, hidden): " new_token || true
+            echo ""
+            new_token="$(trim_whitespace "${new_token:-}")"
+
+            env_upsert_kv "$ENV_FILE" "EDGE_CONFIG_URL" "$new_url"
+            env_upsert_kv "$ENV_FILE" "EDGE_PROJECT_DIR" "$REPO_ROOT"
+            if [[ -n "$new_token" ]]; then
+              env_upsert_kv "$ENV_FILE" "EDGE_CONFIG_TOKEN" "$new_token"
+            fi
+            chmod 600 "$ENV_FILE" 2>/dev/null || true
+            if [[ -n "${SUDO_USER:-}" ]]; then
+              chown "$SUDO_USER":"$SUDO_USER" "$ENV_FILE" 2>/dev/null || true
+            fi
+
+            fx_dots "Starting edge rotator"
+            (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" up -d orchestrator-edge-rotator) || true
+          else
+            vwarn "Skipped enabling edge routing (EDGE_CONFIG_URL empty)."
+          fi
         fi
       fi
     fi
