@@ -19,7 +19,7 @@ Admin provides:
 
 Run the onboarding script (interactive wizard):
 ```bash
-git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/embody_cli.sh
+git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && sudo ./scripts/embody_cli.sh
 ```
 
 Notes:
@@ -37,7 +37,7 @@ Notes:
 
 Non-interactive (for automation):
 ```bash
-./scripts/embody_cli.sh setup --non-interactive \
+sudo ./scripts/embody_cli.sh setup --non-interactive \
   --orchestrator-id "<orchestrator-id>" \
   --orchestrator-address "0x1111111111111111111111111111111111111111" \
   --invite-code "ABCD-EFGH-IJKL-MNOP-QRST"
@@ -67,7 +67,7 @@ Minimum `.env`:
 
 - Recommended (one command):
   ```bash
-  ./scripts/embody_cli.sh verify
+  sudo ./scripts/embody_cli.sh verify
   ```
 
 - Signaling health: `curl http://127.0.0.1:8080/healthz`
@@ -76,7 +76,7 @@ Minimum `.env`:
 
 If the orchestrator doesn’t appear in Payments yet, rerun:
 ```bash
-./scripts/embody_cli.sh register
+sudo ./scripts/embody_cli.sh register
 ```
 
 ## Post-onboarding verification (multi-edge)

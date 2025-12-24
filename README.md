@@ -19,7 +19,7 @@ You’ll need:
 
 Run:
 ```bash
-git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/embody_cli.sh
+git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && sudo ./scripts/embody_cli.sh
 ```
 
 The wizard will:
@@ -33,7 +33,7 @@ The wizard will:
 
 After onboarding (or anytime), run:
 ```bash
-./scripts/embody_cli.sh verify
+sudo ./scripts/embody_cli.sh verify
 ```
 
 Full guide: `docs/orchestrator-onboarding.md`

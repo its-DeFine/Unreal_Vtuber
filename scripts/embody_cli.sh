@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 ENV_FILE="${REPO_ROOT}/.env"
@@ -9,6 +10,21 @@ TURN_ENV_FILE="${REPO_ROOT}/.env.turn"
 COMPOSE_FILE="${REPO_ROOT}/docker-compose.unreal.yml"
 START_SCRIPT="${REPO_ROOT}/scripts/start_vtuber_unreal.sh"
 ONBOARD_SCRIPT="${REPO_ROOT}/scripts/embody_onboard.sh"
+
+USE_COLOR="0"
+USE_FX="0"
+COLOR_MODE="auto"
+FX_MODE="auto"
+
+STYLE_RESET=""
+STYLE_BOLD=""
+STYLE_DIM=""
+STYLE_RED=""
+STYLE_GRN=""
+STYLE_YLW=""
+STYLE_BLU=""
+STYLE_CYN=""
+STYLE_MAG=""
 
 TARGET_HOME="${HOME}"
 if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
@@ -20,28 +36,29 @@ if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
 fi
 
 TOKEN_FILE_DEFAULT="${TARGET_HOME}/.embody/orch-license-token.txt"
+REGISTRATION_STATE_FILE_DEFAULT="${TARGET_HOME}/.embody/orch-registration.json"
 
 usage() {
   cat <<'EOF'
 Embody Orchestrator CLI
 
 Usage:
-  ./scripts/embody_cli.sh                  # Auto: setup wizard or day-to-day menu
-  ./scripts/embody_cli.sh setup [args...]  # Run onboarding wizard
+  sudo ./scripts/embody_cli.sh                  # Auto: setup wizard or day-to-day menu
+  sudo ./scripts/embody_cli.sh setup [args...]  # Run onboarding wizard
 
 Day-to-day commands:
-  ./scripts/embody_cli.sh start [--gpu <id|all|none>]   # Start stack (defaults to detached)
-  ./scripts/embody_cli.sh stop
-  ./scripts/embody_cli.sh restart
-  ./scripts/embody_cli.sh status
-  ./scripts/embody_cli.sh logs [service]
-  ./scripts/embody_cli.sh health
-  ./scripts/embody_cli.sh verify           # Verify services + edge routing + firewall
-  ./scripts/embody_cli.sh register         # Re-register with Payments
-  ./scripts/embody_cli.sh test
-  ./scripts/embody_cli.sh config
-  ./scripts/embody_cli.sh capacity
-  ./scripts/embody_cli.sh payments   # (placeholder)
+  sudo ./scripts/embody_cli.sh start [--gpu <id|all|none>]   # Start stack (defaults to detached)
+  sudo ./scripts/embody_cli.sh stop
+  sudo ./scripts/embody_cli.sh restart
+  sudo ./scripts/embody_cli.sh status
+  sudo ./scripts/embody_cli.sh logs [service]
+  sudo ./scripts/embody_cli.sh health
+  sudo ./scripts/embody_cli.sh verify           # Verify services + edge routing + firewall
+  sudo ./scripts/embody_cli.sh register [--force]  # Register with Payments (once)
+  sudo ./scripts/embody_cli.sh test
+  sudo ./scripts/embody_cli.sh config
+  sudo ./scripts/embody_cli.sh capacity
+  sudo ./scripts/embody_cli.sh payments   # (placeholder)
 
 Notes:
   - Onboarding is stored in `scripts/embody_onboard.sh` (called by `setup`).
@@ -51,6 +68,112 @@ EOF
 
 is_tty() {
   [[ -t 0 && -t 1 ]]
+}
+
+supports_color() {
+  is_tty || return 1
+  [[ "${TERM:-}" != "dumb" ]] || return 1
+  [[ -z "${NO_COLOR:-}" ]] || return 1
+  return 0
+}
+
+supports_fx() {
+  is_tty || return 1
+  [[ "${TERM:-}" != "dumb" ]] || return 1
+  [[ -z "${CI:-}" ]] || return 1
+  return 0
+}
+
+init_ui() {
+  case "$COLOR_MODE" in
+    always) USE_COLOR="1" ;;
+    never) USE_COLOR="0" ;;
+    auto)
+      if supports_color; then USE_COLOR="1"; else USE_COLOR="0"; fi
+      ;;
+    *) USE_COLOR="0" ;;
+  esac
+
+  case "$FX_MODE" in
+    always) USE_FX="1" ;;
+    never) USE_FX="0" ;;
+    auto)
+      if supports_fx; then USE_FX="1"; else USE_FX="0"; fi
+      ;;
+    *) USE_FX="0" ;;
+  esac
+
+  if [[ "$USE_COLOR" == "1" ]]; then
+    STYLE_RESET=$'\033[0m'
+    STYLE_BOLD=$'\033[1m'
+    STYLE_DIM=$'\033[2m'
+    STYLE_RED=$'\033[31m'
+    STYLE_GRN=$'\033[32m'
+    STYLE_YLW=$'\033[33m'
+    STYLE_BLU=$'\033[34m'
+    STYLE_CYN=$'\033[36m'
+    STYLE_MAG=$'\033[35m'
+  fi
+}
+
+divider() {
+  if [[ "$USE_COLOR" == "1" ]] && is_tty; then
+    printf '%s\n' "${STYLE_DIM}${STYLE_MAG}┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄${STYLE_RESET}"
+  else
+    printf '%s\n' "------------------------------------------------------------"
+  fi
+}
+
+banner() {
+  local title="$1"
+  if [[ "$USE_COLOR" == "1" ]] && is_tty; then
+    cat <<EOF
+${STYLE_MAG}${STYLE_BOLD}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${STYLE_RESET}
+${STYLE_MAG}${STYLE_BOLD}┃${STYLE_GRN}${STYLE_BOLD}  EMBODY // ${title}  ${STYLE_RESET}${STYLE_MAG}${STYLE_BOLD}┃${STYLE_RESET}
+${STYLE_MAG}${STYLE_BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${STYLE_RESET}
+EOF
+  else
+    divider
+    echo "EMBODY // ${title}"
+    divider
+  fi
+}
+
+fx_dots() {
+  local msg="$1"
+  if [[ "$USE_FX" != "1" ]]; then
+    echo "${STYLE_MAG}${STYLE_BOLD}▸${STYLE_RESET} ${STYLE_CYN}${msg}${STYLE_RESET}" >&2
+    return
+  fi
+  printf "%s" "${STYLE_DIM}${msg}${STYLE_RESET}" >&2
+  for _ in 1 2 3; do
+    sleep 0.15
+    printf "." >&2
+  done
+  printf "\n" >&2
+}
+
+require_sudo() {
+  local cmd="${1:-}"
+  case "$cmd" in
+    -h|--help|help)
+      return 0
+      ;;
+  esac
+
+  if [[ "$(id -u)" == "0" ]]; then
+    return 0
+  fi
+
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "This CLI must be run with sudo, but sudo is not installed." >&2
+    exit 1
+  fi
+
+  if is_tty; then
+    echo "Re-running with sudo (required)..." >&2
+  fi
+  exec sudo -E bash "$SCRIPT_PATH" "$@"
 }
 
 read_env_value() {
@@ -197,23 +320,131 @@ iptables_cmd() {
 }
 
 cmd_register() {
+  local force="0"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force)
+        force="1"
+        shift
+        ;;
+      -h|--help)
+        cat <<EOF
+Usage:
+  sudo ./scripts/embody_cli.sh register [--force]
+
+Notes:
+  - Registration is skipped by default if this host is already registered.
+  - Use --force to re-run registration anyway.
+EOF
+        return 0
+        ;;
+      *)
+        echo "Unknown arg for register: $1 (run with --help)" >&2
+        return 1
+        ;;
+    esac
+  done
+
   if [[ ! -f "$ENV_FILE" ]]; then
     echo "Missing .env at $ENV_FILE" >&2
     return 1
   fi
-  docker compose -f "$COMPOSE_FILE" run --rm --no-deps \
-    -e ORCHESTRATOR_REGISTRATION_DELAY=0 \
-    orchestrator-registration
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "python3 is required for registration (install python3)." >&2
+    return 1
+  fi
+
+  local orch_id orch_addr payments_url contact_email host_ip health_url
+  orch_id="$(get_orchestrator_id)"
+  orch_addr="$(get_orchestrator_address)"
+  payments_url="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "PAYMENTS_API_URL" 2>/dev/null || true)")"
+  contact_email="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "ORCHESTRATOR_CONTACT_EMAIL" 2>/dev/null || true)")"
+  host_ip="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "ORCHESTRATOR_HOST_PUBLIC_IP" 2>/dev/null || true)")"
+  if [[ -z "$host_ip" ]]; then
+    host_ip="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "PUBLIC_IP" 2>/dev/null || true)")"
+  fi
+  health_url="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" 2>/dev/null || true)")"
+  if [[ -z "$health_url" && -n "$host_ip" && "$host_ip" != "auto" ]]; then
+    health_url="http://${host_ip}:9090/health"
+  fi
+
+  if [[ -z "$payments_url" ]]; then
+    echo "PAYMENTS_API_URL is unset in .env" >&2
+    return 1
+  fi
+  if [[ -z "$orch_id" ]]; then
+    echo "ORCHESTRATOR_ID is unset in .env" >&2
+    return 1
+  fi
+  if [[ -z "$orch_addr" ]]; then
+    echo "ORCHESTRATOR_ADDRESS is unset in .env" >&2
+    return 1
+  fi
+
+  if [[ "$force" != "1" && -f "$REGISTRATION_STATE_FILE_DEFAULT" ]]; then
+    local state_match=""
+    state_match="$(python3 - "$REGISTRATION_STATE_FILE_DEFAULT" "$orch_id" <<'PY' 2>/dev/null || true
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+orch_id = sys.argv[2]
+try:
+    data = json.loads(path.read_text())
+except Exception:
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+stored_id = data.get("orchestrator_id") or data.get("orchestratorId") or data.get("id")
+status = data.get("status")
+if isinstance(stored_id, str) and stored_id == orch_id and isinstance(status, str) and status in ("registered", "already_registered"):
+    print(status)
+PY
+    )"
+    if [[ -n "$state_match" ]]; then
+      banner "REGISTRATION"
+      echo "${STYLE_GRN}${STYLE_BOLD}✓${STYLE_RESET} Registration already complete for ${STYLE_BOLD}${orch_id}${STYLE_RESET} (${state_match})." >&2
+      echo "${STYLE_DIM}Refusing to re-register. Use --force if you really need to.${STYLE_RESET}" >&2
+      return 1
+    fi
+  fi
+
+  banner "ORCHESTRATOR REGISTRATION"
+  echo "${STYLE_CYN}${STYLE_BOLD}orchestrator_id${STYLE_RESET}:  ${orch_id}"
+  echo "${STYLE_CYN}${STYLE_BOLD}payments_api${STYLE_RESET}:     ${payments_url}"
+  echo ""
+
+  local args=()
+  args+=(--api-url "$payments_url" --orchestrator-id "$orch_id" --orchestrator-address "$orch_addr" --max-retry-seconds 120)
+  [[ -n "$contact_email" ]] && args+=(--contact-email "$contact_email")
+  [[ -n "$host_ip" && "$host_ip" != "auto" ]] && args+=(--host-public-ip "$host_ip")
+  [[ -n "$health_url" ]] && args+=(--health-url "$health_url")
+  args+=(--state-file "$REGISTRATION_STATE_FILE_DEFAULT")
+
+  fx_dots "Contacting Payments"
+  if python3 "$REPO_ROOT/scripts/register_orchestrator.py" "${args[@]}"; then
+    chmod 600 "$REGISTRATION_STATE_FILE_DEFAULT" 2>/dev/null || true
+    if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
+      chown "$SUDO_USER":"$SUDO_USER" "$REGISTRATION_STATE_FILE_DEFAULT" 2>/dev/null || true
+    fi
+    echo "${STYLE_GRN}${STYLE_BOLD}✓${STYLE_RESET} Saved registration state: ${STYLE_DIM}${REGISTRATION_STATE_FILE_DEFAULT}${STYLE_RESET}"
+    return 0
+  fi
+  echo "${STYLE_RED}${STYLE_BOLD}✖${STYLE_RESET} Registration failed. Check PAYMENTS_API_URL and network access, then retry." >&2
+  return 1
 }
 
 cmd_verify() {
   local failures=0
   local power_state="unknown"
 
-  vok() { echo "[OK] $*"; }
-  vwarn() { echo "[WARN] $*" >&2; }
-  vfail() { echo "[FAIL] $*" >&2; failures=$((failures + 1)); }
-  vinfo() { echo "[INFO] $*"; }
+  banner "ORCHESTRATOR VERIFY"
+
+  vok() { echo "${STYLE_GRN}${STYLE_BOLD}[OK]${STYLE_RESET} $*"; }
+  vwarn() { echo "${STYLE_YLW}${STYLE_BOLD}[WARN]${STYLE_RESET} $*" >&2; }
+  vfail() { echo "${STYLE_RED}${STYLE_BOLD}[FAIL]${STYLE_RESET} $*" >&2; failures=$((failures + 1)); }
+  vinfo() { echo "${STYLE_MAG}${STYLE_BOLD}[INFO]${STYLE_RESET} $*"; }
 
   vinfo "Verifying orchestrator host"
 
@@ -738,6 +969,10 @@ menu() {
 main() {
   local cmd="${1:-}"
 
+  require_sudo "$@"
+  cmd="${1:-}"
+  init_ui
+
   case "$cmd" in
     -h|--help|help)
       usage
@@ -758,7 +993,8 @@ main() {
       cmd_verify
       ;;
     register)
-      cmd_register
+      shift
+      cmd_register "$@"
       ;;
     config)
       cmd_config

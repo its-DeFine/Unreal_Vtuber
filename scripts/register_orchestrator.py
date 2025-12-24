@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib import error, request
 
@@ -112,6 +113,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retry-multiplier", type=float, default=float(env_default("PAYMENTS_REGISTRATION_RETRY_MULTIPLIER", str(DEFAULT_RETRY_MULTIPLIER))), help="Exponential backoff multiplier")
     parser.add_argument("--max-retry-seconds", type=float, default=float(env_default("PAYMENTS_REGISTRATION_MAX_SECONDS", str(DEFAULT_MAX_RETRY_SECONDS))), help="Maximum total time to keep retrying")
     parser.add_argument("--once", action="store_true", help="Send a single request without retrying on failures")
+    parser.add_argument(
+        "--state-file",
+        default=env_default("EMBODY_REGISTRATION_STATE_FILE"),
+        help="Optional path to write a local marker file after successful registration.",
+    )
     return parser
 
 
@@ -194,6 +200,35 @@ def attempt_registration(args: argparse.Namespace) -> Tuple[int, Dict[str, Any]]
 
     return _attempt_with_curl(url, payload_dict, timeout=args.timeout)
 
+
+def _write_registration_state(path: str, *, status: str, payload: Dict[str, Any], response: Dict[str, Any]) -> None:
+    if not path:
+        return
+
+    out: Dict[str, Any] = {
+        "status": status,
+        "registered_at": datetime.now(timezone.utc).isoformat(),
+        "orchestrator_id": payload.get("orchestrator_id"),
+        "address": payload.get("address"),
+        "payments_api_url": payload.get("api_url"),
+    }
+    if isinstance(response, dict):
+        message = response.get("message") or response.get("detail")
+        if isinstance(message, str) and message.strip():
+            out["message"] = message.strip()
+
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp_path = f"{path}.{os.getpid()}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(out, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    try:
+        os.chmod(tmp_path, 0o600)
+    except OSError:
+        pass
+    os.replace(tmp_path, path)
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -228,9 +263,21 @@ def main() -> int:
             if status == 200:
                 message = body.get("message", "registered")
                 balance = body.get("balance_eth", "0")
+                if args.state_file:
+                    payload = build_payload(args)
+                    payload["api_url"] = args.api_url
+                    _write_registration_state(args.state_file, status="registered", payload=payload, response=body)
                 print(
                     f"[registrar] registration succeeded (attempt {attempt}): {message}, balance={balance}"
                 )
+                return 0
+            if status == 409:
+                if args.state_file:
+                    payload = build_payload(args)
+                    payload["api_url"] = args.api_url
+                    _write_registration_state(args.state_file, status="already_registered", payload=payload, response=body)
+                detail = body.get("detail") or body.get("message") or body
+                print(f"[registrar] already registered (status 409): {detail}")
                 return 0
             if status is None or status == 0:
                 detail = body.get("detail") or body
@@ -245,10 +292,10 @@ def main() -> int:
                     file=sys.stderr,
                 )
                 if status is not None and status < 500:
-                    return 0
+                    return 3
 
         if args.once:
-            return 0
+            return 1
 
         elapsed = time.time() - start
         if elapsed >= args.max_retry_seconds:
@@ -256,7 +303,7 @@ def main() -> int:
                 f"[registrar] giving up after {elapsed:.1f}s of retries; exiting",
                 file=sys.stderr,
             )
-            return 0
+            return 1
 
         time.sleep(delay)
         delay = min(delay * args.retry_multiplier, 60.0)

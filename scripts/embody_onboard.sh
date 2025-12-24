@@ -29,10 +29,10 @@ If you run this script with no flags, it launches a CLI wizard that:
 
 Usage:
   # Recommended (wizard)
-  ./scripts/embody_cli.sh setup
+  sudo ./scripts/embody_cli.sh setup
 
   # Non-interactive
-  ./scripts/embody_cli.sh setup --non-interactive \
+  sudo ./scripts/embody_cli.sh setup --non-interactive \
     --orchestrator-id <id> \
     --orchestrator-address <0x...> \
     (--invite-code <code> | --orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
@@ -612,6 +612,13 @@ fi
 
 init_ui
 
+if [[ "$(id -u)" != "0" ]]; then
+  if ! command -v sudo >/dev/null 2>&1; then
+    die "This setup must be run with sudo (sudo is not installed)."
+  fi
+  exec sudo -E bash "$SCRIPT_PATH" "${ORIGINAL_ARGS[@]}"
+fi
+
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   die "compose file not found: $COMPOSE_FILE (are you in the repo?)"
 fi
@@ -667,6 +674,8 @@ fi
 if [[ -z "$target_home" ]]; then
   target_home="$HOME"
 fi
+
+REGISTRATION_STATE_FILE="$target_home/.embody/orch-registration.json"
 
 if [[ -z "$SESSION_DIR" ]]; then
   SESSION_DIR="$target_home/vtuber_sessions"
@@ -2019,13 +2028,41 @@ rollout_cmd+=("${token_args[@]}" "${rollout_args[@]}")
 ensure_inbound_rules_best_effort
 
 if [[ "$SKIP_REGISTRATION" != "1" ]]; then
+  if [[ -f "$REGISTRATION_STATE_FILE" ]]; then
+    if python3 - "$REGISTRATION_STATE_FILE" "$ORCH_ID" <<'PY' >/dev/null 2>&1; then
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+orch_id = sys.argv[2]
+data = json.loads(path.read_text())
+stored_id = data.get("orchestrator_id") or data.get("orchestratorId") or data.get("id")
+status = data.get("status")
+if stored_id != orch_id:
+    raise SystemExit(1)
+if status not in ("registered", "already_registered"):
+    raise SystemExit(1)
+PY
+      ok "Registration already complete (orchestrator_id=$ORCH_ID); skipping."
+      REGISTRATION_VERIFIED="1"
+    fi
+  fi
+fi
+
+if [[ "$SKIP_REGISTRATION" != "1" && "$REGISTRATION_VERIFIED" != "1" ]]; then
   note "Registering orchestrator with Payments"
   reg_args=(--api-url "$PAYMENTS_API_URL" --orchestrator-id "$ORCH_ID" --orchestrator-address "$ORCH_ADDRESS" --max-retry-seconds 120)
   if [[ -n "$ORCH_CONTACT_EMAIL" ]]; then
     reg_args+=(--contact-email "$ORCH_CONTACT_EMAIL")
   fi
   reg_args+=(--host-public-ip "$PUBLIC_IP" --health-url "http://$PUBLIC_IP:9090/health")
+  reg_args+=(--state-file "$REGISTRATION_STATE_FILE")
   python3 "$REPO_ROOT/scripts/register_orchestrator.py" "${reg_args[@]}" || true
+  chmod 600 "$REGISTRATION_STATE_FILE" >/dev/null 2>&1 || true
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    chown "$SUDO_USER":"$SUDO_USER" "$REGISTRATION_STATE_FILE" >/dev/null 2>&1 || true
+  fi
   if verify_payments_registration_best_effort; then
     REGISTRATION_VERIFIED="1"
   fi
