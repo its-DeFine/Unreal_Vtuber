@@ -41,6 +41,7 @@ Notes (non-interactive reruns):
   - If you have run onboarding before, you can omit `--orchestrator-id` / `--orchestrator-address` and the script will
     reuse `ORCHESTRATOR_ID` / `ORCHESTRATOR_ADDRESS` from the existing `.env` (if present and valid).
   - If `~/.embody/orch-license-token.txt` exists, you can omit the token flags and it will be used automatically.
+  - If `.env.turn` has `TURN_EXTERNAL_IP`, you can omit `--edge-ip` and it will be reused automatically.
 
 Common options:
   --payments-api-url <url>    (default: http://3.141.111.200:8081)
@@ -1745,6 +1746,28 @@ if [[ -z "$INVITE_CODE" && -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORC
   _default_token_file="$target_home/.embody/orch-license-token.txt"
   if [[ -s "$_default_token_file" ]]; then
     ORCH_TOKEN_FILE="$_default_token_file"
+  fi
+fi
+if [[ -z "$EDGE_IP" ]]; then
+  if [[ -f "$TURN_ENV_FILE" ]]; then
+    _existing_edge_ip="$(trim_whitespace "$(read_env_value "$TURN_ENV_FILE" "TURN_EXTERNAL_IP" 2>/dev/null || true)")"
+    _existing_edge_ip="$(strip_inline_comment "$_existing_edge_ip")"
+    if is_safe_allowlist_token "$_existing_edge_ip"; then
+      EDGE_IP="$_existing_edge_ip"
+    fi
+  fi
+fi
+if [[ -z "$EDGE_IP" && -f "$ENV_FILE" ]]; then
+  _existing_allowlist="$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)"
+  if [[ -n "$_existing_allowlist" ]]; then
+    _existing_allowlist="$(strip_inline_comment "$_existing_allowlist")"
+    _existing_allowlist="$(trim_whitespace "$_existing_allowlist")"
+    _existing_edge_ip="$(extract_nonlocal_allowlist_tokens "$_existing_allowlist" 2>/dev/null | head -n1 || true)"
+    _existing_edge_ip="$(strip_inline_comment "$_existing_edge_ip")"
+    _existing_edge_ip="$(trim_whitespace "$_existing_edge_ip")"
+    if is_safe_allowlist_token "$_existing_edge_ip"; then
+      EDGE_IP="$_existing_edge_ip"
+    fi
   fi
 fi
 
