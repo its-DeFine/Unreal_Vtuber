@@ -4,6 +4,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
 import shlex
 import socket
 import subprocess
@@ -327,6 +328,19 @@ def _upsert_env_value(env_path: Path, key: str, value: str) -> bool:
     return True
 
 
+_MATCHMAKER_ARGS_RE = re.compile(
+    r"--use_matchmaker\s+--matchmaker_address\s+\S+\s+--matchmaker_port\s+\d+\s+--public_port\s+\d+"
+)
+
+
+def _strip_known_matchmaker_args(raw: str) -> str:
+    """Best-effort removal of previously injected matchmaker args from a flag string."""
+    if not raw:
+        return ""
+    cleaned = _MATCHMAKER_ARGS_RE.sub("", raw)
+    return " ".join(cleaned.split()).strip()
+
+
 def _read_power_state(power_state_path: Path) -> tuple[str, Optional[datetime]]:
     if not power_state_path.exists():
         return ("awake", None)
@@ -464,7 +478,22 @@ def main() -> int:
 
             env_changed = False
             if apply_key != last_applied_key:
-                env_changed = _upsert_env_value(env_file, "SIGNALING_MATCHMAKER_ARGS", args) or env_changed
+                # We intentionally write the effective matchmaker flags into SIGNALING_EXTRA_ARGS.
+                #
+                # Reason: the edge-rotator container currently ships with an older docker compose v2.x
+                # binary, and we observed that relying on composing multiple env-substitutions inside
+                # docker-compose.unreal.yml could result in matchmaker flags being dropped on recreate.
+                #
+                # By writing the full args into SIGNALING_EXTRA_ARGS, the compose file only needs to
+                # interpolate a single variable for the container env (and swaps remain reliable).
+                existing_extra = _read_env_value(env_file, "SIGNALING_EXTRA_ARGS").strip()
+                existing_extra = _strip_known_matchmaker_args(existing_extra)
+                combined = " ".join([token for token in [existing_extra, args] if token]).strip()
+                env_changed = _upsert_env_value(env_file, "SIGNALING_EXTRA_ARGS", combined) or env_changed
+
+                # Prevent accidental double-injection in stacks that still concatenate
+                # SIGNALING_EXTRA_ARGS + SIGNALING_MATCHMAKER_ARGS.
+                env_changed = _upsert_env_value(env_file, "SIGNALING_MATCHMAKER_ARGS", "") or env_changed
 
             if update_turn and apply_key != last_applied_key:
                 turn_ip = desired.get("turn_external_ip")
