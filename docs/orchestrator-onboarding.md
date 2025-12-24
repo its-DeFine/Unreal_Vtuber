@@ -65,13 +65,18 @@ Minimum `.env`:
 
 ## Verify
 
+- Recommended (one command):
+  ```bash
+  ./scripts/embody_cli.sh verify
+  ```
+
 - Signaling health: `curl http://127.0.0.1:8080/healthz`
 - Runner health: `curl http://127.0.0.1:9877/health`
 - Orchestrator health: `curl http://127.0.0.1:9090/health`
 
 If the orchestrator doesn’t appear in Payments yet, rerun:
 ```bash
-docker compose -f docker-compose.unreal.yml run --rm orchestrator-registration
+./scripts/embody_cli.sh register
 ```
 
 ## Post-onboarding verification (multi-edge)

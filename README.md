@@ -31,12 +31,17 @@ The wizard will:
 - Apply required inbound rules on UFW if active (best-effort; disable with `--no-apply-firewall`)
 - EC2 security group auto-apply is opt-in: pass `--apply-aws-sg` (requires awscli + IAM role/creds)
 
+After onboarding (or anytime), run:
+```bash
+./scripts/embody_cli.sh verify
+```
+
 Full guide: `docs/orchestrator-onboarding.md`
 
 Multi-edge deployments:
 - The edge/gateway IP you provide is used for allowlists and TURN DNAT (`TURN_EXTERNAL_IP`).
 - Verify the orchestrator registers on the intended edge matchmaker after onboarding (see `docs/orchestrator-onboarding.md`).
-- If needed, set `SIGNALING_MATCHMAKER_ARGS` in `.env` (example: `--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889`).
+- If needed, set matchmaker flags in `.env` (example: `SIGNALING_EXTRA_ARGS="--use_matchmaker --matchmaker_address <EDGE_HOST> --matchmaker_port 8889 --public_port 8080"`).
 - To rotate edges without SSH, configure the optional `orchestrator-edge-rotator` sidecar (`docs/orchestrator-onboarding.md`).
 
 ## What’s inside

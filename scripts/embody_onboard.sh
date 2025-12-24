@@ -37,6 +37,11 @@ Usage:
     --orchestrator-address <0x...> \
     (--invite-code <code> | --orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
 
+Notes (non-interactive reruns):
+  - If you have run onboarding before, you can omit `--orchestrator-id` / `--orchestrator-address` and the script will
+    reuse `ORCHESTRATOR_ID` / `ORCHESTRATOR_ADDRESS` from the existing `.env` (if present and valid).
+  - If `~/.embody/orch-license-token.txt` exists, you can omit the token flags and it will be used automatically.
+
 Common options:
   --payments-api-url <url>    (default: http://3.141.111.200:8081)
   --image-ref <ref>           (default: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1)
@@ -1719,15 +1724,39 @@ maybe_run_wizard() {
 
 maybe_run_wizard
 
+# Non-interactive re-runs should be able to reuse existing onboarding state.
+# If the host already has a valid `.env` from a prior setup, treat those as defaults
+# so orchestrators don't have to re-enter identity details.
+if [[ -z "$ORCH_ID" && -f "$ENV_FILE" ]]; then
+  _existing_id="$(trim_whitespace "$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ID" 2>/dev/null || true)")"
+  _existing_id="$(strip_inline_comment "$_existing_id")"
+  if [[ -n "$_existing_id" ]] && is_valid_orchestrator_id "$_existing_id"; then
+    ORCH_ID="$_existing_id"
+  fi
+fi
+if [[ -z "$ORCH_ADDRESS" && -f "$ENV_FILE" ]]; then
+  _existing_addr="$(trim_whitespace "$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ADDRESS" 2>/dev/null || true)")"
+  _existing_addr="$(strip_inline_comment "$_existing_addr")"
+  if [[ -n "$_existing_addr" ]] && is_valid_eth_address "$_existing_addr" && ! is_zero_eth_address "$_existing_addr"; then
+    ORCH_ADDRESS="$_existing_addr"
+  fi
+fi
+if [[ -z "$INVITE_CODE" && -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
+  _default_token_file="$target_home/.embody/orch-license-token.txt"
+  if [[ -s "$_default_token_file" ]]; then
+    ORCH_TOKEN_FILE="$_default_token_file"
+  fi
+fi
+
 if [[ -z "$ORCH_ID" ]]; then
-  die "--orchestrator-id is required (or run without --non-interactive to use the wizard)"
+  die "--orchestrator-id is required (or run without --non-interactive to use the wizard, or ensure .env has ORCHESTRATOR_ID)"
 fi
 ORCH_ID="$(trim_whitespace "$ORCH_ID")"
 if ! is_valid_orchestrator_id "$ORCH_ID"; then
   die "ORCHESTRATOR_ID must be 1-64 chars: letters/numbers/dot/underscore/dash (start with a letter/number)"
 fi
 if [[ -z "$ORCH_ADDRESS" ]]; then
-  die "--orchestrator-address is required (or run without --non-interactive to use the wizard)"
+  die "--orchestrator-address is required (or run without --non-interactive to use the wizard, or ensure .env has ORCHESTRATOR_ADDRESS)"
 fi
 ORCH_ADDRESS="$(trim_whitespace "$ORCH_ADDRESS")"
 if ! is_valid_eth_address "$ORCH_ADDRESS"; then
