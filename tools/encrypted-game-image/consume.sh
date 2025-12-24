@@ -94,6 +94,30 @@ write_secret_file() {
   chmod 600 "$path" 2>/dev/null || true
 }
 
+prompt_input() {
+  local prompt="$1"
+  local default="${2:-}"
+  local out=""
+  if [[ -n "$default" ]]; then
+    read -r -p "${prompt} [${default}]: " out </dev/tty || true
+    out="$(trim_whitespace "$out")"
+    if [[ -z "$out" ]]; then out="$default"; fi
+  else
+    read -r -p "${prompt}: " out </dev/tty || true
+    out="$(trim_whitespace "$out")"
+  fi
+  printf '%s' "$out"
+}
+
+prompt_secret() {
+  local prompt="$1"
+  local out=""
+  read -r -s -p "${prompt}: " out </dev/tty || true
+  echo "" >/dev/tty || true
+  out="$(trim_whitespace "$out")"
+  printf '%s' "$out"
+}
+
 curl_json_post() {
   # Usage: curl_json_post <url> <payload_json> [header...]
   local url="$1"
@@ -581,6 +605,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "$payments_api_url" ]] && is_tty; then
+  payments_api_url="$(prompt_input "Payments API URL" "${PAYMENTS_API_URL:-http://3.141.111.200:8081}")"
+fi
+if [[ -z "$image_ref" ]] && is_tty; then
+  image_ref="$(prompt_input "Image ref (must exist in Payments licenses)" "${IMAGE_REF:-}")"
+fi
+
 [[ -n "$payments_api_url" ]] || die "--payments-api-url is required"
 [[ -n "$image_ref" ]] || die "--image-ref is required"
 artifact_url="$(trim_whitespace "$artifact_url")"
@@ -623,6 +654,17 @@ if [[ -z "$orch_token" ]] && [[ -z "$orch_token_file" ]] && [[ -f "$default_toke
 fi
 
 if [[ -z "$orch_token" ]]; then
+  if [[ -z "$invite_code" ]] && is_tty; then
+    note "No cached orchestrator token found; redeem an invite code once to mint a token."
+    invite_code="$(prompt_secret "Invite code")"
+  fi
+  if [[ -z "$orch_id" ]] && is_tty; then
+    orch_id="$(prompt_input "Orchestrator ID (string identifier)" "${ORCHESTRATOR_ID:-}")"
+  fi
+  if [[ -z "$orch_address" ]] && is_tty; then
+    orch_address="$(prompt_input "Orchestrator wallet address (0x...)" "${ORCHESTRATOR_ADDRESS:-}")"
+  fi
+
   [[ -n "$invite_code" ]] || die "orchestrator token required (provide --orch-token-file/env, or redeem an invite code via --invite-code-file/env)"
   [[ -n "$orch_id" ]] || die "--orch-id is required when redeeming an invite code"
   [[ -n "$orch_address" ]] || die "--orch-address is required when redeeming an invite code"
