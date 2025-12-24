@@ -36,6 +36,11 @@ After onboarding (or anytime), run:
 sudo ./scripts/embody_cli.sh verify
 ```
 
+If it finds issues, run the auto-fix pass:
+```bash
+sudo ./scripts/embody_cli.sh verify --fix
+```
+
 Full guide: `docs/orchestrator-onboarding.md`
 
 Multi-edge deployments:

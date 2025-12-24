@@ -70,6 +70,11 @@ Minimum `.env`:
   sudo ./scripts/embody_cli.sh verify
   ```
 
+- If it finds issues, run the auto-fix pass (restarts exited services and can enable edge routing):
+  ```bash
+  sudo ./scripts/embody_cli.sh verify --fix
+  ```
+
 - Signaling health: `curl http://127.0.0.1:8080/healthz`
 - Runner health: `curl http://127.0.0.1:9877/health`
 - Orchestrator health: `curl http://127.0.0.1:9090/health`

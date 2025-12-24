@@ -297,6 +297,58 @@ cmd_health() {
   curl -fsS --max-time 2 http://127.0.0.1:9090/health 2>/dev/null && echo "orch:      OK" || echo "orch:      FAIL"
 }
 
+prompt_yes_no() {
+  local prompt="$1" default="${2:-n}" ans
+  if ! is_tty; then
+    return 1
+  fi
+  if [[ "${default,,}" == "y" ]]; then
+    read -r -p "${prompt} [Y/n] " ans || return 1
+    ans="${ans:-y}"
+  else
+    read -r -p "${prompt} [y/N] " ans || return 1
+    ans="${ans:-n}"
+  fi
+  ans="$(trim_whitespace "$ans")"
+  ans="${ans,,}"
+  [[ "$ans" == "y" || "$ans" == "yes" ]]
+}
+
+env_upsert_kv() {
+  local file="$1" key="$2" value="$3"
+  [[ -n "$file" && -n "$key" ]] || return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 - "$file" "$key" "$value" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+val = sys.argv[3]
+
+lines = []
+if path.exists():
+  try:
+    lines = path.read_text().splitlines()
+  except Exception:
+    lines = []
+
+needle = f"{key}="
+out = []
+replaced = False
+for line in lines:
+  if line.startswith(needle):
+    out.append(f"{key}={val}")
+    replaced = True
+  else:
+    out.append(line)
+if not replaced:
+  out.append(f"{key}={val}")
+
+path.write_text("\n".join(out) + "\n")
+PY
+}
+
 docker_container_status() {
   local name="$1"
   docker inspect -f '{{.State.Status}}' "$name" 2>/dev/null
@@ -406,7 +458,7 @@ PY
       banner "REGISTRATION"
       echo "${STYLE_GRN}${STYLE_BOLD}✓${STYLE_RESET} Registration already complete for ${STYLE_BOLD}${orch_id}${STYLE_RESET} (${state_match})." >&2
       echo "${STYLE_DIM}Refusing to re-register. Use --force if you really need to.${STYLE_RESET}" >&2
-      return 1
+      return 0
     fi
   fi
 
@@ -436,8 +488,41 @@ PY
 }
 
 cmd_verify() {
+  local fix="0"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --fix)
+        fix="1"
+        shift
+        ;;
+      --no-prompt)
+        export EMBODY_VERIFY_NO_PROMPT="1"
+        shift
+        ;;
+      -h|--help)
+        cat <<'EOF'
+Usage:
+  sudo ./scripts/embody_cli.sh verify [--fix] [--no-prompt]
+
+--fix:
+  Attempts safe automatic fixes for common issues (restart exited services, optionally enable edge routing).
+
+--no-prompt:
+  Never prompt to fix issues (useful for automation).
+EOF
+        return 0
+        ;;
+      *)
+        echo "Unknown arg for verify: $1 (run with --help)" >&2
+        shift
+        ;;
+    esac
+  done
+
   local failures=0
   local power_state="unknown"
+  local wants_fix="0"
+  local services_to_restart=()
 
   banner "ORCHESTRATOR VERIFY"
 
@@ -488,8 +573,19 @@ cmd_verify() {
   fi
 
   local power_json power_state_raw
-  power_json="$(curl -fsS --max-time 2 http://127.0.0.1:9090/power 2>/dev/null || true)"
+  power_json="$(curl -sS --max-time 2 -w '\n%{http_code}' http://127.0.0.1:9090/power 2>/dev/null || true)"
   power_state_raw=""
+  if [[ -n "$power_json" && "$power_json" == *$'\n'* ]]; then
+    local power_body power_code
+    power_body="${power_json%$'\n'*}"
+    power_code="${power_json##*$'\n'}"
+    if [[ "$power_code" != "200" ]]; then
+      vwarn "Power API returned HTTP ${power_code} (expected 200)"
+      power_json=""
+    else
+      power_json="$power_body"
+    fi
+  fi
   if [[ -n "$power_json" ]]; then
     if command -v python3 >/dev/null 2>&1; then
       power_state_raw="$(printf '%s' "$power_json" | python3 - <<'PY'
@@ -551,6 +647,11 @@ PY
       fi
       if [[ "$status" != "running" ]]; then
         vfail "Container not running: $c ($status)"
+        case "$c" in
+          vtuber-script-runner) services_to_restart+=(vtuber-script-runner) ;;
+          vtuber-watchdog) services_to_restart+=(vtuber-watchdog) ;;
+          vtuber-auto-updater) services_to_restart+=(vtuber-auto-updater) ;;
+        esac
         continue
       fi
       health="$(docker_container_health "$c" || true)"
@@ -590,7 +691,12 @@ PY
     vwarn "Skipping signaling/game health checks while sleeping"
   else
     curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1 && vok "signaling OK (127.0.0.1:8080/healthz)" || vfail "signaling FAIL (127.0.0.1:8080/healthz)"
-    curl -fsS --max-time 2 http://127.0.0.1:9877/health >/dev/null 2>&1 && vok "runner OK (127.0.0.1:9877/health)" || vfail "runner FAIL (127.0.0.1:9877/health)"
+    if curl -fsS --max-time 2 http://127.0.0.1:9877/health >/dev/null 2>&1; then
+      vok "runner OK (127.0.0.1:9877/health)"
+    else
+      vfail "runner FAIL (127.0.0.1:9877/health)"
+      services_to_restart+=(vtuber-script-runner)
+    fi
   fi
   curl -fsS --max-time 2 http://127.0.0.1:9090/health >/dev/null 2>&1 && vok "orchestrator-health OK (127.0.0.1:9090/health)" || vfail "orchestrator-health FAIL (127.0.0.1:9090/health)"
 
@@ -856,6 +962,66 @@ PY
     vok "Verify complete"
     return 0
   fi
+
+  local deduped_restart=()
+  if ((${#services_to_restart[@]} > 0)); then
+    while IFS= read -r svc; do
+      [[ -n "$svc" ]] && deduped_restart+=("$svc")
+    done < <(printf '%s\n' "${services_to_restart[@]}" | awk '!seen[$0]++')
+  fi
+
+  if [[ "$fix" == "1" ]]; then
+    wants_fix="1"
+  elif is_tty && [[ -z "${EMBODY_VERIFY_NO_PROMPT:-}" ]]; then
+    if prompt_yes_no "Fix detected issues now (restart exited services, enable edge routing if desired)?" "n"; then
+      wants_fix="1"
+    fi
+  fi
+
+  if [[ "$wants_fix" == "1" ]]; then
+    banner "AUTO-FIX"
+
+    if ((${#deduped_restart[@]} > 0)); then
+      fx_dots "Restarting: ${deduped_restart[*]}"
+      (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" up -d "${deduped_restart[@]}") || true
+    fi
+
+    if [[ -z "${edge_config_url:-}" ]] && is_tty; then
+      vwarn "Edge routing is disabled (EDGE_CONFIG_URL unset)."
+      if prompt_yes_no "Enable edge routing via control plane now?" "y"; then
+        local new_url new_token
+        echo ""
+        read -r -p "EDGE_CONFIG_URL: " new_url || true
+        new_url="$(trim_whitespace "${new_url:-}")"
+        if [[ -n "$new_url" ]]; then
+          read -r -s -p "EDGE_CONFIG_TOKEN (optional, hidden): " new_token || true
+          echo ""
+          new_token="$(trim_whitespace "${new_token:-}")"
+
+          env_upsert_kv "$ENV_FILE" "EDGE_CONFIG_URL" "$new_url"
+          env_upsert_kv "$ENV_FILE" "EDGE_PROJECT_DIR" "$REPO_ROOT"
+          if [[ -n "$new_token" ]]; then
+            env_upsert_kv "$ENV_FILE" "EDGE_CONFIG_TOKEN" "$new_token"
+          fi
+          chmod 600 "$ENV_FILE" 2>/dev/null || true
+          if [[ -n "${SUDO_USER:-}" ]]; then
+            chown "$SUDO_USER":"$SUDO_USER" "$ENV_FILE" 2>/dev/null || true
+          fi
+
+          fx_dots "Starting edge rotator"
+          (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" up -d orchestrator-edge-rotator) || true
+        else
+          vwarn "Skipped enabling edge routing (EDGE_CONFIG_URL empty)."
+        fi
+      fi
+    fi
+
+    echo ""
+    fx_dots "Re-running verify"
+    EMBODY_VERIFY_NO_PROMPT=1 cmd_verify --no-prompt
+    return $?
+  fi
+
   vfail "Verify failed (${failures} issue(s))"
   return 1
 }
@@ -990,7 +1156,8 @@ main() {
       cmd_health
       ;;
     verify)
-      cmd_verify
+      shift
+      cmd_verify "$@"
       ;;
     register)
       shift
