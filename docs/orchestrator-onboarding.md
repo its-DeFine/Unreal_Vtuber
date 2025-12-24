@@ -124,8 +124,12 @@ on the same edge. See the ops runbook in the `infra-gating` repo for “allocate
 
 To load a new encrypted artifact and restart the stack:
 ```bash
-./tools/encrypted-game-image/rollout.sh \
+./scripts/embody_cli.sh rollout \
   --payments-api-url http://<payments-ip>:8081 \
-  --orch-token-file ~/.embody/orch-license-token.txt \
   --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1
+```
+
+If the license token is missing, redeem your invite code once:
+```bash
+./scripts/embody_cli.sh license redeem
 ```

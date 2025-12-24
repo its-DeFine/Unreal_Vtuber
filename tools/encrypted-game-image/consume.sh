@@ -67,16 +67,6 @@ strip_wrapping_quotes() {
   printf '%s' "$s"
 }
 
-safe_path_component() {
-  local s="$1"
-  s="${s#http://}"
-  s="${s#https://}"
-  s="${s%%/*}"
-  s="${s//:/_}"
-  s="${s//[^a-zA-Z0-9_.-]/_}"
-  printf '%s' "$s"
-}
-
 read_secret_file() {
   local path="$1"
   [[ -f "$path" ]] || return 1
@@ -90,8 +80,12 @@ write_secret_file() {
   dir="$(dirname "$path")"
   umask 077
   mkdir -p "$dir"
+  chmod 700 "$dir" 2>/dev/null || true
   printf '%s\n' "$value" > "$path"
   chmod 600 "$path" 2>/dev/null || true
+  if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
+    chown "$SUDO_USER":"$SUDO_USER" "$dir" "$path" 2>/dev/null || true
+  fi
 }
 
 prompt_input() {
@@ -646,8 +640,21 @@ if [[ -n "$invite_code_file" ]]; then
   invite_code="$(read_secret_file "$invite_code_file" || true)"
 fi
 
+# Determine the correct "home" to use for caching when running under sudo.
+target_user="${SUDO_USER:-$USER}"
+target_home=""
+if command -v getent >/dev/null 2>&1; then
+  target_home="$(getent passwd "$target_user" 2>/dev/null | cut -d: -f6 || true)"
+fi
+if [[ -z "$target_home" ]]; then
+  target_home="$(eval echo "~${target_user}" 2>/dev/null || true)"
+fi
+if [[ -z "$target_home" ]]; then
+  target_home="$HOME"
+fi
+
 # Auto-load a cached token if nothing was provided explicitly.
-default_token_file="$HOME/.config/embody/payments/orch-token-$(safe_path_component "$payments_api_url").txt"
+default_token_file="$target_home/.embody/orch-license-token.txt"
 if [[ -z "$orch_token" ]] && [[ -z "$orch_token_file" ]] && [[ -f "$default_token_file" ]]; then
   orch_token="$(read_secret_file "$default_token_file" || true)"
   orch_token_file="$default_token_file"
