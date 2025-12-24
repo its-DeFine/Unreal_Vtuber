@@ -53,14 +53,7 @@ services:
       SFU_PORT: "8889"
       STUN_SERVER: ${STUN_SERVER:-stun.l.google.com:19302}
       # Optional additional Wilbur/start.sh CLI flags (example: matchmaker registration).
-      # IMPORTANT: Avoid concatenating multiple env-substitutions here.
-      # `orchestrator-edge-rotator` recreates this service via an older docker-compose-v2 binary
-      # (currently v2.33.x inside the container). We observed that the previous form:
-      #   "${SIGNALING_EXTRA_ARGS:-} ${SIGNALING_MATCHMAKER_ARGS:-}"
-      # could result in matchmaker flags being dropped on recreate (breaking edge registration).
-      #
-      # With this, if `SIGNALING_EXTRA_ARGS` is empty/unset, it falls back to `SIGNALING_MATCHMAKER_ARGS`.
-      SIGNALING_EXTRA_ARGS: "${SIGNALING_EXTRA_ARGS:-${SIGNALING_MATCHMAKER_ARGS:-}}"
+      SIGNALING_EXTRA_ARGS: "${SIGNALING_EXTRA_ARGS:-} ${SIGNALING_MATCHMAKER_ARGS:-}"
       ENABLE_REST_API: ${ENABLE_REST_API:-0}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]
