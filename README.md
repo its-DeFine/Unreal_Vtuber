@@ -43,6 +43,9 @@ sudo ./scripts/embody_cli.sh verify --fix
 
 Full guide: `docs/orchestrator-onboarding.md`
 
+Tip:
+- `sudo ./scripts/embody_cli.sh` will run `verify` automatically before showing the day-to-day menu (disable with `EMBODY_CLI_AUTO_VERIFY=0`).
+
 Multi-edge deployments:
 - The edge/gateway IP you provide is used for allowlists and TURN DNAT (`TURN_EXTERNAL_IP`).
 - Verify the orchestrator registers on the intended edge matchmaker after onboarding (see `docs/orchestrator-onboarding.md`).

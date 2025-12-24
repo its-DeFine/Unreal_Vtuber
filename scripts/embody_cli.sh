@@ -1174,6 +1174,9 @@ main() {
       ;;
     "")
       if setup_complete && is_tty; then
+        if [[ "${EMBODY_CLI_AUTO_VERIFY:-1}" != "0" ]]; then
+          cmd_verify || true
+        fi
         menu
         return
       fi

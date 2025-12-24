@@ -35,6 +35,9 @@ Notes:
 - For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).
 - If you don’t have an invite code yet, abort and request one from your admin.
 
+Tip:
+- `sudo ./scripts/embody_cli.sh` runs `verify` automatically before showing the day-to-day menu (disable with `EMBODY_CLI_AUTO_VERIFY=0`).
+
 Non-interactive (for automation):
 ```bash
 sudo ./scripts/embody_cli.sh setup --non-interactive \
