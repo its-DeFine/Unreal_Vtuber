@@ -174,6 +174,9 @@ curl_json_post_capture() {
   if [[ ! "$http_code" =~ ^[0-9]+$ ]]; then
     return 3
   fi
+  if [[ "$http_code" -ge 300 && "$http_code" -lt 400 ]]; then
+    return 4
+  fi
   if [[ "$http_code" -ge 400 ]]; then
     return 2
   fi
@@ -758,6 +761,11 @@ if [[ "$lease_rc" == "1" ]]; then
   die "failed to request lease (network error)"
 elif [[ "$lease_rc" == "3" ]]; then
   die "failed to request lease (unexpected HTTP response; no status code)"
+elif [[ "$lease_rc" == "4" ]]; then
+  echo "" >&2
+  echo "${STYLE_RED}${STYLE_BOLD}Payments error${STYLE_RESET} ${STYLE_DIM}(HTTP $lease_http_code)${STYLE_RESET}" >&2
+  echo "$lease_body" >&2
+  die "failed to request lease (unexpected redirect; check PAYMENTS_API_URL)"
 elif [[ "$lease_rc" == "2" ]]; then
   echo "" >&2
   echo "${STYLE_RED}${STYLE_BOLD}Payments error${STYLE_RESET} ${STYLE_DIM}(HTTP $lease_http_code)${STYLE_RESET}" >&2
@@ -806,13 +814,41 @@ fi
 
 lease_json="$lease_body"
 
-lease_id="$(echo "$lease_json" | jq -r '.lease_id // empty')"
-secret_b64="$(echo "$lease_json" | jq -r '.secret_b64 // empty')"
-artifact_url_from_lease="$(echo "$lease_json" | jq -r '.artifact_url // empty')"
-lease_seconds="$(echo "$lease_json" | jq -r '.lease_seconds // 900')"
+lease_id="$(echo "$lease_json" | jq -r '.lease_id // .leaseId // .lease.lease_id // .lease.leaseId // .lease.id // empty' 2>/dev/null || true)"
+secret_b64="$(echo "$lease_json" | jq -r '.secret_b64 // .secretB64 // .lease.secret_b64 // .lease.secretB64 // empty' 2>/dev/null || true)"
+artifact_url_from_lease="$(echo "$lease_json" | jq -r '.artifact_url // .artifactUrl // .lease.artifact_url // .lease.artifactUrl // empty' 2>/dev/null || true)"
+lease_seconds="$(echo "$lease_json" | jq -r '.lease_seconds // .leaseSeconds // .lease.lease_seconds // .lease.leaseSeconds // 900' 2>/dev/null || echo "900")"
 
-[[ -n "$lease_id" ]] || die "missing lease_id from payments response"
-[[ -n "$secret_b64" ]] || die "missing secret_b64 from payments response"
+describe_lease_response_best_effort() {
+  local json="$1"
+  local keys preview
+  keys="$(echo "$json" | jq -r 'keys | join(",")' 2>/dev/null || true)"
+  if [[ -n "$keys" ]]; then
+    echo "Payments lease response keys: ${keys}" >&2
+    preview="$(echo "$json" | jq -c '{
+      lease_id: (.lease_id // .leaseId // .lease.lease_id // .lease.leaseId // .lease.id // null),
+      expires_at: (.expires_at // .expiresAt // .lease.expires_at // .lease.expiresAt // null),
+      lease_seconds: (.lease_seconds // .leaseSeconds // .lease.lease_seconds // .lease.leaseSeconds // null),
+      secret_present: ((.secret_b64 // .secretB64 // .lease.secret_b64 // .lease.secretB64 // null) != null),
+      artifact_url_present: ((.artifact_url // .artifactUrl // .lease.artifact_url // .lease.artifactUrl // null) != null),
+      detail: (.detail // null)
+    }' 2>/dev/null || true)"
+    if [[ -n "$preview" ]]; then
+      echo "Payments lease response preview: ${preview}" >&2
+    fi
+  else
+    echo "Payments lease response (non-JSON): $(printf '%.200s' "$json")" >&2
+  fi
+}
+
+if [[ -z "$lease_id" ]]; then
+  describe_lease_response_best_effort "$lease_json"
+  die "missing lease_id from payments response"
+fi
+if [[ -z "$secret_b64" ]]; then
+  describe_lease_response_best_effort "$lease_json"
+  die "missing secret_b64 from payments response"
+fi
 
 if [[ -z "$artifact_url" ]]; then
   artifact_url="$artifact_url_from_lease"
