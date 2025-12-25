@@ -148,9 +148,12 @@ curl_json_post() {
   printf '%s' "$body"
 }
 
-curl_json_post_with_status() {
-  # Usage: curl_json_post_with_status <url> <payload_json> [header...]
-  # Prints body to stdout. Sets global CURL_JSON_LAST_HTTP_CODE.
+CURL_JSON_LAST_HTTP_CODE=""
+CURL_JSON_LAST_BODY=""
+
+curl_json_post_capture() {
+  # Usage: curl_json_post_capture <url> <payload_json> [header...]
+  # Sets globals CURL_JSON_LAST_HTTP_CODE and CURL_JSON_LAST_BODY.
   local url="$1"
   local payload="$2"
   shift 2
@@ -166,7 +169,7 @@ curl_json_post_with_status() {
   body="$(printf '%s' "$out" | sed '$d')"
 
   CURL_JSON_LAST_HTTP_CODE="$http_code"
-  printf '%s' "$body"
+  CURL_JSON_LAST_BODY="$body"
 
   if [[ ! "$http_code" =~ ^[0-9]+$ ]]; then
     return 3
@@ -744,13 +747,18 @@ fi
 
 payload="$(jq -nc --arg image_ref "$image_ref" '{image_ref:$image_ref}')"
 fx_dots "Requesting a decryption lease from Payments"
-lease_http_code=""
-lease_body="$(curl_json_post_with_status "$payments_api_url/api/licenses/lease" "$payload" -H "Authorization: Bearer $orch_token" || true)"
-lease_http_code="${CURL_JSON_LAST_HTTP_CODE:-}"
-if [[ -z "$lease_http_code" || ! "$lease_http_code" =~ ^[0-9]+$ ]]; then
-  die "failed to request lease (network error)"
+lease_rc="0"
+if ! curl_json_post_capture "$payments_api_url/api/licenses/lease" "$payload" -H "Authorization: Bearer $orch_token"; then
+  lease_rc="$?"
 fi
-if [[ "$lease_http_code" -ge 400 ]]; then
+lease_http_code="${CURL_JSON_LAST_HTTP_CODE:-}"
+lease_body="${CURL_JSON_LAST_BODY:-}"
+
+if [[ "$lease_rc" == "1" ]]; then
+  die "failed to request lease (network error)"
+elif [[ "$lease_rc" == "3" ]]; then
+  die "failed to request lease (unexpected HTTP response; no status code)"
+elif [[ "$lease_rc" == "2" ]]; then
   echo "" >&2
   echo "${STYLE_RED}${STYLE_BOLD}Payments error${STYLE_RESET} ${STYLE_DIM}(HTTP $lease_http_code)${STYLE_RESET}" >&2
   echo "$lease_body" >&2
@@ -778,9 +786,14 @@ if [[ "$lease_http_code" -ge 400 ]]; then
     redeem_invite_to_token || die "failed to redeem invite code"
 
     fx_dots "Retrying decryption lease request"
-    lease_body="$(curl_json_post_with_status "$payments_api_url/api/licenses/lease" "$payload" -H "Authorization: Bearer $orch_token" || true)"
+    lease_rc="0"
+    if ! curl_json_post_capture "$payments_api_url/api/licenses/lease" "$payload" -H "Authorization: Bearer $orch_token"; then
+      lease_rc="$?"
+    fi
     lease_http_code="${CURL_JSON_LAST_HTTP_CODE:-}"
-    if [[ -z "$lease_http_code" || ! "$lease_http_code" =~ ^[0-9]+$ || "$lease_http_code" -ge 400 ]]; then
+    lease_body="${CURL_JSON_LAST_BODY:-}"
+
+    if [[ "$lease_rc" != "0" ]]; then
       echo "" >&2
       echo "${STYLE_RED}${STYLE_BOLD}Payments error${STYLE_RESET} ${STYLE_DIM}(HTTP ${lease_http_code:-unknown})${STYLE_RESET}" >&2
       echo "$lease_body" >&2
@@ -790,6 +803,7 @@ if [[ "$lease_http_code" -ge 400 ]]; then
     die "failed to request lease"
   fi
 fi
+
 lease_json="$lease_body"
 
 lease_id="$(echo "$lease_json" | jq -r '.lease_id // empty')"
