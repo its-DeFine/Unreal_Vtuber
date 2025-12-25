@@ -1208,7 +1208,7 @@ bootstrap_edge_plane_from_payments_best_effort() {
   json="$(curl -fsS --max-time 5 -H "Authorization: Bearer $token" "$url" 2>/dev/null || true)"
   [[ -n "$json" ]] || return
 
-  edge_url="$(BODY="$json" python3 - <<'PY'
+  edge_url="$(BODY="$json" python3 - <<'PY' || true
 import json
 import os
 
@@ -1221,7 +1221,7 @@ except Exception:
 print((data.get("edge_config_url") or "").strip())
 PY
 )"
-  edge_token="$(BODY="$json" python3 - <<'PY'
+  edge_token="$(BODY="$json" python3 - <<'PY' || true
 import json
 import os
 
