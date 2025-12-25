@@ -1191,22 +1191,22 @@ read_orchestrator_token_best_effort() {
 
 bootstrap_edge_plane_from_payments_best_effort() {
   if [[ -n "$EDGE_CONFIG_URL" ]]; then
-    return
+    return 0
   fi
   if [[ -z "$PAYMENTS_API_URL" ]]; then
-    return
+    return 0
   fi
   local token url json edge_url edge_token
   token="$(read_orchestrator_token_best_effort)"
   if [[ -z "$token" ]]; then
-    return
+    return 0
   fi
   require_cmd curl
   require_cmd python3
 
   url="${PAYMENTS_API_URL%/}/api/orchestrators/bootstrap"
   json="$(curl -fsS --max-time 5 -H "Authorization: Bearer $token" "$url" 2>/dev/null || true)"
-  [[ -n "$json" ]] || return
+  [[ -n "$json" ]] || return 0
 
   edge_url="$(BODY="$json" python3 - <<'PY' || true
 import json
@@ -1245,6 +1245,8 @@ PY
       EDGE_CONFIG_TOKEN="$edge_token"
     fi
   fi
+
+  return 0
 }
 
 write_token_file_if_needed() {
@@ -1583,7 +1585,11 @@ maybe_run_wizard() {
   fi
 
   section "Edge Assignment (recommended)"
-  bootstrap_edge_plane_from_payments_best_effort
+  bootstrap_edge_plane_from_payments_best_effort || true
+  if [[ -z "$EDGE_CONFIG_URL" ]]; then
+    note "No edge control plane discovered from Payments."
+    note "If your admin configured it, it should be returned by /api/orchestrators/bootstrap (PAYMENTS_EDGE_CONFIG_URL)."
+  fi
   note "Recommended: configure the edge config plane (EDGE_CONFIG_URL)."
   note "If enabled, Embody can move this orchestrator between edges without SSH, and you do NOT need to enter edge IPs here."
   EDGE_CONFIG_URL="$(prompt_default "Edge config URL (blank = manual edge IP mode)" "$EDGE_CONFIG_URL")"
@@ -1857,7 +1863,7 @@ require_cmd python3
 
 redeem_invite_code_if_needed
 
-bootstrap_edge_plane_from_payments_best_effort
+bootstrap_edge_plane_from_payments_best_effort || true
 
 if ! docker info >/dev/null 2>&1; then
   note "Waiting for Docker daemon..."
