@@ -2006,6 +2006,8 @@ rollout_cmd=(
   "$REPO_ROOT/tools/encrypted-game-image/rollout.sh"
   --payments-api-url "$PAYMENTS_API_URL"
   --image-ref "$IMAGE_REF"
+  --orch-id "$ORCH_ID"
+  --orch-address "$ORCH_ADDRESS"
 )
 if [[ -n "$ARTIFACT_URL" ]]; then
   rollout_cmd+=(--artifact-url "$ARTIFACT_URL")

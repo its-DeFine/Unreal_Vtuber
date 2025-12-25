@@ -30,6 +30,8 @@ Options:
   --orch-token           Orchestrator license token (NOT recommended; may leak via shell history)
   --orch-token-file      Read orchestrator license token from file (recommended)
   --orch-token-env       Read orchestrator license token from env var name (recommended)
+  --orch-id              Orchestrator ID (only used if token must be redeemed)
+  --orch-address         Orchestrator payout wallet (only used if token must be redeemed)
 
   --compose-file         Compose file path (default: ./docker-compose.unreal.yml)
   --game-image           Game image ref to remove before reload (default: auto-detected from compose)
@@ -89,6 +91,8 @@ artifact_url=""
 orch_token=""
 orch_token_file=""
 orch_token_env=""
+orch_id=""
+orch_address=""
 
 compose_file="$REPO_ROOT/docker-compose.unreal.yml"
 game_image=""
@@ -118,6 +122,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --orch-token-env)
       orch_token_env="${2:-}"
+      shift 2
+      ;;
+    --orch-id)
+      orch_id="${2:-}"
+      shift 2
+      ;;
+    --orch-address)
+      orch_address="${2:-}"
       shift 2
       ;;
     --compose-file)
@@ -214,6 +226,12 @@ note "Loading encrypted game image via Payments lease"
 consume_args=(--payments-api-url "$payments_api_url" --image-ref "$image_ref")
 if [[ -n "$artifact_url" ]]; then
   consume_args+=(--artifact-url "$artifact_url")
+fi
+if [[ -n "$orch_id" ]]; then
+  consume_args+=(--orch-id "$orch_id")
+fi
+if [[ -n "$orch_address" ]]; then
+  consume_args+=(--orch-address "$orch_address")
 fi
 "$SCRIPT_DIR/consume.sh" "${consume_args[@]}" "${token_args[@]}"
 
