@@ -33,7 +33,7 @@ Accepted aliases:
 - `matchmaker_address` instead of `matchmaker_host`
 - `edge_ip` / `edge_ips` (IPv4s; converted to `/32`)
 - `edge_host` (DNS; resolved to A records; converted to `/32`)
-- `turn_external_ip` (optional; if `EDGE_UPDATE_TURN=true`, updates `.env.turn`)
+- `turn_external_ip` (optional; if `EDGE_UPDATE_TURN=true`, updates `.env.turn`; if omitted and exactly one `/32` edge IP is selected, the rotator uses that as a fallback)
 
 ## Environment
 
