@@ -751,9 +751,7 @@ fi
 payload="$(jq -nc --arg image_ref "$image_ref" '{image_ref:$image_ref}')"
 fx_dots "Requesting a decryption lease from Payments"
 lease_rc="0"
-if ! curl_json_post_capture "$payments_api_url/api/licenses/lease" "$payload" -H "Authorization: Bearer $orch_token"; then
-  lease_rc="$?"
-fi
+curl_json_post_capture "$payments_api_url/api/licenses/lease" "$payload" -H "Authorization: Bearer $orch_token" || lease_rc="$?"
 lease_http_code="${CURL_JSON_LAST_HTTP_CODE:-}"
 lease_body="${CURL_JSON_LAST_BODY:-}"
 
@@ -795,9 +793,7 @@ elif [[ "$lease_rc" == "2" ]]; then
 
     fx_dots "Retrying decryption lease request"
     lease_rc="0"
-    if ! curl_json_post_capture "$payments_api_url/api/licenses/lease" "$payload" -H "Authorization: Bearer $orch_token"; then
-      lease_rc="$?"
-    fi
+    curl_json_post_capture "$payments_api_url/api/licenses/lease" "$payload" -H "Authorization: Bearer $orch_token" || lease_rc="$?"
     lease_http_code="${CURL_JSON_LAST_HTTP_CODE:-}"
     lease_body="${CURL_JSON_LAST_BODY:-}"
 
