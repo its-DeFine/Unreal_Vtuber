@@ -40,7 +40,7 @@ Usage:
 Common options:
   --payments-api-url <url>    (default: http://3.141.111.200:8081)
   --image-ref <ref>           (default: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1)
-  --edge-ip <ip>              Primary Embody edge/gateway IP (required; ask your admin)
+  --edge-ip <ip>              Primary Embody edge/gateway IP (required only if EDGE_CONFIG_URL is unset)
   --forwarder-ip <ip>         Alias for --edge-ip (backwards compatible)
   --allowed-ip <ip>           Additional allowlisted caller IP (repeatable; e.g. edge IPs)
   --allowed-ips <csv>         Additional allowlisted caller IPs (comma-separated)
@@ -1491,25 +1491,44 @@ maybe_run_wizard() {
     die "license token (or invite code) required to load encrypted image"
   fi
 
-  section "Network"
-
-  if [[ -z "$EDGE_IP" ]]; then
-    EDGE_IP="${existing_edge:-$EDGE_IP}"
-  fi
-  note "Ask your admin for the Embody Zone edge/gateway IP that should connect to this orchestrator (closest region)."
-  while true; do
-    EDGE_IP="$(prompt_default "Primary edge/gateway IP (allowlisted)" "$EDGE_IP")"
-    EDGE_IP="$(trim_whitespace "$EDGE_IP")"
-    EDGE_IP="$(strip_inline_comment "$EDGE_IP")"
-    if is_safe_allowlist_token "$EDGE_IP"; then
-      break
+  section "Edge Assignment (recommended)"
+  note "Recommended: configure the edge config plane (EDGE_CONFIG_URL)."
+  note "If enabled, Embody can move this orchestrator between edges without SSH, and you do NOT need to enter edge IPs here."
+  EDGE_CONFIG_URL="$(prompt_default "Edge config URL (blank = manual edge IP mode)" "$EDGE_CONFIG_URL")"
+  EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
+  EDGE_CONFIG_URL="$(strip_inline_comment "$EDGE_CONFIG_URL")"
+  if [[ -n "$EDGE_CONFIG_URL" ]]; then
+    note "Optional: edge config read token (if your control plane requires it)."
+    note "If you already set EDGE_CONFIG_TOKEN in .env, leave blank to keep it."
+    local token_input
+    token_input="$(prompt_secret "Edge config read token (hidden input; optional)")"
+    token_input="$(trim_whitespace "$token_input")"
+    if [[ -n "$token_input" ]]; then
+      EDGE_CONFIG_TOKEN="$token_input"
     fi
-    note "Edge/gateway IP is required (IPv4/hostname; no spaces/commas)."
-    EDGE_IP=""
-  done
+  fi
+
+  if [[ -z "$EDGE_CONFIG_URL" ]]; then
+    if [[ -z "$EDGE_IP" ]]; then
+      EDGE_IP="${existing_edge:-$EDGE_IP}"
+    fi
+    note "Ask your admin for the Embody Zone edge/gateway IP that should connect to this orchestrator (closest region)."
+    while true; do
+      EDGE_IP="$(prompt_default "Primary edge/gateway IP (allowlisted)" "$EDGE_IP")"
+      EDGE_IP="$(trim_whitespace "$EDGE_IP")"
+      EDGE_IP="$(strip_inline_comment "$EDGE_IP")"
+      if is_safe_allowlist_token "$EDGE_IP"; then
+        break
+      fi
+      note "Edge/gateway IP is required (IPv4/hostname; no spaces/commas)."
+      EDGE_IP=""
+    done
+  else
+    ok "Edge assignment will be managed by the control plane (no manual edge IP needed)."
+  fi
 
   # Preserve any extra allowlisted caller IPs from existing config unless explicitly provided via flags.
-  if [[ ${#EXTRA_ALLOWED_IPS[@]} -eq 0 ]] && [[ -n "$existing_extra_allowlist_csv" ]]; then
+  if [[ -z "$EDGE_CONFIG_URL" && ${#EXTRA_ALLOWED_IPS[@]} -eq 0 ]] && [[ -n "$existing_extra_allowlist_csv" ]]; then
     local _ip
     local _raw_extra=()
     IFS=',' read -r -a _raw_extra <<<"$existing_extra_allowlist_csv"
@@ -1521,7 +1540,7 @@ maybe_run_wizard() {
     done
   fi
 
-  if [[ "$ADVANCED" == "1" ]]; then
+  if [[ -z "$EDGE_CONFIG_URL" && "$ADVANCED" == "1" ]]; then
     local default_extra_csv extra_csv
     if [[ ${#EXTRA_ALLOWED_IPS[@]} -gt 0 ]]; then
       default_extra_csv="$(join_csv "${EXTRA_ALLOWED_IPS[@]}")"
@@ -1542,20 +1561,6 @@ maybe_run_wizard() {
         [[ -n "$_ip" ]] || continue
         EXTRA_ALLOWED_IPS+=("$_ip")
       done
-    fi
-  fi
-
-  if [[ "$ADVANCED" == "1" ]]; then
-    section "Edge Config Plane (optional)"
-    note "Optional: configure a control plane for automatic edge routing (orchestrator-edge-rotator)."
-    note "If set, the orchestrator can rotate its matchmaker target + ingress allowlist without SSH."
-    EDGE_CONFIG_URL="$(prompt_default "Edge config URL (blank = disabled)" "$EDGE_CONFIG_URL")"
-    EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
-    EDGE_CONFIG_URL="$(strip_inline_comment "$EDGE_CONFIG_URL")"
-
-    if [[ -n "$EDGE_CONFIG_URL" ]]; then
-      EDGE_CONFIG_TOKEN="$(prompt_secret "Edge config read token (blank = none)")"
-      EDGE_CONFIG_TOKEN="$(trim_whitespace "$EDGE_CONFIG_TOKEN")"
     fi
   fi
 
@@ -1633,9 +1638,13 @@ maybe_run_wizard() {
   fi
   echo "Public IP:           $PUBLIC_IP" >&2
   echo "GPU devices:         ${NVIDIA_VISIBLE_DEVICES:-all}" >&2
-  echo "Edge allowlist:      $EDGE_IP" >&2
-  if ((${#EXTRA_ALLOWED_IPS[@]})); then
-    echo "Extra allowlist:     $(join_csv "${EXTRA_ALLOWED_IPS[@]}")" >&2
+  if [[ -n "$EDGE_CONFIG_URL" ]]; then
+    echo "Edge config plane:   $EDGE_CONFIG_URL" >&2
+  else
+    echo "Edge allowlist:      $EDGE_IP" >&2
+    if ((${#EXTRA_ALLOWED_IPS[@]})); then
+      echo "Extra allowlist:     $(join_csv "${EXTRA_ALLOWED_IPS[@]}")" >&2
+    fi
   fi
   echo "Session dir:         $SESSION_DIR" >&2
   echo "Recordings dir:      $RECORDINGS_DIR" >&2
@@ -1815,30 +1824,70 @@ if [[ -n "$EDGE_CONFIG_URL" ]]; then
     upsert_env_kv "$ENV_FILE" "EDGE_CONFIG_TOKEN" "$EDGE_CONFIG_TOKEN"
   fi
 fi
-EDGE_IP="$(trim_whitespace "$EDGE_IP")"
-if ! is_safe_allowlist_token "$EDGE_IP"; then
-  die "invalid --edge-ip value: $EDGE_IP"
+plane_enabled="0"
+if [[ -n "$EDGE_CONFIG_URL" ]]; then
+  plane_enabled="1"
 fi
 
-CONTROL_IPS=("$EDGE_IP")
-for ip in "${EXTRA_ALLOWED_IPS[@]}"; do
-  ip="$(trim_whitespace "$ip")"
-  [[ -n "$ip" ]] || continue
-  if ! is_safe_allowlist_token "$ip"; then
-    die "invalid --allowed-ip value: $ip"
+if [[ "$plane_enabled" == "1" ]]; then
+  # In control-plane mode, the orchestrator-edge-rotator sidecar is the source of truth:
+  # it applies iptables rules, updates matchmaker config, and (with EDGE_UPDATE_TURN=1)
+  # rewrites TURN to advertise the selected edge/gateway.
+  upsert_env_kv "$ENV_FILE" "EDGE_UPDATE_TURN" "1"
+
+  # Allow Payments to reach /health on 9090 even when the rotator enforces an exclusive allowlist.
+  payments_host="$(extract_host_from_url "$PAYMENTS_API_URL")"
+  if is_ipv4 "$payments_host"; then
+    payments_ip="$payments_host"
+    wanted="${payments_ip}/32"
+    existing_extra="$(read_env_value "$ENV_FILE" "EDGE_FIREWALL_EXTRA_CIDRS" 2>/dev/null || true)"
+    existing_extra="$(trim_whitespace "$existing_extra")"
+    existing_extra="$(strip_inline_comment "$existing_extra")"
+    extra_tokens=()
+    if [[ -n "$existing_extra" ]]; then
+      IFS=',' read -r -a extra_tokens <<<"$existing_extra"
+    fi
+    extra_tokens+=("$wanted")
+    # de-dupe while preserving order
+    deduped_extra=()
+    while IFS= read -r ip; do
+      deduped_extra+=("$ip")
+    done < <(dedupe_list "${extra_tokens[@]}")
+    upsert_env_kv "$ENV_FILE" "EDGE_FIREWALL_EXTRA_CIDRS" "$(join_csv "${deduped_extra[@]}")"
   fi
-  CONTROL_IPS+=("$ip")
-done
 
-deduped_control_ips=()
-while IFS= read -r ip; do
-  deduped_control_ips+=("$ip")
-done < <(dedupe_list "${CONTROL_IPS[@]}")
-CONTROL_IPS=("${deduped_control_ips[@]}")
-CONTROL_IPS_CSV="$(join_csv "${CONTROL_IPS[@]}")"
+  # Seed with local-only allowlist; the rotator will rewrite VTUBER_ALLOWED_ADDRESSES to the current edge IP(s).
+  CONTROL_IPS=()
+  CONTROL_IPS_CSV="<managed by EDGE_CONFIG_URL>"
+  allowed_addresses="$(join_csv 127.0.0.1 ::1 172.17.0.1 172.18.0.1)"
+  upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allowed_addresses"
+else
+  EDGE_IP="$(trim_whitespace "$EDGE_IP")"
+  EDGE_IP="$(strip_inline_comment "$EDGE_IP")"
+  if ! is_safe_allowlist_token "$EDGE_IP"; then
+    die "invalid --edge-ip value: $EDGE_IP"
+  fi
 
-allowed_addresses="$(join_csv 127.0.0.1 ::1 172.17.0.1 172.18.0.1 "${CONTROL_IPS[@]}")"
-upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allowed_addresses"
+  CONTROL_IPS=("$EDGE_IP")
+  for ip in "${EXTRA_ALLOWED_IPS[@]}"; do
+    ip="$(trim_whitespace "$ip")"
+    [[ -n "$ip" ]] || continue
+    if ! is_safe_allowlist_token "$ip"; then
+      die "invalid --allowed-ip value: $ip"
+    fi
+    CONTROL_IPS+=("$ip")
+  done
+
+  deduped_control_ips=()
+  while IFS= read -r ip; do
+    deduped_control_ips+=("$ip")
+  done < <(dedupe_list "${CONTROL_IPS[@]}")
+  CONTROL_IPS=("${deduped_control_ips[@]}")
+  CONTROL_IPS_CSV="$(join_csv "${CONTROL_IPS[@]}")"
+
+  allowed_addresses="$(join_csv 127.0.0.1 ::1 172.17.0.1 172.18.0.1 "${CONTROL_IPS[@]}")"
+  upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allowed_addresses"
+fi
 upsert_env_kv "$ENV_FILE" "VTUBER_SESSION_DIR" "$SESSION_DIR"
 upsert_env_kv "$ENV_FILE" "VTUBER_RECORDINGS_DIR" "$RECORDINGS_DIR"
 if [[ -n "$NVIDIA_VISIBLE_DEVICES" ]]; then
@@ -2002,10 +2051,27 @@ ${STYLE_MAG}${STYLE_BOLD}┗━━━━━━━━━━━━━━━━━�
 
 ${STYLE_MAG}${STYLE_BOLD}NEXT STEPS${STYLE_RESET}
   ${STYLE_DIM}1) Inbound allowlists (required):${STYLE_RESET}
+EOF
+  if [[ "${plane_enabled:-0}" == "1" ]]; then
+    cat >&2 <<EOF
+     - Edge assignment is managed by the control plane: ${EDGE_CONFIG_URL}
+     - Ensure your EC2 security group allows inbound from the edge(s) on: TCP 8080,8888,8889,9877,9090 and UDP 3478,49160-49200
+EOF
+  else
+    cat >&2 <<EOF
      - Allowlisted edge/gateway IPs ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
+EOF
+  fi
+  cat >&2 <<EOF
      - Payments backend -> TCP 9090 (health monitoring)
      - ${STYLE_DIM}Auto-apply notes:${STYLE_RESET} UFW only (if active). EC2 security groups only with ${STYLE_BOLD}--apply-aws-sg${STYLE_RESET}.
+EOF
+  if [[ "${plane_enabled:-0}" != "1" ]]; then
+    cat >&2 <<EOF
      - ${STYLE_DIM}Edge IPs:${STYLE_RESET} add with ${STYLE_BOLD}--allowed-ip${STYLE_RESET} or ${STYLE_BOLD}--allowed-ips${STYLE_RESET} (or rerun with ${STYLE_BOLD}--advanced${STYLE_RESET}).
+EOF
+  fi
+  cat >&2 <<EOF
 
   ${STYLE_DIM}2) Local health:${STYLE_RESET}
      - Signaling:    curl http://127.0.0.1:8080/healthz
@@ -2027,10 +2093,27 @@ Done.
 
 Next:
   1) Ensure inbound allowlists / firewall rules are set:
+EOF
+  if [[ "${plane_enabled:-0}" == "1" ]]; then
+    cat >&2 <<EOF
+     - Edge assignment is managed by the control plane: ${EDGE_CONFIG_URL}
+     - Ensure your EC2 security group allows inbound from the edge(s) on: TCP 8080,8888,8889,9877,9090 and UDP 3478,49160-49200
+EOF
+  else
+    cat >&2 <<EOF
      - Allowlisted edge/gateway IPs ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
+EOF
+  fi
+  cat >&2 <<EOF
      - Payments backend -> TCP 9090 (health monitoring)
      - Auto-apply notes: UFW only (if active). EC2 security groups only with --apply-aws-sg.
+EOF
+  if [[ "${plane_enabled:-0}" != "1" ]]; then
+    cat >&2 <<EOF
      - Edge IPs: add with --allowed-ip/--allowed-ips (or rerun with --advanced).
+EOF
+  fi
+  cat >&2 <<EOF
 
   2) Verify locally:
      - Signaling health:    curl http://127.0.0.1:8080/healthz

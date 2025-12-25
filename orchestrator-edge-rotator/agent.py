@@ -269,6 +269,29 @@ def _parse_cidrs_csv(raw: str) -> list[str]:
     return out
 
 
+def _cidrs_to_ips(cidrs: list[str]) -> list[str]:
+    ips: list[str] = []
+    seen: set[str] = set()
+    for token in cidrs:
+        token = (token or "").strip()
+        if not token:
+            continue
+        try:
+            net = ipaddress.ip_network(token, strict=False)
+        except ValueError:
+            continue
+        if net.version != 4:
+            continue
+        if getattr(net, "prefixlen", 32) != 32:
+            continue
+        ip = str(net.network_address)
+        if ip in seen:
+            continue
+        seen.add(ip)
+        ips.append(ip)
+    return ips
+
+
 def _read_env_value(env_path: Path, key: str) -> str:
     if not env_path.exists():
         return ""
@@ -424,6 +447,7 @@ def main() -> int:
     extra_firewall_cidrs = _parse_cidrs_csv(os.environ.get("EDGE_FIREWALL_EXTRA_CIDRS", ""))
     power_allowed_file_raw = (os.environ.get("EDGE_POWER_ALLOWED_IPS_FILE") or "").strip()
     power_allowed_file = Path(power_allowed_file_raw) if power_allowed_file_raw else None
+    local_allowlist = (os.environ.get("EDGE_LOCAL_ALLOWLIST") or "127.0.0.1,::1,172.17.0.1,172.18.0.1").strip()
 
     public_port = int(os.environ.get("EDGE_SIGNALING_PUBLIC_PORT", "8080"))
     default_mm_port = int(os.environ.get("EDGE_MATCHMAKER_DEFAULT_PORT", "8889"))
@@ -495,6 +519,22 @@ def main() -> int:
                 # SIGNALING_EXTRA_ARGS + SIGNALING_MATCHMAKER_ARGS.
                 env_changed = _upsert_env_value(env_file, "SIGNALING_MATCHMAKER_ARGS", "") or env_changed
 
+                # Ensure runner/recorder allowlists follow the selected edge. This allowlist is consumed
+                # by services that do strict string matching on client IP (no CIDR support), so only
+                # /32 edge CIDRs can be reflected here.
+                edge_ips = _cidrs_to_ips(cidrs)
+                if edge_ips:
+                    base = [t.strip() for t in local_allowlist.split(",") if t.strip()]
+                    allow_tokens = [*base, *edge_ips]
+                    deduped: list[str] = []
+                    seen = set()
+                    for token in allow_tokens:
+                        if token in seen:
+                            continue
+                        seen.add(token)
+                        deduped.append(token)
+                    env_changed = _upsert_env_value(env_file, "VTUBER_ALLOWED_ADDRESSES", ",".join(deduped)) or env_changed
+
             if update_turn and apply_key != last_applied_key:
                 turn_ip = desired.get("turn_external_ip")
                 if isinstance(turn_ip, str) and turn_ip.strip():
@@ -517,7 +557,15 @@ def main() -> int:
                         project_dir=project_dir,
                         env_file=str(env_file),
                         compose_file=str(compose_file),
-                        args=["up", "--no-start", "--force-recreate", "unreal-signaling", "turn-server"],
+                        args=[
+                            "up",
+                            "--no-start",
+                            "--force-recreate",
+                            "unreal-signaling",
+                            "turn-server",
+                            "vtuber-script-runner",
+                            "recorder-control",
+                        ],
                         check=False,
                     )
                 else:
@@ -526,7 +574,15 @@ def main() -> int:
                         project_dir=project_dir,
                         env_file=str(env_file),
                         compose_file=str(compose_file),
-                        args=["up", "-d", "--force-recreate", "unreal-signaling", "turn-server"],
+                        args=[
+                            "up",
+                            "-d",
+                            "--force-recreate",
+                            "unreal-signaling",
+                            "turn-server",
+                            "vtuber-script-runner",
+                            "recorder-control",
+                        ],
                         check=False,
                     )
 
