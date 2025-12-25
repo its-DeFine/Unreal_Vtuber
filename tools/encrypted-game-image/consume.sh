@@ -232,6 +232,10 @@ note() {
   echo "${STYLE_MAG}${STYLE_BOLD}▸${STYLE_RESET} ${STYLE_CYN}$*${STYLE_RESET}" >&2
 }
 
+warn() {
+  echo "${STYLE_YLW}${STYLE_BOLD}⚠${STYLE_RESET} $*" >&2
+}
+
 ok() {
   echo "${STYLE_GRN}${STYLE_BOLD}✓${STYLE_RESET} $*" >&2
 }
