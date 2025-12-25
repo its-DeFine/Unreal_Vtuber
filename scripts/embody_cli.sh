@@ -119,6 +119,23 @@ strip_inline_comment() {
   trim_whitespace "$s"
 }
 
+extract_first_nonlocal_allowlist_token() {
+  local csv="$1"
+  local raw token
+  IFS=',' read -r -a raw <<<"$csv"
+  for token in "${raw[@]}"; do
+    token="$(trim_whitespace "$token")"
+    token="$(strip_inline_comment "$token")"
+    [[ -n "$token" ]] || continue
+    case "$token" in
+      127.0.0.1|::1|172.17.0.1|172.18.0.1) continue ;;
+    esac
+    printf '%s' "$token"
+    return 0
+  done
+  return 1
+}
+
 get_orchestrator_id() {
   local raw
   raw="$(read_env_value "$ENV_FILE" "ORCHESTRATOR_ID" 2>/dev/null || true)"
@@ -143,6 +160,13 @@ get_gpu_devices() {
 get_payments_api_url() {
   local raw
   raw="$(read_env_value "$ENV_FILE" "PAYMENTS_API_URL" 2>/dev/null || true)"
+  raw="$(strip_inline_comment "$raw")"
+  printf '%s' "$raw"
+}
+
+get_edge_config_url() {
+  local raw
+  raw="$(read_env_value "$ENV_FILE" "EDGE_CONFIG_URL" 2>/dev/null || true)"
   raw="$(strip_inline_comment "$raw")"
   printf '%s' "$raw"
 }
@@ -532,6 +556,24 @@ cmd_health() {
   curl -fsS --max-time 2 http://127.0.0.1:8080/healthz 2>/dev/null && echo "signaling: OK" || echo "signaling: FAIL"
   curl -fsS --max-time 2 http://127.0.0.1:9877/health 2>/dev/null && echo "runner:    OK" || echo "runner:    FAIL"
   curl -fsS --max-time 2 http://127.0.0.1:9090/health 2>/dev/null && echo "orch:      OK" || echo "orch:      FAIL"
+
+  if [[ -f "$ENV_FILE" ]]; then
+    local edge_config_url allowlist nonlocal turn_external
+    edge_config_url="$(get_edge_config_url)"
+    if [[ -n "$edge_config_url" ]]; then
+      allowlist="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)")"
+      nonlocal="$(extract_first_nonlocal_allowlist_token "$allowlist" || true)"
+      turn_external="$(strip_inline_comment "$(read_env_value "$TURN_ENV_FILE" "TURN_EXTERNAL_IP" 2>/dev/null || true)")"
+      if [[ -n "$nonlocal" ]]; then
+        echo "edge-plane: OK (edge allowlisted: ${nonlocal})"
+      else
+        echo "edge-plane: WAITING (no edge IP allowlisted yet; check vtuber-orchestrator-edge-rotator logs)"
+      fi
+      if [[ -n "$turn_external" && -n "$nonlocal" ]] && [[ "$turn_external" != "$nonlocal" ]]; then
+        echo "turn:      WARN (TURN_EXTERNAL_IP=${turn_external}; expected edge IP ${nonlocal} for DNAT setups)"
+      fi
+    fi
+  fi
 }
 
 cmd_capacity() {
