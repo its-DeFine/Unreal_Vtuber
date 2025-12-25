@@ -73,6 +73,14 @@ read_secret_file() {
   tr -d '\n' < "$path"
 }
 
+normalize_secret() {
+  local s="${1:-}"
+  s="$(trim_whitespace "$s")"
+  s="$(strip_wrapping_quotes "$s")"
+  s="$(trim_whitespace "$s")"
+  printf '%s' "$s"
+}
+
 write_secret_file() {
   local path="$1"
   local value="$2"
@@ -138,6 +146,35 @@ curl_json_post() {
     return 2
   fi
   printf '%s' "$body"
+}
+
+curl_json_post_with_status() {
+  # Usage: curl_json_post_with_status <url> <payload_json> [header...]
+  # Prints body to stdout. Sets global CURL_JSON_LAST_HTTP_CODE.
+  local url="$1"
+  local payload="$2"
+  shift 2
+
+  local out http_code body
+  out="$(curl -sS --connect-timeout 10 --max-time 60 -X POST \
+    -H "Content-Type: application/json" \
+    "$@" \
+    -d "$payload" \
+    -w $'\n%{http_code}' \
+    "$url")" || return 1
+  http_code="$(printf '%s' "$out" | tail -n1)"
+  body="$(printf '%s' "$out" | sed '$d')"
+
+  CURL_JSON_LAST_HTTP_CODE="$http_code"
+  printf '%s' "$body"
+
+  if [[ ! "$http_code" =~ ^[0-9]+$ ]]; then
+    return 3
+  fi
+  if [[ "$http_code" -ge 400 ]]; then
+    return 2
+  fi
+  return 0
 }
 
 is_tty() {
@@ -627,17 +664,17 @@ init_ui
 banner
 
 if [[ -n "$orch_token_env" ]]; then
-  orch_token="${!orch_token_env:-}"
+  orch_token="$(normalize_secret "${!orch_token_env:-}")"
 fi
 if [[ -n "$orch_token_file" ]]; then
-  orch_token="$(read_secret_file "$orch_token_file" || true)"
+  orch_token="$(normalize_secret "$(read_secret_file "$orch_token_file" 2>/dev/null || true)")"
 fi
 
 if [[ -n "$invite_code_env" ]]; then
-  invite_code="${!invite_code_env:-}"
+  invite_code="$(normalize_secret "${!invite_code_env:-}")"
 fi
 if [[ -n "$invite_code_file" ]]; then
-  invite_code="$(read_secret_file "$invite_code_file" || true)"
+  invite_code="$(normalize_secret "$(read_secret_file "$invite_code_file" 2>/dev/null || true)")"
 fi
 
 # Determine the correct "home" to use for caching when running under sudo.
@@ -656,44 +693,101 @@ fi
 # Auto-load a cached token if nothing was provided explicitly.
 default_token_file="$target_home/.embody/orch-license-token.txt"
 if [[ -z "$orch_token" ]] && [[ -z "$orch_token_file" ]] && [[ -f "$default_token_file" ]]; then
-  orch_token="$(read_secret_file "$default_token_file" || true)"
+  orch_token="$(normalize_secret "$(read_secret_file "$default_token_file" 2>/dev/null || true)")"
   orch_token_file="$default_token_file"
 fi
+
+redeem_invite_to_token() {
+  # Uses invite_code + orch_id + orch_address and writes token to orch_token_file (default: ~/.embody/orch-license-token.txt)
+  [[ -n "$invite_code" ]] || return 1
+  [[ -n "$orch_id" ]] || return 1
+  [[ -n "$orch_address" ]] || return 1
+
+  redeem_payload="$(jq -nc --arg code "$invite_code" --arg orchestrator_id "$orch_id" --arg address "$orch_address" '{code:$code,orchestrator_id:$orchestrator_id,address:$address}')"
+  fx_dots "Redeeming invite code → orchestrator token"
+  redeem_json="$(curl_json_post "$payments_api_url/api/licenses/invites/redeem" "$redeem_payload")" || return 2
+  orch_token="$(normalize_secret "$(echo "$redeem_json" | jq -r '.token // empty')")"
+  [[ -n "$orch_token" ]] || return 3
+
+  if [[ -z "$orch_token_file" ]]; then
+    orch_token_file="$default_token_file"
+  fi
+  write_secret_file "$orch_token_file" "$orch_token"
+  ok "Invite redeemed; token stored at ${orch_token_file}"
+  return 0
+}
 
 if [[ -z "$orch_token" ]]; then
   if [[ -z "$invite_code" ]] && is_tty; then
     note "No cached orchestrator token found; redeem an invite code once to mint a token."
     invite_code="$(prompt_secret "Invite code")"
+    invite_code="$(normalize_secret "$invite_code")"
   fi
   if [[ -z "$orch_id" ]] && is_tty; then
     orch_id="$(prompt_input "Orchestrator ID (string identifier)" "${ORCHESTRATOR_ID:-}")"
+    orch_id="$(normalize_secret "$orch_id")"
   fi
   if [[ -z "$orch_address" ]] && is_tty; then
     orch_address="$(prompt_input "Orchestrator wallet address (0x...)" "${ORCHESTRATOR_ADDRESS:-}")"
+    orch_address="$(normalize_secret "$orch_address")"
   fi
 
   [[ -n "$invite_code" ]] || die "orchestrator token required (provide --orch-token-file/env, or redeem an invite code via --invite-code-file/env)"
   [[ -n "$orch_id" ]] || die "--orch-id is required when redeeming an invite code"
   [[ -n "$orch_address" ]] || die "--orch-address is required when redeeming an invite code"
 
-  redeem_payload="$(jq -nc --arg code "$invite_code" --arg orchestrator_id "$orch_id" --arg address "$orch_address" '{code:$code,orchestrator_id:$orchestrator_id,address:$address}')"
-  fx_dots "Redeeming invite code → orchestrator token"
-  redeem_json="$(curl_json_post "$payments_api_url/api/licenses/invites/redeem" "$redeem_payload")" || die "failed to redeem invite code"
-  orch_token="$(echo "$redeem_json" | jq -r '.token // empty')"
-  [[ -n "$orch_token" ]] || die "Payments invite redeem did not return a token"
-
-  # Persist token so the UX is "enter code once".
-  if [[ -z "$orch_token_file" ]]; then
-    orch_token_file="$default_token_file"
-  fi
-  write_secret_file "$orch_token_file" "$orch_token"
-  ok "Invite redeemed; token stored at ${orch_token_file}"
+  redeem_invite_to_token || die "failed to redeem invite code"
 fi
 
 payload="$(jq -nc --arg image_ref "$image_ref" '{image_ref:$image_ref}')"
 fx_dots "Requesting a decryption lease from Payments"
-lease_json="$(curl_json_post "$payments_api_url/api/licenses/lease" "$payload" -H "Authorization: Bearer $orch_token")" \
-  || die "failed to request lease (if this is a fresh machine, you must redeem an invite code first)"
+lease_http_code=""
+lease_body="$(curl_json_post_with_status "$payments_api_url/api/licenses/lease" "$payload" -H "Authorization: Bearer $orch_token" || true)"
+lease_http_code="${CURL_JSON_LAST_HTTP_CODE:-}"
+if [[ -z "$lease_http_code" || ! "$lease_http_code" =~ ^[0-9]+$ ]]; then
+  die "failed to request lease (network error)"
+fi
+if [[ "$lease_http_code" -ge 400 ]]; then
+  echo "" >&2
+  echo "${STYLE_RED}${STYLE_BOLD}Payments error${STYLE_RESET} ${STYLE_DIM}(HTTP $lease_http_code)${STYLE_RESET}" >&2
+  echo "$lease_body" >&2
+
+  if [[ ("$lease_http_code" == "401" || "$lease_http_code" == "403") && is_tty ]]; then
+    warn "Payments rejected your cached token; redeem a fresh invite code (you only need to do this once per machine)."
+    invite_code=""
+    orch_token=""
+
+    invite_code="$(prompt_secret "Invite code")"
+    invite_code="$(normalize_secret "$invite_code")"
+    if [[ -z "$orch_id" ]]; then
+      orch_id="$(prompt_input "Orchestrator ID (string identifier)" "${ORCHESTRATOR_ID:-}")"
+      orch_id="$(normalize_secret "$orch_id")"
+    fi
+    if [[ -z "$orch_address" ]]; then
+      orch_address="$(prompt_input "Orchestrator wallet address (0x...)" "${ORCHESTRATOR_ADDRESS:-}")"
+      orch_address="$(normalize_secret "$orch_address")"
+    fi
+
+    [[ -n "$invite_code" ]] || die "orchestrator token required (no invite code provided)"
+    [[ -n "$orch_id" ]] || die "--orch-id is required when redeeming an invite code"
+    [[ -n "$orch_address" ]] || die "--orch-address is required when redeeming an invite code"
+
+    redeem_invite_to_token || die "failed to redeem invite code"
+
+    fx_dots "Retrying decryption lease request"
+    lease_body="$(curl_json_post_with_status "$payments_api_url/api/licenses/lease" "$payload" -H "Authorization: Bearer $orch_token" || true)"
+    lease_http_code="${CURL_JSON_LAST_HTTP_CODE:-}"
+    if [[ -z "$lease_http_code" || ! "$lease_http_code" =~ ^[0-9]+$ || "$lease_http_code" -ge 400 ]]; then
+      echo "" >&2
+      echo "${STYLE_RED}${STYLE_BOLD}Payments error${STYLE_RESET} ${STYLE_DIM}(HTTP ${lease_http_code:-unknown})${STYLE_RESET}" >&2
+      echo "$lease_body" >&2
+      die "failed to request lease after redeem"
+    fi
+  else
+    die "failed to request lease"
+  fi
+fi
+lease_json="$lease_body"
 
 lease_id="$(echo "$lease_json" | jq -r '.lease_id // empty')"
 secret_b64="$(echo "$lease_json" | jq -r '.secret_b64 // empty')"
