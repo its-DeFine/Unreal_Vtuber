@@ -1156,6 +1156,97 @@ upsert_env_kv() {
   mv "$tmp" "$file"
 }
 
+strip_wrapping_quotes() {
+  local s="$1"
+  if [[ "$s" == \"*\" && "$s" == *\" ]]; then
+    s="${s#\"}"
+    s="${s%\"}"
+  fi
+  if [[ "$s" == \'*\' && "$s" == *\' ]]; then
+    s="${s#\'}"
+    s="${s%\'}"
+  fi
+  printf '%s' "$s"
+}
+
+read_orchestrator_token_best_effort() {
+  local token=""
+  if [[ -n "$ORCH_TOKEN_ENV" ]]; then
+    token="${!ORCH_TOKEN_ENV:-}"
+  fi
+  if [[ -z "$token" && -n "$ORCH_TOKEN_FILE" && -f "$ORCH_TOKEN_FILE" ]]; then
+    token="$(tr -d '\n' < "$ORCH_TOKEN_FILE" 2>/dev/null || true)"
+  fi
+  if [[ -z "$token" ]]; then
+    local default_token_file="$target_home/.embody/orch-license-token.txt"
+    if [[ -f "$default_token_file" ]]; then
+      token="$(tr -d '\n' < "$default_token_file" 2>/dev/null || true)"
+    fi
+  fi
+  token="$(trim_whitespace "${token:-}")"
+  token="$(strip_wrapping_quotes "$token")"
+  token="$(trim_whitespace "${token:-}")"
+  printf '%s' "$token"
+}
+
+bootstrap_edge_plane_from_payments_best_effort() {
+  if [[ -n "$EDGE_CONFIG_URL" ]]; then
+    return
+  fi
+  if [[ -z "$PAYMENTS_API_URL" ]]; then
+    return
+  fi
+  local token url json edge_url edge_token
+  token="$(read_orchestrator_token_best_effort)"
+  if [[ -z "$token" ]]; then
+    return
+  fi
+  require_cmd curl
+  require_cmd python3
+
+  url="${PAYMENTS_API_URL%/}/api/orchestrators/bootstrap"
+  json="$(curl -fsS --max-time 5 -H "Authorization: Bearer $token" "$url" 2>/dev/null || true)"
+  [[ -n "$json" ]] || return
+
+  edge_url="$(BODY="$json" python3 - <<'PY'
+import json
+import os
+
+body = os.environ.get("BODY") or ""
+try:
+    data = json.loads(body)
+except Exception:
+    print("")
+    raise SystemExit(0)
+print((data.get("edge_config_url") or "").strip())
+PY
+)"
+  edge_token="$(BODY="$json" python3 - <<'PY'
+import json
+import os
+
+body = os.environ.get("BODY") or ""
+try:
+    data = json.loads(body)
+except Exception:
+    print("")
+    raise SystemExit(0)
+print((data.get("edge_config_token") or "").strip())
+PY
+)"
+
+  edge_url="$(trim_whitespace "$edge_url")"
+  edge_url="$(strip_inline_comment "$edge_url")"
+  edge_token="$(trim_whitespace "$edge_token")"
+
+  if [[ -n "$edge_url" ]]; then
+    EDGE_CONFIG_URL="$edge_url"
+    if [[ -z "$EDGE_CONFIG_TOKEN" && -n "$edge_token" ]]; then
+      EDGE_CONFIG_TOKEN="$edge_token"
+    fi
+  fi
+}
+
 write_token_file_if_needed() {
   if [[ -n "$ORCH_TOKEN_FILE" || -n "$ORCH_TOKEN_ENV" ]]; then
     return
@@ -1492,6 +1583,7 @@ maybe_run_wizard() {
   fi
 
   section "Edge Assignment (recommended)"
+  bootstrap_edge_plane_from_payments_best_effort
   note "Recommended: configure the edge config plane (EDGE_CONFIG_URL)."
   note "If enabled, Embody can move this orchestrator between edges without SSH, and you do NOT need to enter edge IPs here."
   EDGE_CONFIG_URL="$(prompt_default "Edge config URL (blank = manual edge IP mode)" "$EDGE_CONFIG_URL")"
@@ -1764,6 +1856,8 @@ require_cmd curl
 require_cmd python3
 
 redeem_invite_code_if_needed
+
+bootstrap_edge_plane_from_payments_best_effort
 
 if ! docker info >/dev/null 2>&1; then
   note "Waiting for Docker daemon..."
