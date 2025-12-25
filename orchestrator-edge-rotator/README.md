@@ -1,9 +1,10 @@
 # Orchestrator Edge Rotator (sidecar)
 
-This container runs on the **orchestrator GPU host** and automates the two things required to “move an orchestrator between edges” without SSHing into the box:
+This container runs on the **orchestrator GPU host** and automates the key pieces required to “move an orchestrator between edges” without SSHing into the box:
 
 1) **Host firewall gating** (UFW is common, but we program `iptables` directly): allow only the selected edge IP(s) to reach the orchestrator on the protected ports (e.g. `8080`, `9090`).
-2) **Matchmaker target rotation**: update `.env` (`SIGNALING_MATCHMAKER_ARGS=...`) and recreate the signaling container so it re-registers with the chosen edge matchmaker.
+2) **Matchmaker target rotation**: update `.env` (writes matchmaker flags into `SIGNALING_EXTRA_ARGS`) and recreate the signaling container so it re-registers with the chosen edge matchmaker.
+3) **Per-edge service allowlists**: update `.env` `VTUBER_ALLOWED_ADDRESSES` (used by runner/recorder IP allowlists) and recreate the affected containers so only the selected edge(s) can call them.
 
 It is designed to work even when the stack is “sleeping” (only `orchestrator-health` is up) by recreating containers with `docker compose up --no-start ...`.
 
@@ -24,6 +25,9 @@ Response JSON (minimal):
   "edge_cidrs": ["35.164.115.11/32"]
 }
 ```
+
+Note:
+- For `VTUBER_ALLOWED_ADDRESSES`, the rotator can only translate `/32` edge CIDRs into allowed IP strings (runner/recorder do strict IP string matching; no CIDR support).
 
 Accepted aliases:
 - `matchmaker_address` instead of `matchmaker_host`
@@ -48,6 +52,7 @@ Optional:
 - `EDGE_UPDATE_TURN` (default `false`) – if enabled and control plane returns `turn_external_ip`, rewrite `.env.turn` and recreate `turn-server`.
 - `EDGE_WAKE_SETTLE_SECONDS` (default `60`) – after a wake transition, avoid restarts during this window.
 - `EDGE_FIREWALL_EXTRA_CIDRS` (default empty) – additional CIDRs to allow (ex: Payments health checker IP).
+- `EDGE_LOCAL_ALLOWLIST` (default `127.0.0.1,::1,172.17.0.1,172.18.0.1`) – base tokens prepended to `VTUBER_ALLOWED_ADDRESSES` when the rotator rewrites it.
 - `EDGE_POWER_ALLOWED_IPS_FILE` (default `/var/lib/vtuber/power-state/power_allowed_ips.txt`) – writes edge CIDRs for `/power` allowlisting.
 
 ## Security notes
