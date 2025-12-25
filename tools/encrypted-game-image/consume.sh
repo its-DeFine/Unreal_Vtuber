@@ -643,6 +643,9 @@ if [[ -z "$image_ref" ]] && is_tty; then
   image_ref="$(prompt_input "Image ref (must exist in Payments licenses)" "${IMAGE_REF:-}")"
 fi
 
+payments_api_url="$(normalize_secret "$payments_api_url")"
+image_ref="$(normalize_secret "$image_ref")"
+
 [[ -n "$payments_api_url" ]] || die "--payments-api-url is required"
 [[ -n "$image_ref" ]] || die "--image-ref is required"
 artifact_url="$(trim_whitespace "$artifact_url")"
