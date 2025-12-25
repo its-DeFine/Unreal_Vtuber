@@ -536,9 +536,19 @@ def main() -> int:
                     env_changed = _upsert_env_value(env_file, "VTUBER_ALLOWED_ADDRESSES", ",".join(deduped)) or env_changed
 
             if update_turn and apply_key != last_applied_key:
-                turn_ip = desired.get("turn_external_ip")
-                if isinstance(turn_ip, str) and turn_ip.strip():
-                    turn_ip = turn_ip.strip()
+                turn_ip: str | None = None
+                raw_turn = desired.get("turn_external_ip")
+                if isinstance(raw_turn, str) and raw_turn.strip():
+                    turn_ip = raw_turn.strip()
+                else:
+                    # When the orchestrator sits behind an edge/gateway DNAT, TURN must advertise the edge/gateway IP.
+                    # If the control plane doesn't provide an explicit turn_external_ip, fall back to the selected edge IP
+                    # when it is an unambiguous single /32.
+                    edge_ips = _cidrs_to_ips(cidrs)
+                    if len(edge_ips) == 1:
+                        turn_ip = edge_ips[0]
+
+                if turn_ip:
                     env_changed = _upsert_env_value(env_turn, "TURN_EXTERNAL_IP", turn_ip) or env_changed
                     env_changed = _upsert_env_value(env_turn, "TURN_SERVER", f"{turn_ip}:3478") or env_changed
 
