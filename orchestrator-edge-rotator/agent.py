@@ -570,11 +570,12 @@ def main() -> int:
             if updated_at is not None:
                 recently_changed = abs((now - updated_at).total_seconds()) < wake_settle_s
 
-            if env_changed:
+            if apply_key != last_applied_key:
                 # If sleeping, recreate without starting so /power wake starts with the new config.
                 # If we're in the first moments of a wake transition, avoid fighting the wake sequence.
+                reason = "config changed" if env_changed else "edge changed"
                 if state == "sleeping" or recently_changed:
-                    _log(f"config changed; state={state} recently_changed={recently_changed} -> docker compose up --no-start")
+                    _log(f"{reason}; state={state} recently_changed={recently_changed} -> docker compose up --no-start")
                     cp = _compose(
                         project_dir=project_dir,
                         env_file=str(env_file),
@@ -591,7 +592,7 @@ def main() -> int:
                         check=False,
                     )
                 else:
-                    _log("config changed; recreating signaling (and turn if present)")
+                    _log(f"{reason}; recreating signaling/turn/runner/recorder")
                     cp = _compose(
                         project_dir=project_dir,
                         env_file=str(env_file),
