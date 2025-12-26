@@ -86,9 +86,14 @@ def _parse_ports(raw: str) -> list[PortRule]:
     return deduped
 
 
-def _run(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess:
+def _run(
+    args: list[str],
+    *,
+    check: bool = True,
+    env: Optional[dict[str, str]] = None,
+) -> subprocess.CompletedProcess:
     _log("+ " + " ".join(shlex.quote(a) for a in args))
-    return subprocess.run(args, check=check, capture_output=True, text=True)
+    return subprocess.run(args, check=check, capture_output=True, text=True, env=env)
 
 
 def _iptables(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess:
@@ -378,7 +383,14 @@ def _compose(
         compose_file,
         *args,
     ]
-    return _run(cmd, check=check)
+    env = dict(os.environ)
+    # The rotator container itself consumes the host `.env` via `env_file: .env`.
+    # When we update `.env` and then invoke `docker compose` from inside the rotator,
+    # stale process env values can override `--env-file` and cause the recreated
+    # containers to keep the *previous* values (breaking edge rotation).
+    for key in ("SIGNALING_EXTRA_ARGS", "SIGNALING_MATCHMAKER_ARGS"):
+        env.pop(key, None)
+    return _run(cmd, check=check, env=env)
 
 
 def _write_csv_file(path: Path, values: list[str], *, mode: int = 0o600) -> bool:
@@ -513,7 +525,7 @@ def main() -> int:
                 # If we're in the first moments of a wake transition, avoid fighting the wake sequence.
                 if state == "sleeping" or recently_changed:
                     _log(f"config changed; state={state} recently_changed={recently_changed} -> docker compose up --no-start")
-                    _compose(
+                    cp = _compose(
                         project_dir=project_dir,
                         env_file=str(env_file),
                         compose_file=str(compose_file),
@@ -522,13 +534,19 @@ def main() -> int:
                     )
                 else:
                     _log("config changed; recreating signaling (and turn if present)")
-                    _compose(
+                    cp = _compose(
                         project_dir=project_dir,
                         env_file=str(env_file),
                         compose_file=str(compose_file),
                         args=["up", "-d", "--force-recreate", "unreal-signaling", "turn-server"],
                         check=False,
                     )
+                if cp.returncode != 0:
+                    stderr = (cp.stderr or "").strip()
+                    if stderr:
+                        stderr = "\n".join(stderr.splitlines()[-5:]).strip()
+                        raise RuntimeError(f"docker compose failed (rc={cp.returncode}): {stderr}")
+                    raise RuntimeError(f"docker compose failed (rc={cp.returncode})")
 
             last_applied_key = apply_key
         except Exception as exc:  # noqa: BLE001
