@@ -1,9 +1,10 @@
 # Orchestrator Edge Rotator (sidecar)
 
-This container runs on the **orchestrator GPU host** and automates the two things required to “move an orchestrator between edges” without SSHing into the box:
+This container runs on the **orchestrator GPU host** and automates the key pieces required to “move an orchestrator between edges” without SSHing into the box:
 
 1) **Host firewall gating** (UFW is common, but we program `iptables` directly): allow only the selected edge IP(s) to reach the orchestrator on the protected ports (e.g. `8080`, `9090`).
-2) **Matchmaker target rotation**: update `.env` (`SIGNALING_MATCHMAKER_ARGS=...`) and recreate the signaling container so it re-registers with the chosen edge matchmaker.
+2) **Matchmaker target rotation**: update `.env` (writes matchmaker flags into `SIGNALING_EXTRA_ARGS`) and recreate the signaling container so it re-registers with the chosen edge matchmaker.
+3) **Per-edge service allowlists**: update `.env` `VTUBER_ALLOWED_ADDRESSES` (used by runner/recorder IP allowlists) and recreate the affected containers so only the selected edge(s) can call them.
 
 It is designed to work even when the stack is “sleeping” (only `orchestrator-health` is up) by recreating containers with `docker compose up --no-start ...`.
 
@@ -25,11 +26,14 @@ Response JSON (minimal):
 }
 ```
 
+Note:
+- For `VTUBER_ALLOWED_ADDRESSES`, the rotator can only translate `/32` edge CIDRs into allowed IP strings (runner/recorder do strict IP string matching; no CIDR support).
+
 Accepted aliases:
 - `matchmaker_address` instead of `matchmaker_host`
 - `edge_ip` / `edge_ips` (IPv4s; converted to `/32`)
 - `edge_host` (DNS; resolved to A records; converted to `/32`)
-- `turn_external_ip` (optional; if `EDGE_UPDATE_TURN=true`, updates `.env.turn`)
+- `turn_external_ip` (optional; if `EDGE_UPDATE_TURN=true`, updates `.env.turn`; if omitted and exactly one `/32` edge IP is selected, the rotator uses that as a fallback)
 
 ## Environment
 
@@ -40,6 +44,7 @@ Optional:
 - `EDGE_CONFIG_TOKEN`
 - `EDGE_POLL_INTERVAL_SECONDS` (default `15`)
 - `EDGE_PROJECT_DIR` (default `/home/ubuntu/Unreal_Vtuber`) – must match the host path (see compose wiring).
+- `EDGE_STATE_FILE` (default `/var/lib/vtuber/power-state/edge_rotator_state.json`) – persisted state to avoid unnecessary service recreates on rotator restarts.
 - `EDGE_ALLOW_PORTS` (default `8080/tcp,8888/tcp,8889/tcp,9090/tcp,9877/tcp,3478/tcp,3478/udp,49160-49200/udp`)
   - Note: the stack exposes signaling as `8080:80`; the rotator also enforces `80/tcp` so the `8080` allowlist actually applies.
 - `EDGE_ENFORCE_EXCLUSIVE` (default `true`) – add DROP rules for the managed ports so only edge CIDRs can reach them.
@@ -48,6 +53,7 @@ Optional:
 - `EDGE_UPDATE_TURN` (default `false`) – if enabled and control plane returns `turn_external_ip`, rewrite `.env.turn` and recreate `turn-server`.
 - `EDGE_WAKE_SETTLE_SECONDS` (default `60`) – after a wake transition, avoid restarts during this window.
 - `EDGE_FIREWALL_EXTRA_CIDRS` (default empty) – additional CIDRs to allow (ex: Payments health checker IP).
+- `EDGE_LOCAL_ALLOWLIST` (default `127.0.0.1,::1,172.17.0.1,172.18.0.1`) – base tokens prepended to `VTUBER_ALLOWED_ADDRESSES` when the rotator rewrites it.
 - `EDGE_POWER_ALLOWED_IPS_FILE` (default `/var/lib/vtuber/power-state/power_allowed_ips.txt`) – writes edge CIDRs for `/power` allowlisting.
 
 ## Security notes
