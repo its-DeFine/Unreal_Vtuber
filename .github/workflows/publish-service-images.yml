@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - staging
     paths:
       - ".github/workflows/publish-service-images.yml"
       - "docker/watchdog/**"
@@ -69,7 +70,8 @@ jobs:
         with:
           images: ${{ matrix.image }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/staging' }}
             type=sha,format=short,prefix=sha-
 
       - name: Build and push

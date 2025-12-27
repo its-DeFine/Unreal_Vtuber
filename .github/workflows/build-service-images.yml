@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - staging
     paths:
       - ".github/workflows/build-service-images.yml"
       - ".github/workflows/publish-service-images.yml"
