@@ -2151,6 +2151,9 @@ if [[ "$SKIP_REGISTRATION" != "1" ]]; then
   if "${reg_cmd[@]}"; then
     REGISTRATION_VERIFIED="1"
   fi
+  if [[ -f "$registration_state_file" && "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
+    chown "$target_user":"$target_user" "$registration_state_file" 2>/dev/null || true
+  fi
   if verify_payments_registration_best_effort; then
     REGISTRATION_VERIFIED="1"
   fi
