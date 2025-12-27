@@ -1180,7 +1180,8 @@ main() {
       cmd_capacity
       ;;
     payments)
-      cmd_payments
+      shift || true
+      cmd_payments "$@"
       ;;
     "")
       if setup_complete && is_tty; then
