@@ -20,6 +20,8 @@ if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
 fi
 
 TOKEN_FILE_DEFAULT="${TARGET_HOME}/.embody/orch-license-token.txt"
+PAYMENTS_VIEWER_TOKEN_FILE_DEFAULT="${TARGET_HOME}/.embody/payments-viewer-token.txt"
+REGISTRATION_STATE_FILE_DEFAULT="${TARGET_HOME}/.embody/orchestrator-registration.json"
 DEFAULT_PAYMENTS_API_URL="http://3.141.111.200:8081"
 DEFAULT_LICENSE_IMAGE_REF="ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1"
 
@@ -33,6 +35,9 @@ Usage:
   ./scripts/embody_cli.sh license          # Show license token status
   ./scripts/embody_cli.sh license redeem   # Redeem invite code → store token
   ./scripts/embody_cli.sh rollout          # Rollout encrypted game image (wraps tools/encrypted-game-image/rollout.sh)
+  ./scripts/embody_cli.sh register         # Register orchestrator in Payments (cached; skip when already registered)
+  ./scripts/embody_cli.sh verify           # Full health/consistency checks (optionally auto-fix)
+  ./scripts/embody_cli.sh power            # Sleep/wake via orchestrator-health /power
 
 Day-to-day commands:
   ./scripts/embody_cli.sh start [--gpu <id|all|none>]   # Start stack (defaults to detached)
@@ -44,7 +49,7 @@ Day-to-day commands:
   ./scripts/embody_cli.sh test
   ./scripts/embody_cli.sh config
   ./scripts/embody_cli.sh capacity
-  ./scripts/embody_cli.sh payments   # (placeholder)
+  ./scripts/embody_cli.sh payments         # Payments checks + token helper
 
 Notes:
   - Onboarding is stored in `scripts/embody_onboard.sh` (called by `setup`).
@@ -134,6 +139,28 @@ extract_first_nonlocal_allowlist_token() {
     return 0
   done
   return 1
+}
+
+read_file_trim() {
+  local path="$1"
+  [[ -f "$path" ]] || return 1
+  local value
+  value="$(tr -d '\n' < "$path" 2>/dev/null || true)"
+  value="$(trim_whitespace "${value:-}")"
+  printf '%s' "$value"
+}
+
+read_payments_viewer_token() {
+  local token=""
+  if [[ -n "${PAYMENTS_VIEWER_TOKEN:-}" ]]; then
+    token="${PAYMENTS_VIEWER_TOKEN}"
+  elif [[ -n "${PAYMENTS_ADMIN_TOKEN:-}" ]]; then
+    token="${PAYMENTS_ADMIN_TOKEN}"
+  elif [[ -f "$PAYMENTS_VIEWER_TOKEN_FILE_DEFAULT" ]]; then
+    token="$(read_file_trim "$PAYMENTS_VIEWER_TOKEN_FILE_DEFAULT" || true)"
+  fi
+  token="$(trim_whitespace "${token:-}")"
+  printf '%s' "$token"
 }
 
 get_orchestrator_id() {
@@ -601,9 +628,416 @@ cmd_capacity() {
   done
 }
 
+cmd_register() {
+  local force="0"
+  local payments_url orch_id orch_addr
+  payments_url=""
+  orch_id=""
+  orch_addr=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force)
+        force="1"
+        shift 1
+        ;;
+      --payments-api-url)
+        payments_url="${2:-}"
+        shift 2
+        ;;
+      --orchestrator-id|--orch-id)
+        orch_id="${2:-}"
+        shift 2
+        ;;
+      --orchestrator-address|--orch-address)
+        orch_addr="${2:-}"
+        shift 2
+        ;;
+      -h|--help)
+        cat <<'EOF'
+Usage:
+  ./scripts/embody_cli.sh register [options]
+
+Options:
+  --payments-api-url <url>         Payments backend base URL (default: PAYMENTS_API_URL from .env)
+  --orchestrator-id <id>           Orchestrator ID (defaults from .env)
+  --orchestrator-address <0x...>   Payout wallet address (defaults from .env)
+  --force                          Force registration even if cached state exists
+EOF
+        return 0
+        ;;
+      *)
+        echo "Unknown arg for register: $1" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  if [[ -z "$payments_url" ]]; then
+    payments_url="$(get_payments_api_url)"
+  fi
+  [[ -n "$payments_url" ]] || payments_url="${PAYMENTS_API_URL:-$DEFAULT_PAYMENTS_API_URL}"
+
+  if [[ -z "$orch_id" ]]; then
+    orch_id="$(get_orchestrator_id)"
+  fi
+  if [[ -z "$orch_addr" ]]; then
+    orch_addr="$(get_orchestrator_address)"
+  fi
+
+  [[ -n "$payments_url" ]] || { echo "Missing payments API URL" >&2; return 1; }
+  [[ -n "$orch_id" ]] || { echo "Missing orchestrator ID (set ORCHESTRATOR_ID in .env or pass --orchestrator-id)" >&2; return 1; }
+  [[ -n "$orch_addr" ]] || { echo "Missing orchestrator address (set ORCHESTRATOR_ADDRESS in .env or pass --orchestrator-address)" >&2; return 1; }
+
+  command -v python3 >/dev/null 2>&1 || { echo "Missing dependency: python3" >&2; return 1; }
+
+  local args=(
+    --api-url "$payments_url"
+    --orchestrator-id "$orch_id"
+    --orchestrator-address "$orch_addr"
+    --max-retry-seconds 120
+    --state-file "$REGISTRATION_STATE_FILE_DEFAULT"
+    --skip-if-state-matches
+  )
+  if [[ "$force" == "1" ]]; then
+    args+=(--force)
+  fi
+
+  python3 "$REPO_ROOT/scripts/register_orchestrator.py" "${args[@]}"
+}
+
+cmd_power() {
+  local sub="${1:-status}"
+  shift || true
+
+  command -v curl >/dev/null 2>&1 || { echo "Missing dependency: curl" >&2; return 1; }
+
+  case "$sub" in
+    -h|--help|help)
+      cat <<'EOF'
+Usage:
+  ./scripts/embody_cli.sh power
+  ./scripts/embody_cli.sh power status
+  ./scripts/embody_cli.sh power sleep
+  ./scripts/embody_cli.sh power wake [--ttl <seconds>]
+EOF
+      return 0
+      ;;
+    ""|status)
+      curl -fsS --max-time 2 http://127.0.0.1:9090/power
+      echo ""
+      ;;
+    sleep)
+      curl -fsS --max-time 5 -X POST http://127.0.0.1:9090/power \
+        -H "Content-Type: application/json" \
+        -d '{"action":"sleep","reason":"cli"}'
+      echo ""
+      ;;
+    wake)
+      local ttl=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --ttl)
+            ttl="${2:-}"
+            shift 2
+            ;;
+          -h|--help)
+            exec "$0" power --help
+            ;;
+          *)
+            echo "Unknown arg for power wake: $1" >&2
+            return 1
+            ;;
+        esac
+      done
+      local payload='{"action":"wake","reason":"cli"}'
+      if [[ -n "$ttl" ]]; then
+        payload="$(TTL="$ttl" python3 - <<'PY'
+import json
+import os
+ttl = os.environ.get("TTL") or ""
+try:
+    sec = int(ttl)
+except Exception:
+    raise SystemExit(2)
+print(json.dumps({"action": "wake", "reason": "cli", "awake_seconds": sec}))
+PY
+        )" || { echo "Invalid --ttl value (expected integer seconds)" >&2; return 1; }
+      fi
+      curl -fsS --max-time 10 -X POST http://127.0.0.1:9090/power \
+        -H "Content-Type: application/json" \
+        -d "$payload"
+      echo ""
+      ;;
+    *)
+      echo "Unknown power command: $sub" >&2
+      return 1
+      ;;
+  esac
+}
+
+container_env_value() {
+  local container="$1" key="$2"
+  docker inspect "$container" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | awk -v k="$key=" '
+    index($0, k) == 1 {
+      sub(k, "", $0)
+      print
+      exit
+    }
+  '
+}
+
+cmd_verify() {
+  local fix="0"
+  local with_payments="0"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --fix)
+        fix="1"
+        shift 1
+        ;;
+      --payments)
+        with_payments="1"
+        shift 1
+        ;;
+      -h|--help)
+        cat <<'EOF'
+Usage:
+  ./scripts/embody_cli.sh verify [options]
+
+Options:
+  --fix        Attempt to fix common drift (recreate runner+recorder if allowlist env is stale)
+  --payments   Also verify Payments registration/balance (requires viewer/admin token)
+EOF
+        return 0
+        ;;
+      *)
+        echo "Unknown arg for verify: $1" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  local ok="1"
+  local allowlist_ok="1"
+
+  if [[ ! -f "$ENV_FILE" ]]; then
+    echo ".env missing at $ENV_FILE (run ./scripts/embody_cli.sh setup)" >&2
+    return 1
+  fi
+
+  command -v docker >/dev/null 2>&1 || { echo "docker not found" >&2; return 1; }
+  if ! docker info >/dev/null 2>&1; then
+    echo "docker daemon not reachable (try sudo or add user to docker group)" >&2
+    return 1
+  fi
+
+  echo "== Containers =="
+  local required=(
+    vtuber-unreal-game
+    vtuber-unreal-signaling
+    vtuber-script-runner
+    vtuber-recorder-control
+    vtuber-orchestrator-health
+  )
+  local c status
+  for c in "${required[@]}"; do
+    if ! docker inspect "$c" >/dev/null 2>&1; then
+      echo "${c}: MISSING"
+      ok="0"
+      continue
+    fi
+    status="$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null || true)"
+    if [[ "$status" == "running" ]]; then
+      echo "${c}: running"
+    else
+      echo "${c}: ${status:-unknown}"
+      ok="0"
+    fi
+  done
+
+  echo ""
+  echo "== Endpoints =="
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1 && echo "signaling: OK" || { echo "signaling: FAIL"; ok="0"; }
+    curl -fsS --max-time 2 http://127.0.0.1:9877/health >/dev/null 2>&1 && echo "runner:    OK" || { echo "runner:    FAIL"; ok="0"; }
+    curl -fsS --max-time 2 http://127.0.0.1:9090/health >/dev/null 2>&1 && echo "orch:      OK" || { echo "orch:      FAIL"; ok="0"; }
+  else
+    echo "curl missing; cannot run HTTP health checks"
+    ok="0"
+  fi
+
+  echo ""
+  echo "== Allowlist Consistency =="
+  local allow_env allow_runner allow_recorder
+  allow_env="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)")"
+  allow_runner="$(container_env_value vtuber-script-runner VTUBER_ALLOWED_ADDRESSES || true)"
+  allow_recorder="$(container_env_value vtuber-recorder-control VTUBER_ALLOWED_ADDRESSES || true)"
+
+  echo "env:     ${allow_env:-<unset>}"
+  echo "runner:  ${allow_runner:-<unset>}"
+  echo "recorder:${allow_recorder:-<unset>}"
+
+  if [[ -n "$allow_env" ]] && { [[ "$allow_env" != "$allow_runner" ]] || [[ "$allow_env" != "$allow_recorder" ]]; }; then
+    echo "allowlist: DRIFT (containers not running with current VTUBER_ALLOWED_ADDRESSES)"
+    allowlist_ok="0"
+    if [[ "$fix" == "1" ]]; then
+      echo "fix: recreating runner+recorder to reload .env"
+      docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+        up -d --force-recreate vtuber-script-runner recorder-control
+      allow_runner="$(container_env_value vtuber-script-runner VTUBER_ALLOWED_ADDRESSES || true)"
+      allow_recorder="$(container_env_value vtuber-recorder-control VTUBER_ALLOWED_ADDRESSES || true)"
+      if [[ "$allow_env" == "$allow_runner" && "$allow_env" == "$allow_recorder" ]]; then
+        echo "allowlist: OK (fixed)"
+        allowlist_ok="1"
+      else
+        echo "allowlist: still drifted after recreate"
+      fi
+    fi
+  else
+    echo "allowlist: OK"
+  fi
+
+  if [[ "$with_payments" == "1" ]]; then
+    echo ""
+    echo "== Payments =="
+    if ! cmd_payments status; then
+      ok="0"
+    fi
+  fi
+
+  [[ "$ok" == "1" && "$allowlist_ok" == "1" ]]
+}
+
 cmd_payments() {
-  echo "Payments view is not wired into the orchestrator CLI yet."
-  echo "Planned: show balance/eligibility once the Payments revamp exposes safe per-orchestrator endpoints."
+  local sub="${1:-}"
+  shift || true
+
+  case "$sub" in
+    -h|--help|help)
+      cat <<'EOF'
+Usage:
+  ./scripts/embody_cli.sh payments token
+  ./scripts/embody_cli.sh payments token set
+  ./scripts/embody_cli.sh payments status
+
+Notes:
+  - Token precedence: PAYMENTS_VIEWER_TOKEN env, PAYMENTS_ADMIN_TOKEN env, then ~/.embody/payments-viewer-token.txt
+  - Payments status uses `X-Admin-Token` (viewer/admin token) to call `/api/orchestrators`.
+EOF
+      return 0
+      ;;
+    token)
+      local action="${1:-status}"
+      shift || true
+      case "$action" in
+        ""|status)
+          if [[ -s "$PAYMENTS_VIEWER_TOKEN_FILE_DEFAULT" ]]; then
+            echo "Payments token: present (${PAYMENTS_VIEWER_TOKEN_FILE_DEFAULT})"
+          else
+            echo "Payments token: missing (${PAYMENTS_VIEWER_TOKEN_FILE_DEFAULT})"
+          fi
+          ;;
+        set)
+          if ! is_tty; then
+            echo "Refusing to prompt for a token on non-interactive stdin." >&2
+            return 1
+          fi
+          local token
+          token="$(prompt_secret "Payments viewer/admin token (X-Admin-Token)")"
+          [[ -n "$token" ]] || { echo "Missing token" >&2; return 1; }
+          write_token_file "$PAYMENTS_VIEWER_TOKEN_FILE_DEFAULT" "$token"
+          echo "Payments token: stored (${PAYMENTS_VIEWER_TOKEN_FILE_DEFAULT})"
+          ;;
+        *)
+          echo "Unknown payments token command: $action" >&2
+          return 1
+          ;;
+      esac
+      ;;
+    ""|status|verify)
+      local payments_url orch_id orch_addr token url json
+      payments_url="$(get_payments_api_url)"
+      [[ -n "$payments_url" ]] || payments_url="${PAYMENTS_API_URL:-$DEFAULT_PAYMENTS_API_URL}"
+      orch_id="$(get_orchestrator_id)"
+      orch_addr="$(get_orchestrator_address)"
+
+      token="$(read_payments_viewer_token)"
+      if [[ -z "$token" ]]; then
+        if is_tty && prompt_yes_no "Payments token missing. Store one now?" "y"; then
+          cmd_payments token set || return 1
+          token="$(read_payments_viewer_token)"
+        fi
+      fi
+      [[ -n "$token" ]] || { echo "Missing Payments token (set PAYMENTS_VIEWER_TOKEN or run: ./scripts/embody_cli.sh payments token set)" >&2; return 1; }
+      [[ -n "$orch_id" ]] || { echo "Missing ORCHESTRATOR_ID in .env" >&2; return 1; }
+
+      command -v curl >/dev/null 2>&1 || { echo "Missing dependency: curl" >&2; return 1; }
+      command -v python3 >/dev/null 2>&1 || { echo "Missing dependency: python3" >&2; return 1; }
+
+      url="${payments_url%/}/api/orchestrators"
+      json="$(curl -fsS --max-time 5 -H "X-Admin-Token: $token" "$url" 2>/dev/null || true)"
+      [[ -n "$json" ]] || { echo "Payments request failed: $url" >&2; return 1; }
+
+      BODY="$json" ORCH_ID="$orch_id" ORCH_ADDR="$orch_addr" python3 - <<'PY'
+import json
+import os
+import sys
+
+body = os.environ.get("BODY") or ""
+orch_id = (os.environ.get("ORCH_ID") or "").strip()
+orch_addr = (os.environ.get("ORCH_ADDR") or "").strip().lower()
+
+try:
+    data = json.loads(body)
+except Exception as exc:
+    print(f"payments: FAIL (invalid JSON: {exc})", file=sys.stderr)
+    raise SystemExit(1)
+
+def _items(payload):
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict) and isinstance(payload.get("orchestrators"), list):
+        return payload["orchestrators"]
+    return []
+
+items = _items(data)
+match = None
+for item in items:
+    if not isinstance(item, dict):
+        continue
+    item_id = (item.get("orchestrator_id") or item.get("orchestratorId") or item.get("id") or "").strip()
+    if item_id and item_id == orch_id:
+        match = item
+        break
+
+if match is None:
+    print(f"payments: NOT FOUND (orchestrator_id={orch_id})", file=sys.stderr)
+    raise SystemExit(1)
+
+addr = (match.get("address") or match.get("orchestrator_address") or match.get("orchestratorAddress") or "").strip()
+balance = match.get("balance_eth") or match.get("balanceEth") or match.get("balance") or ""
+elig = match.get("eligible") if "eligible" in match else ""
+last_seen = match.get("last_seen") or match.get("lastSeen") or match.get("updated_at") or match.get("updatedAt") or ""
+
+parts = [f"payments: OK (orchestrator_id={orch_id}"]
+if addr:
+    parts.append(f"address={addr}")
+if balance != "":
+    parts.append(f"balance={balance}")
+if elig != "":
+    parts.append(f"eligible={elig}")
+if last_seen:
+    parts.append(f"last_seen={last_seen}")
+print(", ".join(parts) + ")")
+PY
+      ;;
+    *)
+      echo "Unknown payments command: $sub" >&2
+      return 1
+      ;;
+  esac
 }
 
 menu_start_stack() {
@@ -652,6 +1086,9 @@ menu() {
     echo "  7) Sample test"
     echo "  8) Config summary"
     echo "  9) GPU capacity"
+    echo "  v) Verify (full)"
+    echo "  m) Payments status"
+    echo "  p) Power (sleep/wake)"
     echo "  s) Setup / reconfigure"
     echo "  q) Quit"
     echo -n "> "
@@ -673,6 +1110,16 @@ menu() {
       7) "$START_SCRIPT" test ;;
       8) cmd_config ;;
       9) cmd_capacity ;;
+      v|V) cmd_verify ;;
+      m|M) cmd_payments status ;;
+      p|P)
+        echo -n "Power action (status|sleep|wake): "
+        local act
+        read -r act || true
+        act="$(trim_whitespace "${act:-}")"
+        [[ -n "$act" ]] || act="status"
+        cmd_power "$act"
+        ;;
       s|S) "$ONBOARD_SCRIPT" ;;
       q|Q) exit 0 ;;
       *) echo "Unknown option." ;;
@@ -699,6 +1146,22 @@ main() {
     rollout|update-image)
       shift || true
       cmd_rollout "$@"
+      ;;
+    register)
+      shift || true
+      cmd_register "$@"
+      ;;
+    verify|doctor)
+      shift || true
+      cmd_verify "$@"
+      ;;
+    power)
+      shift || true
+      cmd_power "$@"
+      ;;
+    sleep|wake)
+      shift || true
+      cmd_power "$cmd" "$@"
       ;;
     start|up|stop|down|restart|logs|ps|status|pull|build|test)
       shift
