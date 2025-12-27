@@ -44,6 +44,7 @@ Optional:
 - `EDGE_CONFIG_TOKEN`
 - `EDGE_POLL_INTERVAL_SECONDS` (default `15`)
 - `EDGE_PROJECT_DIR` (default `/home/ubuntu/Unreal_Vtuber`) – must match the host path (see compose wiring).
+- `EDGE_STATE_FILE` (default `/var/lib/vtuber/power-state/edge_rotator_state.json`) – persisted state to avoid unnecessary service recreates on rotator restarts.
 - `EDGE_ALLOW_PORTS` (default `8080/tcp,8888/tcp,8889/tcp,9090/tcp,9877/tcp,3478/tcp,3478/udp,49160-49200/udp`)
   - Note: the stack exposes signaling as `8080:80`; the rotator also enforces `80/tcp` so the `8080` allowlist actually applies.
 - `EDGE_ENFORCE_EXCLUSIVE` (default `true`) – add DROP rules for the managed ports so only edge CIDRs can reach them.

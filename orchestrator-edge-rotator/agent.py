@@ -435,6 +435,56 @@ def _write_csv_file(path: Path, values: list[str], *, mode: int = 0o600) -> bool
     return True
 
 
+def _write_json_file(path: Path, payload: dict, *, mode: int = 0o600) -> bool:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = json.dumps(payload, sort_keys=True) + "\n"
+    try:
+        if path.exists() and path.read_text() == content:
+            return False
+    except Exception:
+        pass
+
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+    tmp.write_text(content)
+    try:
+        tmp.chmod(mode)
+    except Exception:
+        pass
+    tmp.replace(path)
+    return True
+
+
+def _read_state_key(path: Path) -> str:
+    try:
+        if not path.exists():
+            return ""
+        payload = json.loads(path.read_text())
+        if not isinstance(payload, dict):
+            return ""
+        key = payload.get("last_applied_key")
+        return key if isinstance(key, str) else ""
+    except Exception:
+        return ""
+
+
+def _container_env_value(container: str, key: str) -> str:
+    cp = _run(
+        ["docker", "inspect", container, "--format", "{{range .Config.Env}}{{println .}}{{end}}"],
+        check=False,
+    )
+    if cp.returncode != 0:
+        return ""
+    prefix = f"{key}="
+    for line in (cp.stdout or "").splitlines():
+        if line.startswith(prefix):
+            return line[len(prefix) :]
+    return ""
+
+
+def _normalize_ws(s: str) -> str:
+    return " ".join((s or "").split()).strip()
+
+
 def main() -> int:
     control_plane_url = (os.environ.get("EDGE_CONFIG_URL") or "").strip()
     if not control_plane_url:
@@ -464,10 +514,12 @@ def main() -> int:
     public_port = int(os.environ.get("EDGE_SIGNALING_PUBLIC_PORT", "8080"))
     default_mm_port = int(os.environ.get("EDGE_MATCHMAKER_DEFAULT_PORT", "8889"))
 
-    last_applied_key = ""
+    state_file_raw = (os.environ.get("EDGE_STATE_FILE") or "").strip()
+    state_file = Path(state_file_raw) if state_file_raw else Path("/var/lib/vtuber/power-state/edge_rotator_state.json")
+    last_applied_key = _read_state_key(state_file)
 
     _log(
-        f"init project_dir={project_dir} poll={poll_s}s chain={chain} ports={[str(p) for p in ports]} enforce={enforce}"
+        f"init project_dir={project_dir} poll={poll_s}s chain={chain} ports={[str(p) for p in ports]} enforce={enforce} state_file={state_file}"
     )
 
     while True:
@@ -502,52 +554,54 @@ def main() -> int:
 
             # stable key to suppress no-op churn
             apply_key = json.dumps({"cidrs": cidrs, "ports": [str(p) for p in ports], "mm": args}, sort_keys=True)
-            if apply_key != last_applied_key:
+            desired_changed = apply_key != last_applied_key
+            if desired_changed:
                 _log(f"desired edge_id={desired.get('edge_id')!r} matchmaker={mm_host}:{mm_port} cidrs={cidrs}")
 
             firewall_cidrs = [*cidrs, *extra_firewall_cidrs]
             _apply_firewall(chain, cidrs=firewall_cidrs, ports=ports, enforce_exclusive=enforce)
 
-            if power_allowed_file and apply_key != last_applied_key:
+            if power_allowed_file:
                 # /power allowlist is edge-only (do not include EDGE_FIREWALL_EXTRA_CIDRS like payments/ops).
                 _write_csv_file(power_allowed_file, ["127.0.0.1/32", *cidrs])
 
             env_changed = False
-            if apply_key != last_applied_key:
-                # We intentionally write the effective matchmaker flags into SIGNALING_EXTRA_ARGS.
-                #
-                # Reason: the edge-rotator container currently ships with an older docker compose v2.x
-                # binary, and we observed that relying on composing multiple env-substitutions inside
-                # docker-compose.unreal.yml could result in matchmaker flags being dropped on recreate.
-                #
-                # By writing the full args into SIGNALING_EXTRA_ARGS, the compose file only needs to
-                # interpolate a single variable for the container env (and swaps remain reliable).
-                existing_extra = _read_env_value(env_file, "SIGNALING_EXTRA_ARGS").strip()
-                existing_extra = _strip_known_matchmaker_args(existing_extra)
-                combined = " ".join([token for token in [existing_extra, args] if token]).strip()
-                env_changed = _upsert_env_value(env_file, "SIGNALING_EXTRA_ARGS", combined) or env_changed
+            # We intentionally write the effective matchmaker flags into SIGNALING_EXTRA_ARGS.
+            #
+            # Reason: the edge-rotator container currently ships with an older docker compose v2.x
+            # binary, and we observed that relying on composing multiple env-substitutions inside
+            # docker-compose.unreal.yml could result in matchmaker flags being dropped on recreate.
+            #
+            # By writing the full args into SIGNALING_EXTRA_ARGS, the compose file only needs to
+            # interpolate a single variable for the container env (and swaps remain reliable).
+            existing_extra = _read_env_value(env_file, "SIGNALING_EXTRA_ARGS").strip()
+            existing_extra = _strip_known_matchmaker_args(existing_extra)
+            combined = " ".join([token for token in [existing_extra, args] if token]).strip()
+            env_changed = _upsert_env_value(env_file, "SIGNALING_EXTRA_ARGS", combined) or env_changed
 
-                # Prevent accidental double-injection in stacks that still concatenate
-                # SIGNALING_EXTRA_ARGS + SIGNALING_MATCHMAKER_ARGS.
-                env_changed = _upsert_env_value(env_file, "SIGNALING_MATCHMAKER_ARGS", "") or env_changed
+            # Prevent accidental double-injection in stacks that still concatenate
+            # SIGNALING_EXTRA_ARGS + SIGNALING_MATCHMAKER_ARGS.
+            env_changed = _upsert_env_value(env_file, "SIGNALING_MATCHMAKER_ARGS", "") or env_changed
 
-                # Ensure runner/recorder allowlists follow the selected edge. This allowlist is consumed
-                # by services that do strict string matching on client IP (no CIDR support), so only
-                # /32 edge CIDRs can be reflected here.
-                edge_ips = _cidrs_to_ips(cidrs)
-                if edge_ips:
-                    base = [t.strip() for t in local_allowlist.split(",") if t.strip()]
-                    allow_tokens = [*base, *edge_ips]
-                    deduped: list[str] = []
-                    seen = set()
-                    for token in allow_tokens:
-                        if token in seen:
-                            continue
-                        seen.add(token)
-                        deduped.append(token)
-                    env_changed = _upsert_env_value(env_file, "VTUBER_ALLOWED_ADDRESSES", ",".join(deduped)) or env_changed
+            # Ensure runner/recorder allowlists follow the selected edge. This allowlist is consumed
+            # by services that do strict string matching on client IP (no CIDR support), so only
+            # /32 edge CIDRs can be reflected here.
+            desired_allowed_csv = ""
+            edge_ips = _cidrs_to_ips(cidrs)
+            if edge_ips:
+                base = [t.strip() for t in local_allowlist.split(",") if t.strip()]
+                allow_tokens = [*base, *edge_ips]
+                deduped: list[str] = []
+                seen = set()
+                for token in allow_tokens:
+                    if token in seen:
+                        continue
+                    seen.add(token)
+                    deduped.append(token)
+                desired_allowed_csv = ",".join(deduped)
+                env_changed = _upsert_env_value(env_file, "VTUBER_ALLOWED_ADDRESSES", desired_allowed_csv) or env_changed
 
-            if update_turn and apply_key != last_applied_key:
+            if update_turn:
                 turn_ip: str | None = None
                 raw_turn = desired.get("turn_external_ip")
                 if isinstance(raw_turn, str) and raw_turn.strip():
@@ -570,52 +624,89 @@ def main() -> int:
             if updated_at is not None:
                 recently_changed = abs((now - updated_at).total_seconds()) < wake_settle_s
 
-            if apply_key != last_applied_key:
+            drifted = False
+            if desired_allowed_csv:
+                runner_allowed = _container_env_value("vtuber-script-runner", "VTUBER_ALLOWED_ADDRESSES")
+                recorder_allowed = _container_env_value("vtuber-recorder-control", "VTUBER_ALLOWED_ADDRESSES")
+                if runner_allowed and runner_allowed != desired_allowed_csv:
+                    drifted = True
+                if recorder_allowed and recorder_allowed != desired_allowed_csv:
+                    drifted = True
+
+            signaling_args = _container_env_value("vtuber-unreal-signaling", "SIGNALING_EXTRA_ARGS")
+            if signaling_args and _normalize_ws(args) not in _normalize_ws(signaling_args):
+                drifted = True
+
+            needs_recreate = desired_changed or env_changed or drifted
+
+            if needs_recreate:
                 # If sleeping, recreate without starting so /power wake starts with the new config.
                 # If we're in the first moments of a wake transition, avoid fighting the wake sequence.
-                reason = "config changed" if env_changed else "edge changed"
-                if state == "sleeping" or recently_changed:
-                    _log(f"{reason}; state={state} recently_changed={recently_changed} -> docker compose up --no-start")
-                    cp = _compose(
-                        project_dir=project_dir,
-                        env_file=str(env_file),
-                        compose_file=str(compose_file),
-                        args=[
-                            "up",
-                            "--no-start",
-                            "--force-recreate",
-                            "unreal-signaling",
-                            "turn-server",
-                            "vtuber-script-runner",
-                            "recorder-control",
-                        ],
-                        check=False,
-                    )
-                else:
-                    _log(f"{reason}; recreating signaling/turn/runner/recorder")
-                    cp = _compose(
-                        project_dir=project_dir,
-                        env_file=str(env_file),
-                        compose_file=str(compose_file),
-                        args=[
-                            "up",
-                            "-d",
-                            "--force-recreate",
-                            "unreal-signaling",
-                            "turn-server",
-                            "vtuber-script-runner",
-                            "recorder-control",
-                        ],
-                        check=False,
-                    )
-                if cp.returncode != 0:
-                    stderr = (cp.stderr or "").strip()
-                    if stderr:
-                        stderr = "\n".join(stderr.splitlines()[-5:]).strip()
-                        raise RuntimeError(f"docker compose failed (rc={cp.returncode}): {stderr}")
-                    raise RuntimeError(f"docker compose failed (rc={cp.returncode})")
+                reason = "config changed" if env_changed else ("edge changed" if desired_changed else "drift detected")
 
-            last_applied_key = apply_key
+                if state != "sleeping" and recently_changed:
+                    _log(f"{reason}; state={state} recently_changed={recently_changed} -> deferring recreate")
+                else:
+                    if state == "sleeping":
+                        _log(f"{reason}; state={state} recently_changed={recently_changed} -> docker compose up --no-start")
+                        cp = _compose(
+                            project_dir=project_dir,
+                            env_file=str(env_file),
+                            compose_file=str(compose_file),
+                            args=[
+                                "up",
+                                "--no-start",
+                                "--force-recreate",
+                                "unreal-signaling",
+                                "turn-server",
+                                "vtuber-script-runner",
+                                "recorder-control",
+                            ],
+                            check=False,
+                        )
+                    else:
+                        _log(f"{reason}; recreating signaling/turn/runner/recorder")
+                        cp = _compose(
+                            project_dir=project_dir,
+                            env_file=str(env_file),
+                            compose_file=str(compose_file),
+                            args=[
+                                "up",
+                                "-d",
+                                "--force-recreate",
+                                "unreal-signaling",
+                                "turn-server",
+                                "vtuber-script-runner",
+                                "recorder-control",
+                            ],
+                            check=False,
+                        )
+                    if cp.returncode != 0:
+                        stderr = (cp.stderr or "").strip()
+                        if stderr:
+                            stderr = "\n".join(stderr.splitlines()[-5:]).strip()
+                            raise RuntimeError(f"docker compose failed (rc={cp.returncode}): {stderr}")
+                        raise RuntimeError(f"docker compose failed (rc={cp.returncode})")
+
+                    last_applied_key = apply_key
+                    _write_json_file(
+                        state_file,
+                        {
+                            "last_applied_key": last_applied_key,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
+            else:
+                # Keep state persisted so restarts don't trigger unnecessary recreates.
+                if last_applied_key != apply_key:
+                    last_applied_key = apply_key
+                    _write_json_file(
+                        state_file,
+                        {
+                            "last_applied_key": last_applied_key,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
         except Exception as exc:  # noqa: BLE001
             _log(f"error: {exc}")
 
