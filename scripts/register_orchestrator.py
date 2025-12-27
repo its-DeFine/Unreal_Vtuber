@@ -5,9 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import stat
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib import error, request
 
@@ -21,6 +24,7 @@ DEFAULT_RETRY_MULTIPLIER = 1.8
 DEFAULT_MAX_RETRY_SECONDS = 300.0
 DEFAULT_TIMEOUT_SECONDS = 15.0
 METADATA_BASE = "http://169.254.169.254/latest"
+DEFAULT_STATE_FILE = str(Path.home() / ".embody" / "orchestrator-registration.json")
 
 
 def env_default(key: str, fallback: Optional[str] = None) -> Optional[str]:
@@ -112,6 +116,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retry-multiplier", type=float, default=float(env_default("PAYMENTS_REGISTRATION_RETRY_MULTIPLIER", str(DEFAULT_RETRY_MULTIPLIER))), help="Exponential backoff multiplier")
     parser.add_argument("--max-retry-seconds", type=float, default=float(env_default("PAYMENTS_REGISTRATION_MAX_SECONDS", str(DEFAULT_MAX_RETRY_SECONDS))), help="Maximum total time to keep retrying")
     parser.add_argument("--once", action="store_true", help="Send a single request without retrying on failures")
+    parser.add_argument(
+        "--state-file",
+        default=env_default("PAYMENTS_REGISTRATION_STATE_FILE", DEFAULT_STATE_FILE),
+        help="Write a small JSON state file after successful registration (used by --skip-if-state-matches)",
+    )
+    parser.add_argument(
+        "--skip-if-state-matches",
+        action="store_true",
+        help="Skip registration if --state-file exists and matches this orchestrator+payments URL",
+    )
+    parser.add_argument("--force", action="store_true", help="Ignore cached state and always attempt registration")
+    parser.add_argument("--best-effort", action="store_true", help="Exit 0 even if registration fails (useful for onboarding)")
     return parser
 
 
@@ -194,6 +210,52 @@ def attempt_registration(args: argparse.Namespace) -> Tuple[int, Dict[str, Any]]
 
     return _attempt_with_curl(url, payload_dict, timeout=args.timeout)
 
+
+def _state_matches(state: dict[str, Any], args: argparse.Namespace) -> bool:
+    def _norm(s: Any) -> str:
+        return str(s or "").strip()
+
+    return (
+        _norm(state.get("api_url")) == _norm(args.api_url)
+        and _norm(state.get("orchestrator_id")) == _norm(args.orchestrator_id)
+        and _norm(state.get("orchestrator_address")) == _norm(args.orchestrator_address)
+    )
+
+
+def _load_state(path: str) -> Optional[dict[str, Any]]:
+    try:
+        data = Path(path).read_text()
+    except FileNotFoundError:
+        return None
+    except Exception:
+        return None
+    try:
+        parsed = json.loads(data)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _write_state(path: str, args: argparse.Namespace, *, status: str, detail: str = "") -> None:
+    if not path:
+        return
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "api_url": args.api_url,
+        "orchestrator_id": args.orchestrator_id,
+        "orchestrator_address": args.orchestrator_address,
+        "status": status,
+        "detail": detail,
+        "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    target.write_text(json.dumps(payload, sort_keys=True) + "\n")
+    try:
+        target.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    except Exception:
+        pass
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -212,6 +274,12 @@ def main() -> int:
         )
         return 2
 
+    if args.skip_if_state_matches and not args.force and args.state_file:
+        existing = _load_state(args.state_file)
+        if existing and _state_matches(existing, args):
+            print(f"[registrar] registration already recorded in {args.state_file}; skipping (use --force to re-register)")
+            return 0
+
     start = time.time()
     delay = max(args.retry_seconds, 0.5)
     attempt = 0
@@ -225,12 +293,16 @@ def main() -> int:
             status = None
             body = {"detail": str(exc)}
         else:
-            if status == 200:
+            if status in (200, 201, 204):
                 message = body.get("message", "registered")
                 balance = body.get("balance_eth", "0")
-                print(
-                    f"[registrar] registration succeeded (attempt {attempt}): {message}, balance={balance}"
-                )
+                print(f"[registrar] registration succeeded (attempt {attempt}): {message}, balance={balance}")
+                _write_state(args.state_file, args, status="registered", detail=str(message))
+                return 0
+            if status == 409:
+                detail = body.get("detail") or body.get("message") or "already registered"
+                print(f"[registrar] already registered (attempt {attempt}): {detail}")
+                _write_state(args.state_file, args, status="already_registered", detail=str(detail))
                 return 0
             if status is None or status == 0:
                 detail = body.get("detail") or body
@@ -245,10 +317,12 @@ def main() -> int:
                     file=sys.stderr,
                 )
                 if status is not None and status < 500:
-                    return 0
+                    if args.best_effort:
+                        return 0
+                    return 1
 
         if args.once:
-            return 0
+            return 0 if args.best_effort else 1
 
         elapsed = time.time() - start
         if elapsed >= args.max_retry_seconds:
@@ -256,7 +330,7 @@ def main() -> int:
                 f"[registrar] giving up after {elapsed:.1f}s of retries; exiting",
                 file=sys.stderr,
             )
-            return 0
+            return 0 if args.best_effort else 1
 
         time.sleep(delay)
         delay = min(delay * args.retry_multiplier, 60.0)

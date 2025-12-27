@@ -180,6 +180,10 @@ services:
       - .env
     environment:
       - MONITORED_SERVICES=${MONITORED_SERVICES:-vtuber-unreal-game,vtuber-unreal-signaling,vtuber-turn-server}
+      # Prevent a slow/broken self-call to the public health URL when host firewall allowlists are enabled.
+      # Payments uses ORCHESTRATOR_HEALTH_URL from `.env`; the orchestrator-health container should always
+      # inspect local docker state instead.
+      - ORCHESTRATOR_HEALTH_URL=
       - ORCHESTRATOR_HEALTH_PORT=9090
       - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-}
       - POWER_KEEP_RUNNING_SERVICES=${POWER_KEEP_RUNNING_SERVICES-orchestrator-edge-rotator}
