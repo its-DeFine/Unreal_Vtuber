@@ -704,6 +704,9 @@ EOF
   fi
 
   python3 "$REPO_ROOT/scripts/register_orchestrator.py" "${args[@]}"
+  if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" && -f "$REGISTRATION_STATE_FILE_DEFAULT" ]]; then
+    chown "$SUDO_USER":"$SUDO_USER" "$REGISTRATION_STATE_FILE_DEFAULT" 2>/dev/null || true
+  fi
 }
 
 cmd_power() {
