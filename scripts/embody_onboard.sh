@@ -67,6 +67,7 @@ Behavior flags:
   --rotate-turn               Regenerate .env.turn even if present
   --no-pull                   Skip docker compose pull
   --skip-registration         Skip running orchestrator-registration
+  --force-registration        Force registration even if cached state exists
   --no-verify                 Skip rollout health checks
   --apply-firewall            Apply host firewall rules (UFW if active) best-effort (default: on for interactive wizard)
   --no-apply-firewall         Do not modify host firewall rules
@@ -409,6 +410,7 @@ INSTALL_NVIDIA_TOOLKIT="0"
 ROTATE_TURN="0"
 NO_PULL="0"
 SKIP_REGISTRATION="0"
+FORCE_REGISTRATION="0"
 REGISTRATION_VERIFIED="0"
 NO_VERIFY="0"
 FORCE_ENV="0"
@@ -562,6 +564,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-registration)
       SKIP_REGISTRATION="1"
+      shift 1
+      ;;
+    --force-registration)
+      FORCE_REGISTRATION="1"
       shift 1
       ;;
     --no-verify)
@@ -1081,15 +1087,10 @@ verify_payments_registration_best_effort() {
   # /api/orchestrators is protected by X-Admin-Token (admin or viewer token). Orchestrators typically
   # do not have these tokens, so this step is best-effort and usually skipped.
   local token=""
-  if [[ -n "${PAYMENTS_VIEWER_TOKEN:-}" ]]; then
-    token="${PAYMENTS_VIEWER_TOKEN}"
-  elif [[ -n "${PAYMENTS_ADMIN_TOKEN:-}" ]]; then
-    token="${PAYMENTS_ADMIN_TOKEN}"
-  fi
+  token="$(read_payments_viewer_token_best_effort)"
   if [[ -z "$token" ]]; then
     note "Skipping Payments verification (requires viewer/admin token for /api/orchestrators)."
-    REGISTRATION_VERIFIED="1"
-    return 0
+    return 2
   fi
 
   local url json
@@ -1109,7 +1110,6 @@ verify_payments_registration_best_effort() {
         end
       ' >/dev/null 2>&1; then
         ok "Registration verified in Payments (orchestrator_id=$ORCH_ID)"
-        REGISTRATION_VERIFIED="1"
         return 0
       fi
     fi
@@ -1179,6 +1179,25 @@ read_orchestrator_token_best_effort() {
   fi
   if [[ -z "$token" ]]; then
     local default_token_file="$target_home/.embody/orch-license-token.txt"
+    if [[ -f "$default_token_file" ]]; then
+      token="$(tr -d '\n' < "$default_token_file" 2>/dev/null || true)"
+    fi
+  fi
+  token="$(trim_whitespace "${token:-}")"
+  token="$(strip_wrapping_quotes "$token")"
+  token="$(trim_whitespace "${token:-}")"
+  printf '%s' "$token"
+}
+
+read_payments_viewer_token_best_effort() {
+  local token=""
+  if [[ -n "${PAYMENTS_VIEWER_TOKEN:-}" ]]; then
+    token="${PAYMENTS_VIEWER_TOKEN}"
+  elif [[ -n "${PAYMENTS_ADMIN_TOKEN:-}" ]]; then
+    token="${PAYMENTS_ADMIN_TOKEN}"
+  fi
+  if [[ -z "$token" ]]; then
+    local default_token_file="$target_home/.embody/payments-viewer-token.txt"
     if [[ -f "$default_token_file" ]]; then
       token="$(tr -d '\n' < "$default_token_file" 2>/dev/null || true)"
     fi
@@ -2119,12 +2138,19 @@ ensure_inbound_rules_best_effort
 
 if [[ "$SKIP_REGISTRATION" != "1" ]]; then
   note "Registering orchestrator with Payments"
+  registration_state_file="$target_home/.embody/orchestrator-registration.json"
   reg_args=(--api-url "$PAYMENTS_API_URL" --orchestrator-id "$ORCH_ID" --orchestrator-address "$ORCH_ADDRESS" --max-retry-seconds 120)
   if [[ -n "$ORCH_CONTACT_EMAIL" ]]; then
     reg_args+=(--contact-email "$ORCH_CONTACT_EMAIL")
   fi
   reg_args+=(--host-public-ip "$PUBLIC_IP" --health-url "http://$PUBLIC_IP:9090/health")
-  python3 "$REPO_ROOT/scripts/register_orchestrator.py" "${reg_args[@]}" || true
+  reg_cmd=(python3 "$REPO_ROOT/scripts/register_orchestrator.py" "${reg_args[@]}" --state-file "$registration_state_file" --skip-if-state-matches)
+  if [[ "$FORCE_REGISTRATION" == "1" ]]; then
+    reg_cmd+=(--force)
+  fi
+  if "${reg_cmd[@]}"; then
+    REGISTRATION_VERIFIED="1"
+  fi
   if verify_payments_registration_best_effort; then
     REGISTRATION_VERIFIED="1"
   fi
