@@ -59,6 +59,7 @@ Program terms, eligibility, and payout rules are governed by the legal docs belo
 - Orchestrator onboarding: `docs/orchestrator-onboarding.md`
 - Architecture: `docs/pixel-streaming-architecture.md`
 - Recorder control: `docs/recorder-control.md`
+- Staging environment: `docs/staging.md`
 - Sleep/wake: `docs/sleep-wake.md`
 - Unreal integration notes: `docs/unreal-integration.md`
 - Admin (encrypted build distribution): `docs/admin-encrypted-game-image.md`

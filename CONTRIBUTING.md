@@ -12,8 +12,11 @@ This repo publishes a small set of **service images** to GitHub Container Regist
 - `ghcr.io/its-define/unreal_vtuber/orchestrator-registration`
 
 **Tagging rule**
-- Every published service image gets **both**:
+- On `main`, every published service image gets **both**:
   - `:latest` (rolling)
+  - `:sha-<gitsha>` (immutable / reproducible)
+- On `staging`, every published service image gets **both**:
+  - `:staging` (rolling)
   - `:sha-<gitsha>` (immutable / reproducible)
 - `docker-compose.unreal.yml` pins these images via `EMBODY_SERVICE_IMAGE_TAG` (defaults to `latest`).
 
@@ -29,4 +32,3 @@ Avoid “wide” Docker build contexts (repo root) unless there is no alternativ
 - Prefer placing Dockerfiles next to the minimal files they need.
 - Keep the Pixel Streaming UI **out of orchestrator images** (UI is served from the edge/gateway).
 - If you must use a wider context, add a tight `.dockerignore` so we don’t accidentally ship unrelated assets.
-
