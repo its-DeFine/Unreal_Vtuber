@@ -287,6 +287,18 @@ def human_bytes(num: float) -> str:
         value /= 1024.0
     return f"{value:.1f}TB"
 
+def human_duration(seconds: float) -> str:
+    seconds = max(float(seconds), 0.0)
+    s = int(seconds + 0.5)
+    h = s // 3600
+    m = (s % 3600) // 60
+    sec = s % 60
+    if h > 0:
+        return f"{h}h{m:02d}m{sec:02d}s"
+    if m > 0:
+        return f"{m}m{sec:02d}s"
+    return f"{sec}s"
+
 
 label = sys.argv[1] if len(sys.argv) > 1 else "stream"
 use_tty = sys.stderr.isatty()
@@ -299,6 +311,8 @@ CYN = "\033[36m" if use_color else ""
 MAG = "\033[35m" if use_color else ""
 GRN = "\033[32m" if use_color else ""
 YLW = "\033[33m" if use_color else ""
+BOLD = "\033[1m" if use_color else ""
+WHT = "\033[97m" if use_color else ""
 
 bar_len = 24
 pulse_len = 6
@@ -338,8 +352,9 @@ def print_status(now: float, final: bool = False) -> None:
         f"{CYN}[{label}]{RESET} "
         f"{MAG}[{bar_s}]{RESET} "
         f"{GRN}{human_bytes(total)}{RESET} "
-        f"{DIM}@{RESET} {human_bytes(inst_bps)}/s "
-        f"{DIM}(avg {human_bytes(avg_bps)}/s){RESET}"
+        f"{BOLD}{WHT}{human_bytes(inst_bps)}/s{RESET} "
+        f"{DIM}(avg {BOLD}{WHT}{human_bytes(avg_bps)}/s{RESET}{DIM}){RESET} "
+        f"{DIM}elapsed {BOLD}{WHT}{human_duration(elapsed)}{RESET}{DIM}{RESET}"
         f"{idle_s}"
     )
 
@@ -412,6 +427,18 @@ def human_bytes(num: float) -> str:
         value /= 1024.0
     return f"{value:.1f}TB"
 
+def human_duration(seconds: float) -> str:
+    seconds = max(float(seconds), 0.0)
+    s = int(seconds + 0.5)
+    h = s // 3600
+    m = (s % 3600) // 60
+    sec = s % 60
+    if h > 0:
+        return f"{h}h{m:02d}m{sec:02d}s"
+    if m > 0:
+        return f"{m}m{sec:02d}s"
+    return f"{sec}s"
+
 
 label = sys.argv[1] if len(sys.argv) > 1 else "LOAD"
 use_tty = sys.stderr.isatty()
@@ -425,6 +452,8 @@ GRN = "\033[32m" if use_color else ""
 YLW = "\033[33m" if use_color else ""
 CYN = "\033[36m" if use_color else ""
 MAG = "\033[35m" if use_color else ""
+BOLD = "\033[1m" if use_color else ""
+WHT = "\033[97m" if use_color else ""
 
 bar_len = 28
 pulse_len = 7
@@ -468,8 +497,9 @@ def render(now: float, *, final: bool = False) -> None:
         f"{MAG}{label}{RESET} "
         f"{CYN}⟦{bar_s}⟧{RESET} "
         f"{GRN}{human_bytes(total)}{RESET} "
-        f"{DIM}@{RESET} {human_bytes(inst_bps)}/s "
-        f"{DIM}(avg {human_bytes(avg_bps)}/s){RESET}"
+        f"{BOLD}{WHT}{human_bytes(inst_bps)}/s{RESET} "
+        f"{DIM}(avg {BOLD}{WHT}{human_bytes(avg_bps)}/s{RESET}{DIM}){RESET} "
+        f"{DIM}elapsed {BOLD}{WHT}{human_duration(elapsed)}{RESET}{DIM}{RESET}"
         f"{idle_s}"
     )
 

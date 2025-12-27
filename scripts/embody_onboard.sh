@@ -1548,8 +1548,15 @@ maybe_run_wizard() {
     fi
   fi
 
+  if [[ -z "$ORCH_ADDRESS" ]]; then
+    if [[ -n "$existing_addr" ]] && is_valid_eth_address "$existing_addr" && ! is_zero_eth_address "$existing_addr"; then
+      ORCH_ADDRESS="$existing_addr"
+      ok "Payout wallet already set in .env (redacted)"
+    fi
+  fi
+
   while [[ -z "$ORCH_ADDRESS" ]]; do
-    ORCH_ADDRESS="$(prompt_default "Orchestrator payout wallet address (0x...)" "${existing_addr:-}")"
+    ORCH_ADDRESS="$(prompt_default "Orchestrator payout wallet address (0x...)" "")"
     if ! is_valid_eth_address "$ORCH_ADDRESS"; then
       note "Wallet address must look like 0x + 40 hex chars"
       ORCH_ADDRESS=""
@@ -1615,13 +1622,17 @@ maybe_run_wizard() {
   EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
   EDGE_CONFIG_URL="$(strip_inline_comment "$EDGE_CONFIG_URL")"
   if [[ -n "$EDGE_CONFIG_URL" ]]; then
-    note "Optional: edge config read token (if your control plane requires it)."
-    note "If you already set EDGE_CONFIG_TOKEN in .env, leave blank to keep it."
-    local token_input
-    token_input="$(prompt_secret "Edge config read token (hidden input; optional)")"
-    token_input="$(trim_whitespace "$token_input")"
-    if [[ -n "$token_input" ]]; then
-      EDGE_CONFIG_TOKEN="$token_input"
+    if [[ -n "$EDGE_CONFIG_TOKEN" ]]; then
+      ok "Edge config token already set in .env (redacted)"
+    else
+      note "Optional: edge config read token (if your control plane requires it)."
+      note "If you already set EDGE_CONFIG_TOKEN in .env, leave blank to keep it."
+      local token_input
+      token_input="$(prompt_secret "Edge config read token (hidden input; optional)")"
+      token_input="$(trim_whitespace "$token_input")"
+      if [[ -n "$token_input" ]]; then
+        EDGE_CONFIG_TOKEN="$token_input"
+      fi
     fi
   fi
 
@@ -2107,32 +2118,56 @@ require_cmd jq
 require_cmd zstd
 require_cmd age
 
+detect_game_image_from_compose() {
+  # Extract `services.unreal-game.image` without needing yq.
+  awk '
+    /^[[:space:]]*unreal-game:[[:space:]]*$/ { in_game=1; next }
+    in_game && /^[[:space:]]*image:[[:space:]]*/ {
+      sub(/^[[:space:]]*image:[[:space:]]*/, "", $0)
+      gsub(/[[:space:]]+$/, "", $0)
+      print $0
+      exit
+    }
+    in_game && /^[^[:space:]]/ { in_game=0 }
+  ' "$1"
+}
+
 rollout_args=()
 if [[ "$NO_VERIFY" == "1" ]]; then
   rollout_args+=(--no-verify)
 fi
 
-note "Rolling out encrypted game image + starting compose stack"
-token_args=()
-if [[ -n "$ORCH_TOKEN_ENV" ]]; then
-  token_args+=(--orch-token-env "$ORCH_TOKEN_ENV")
-elif [[ -n "$ORCH_TOKEN_FILE" ]]; then
-  token_args+=(--orch-token-file "$ORCH_TOKEN_FILE")
-elif [[ -n "$ORCH_TOKEN" ]]; then
-  token_args+=(--orch-token "$ORCH_TOKEN")
+game_image="$(detect_game_image_from_compose "$COMPOSE_FILE" || true)"
+game_image="$(trim_whitespace "${game_image:-}")"
+if [[ -n "$game_image" ]] && docker image inspect "$game_image" >/dev/null 2>&1; then
+  ok "Game image already present locally; skipping download"
+  note "To force a clean reload, run: ./scripts/embody_cli.sh rollout"
+  note "Restarting compose stack to apply config"
+  "${compose_cmd[@]}" -f "$COMPOSE_FILE" down
+  "${compose_cmd[@]}" -f "$COMPOSE_FILE" up -d
+else
+  note "Rolling out encrypted game image + starting compose stack"
+  token_args=()
+  if [[ -n "$ORCH_TOKEN_ENV" ]]; then
+    token_args+=(--orch-token-env "$ORCH_TOKEN_ENV")
+  elif [[ -n "$ORCH_TOKEN_FILE" ]]; then
+    token_args+=(--orch-token-file "$ORCH_TOKEN_FILE")
+  elif [[ -n "$ORCH_TOKEN" ]]; then
+    token_args+=(--orch-token "$ORCH_TOKEN")
+  fi
+  rollout_cmd=(
+    "$REPO_ROOT/tools/encrypted-game-image/rollout.sh"
+    --payments-api-url "$PAYMENTS_API_URL"
+    --image-ref "$IMAGE_REF"
+    --orch-id "$ORCH_ID"
+    --orch-address "$ORCH_ADDRESS"
+  )
+  if [[ -n "$ARTIFACT_URL" ]]; then
+    rollout_cmd+=(--artifact-url "$ARTIFACT_URL")
+  fi
+  rollout_cmd+=("${token_args[@]}" "${rollout_args[@]}")
+  "${rollout_cmd[@]}"
 fi
-rollout_cmd=(
-  "$REPO_ROOT/tools/encrypted-game-image/rollout.sh"
-  --payments-api-url "$PAYMENTS_API_URL"
-  --image-ref "$IMAGE_REF"
-  --orch-id "$ORCH_ID"
-  --orch-address "$ORCH_ADDRESS"
-)
-if [[ -n "$ARTIFACT_URL" ]]; then
-  rollout_cmd+=(--artifact-url "$ARTIFACT_URL")
-fi
-rollout_cmd+=("${token_args[@]}" "${rollout_args[@]}")
-"${rollout_cmd[@]}"
 
 ensure_inbound_rules_best_effort
 
