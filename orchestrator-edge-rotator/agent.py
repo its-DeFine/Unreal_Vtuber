@@ -411,7 +411,7 @@ def _compose(
     # When we update `.env` and then invoke `docker compose` from inside the rotator,
     # stale process env values can override `--env-file` and cause the recreated
     # containers to keep the *previous* values (breaking edge rotation).
-    for key in ("SIGNALING_EXTRA_ARGS", "SIGNALING_MATCHMAKER_ARGS"):
+    for key in ("SIGNALING_EXTRA_ARGS", "SIGNALING_MATCHMAKER_ARGS", "VTUBER_ALLOWED_ADDRESSES"):
         env.pop(key, None)
     return _run(cmd, check=check, env=env)
 
