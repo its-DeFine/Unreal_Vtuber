@@ -1762,7 +1762,7 @@ PY
             fi
           fi
 
-          if [[ -z "$rec_file" && -n "$predicted" && "$predicted" =~ ^(.*)_([0-9]+)\\.mkv$ ]]; then
+          if [[ -z "$rec_file" && -n "$predicted" && "$predicted" =~ ^(.*)_([0-9]+)[.]mkv$ ]]; then
             prefix="${BASH_REMATCH[1]}"
             base_num="${BASH_REMATCH[2]}"
             found=""
