@@ -22,6 +22,12 @@ Run:
 git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/embody_cli.sh
 ```
 
+Day-to-day operations are also done via the CLI (no file edits needed):
+- `./scripts/embody_cli.sh overview` – status dashboard (power, containers, registration)
+- `./scripts/embody_cli.sh verify --fix` – health + end-to-end checks (runner TCP + record/download)
+- `./scripts/embody_cli.sh power sleep|wake --ttl <seconds>` – stop/start the stack safely
+- `./scripts/embody_cli.sh update` – fast-forward this repo to latest `origin/main`
+
 The wizard will:
 - Preflight your host (and can install missing deps on Ubuntu/Debian)
 - Write/update `.env`, generate `.env.turn`
@@ -38,6 +44,20 @@ Multi-edge deployments:
 - Verify the orchestrator registers on the intended edge matchmaker after onboarding (see `docs/orchestrator-onboarding.md`).
 - If needed, set `SIGNALING_MATCHMAKER_ARGS` in `.env` (example: `--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889`).
 - To rotate edges without SSH, configure the optional `orchestrator-edge-rotator` sidecar (`docs/orchestrator-onboarding.md`).
+
+## Security / allowlists
+
+This stack protects control endpoints (runner, recorder-control, power) with strict allowlists.
+
+Default allowlisted IPs depend on setup mode:
+- Always allow local access: `127.0.0.1`, `::1`, docker bridge gateways (`172.17.0.1`, `172.18.0.1`)
+- Control-plane mode (`EDGE_CONFIG_URL` set): allowlists are managed by the `orchestrator-edge-rotator` sidecar
+  - Assigned edge CIDRs/IPs are allowed automatically
+  - If `PAYMENTS_API_URL` is an IPv4, `setup` also allowlists the Payments host so it can run remote jobs without SSH:
+    - Host firewall ports: `EDGE_FIREWALL_EXTRA_CIDRS=<payments-ip>/32`
+    - Power API: `EDGE_POWER_EXTRA_CIDRS=<payments-ip>/32`
+    - Runner/recorder: `EDGE_LOCAL_ALLOWLIST=...,<payments-ip>`
+- Manual mode: `VTUBER_ALLOWED_ADDRESSES` is written from your `--edge-ip` (plus any `--allowed-ip`) and also includes the Payments IPv4 host when available
 
 ## What’s inside
 
