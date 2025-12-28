@@ -2,25 +2,36 @@
 
 ## Unreleased
 
-Changes merged after `v1.1.0` (current tagged release).
+Changes merged after `v1.2.0` (current tagged release).
+
+## v1.2.0 (2025-12-28)
 
 ### Highlights
 
-- CLI improvements: verify/register/payments checks and more robust invite/license flows.
-- Edge rotation hardening: plane-managed allowlists + drift healing.
+- CLI dashboard + end-to-end verification (runner TCP + record/download smoke tests).
+- Control-plane (“edge plane”) support: plane-managed allowlists, drift healing, and matchmaker config updates.
+- Recorder-control improvements: deterministic output filenames + S3 presigned upload support.
 - Service images now support a `staging` lane (see `docs/staging.md`).
 
 ### Included PRs
 
-- #90 cli: allow selecting NVIDIA GPU
-- #94 ops: disable watchtower rolling restarts
-- #95 cli: auto-configure edge-config plane
-- #96 Fix signaling matchmaker args survive rotator recreate
-- #101 encrypted-image consume: invite redeem + lease robustness
-- #103 Edge rotator: plane-managed allowlists + drift-healing
-- #104 Onboarding: Payments bootstrap edge-plane autodetect
-- #105 CLI: verify/register/payments + health hardening
-- #106 cli: redeem invite + rollout wrapper
+- [#90](https://github.com/its-DeFine/Unreal_Vtuber/pull/90) cli: allow selecting NVIDIA GPU
+- [#93](https://github.com/its-DeFine/Unreal_Vtuber/pull/93) Orchestrator: embody_cli + power sleep-all + wake TTL
+- [#94](https://github.com/its-DeFine/Unreal_Vtuber/pull/94) ops: disable watchtower rolling restarts
+- [#95](https://github.com/its-DeFine/Unreal_Vtuber/pull/95) cli: auto-configure edge-config plane
+- [#96](https://github.com/its-DeFine/Unreal_Vtuber/pull/96) Fix signaling matchmaker args survive rotator recreate
+- [#101](https://github.com/its-DeFine/Unreal_Vtuber/pull/101) encrypted-image consume: invite redeem + lease robustness
+- [#103](https://github.com/its-DeFine/Unreal_Vtuber/pull/103) Edge rotator: plane-managed allowlists + drift-healing
+- [#104](https://github.com/its-DeFine/Unreal_Vtuber/pull/104) Onboarding: Payments bootstrap edge-plane autodetect
+- [#105](https://github.com/its-DeFine/Unreal_Vtuber/pull/105) CLI: verify/register/payments + health hardening
+- [#106](https://github.com/its-DeFine/Unreal_Vtuber/pull/106) cli: redeem invite + rollout wrapper
+- [#107](https://github.com/its-DeFine/Unreal_Vtuber/pull/107) CI/docs: add staging lane for service images
+- [#108](https://github.com/its-DeFine/Unreal_Vtuber/pull/108) cli: improve onboarding prompts + image load UX
+- [#109](https://github.com/its-DeFine/Unreal_Vtuber/pull/109) CLI: dashboard + end-to-end verify
+- [#110](https://github.com/its-DeFine/Unreal_Vtuber/pull/110) cli: fix runner tcp state polling
+- [#111](https://github.com/its-DeFine/Unreal_Vtuber/pull/111) Recorder S3 upload + payments allowlist
+- [#112](https://github.com/its-DeFine/Unreal_Vtuber/pull/112) cli: fix verify false warnings
+- [#113](https://github.com/its-DeFine/Unreal_Vtuber/pull/113) docs: clarify CLI flow + allowlists
 
 ## v1.1.0 (2025-12-20)
 
@@ -32,9 +43,9 @@ Changes merged after `v1.1.0` (current tagged release).
 
 ### Included PRs
 
-- #85 Orchestrator: one-command onboarding
-- #86 tools: fix `tools/rollout.sh` awk compatibility
-- #87 docs: clarify encrypted image refs
+- [#85](https://github.com/its-DeFine/Unreal_Vtuber/pull/85) Orchestrator: one-command onboarding
+- [#86](https://github.com/its-DeFine/Unreal_Vtuber/pull/86) tools: fix `tools/rollout.sh` awk compatibility
+- [#87](https://github.com/its-DeFine/Unreal_Vtuber/pull/87) docs: clarify encrypted image refs
 
 ## v1.0.0 (2025-12-18)
 
@@ -49,7 +60,7 @@ This is the first tagged release of the Unreal VTuber Pixel Streaming stack.
 
 ### Included PRs
 
-- #80 Signaling: remove bundled UI from GHCR image
-- #81 Publish service images for pull-only deployments
-- #82 Fix UE game image bloat (issue #37)
-- #83 Encrypted game image: add producer/consumer scripts
+- [#80](https://github.com/its-DeFine/Unreal_Vtuber/pull/80) Signaling: remove bundled UI from GHCR image
+- [#81](https://github.com/its-DeFine/Unreal_Vtuber/pull/81) Publish service images for pull-only deployments
+- [#82](https://github.com/its-DeFine/Unreal_Vtuber/pull/82) Fix UE game image bloat (issue #37)
+- [#83](https://github.com/its-DeFine/Unreal_Vtuber/pull/83) Encrypted game image: add producer/consumer scripts
