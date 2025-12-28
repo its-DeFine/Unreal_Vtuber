@@ -1663,7 +1663,7 @@ PY
     ui_check "payments ip" "WARN" "(cannot parse IPv4 from PAYMENTS_API_URL; skip allowlist checks)"
   fi
 
-  if curl -fsS --max-time 4 -I https://s3.amazonaws.com/ >/dev/null 2>&1; then
+  if curl -sS --max-time 4 -I https://s3.amazonaws.com/ >/dev/null 2>&1; then
     ui_check "outbound https" "OK" "(s3.amazonaws.com)"
   else
     ui_check "outbound https" "WARN" "(cannot reach s3.amazonaws.com; presigned uploads may fail)"
