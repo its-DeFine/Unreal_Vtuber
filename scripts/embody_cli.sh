@@ -1640,7 +1640,7 @@ PY
     ui_check "record/download" "SKIP" "(stack sleeping)"
   else
     # Runner TCP smoke test (sends a single BYOB command through the runner to the game TCP port).
-    local session_id payload resp status_url state
+    local session_id payload resp status_url status_body state
     session_id="verify_$(date +%s 2>/dev/null || echo 0)_$RANDOM"
     payload="$(SESSION_ID="$session_id" python3 - <<'PY'
 import json
@@ -1657,11 +1657,12 @@ PY
     status_url="http://127.0.0.1:9877/scripts/${session_id}"
     state=""
     for _ in {1..15}; do
-      state="$(curl -sS --max-time 3 "$status_url" 2>/dev/null | python3 - <<'PY' || true
+      status_body="$(curl -sS --max-time 3 "$status_url" 2>/dev/null || true)"
+      state="$(BODY="$status_body" python3 - <<'PY'
 import json
-import sys
+import os
 try:
-    data = json.load(sys.stdin)
+    data = json.loads(os.environ.get("BODY") or "")
 except Exception:
     data = {}
 print((data.get("state") or "").strip())
