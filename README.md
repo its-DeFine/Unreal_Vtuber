@@ -5,17 +5,17 @@ Run Embody’s packaged Unreal Engine Pixel Streaming avatar on your own GPU hos
 This repo contains the runtime Compose stack (TURN, signaling, game container, script-runner, recorder control, health/registration) plus a one-command onboarding wizard.
 
 Key properties:
-- **Single-command onboarding** (interactive wizard)
-- **Encrypted game delivery** (no registry credentials on the orchestrator)
-- **Short-lived decryption leases** issued by the Payments backend
-- **Best-effort firewall automation** on EC2 (optional)
+- ⚡ **Single-command onboarding** (interactive wizard)
+- 🔒 **Encrypted game delivery** (no registry credentials on the orchestrator)
+- ⏱️ **Short-lived decryption leases** issued by the Payments backend
+- 🛡️ **Best-effort firewall automation** on EC2 (optional)
 
 ## Quickstart (one command)
 
 You’ll need:
-- From your admin: a **one-time invite code** (bound to your payout wallet)
+- `From your admin: a one-time invite code (bound to your payout wallet)` — Any Livepeer orchestrator can join the program; request a code at `george@atumera.com` or via Discord (`de_fi_ne`).
 - From you: a **unique orchestrator ID** + a **payout wallet address** (`0x…`)
-- A GPU host with an NVIDIA GPU (Ubuntu 22.04 recommended)
+- A GPU host with an NVIDIA GPU (**at least 16GB VRAM required**) (Ubuntu 22.04 recommended)
 
 Run:
 ```bash
