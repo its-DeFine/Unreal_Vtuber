@@ -1971,6 +1971,7 @@ fi
 upsert_env_kv "$ENV_FILE" "PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HOST_PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" "http://$PUBLIC_IP:9090/health"
+upsert_env_kv "$ENV_FILE" "EDGE_PROJECT_DIR" "$REPO_ROOT"
 
 EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
 EDGE_CONFIG_URL="$(strip_inline_comment "$EDGE_CONFIG_URL")"
