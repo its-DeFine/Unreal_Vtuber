@@ -245,6 +245,53 @@ strip_inline_comment() {
   trim_whitespace "$s"
 }
 
+extract_host_from_url() {
+  local raw="$1"
+  URL="$raw" python3 - <<'PY'
+import os
+from urllib.parse import urlparse
+
+raw = (os.environ.get("URL") or "").strip()
+if not raw:
+    print("")
+    raise SystemExit(0)
+if "://" not in raw:
+    raw = "http://" + raw
+try:
+    parsed = urlparse(raw)
+except Exception:
+    print("")
+    raise SystemExit(0)
+print(parsed.hostname or "")
+PY
+}
+
+is_ipv4() {
+  local candidate="$1"
+  ADDR="$candidate" python3 - <<'PY'
+import ipaddress
+import os
+
+raw = (os.environ.get("ADDR") or "").strip()
+try:
+    ip = ipaddress.ip_address(raw)
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if ip.version == 4 else 1)
+PY
+}
+
+csv_has_token() {
+  local csv="$1" token="$2"
+  CSV="$csv" TOKEN="$token" python3 - <<'PY'
+import os
+csv = os.environ.get("CSV") or ""
+token = (os.environ.get("TOKEN") or "").strip()
+items = [part.strip() for part in csv.split(",") if part.strip()]
+print("1" if token and token in items else "0")
+PY
+}
+
 extract_first_nonlocal_allowlist_token() {
   local csv="$1"
   local raw token
@@ -1602,6 +1649,112 @@ PY
     fi
   else
     ui_check "allowlist" "OK"
+  fi
+
+  ui_section "Networking"
+  local payments_url payments_host payments_ip plane_url edge_ports
+  payments_url="$(get_payments_api_url)"
+  payments_host="$(extract_host_from_url "$payments_url")"
+  payments_ip=""
+  if [[ -n "$payments_host" ]] && is_ipv4 "$payments_host" >/dev/null 2>&1; then
+    payments_ip="$payments_host"
+    ui_kv "payments ip" "$payments_ip"
+  else
+    ui_check "payments ip" "WARN" "(cannot parse IPv4 from PAYMENTS_API_URL; skip allowlist checks)"
+  fi
+
+  if curl -fsS --max-time 4 -I https://s3.amazonaws.com/ >/dev/null 2>&1; then
+    ui_check "outbound https" "OK" "(s3.amazonaws.com)"
+  else
+    ui_check "outbound https" "WARN" "(cannot reach s3.amazonaws.com; presigned uploads may fail)"
+  fi
+
+  plane_url="$(get_edge_config_url)"
+  edge_ports="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_ALLOW_PORTS" 2>/dev/null || true)")"
+  if [[ -n "$plane_url" ]]; then
+    ui_check "edge plane" "OK" "(EDGE_CONFIG_URL set)"
+    if [[ -n "$payments_ip" ]]; then
+      local fw_extra power_extra local_allow want_cidr
+      want_cidr="${payments_ip}/32"
+      fw_extra="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_FIREWALL_EXTRA_CIDRS" 2>/dev/null || true)")"
+      power_extra="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_POWER_EXTRA_CIDRS" 2>/dev/null || true)")"
+      local_allow="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" 2>/dev/null || true)")"
+
+      if [[ "$(csv_has_token "$fw_extra" "$want_cidr")" == "1" ]]; then
+        ui_check "payments fw" "OK"
+      else
+        ui_check "payments fw" "WARN" "(missing ${want_cidr}; fix: ./scripts/embody_cli.sh setup)"
+      fi
+
+      if [[ "$(csv_has_token "$power_extra" "$want_cidr")" == "1" ]]; then
+        ui_check "payments /power" "OK"
+      else
+        ui_check "payments /power" "WARN" "(missing ${want_cidr}; fix: ./scripts/embody_cli.sh setup)"
+      fi
+
+      if [[ "$(csv_has_token "$local_allow" "$payments_ip")" == "1" ]]; then
+        ui_check "payments runner/rec" "OK"
+      else
+        ui_check "payments runner/rec" "WARN" "(missing ${payments_ip}; fix: ./scripts/embody_cli.sh setup)"
+      fi
+    fi
+
+    if [[ -n "$edge_ports" ]]; then
+      local ports_rc="0"
+      EDGE_PORTS="$edge_ports" python3 - <<'PY' >/dev/null 2>&1 || ports_rc="$?"
+import os
+raw = os.environ.get("EDGE_PORTS") or ""
+needed = [("tcp", 8889), ("tcp", 9877), ("tcp", 9090)]
+parsed = []
+for token in raw.split(","):
+    token = token.strip()
+    if not token:
+        continue
+    if "/" in token:
+        port_part, proto = token.split("/", 1)
+        proto = proto.strip().lower()
+    else:
+        port_part, proto = token, "tcp"
+    if proto not in ("tcp", "udp"):
+        raise SystemExit(2)
+    if "-" in port_part:
+        a, b = port_part.split("-", 1)
+        start, end = int(a), int(b)
+    else:
+        start = end = int(port_part)
+    parsed.append((proto, start, end))
+def covers(proto, port):
+    for p, start, end in parsed:
+        if p != proto:
+            continue
+        if start <= port <= end:
+            return True
+    return False
+missing = [(proto, port) for proto, port in needed if not covers(proto, port)]
+if missing:
+    raise SystemExit(1)
+PY
+      if [[ "$ports_rc" == "0" ]]; then
+        ui_check "edge ports" "OK" "(EDGE_ALLOW_PORTS includes 8889/9877/9090)"
+      elif [[ "$ports_rc" == "2" ]]; then
+        ui_check "edge ports" "WARN" "(invalid EDGE_ALLOW_PORTS)"
+      else
+        ui_check "edge ports" "WARN" "(EDGE_ALLOW_PORTS missing 8889/9877/9090; fix: clear it or include required ports)"
+      fi
+    else
+      ui_check "edge ports" "OK" "(default ports)"
+    fi
+  else
+    ui_check "edge plane" "SKIP" "(manual edge mode)"
+    if [[ -n "$payments_ip" ]]; then
+      local allow_csv
+      allow_csv="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)")"
+      if [[ "$(csv_has_token "$allow_csv" "$payments_ip")" == "1" ]]; then
+        ui_check "payments allowlist" "OK"
+      else
+        ui_check "payments allowlist" "WARN" "(missing ${payments_ip}; fix: ./scripts/embody_cli.sh setup --allowed-ip ${payments_ip})"
+      fi
+    fi
   fi
 
   ui_section "Edge"

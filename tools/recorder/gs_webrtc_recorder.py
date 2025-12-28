@@ -39,13 +39,19 @@ def _sanitize_label(raw: str) -> str:
     return cleaned or "capture"
 
 class GstRecorder:
-    def __init__(self, loop, label="capture", streamer_id=None):
+    def __init__(self, loop, label="capture", streamer_id=None, output_path: str | None = None):
         self.loop = loop
         self.label = _sanitize_label(label or "capture")
         self.streamer_id = streamer_id
         self.player_id = str(uuid.uuid4())
-        self.base = OUTPUT_DIR / f"{self.label}_{int(loop.time())}"
-        self.mkv = str(self.base) + ".mkv"
+        if output_path:
+            out = Path(output_path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            self.base = out.with_suffix("")
+            self.mkv = str(out)
+        else:
+            self.base = OUTPUT_DIR / f"{self.label}_{int(loop.time())}"
+            self.mkv = str(self.base) + ".mkv"
         self.pipeline = None
         self.webrtcbin = None
         self.ws = None
@@ -294,8 +300,9 @@ if __name__ == "__main__":
     parser.add_argument("--duration", type=float, default=None, help="Seconds to record before stopping")
     parser.add_argument("--label", default="capture", help="Output label prefix")
     parser.add_argument("--streamer-id", default=None, help="Specific streamer id to subscribe to")
+    parser.add_argument("--output", default=None, help="Absolute/relative output .mkv path (overrides label-based name)")
     args = parser.parse_args()
 
     loop = asyncio.get_event_loop()
-    rec = GstRecorder(loop, label=args.label, streamer_id=args.streamer_id)
+    rec = GstRecorder(loop, label=args.label, streamer_id=args.streamer_id, output_path=args.output)
     rec.run(duration=args.duration)

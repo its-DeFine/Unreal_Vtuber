@@ -55,6 +55,7 @@ Optional:
 - `EDGE_FIREWALL_EXTRA_CIDRS` (default empty) – additional CIDRs to allow (ex: Payments health checker IP).
 - `EDGE_LOCAL_ALLOWLIST` (default `127.0.0.1,::1,172.17.0.1,172.18.0.1`) – base tokens prepended to `VTUBER_ALLOWED_ADDRESSES` when the rotator rewrites it.
 - `EDGE_POWER_ALLOWED_IPS_FILE` (default `/var/lib/vtuber/power-state/power_allowed_ips.txt`) – writes edge CIDRs for `/power` allowlisting.
+- `EDGE_POWER_EXTRA_CIDRS` (default empty) – additional CIDRs to allow for `/power` (ex: Payments job dispatcher IP).
 
 ## Security notes
 
