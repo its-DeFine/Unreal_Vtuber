@@ -507,6 +507,7 @@ def main() -> int:
     wake_settle_s = int(os.environ.get("EDGE_WAKE_SETTLE_SECONDS", "60"))
     update_turn = _env_bool("EDGE_UPDATE_TURN", default=False)
     extra_firewall_cidrs = _parse_cidrs_csv(os.environ.get("EDGE_FIREWALL_EXTRA_CIDRS", ""))
+    extra_power_cidrs = _parse_cidrs_csv(os.environ.get("EDGE_POWER_EXTRA_CIDRS", ""))
     power_allowed_file_raw = (os.environ.get("EDGE_POWER_ALLOWED_IPS_FILE") or "").strip()
     power_allowed_file = Path(power_allowed_file_raw) if power_allowed_file_raw else None
     local_allowlist = (os.environ.get("EDGE_LOCAL_ALLOWLIST") or "127.0.0.1,::1,172.17.0.1,172.18.0.1").strip()
@@ -562,8 +563,16 @@ def main() -> int:
             _apply_firewall(chain, cidrs=firewall_cidrs, ports=ports, enforce_exclusive=enforce)
 
             if power_allowed_file:
-                # /power allowlist is edge-only (do not include EDGE_FIREWALL_EXTRA_CIDRS like payments/ops).
-                _write_csv_file(power_allowed_file, ["127.0.0.1/32", *cidrs])
+                allow = ["127.0.0.1/32", *cidrs, *extra_power_cidrs]
+                deduped: list[str] = []
+                seen = set()
+                for token in allow:
+                    token = token.strip()
+                    if not token or token in seen:
+                        continue
+                    seen.add(token)
+                    deduped.append(token)
+                _write_csv_file(power_allowed_file, deduped)
 
             env_changed = False
             # We intentionally write the effective matchmaker flags into SIGNALING_EXTRA_ARGS.

@@ -2,9 +2,11 @@ import asyncio
 import json
 import os
 import signal
+import time
 from pathlib import Path
 from typing import Optional
 
+import aiohttp
 from aiohttp import web
 
 RECORDER_CTRL_PORT = int(os.environ.get("RECORDER_CTRL_PORT", "8889"))
@@ -77,7 +79,9 @@ async def handle_start(request: web.Request):
     streamer_id = data.get("streamer_id")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    cmd = ["python3", PY_RECORDER, "--label", label]
+    filename = f"{label}_{int(time.time() * 1000)}.mkv"
+    output_path = (OUTPUT_DIR / filename).resolve()
+    cmd = ["python3", PY_RECORDER, "--label", label, "--output", str(output_path)]
     if duration:
         cmd += ["--duration", str(duration)]
     if streamer_id:
@@ -94,8 +98,8 @@ async def handle_start(request: web.Request):
             "proc": proc,
             "label": label,
             "streamer": streamer_id,
-            "started": asyncio.get_event_loop().time(),
-            "mkv": str(OUTPUT_DIR / f"{label}_{int(asyncio.get_event_loop().time())}.mkv"),
+            "started": time.time(),
+            "mkv": str(output_path),
             "run_token": run_token,
         }
     )
@@ -167,6 +171,63 @@ async def handle_delete(request: web.Request):
     target.unlink()
     return web.json_response({"deleted": True, "file": name})
 
+
+async def handle_upload(request: web.Request):
+    ensure_auth(request)
+    name = request.match_info.get("filename", "")
+    target = (OUTPUT_DIR / name).resolve()
+    try:
+        target.relative_to(OUTPUT_DIR)
+    except ValueError:
+        raise web.HTTPForbidden(text="Invalid path")
+    if not target.exists() or not target.is_file():
+        raise web.HTTPNotFound(text="File not found")
+
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    upload_url = (data.get("upload_url") or data.get("url") or "").strip()
+    if not upload_url:
+        raise web.HTTPBadRequest(text="Missing upload_url")
+
+    delete_after = bool(data.get("delete_after"))
+
+    import hashlib
+
+    h = hashlib.sha256()
+    size = 0
+    with target.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            h.update(chunk)
+
+    async with aiohttp.ClientSession() as session:
+        with target.open("rb") as handle:
+            async with session.put(upload_url, data=handle, headers={"Content-Length": str(size)}) as resp:
+                if resp.status < 200 or resp.status >= 300:
+                    body = (await resp.text())[:200]
+                    raise web.HTTPBadRequest(text=f"Upload failed (status={resp.status}): {body}")
+
+    if delete_after:
+        try:
+            target.unlink()
+        except Exception:
+            pass
+
+    return web.json_response(
+        {
+            "uploaded": True,
+            "file": name,
+            "bytes": size,
+            "sha256": f"sha256:{h.hexdigest()}",
+            "deleted_after_upload": delete_after,
+        }
+    )
+
 async def handle_root(request: web.Request):
     return web.json_response({"service": "gs-recorder-control", "active": STATE["proc"] is not None})
 
@@ -179,6 +240,7 @@ def make_app() -> web.Application:
     app.router.add_post("/recordings/stop", handle_stop)
     app.router.add_get("/recordings/{filename}", handle_download)
     app.router.add_delete("/recordings/{filename}", handle_delete)
+    app.router.add_post("/recordings/{filename}/upload", handle_upload)
     return app
 
 

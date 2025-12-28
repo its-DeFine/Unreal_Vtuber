@@ -1959,7 +1959,7 @@ if [[ -n "$EDGE_CONFIG_URL" ]]; then
   plane_enabled="1"
 fi
 
-if [[ "$plane_enabled" == "1" ]]; then
+  if [[ "$plane_enabled" == "1" ]]; then
   # In control-plane mode, the orchestrator-edge-rotator sidecar is the source of truth:
   # it applies iptables rules, updates matchmaker config, and (with EDGE_UPDATE_TURN=1)
   # rewrites TURN to advertise the selected edge/gateway.
@@ -1984,6 +1984,37 @@ if [[ "$plane_enabled" == "1" ]]; then
       deduped_extra+=("$ip")
     done < <(dedupe_list "${extra_tokens[@]}")
     upsert_env_kv "$ENV_FILE" "EDGE_FIREWALL_EXTRA_CIDRS" "$(join_csv "${deduped_extra[@]}")"
+
+    # Allow Payments to call /power (wake/sleep) without SSH.
+    existing_power_extra="$(read_env_value "$ENV_FILE" "EDGE_POWER_EXTRA_CIDRS" 2>/dev/null || true)"
+    existing_power_extra="$(trim_whitespace "$existing_power_extra")"
+    existing_power_extra="$(strip_inline_comment "$existing_power_extra")"
+    power_tokens=()
+    if [[ -n "$existing_power_extra" ]]; then
+      IFS=',' read -r -a power_tokens <<<"$existing_power_extra"
+    fi
+    power_tokens+=("$wanted")
+    deduped_power=()
+    while IFS= read -r ip; do
+      deduped_power+=("$ip")
+    done < <(dedupe_list "${power_tokens[@]}")
+    upsert_env_kv "$ENV_FILE" "EDGE_POWER_EXTRA_CIDRS" "$(join_csv "${deduped_power[@]}")"
+
+    # Allow Payments to reach runner/recorder (services match exact IP strings, not CIDRs).
+    existing_local="$(read_env_value "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" 2>/dev/null || true)"
+    existing_local="$(trim_whitespace "$existing_local")"
+    existing_local="$(strip_inline_comment "$existing_local")"
+    if [[ -z "$existing_local" ]]; then
+      existing_local="$(join_csv 127.0.0.1 ::1 172.17.0.1 172.18.0.1)"
+    fi
+    local_tokens=()
+    IFS=',' read -r -a local_tokens <<<"$existing_local"
+    local_tokens+=("$payments_ip")
+    deduped_local=()
+    while IFS= read -r ip; do
+      deduped_local+=("$ip")
+    done < <(dedupe_list "${local_tokens[@]}")
+    upsert_env_kv "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" "$(join_csv "${deduped_local[@]}")"
   fi
 
   # Seed with local-only allowlist; the rotator will rewrite VTUBER_ALLOWED_ADDRESSES to the current edge IP(s).
