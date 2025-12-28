@@ -309,6 +309,38 @@ extract_first_nonlocal_allowlist_token() {
   return 1
 }
 
+extract_first_edge_allowlist_token() {
+  local allow_csv="$1" local_allow_csv="$2"
+  local allow_raw local_raw token local_token
+  IFS=',' read -r -a allow_raw <<<"$allow_csv"
+  IFS=',' read -r -a local_raw <<<"$local_allow_csv"
+
+  for token in "${allow_raw[@]}"; do
+    token="$(trim_whitespace "$token")"
+    token="$(strip_inline_comment "$token")"
+    [[ -n "$token" ]] || continue
+    case "$token" in
+      127.0.0.1|::1|172.17.0.1|172.18.0.1) continue ;;
+    esac
+
+    local found="0"
+    for local_token in "${local_raw[@]}"; do
+      local_token="$(trim_whitespace "$local_token")"
+      local_token="$(strip_inline_comment "$local_token")"
+      [[ -n "$local_token" ]] || continue
+      if [[ "$token" == "$local_token" ]]; then
+        found="1"
+        break
+      fi
+    done
+    [[ "$found" == "1" ]] && continue
+
+    printf '%s' "$token"
+    return 0
+  done
+  return 1
+}
+
 read_file_trim() {
   local path="$1"
   [[ -f "$path" ]] || return 1
@@ -834,7 +866,9 @@ cmd_health() {
     edge_config_url="$(get_edge_config_url)"
     if [[ -n "$edge_config_url" ]]; then
       allowlist="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)")"
-      nonlocal="$(extract_first_nonlocal_allowlist_token "$allowlist" || true)"
+      local local_allowlist
+      local_allowlist="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" 2>/dev/null || true)")"
+      nonlocal="$(extract_first_edge_allowlist_token "$allowlist" "$local_allowlist" || extract_first_nonlocal_allowlist_token "$allowlist" || true)"
       turn_external="$(strip_inline_comment "$(read_env_value "$TURN_ENV_FILE" "TURN_EXTERNAL_IP" 2>/dev/null || true)")"
       if [[ -n "$nonlocal" ]]; then
         ui_check "edge plane" "OK" "(allowlisted: ${nonlocal})"
