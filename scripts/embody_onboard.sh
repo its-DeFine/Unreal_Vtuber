@@ -1612,16 +1612,44 @@ maybe_run_wizard() {
 
   section "Edge Assignment (recommended)"
   bootstrap_edge_plane_from_payments_best_effort || true
-  if [[ -z "$EDGE_CONFIG_URL" ]]; then
-    note "No edge control plane discovered from Payments."
-    note "If your admin configured it, it should be returned by /api/orchestrators/bootstrap (PAYMENTS_EDGE_CONFIG_URL)."
-  fi
-  note "Recommended: configure the edge config plane (EDGE_CONFIG_URL)."
-  note "If enabled, Embody can move this orchestrator between edges without SSH, and you do NOT need to enter edge IPs here."
-  EDGE_CONFIG_URL="$(prompt_default "Edge config URL (blank = manual edge IP mode)" "$EDGE_CONFIG_URL")"
-  EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
-  EDGE_CONFIG_URL="$(strip_inline_comment "$EDGE_CONFIG_URL")"
+
+  local suggested_plane_url use_plane
+  suggested_plane_url=""
   if [[ -n "$EDGE_CONFIG_URL" ]]; then
+    suggested_plane_url="$EDGE_CONFIG_URL"
+  elif [[ -n "$PAYMENTS_API_URL" ]]; then
+    suggested_plane_url="${PAYMENTS_API_URL%/}/api/orchestrator-edge"
+  fi
+
+  note "Recommended: enable control-plane edge assignment."
+  note "If enabled, Embody can move this orchestrator between edges without SSH, and you do NOT need to enter edge IPs here."
+  if [[ -z "$EDGE_CONFIG_URL" && -n "$suggested_plane_url" ]]; then
+    note "Suggested edge plane: $suggested_plane_url"
+  fi
+
+  use_plane="0"
+  if [[ -n "$EDGE_CONFIG_URL" ]]; then
+    use_plane="1"
+  else
+    if prompt_yes_no "Enable control-plane edge assignment (recommended)?" "y"; then
+      use_plane="1"
+    fi
+  fi
+
+  if [[ "$use_plane" == "1" ]]; then
+    if [[ -z "$EDGE_CONFIG_URL" && -n "$suggested_plane_url" ]]; then
+      EDGE_CONFIG_URL="$suggested_plane_url"
+    fi
+    EDGE_CONFIG_URL="$(prompt_default "Edge config URL" "$EDGE_CONFIG_URL")"
+    EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
+    EDGE_CONFIG_URL="$(strip_inline_comment "$EDGE_CONFIG_URL")"
+    if [[ -z "$EDGE_CONFIG_URL" ]]; then
+      note "Edge config URL left blank; falling back to manual edge IP mode."
+      use_plane="0"
+    fi
+  fi
+
+  if [[ "$use_plane" == "1" ]]; then
     if [[ -n "$EDGE_CONFIG_TOKEN" ]]; then
       ok "Edge config token already set in .env (redacted)"
     else
@@ -1634,9 +1662,10 @@ maybe_run_wizard() {
         EDGE_CONFIG_TOKEN="$token_input"
       fi
     fi
+    ok "Edge assignment will be managed by the control plane (no manual edge IP needed)."
   fi
 
-  if [[ -z "$EDGE_CONFIG_URL" ]]; then
+  if [[ "$use_plane" != "1" ]]; then
     if [[ -z "$EDGE_IP" ]]; then
       EDGE_IP="${existing_edge:-$EDGE_IP}"
     fi
@@ -1651,8 +1680,6 @@ maybe_run_wizard() {
       note "Edge/gateway IP is required (IPv4/hostname; no spaces/commas)."
       EDGE_IP=""
     done
-  else
-    ok "Edge assignment will be managed by the control plane (no manual edge IP needed)."
   fi
 
   # Preserve any extra allowlisted caller IPs from existing config unless explicitly provided via flags.
@@ -1944,6 +1971,7 @@ fi
 upsert_env_kv "$ENV_FILE" "PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HOST_PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" "http://$PUBLIC_IP:9090/health"
+upsert_env_kv "$ENV_FILE" "EDGE_PROJECT_DIR" "$REPO_ROOT"
 
 EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
 EDGE_CONFIG_URL="$(strip_inline_comment "$EDGE_CONFIG_URL")"

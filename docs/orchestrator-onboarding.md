@@ -19,7 +19,7 @@ Admin provides:
 
 Run the onboarding script (interactive wizard):
 ```bash
-git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/embody_cli.sh
+git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && sudo ./scripts/embody_cli.sh
 ```
 
 Notes:
@@ -27,8 +27,8 @@ Notes:
 - It will prompt for the required inputs (choose a unique orchestrator ID + payout wallet, then paste your invite code) and can install missing dependencies on Ubuntu/Debian (Docker, NVIDIA driver, NVIDIA container toolkit).
 - On multi-GPU hosts, it will offer to pin Unreal to a specific GPU via `NVIDIA_VISIBLE_DEVICES` (you can also pass `--gpu-devices 0`).
 - The wizard redeems the invite code, stores a license token (chmod 600), then requests a Payments lease which includes a fresh download URL for the encrypted build.
-- Recommended: provide `--edge-config-url <url>` (and optionally `--edge-config-token <tok>`). In Embody-managed environments, these values may be auto-provided during invite-code redemption or via `EMBODY_EDGE_CONFIG_URL_DEFAULT`. This enables the `orchestrator-edge-rotator` sidecar to manage edge assignment (matchmaker flags + firewall allowlists + runner/recorder allowlists + TURN external IP updates).
-- If `EDGE_CONFIG_URL` is unset, provide a primary edge/gateway IP via `--edge-ip` (`--forwarder-ip` alias) and optionally additional IPs via `--allowed-ip <ip>` / `--allowed-ips <csv>`.
+- Recommended (default): enable control-plane edge assignment (`EDGE_CONFIG_URL`). The wizard suggests a value based on your Payments API URL (typically `http(s)://<payments-host>/api/orchestrator-edge`) so you can usually just press Enter. This enables the `orchestrator-edge-rotator` sidecar to manage edge assignment (matchmaker flags + firewall allowlists + runner/recorder allowlists + TURN external IP updates).
+- Manual mode: if you choose not to use the control plane, you must provide a primary edge/gateway IP via `--edge-ip` (`--forwarder-ip` alias) and optionally additional IPs via `--allowed-ip <ip>` / `--allowed-ips <csv>`.
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 - For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).
 - If you don’t have an invite code yet, abort and request one from your admin.
@@ -53,8 +53,8 @@ On EC2, security group auto-apply is opt-in: pass `--apply-aws-sg` (requires `aw
 
 If you use `EDGE_CONFIG_URL`, edge IPs may change over time; prefer keeping the EC2 security group permissive on these ports and relying on the host firewall (rotator) for per-edge restriction.
 
-### Optional: automate edge rotation (no SSH / no AWS SG edits)
-If your orchestrator host uses UFW/host firewall allowlists, enable the `orchestrator-edge-rotator` sidecar to:
+### Control-plane edge assignment (no SSH / no AWS SG edits)
+If `EDGE_CONFIG_URL` is set (recommended), the `orchestrator-edge-rotator` sidecar can:
 - Poll a control plane for the desired edge assignment
 - Update host firewall allowlists (via `iptables`)
 - Rewrite `.env` (`SIGNALING_EXTRA_ARGS`, `VTUBER_ALLOWED_ADDRESSES`) and recreate services so the orchestrator re-registers and accepts runner/recorder calls from the chosen edge
