@@ -2039,6 +2039,12 @@ else
     CONTROL_IPS+=("$ip")
   done
 
+  # Allow Payments to reach runner/recorder/power endpoints (manual edge mode).
+  payments_host="$(extract_host_from_url "$PAYMENTS_API_URL")"
+  if is_ipv4 "$payments_host"; then
+    CONTROL_IPS+=("$payments_host")
+  fi
+
   deduped_control_ips=()
   while IFS= read -r ip; do
     deduped_control_ips+=("$ip")

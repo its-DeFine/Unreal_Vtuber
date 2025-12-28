@@ -10,6 +10,9 @@ This sidecar runs alongside the Pixel Streaming stack to control the GStreamer c
 - `GET /recordings/status` – reports running/not, pid, label, streamer_id, output path.
 - `GET /recordings/{filename}` – download a specific MKV.
 - `DELETE /recordings/{filename}` – remove a specific MKV from `/recordings`.
+- `POST /recordings/{filename}/upload` – upload an existing MKV to a presigned URL
+  - body: `{ upload_url, delete_after? }`
+  - returns: `{ uploaded, bytes, sha256, deleted_after_upload }`
 
 ## Auth
 - IP allowlist: `VTUBER_ALLOWED_ADDRESSES` (or `RECORDINGS_ALLOWED_IPS`). Requests from other IPs get 403. Default includes loopback + the Docker bridge.
@@ -53,4 +56,4 @@ curl -X POST http://<host>:8889/recordings/stop
 ## Notes
 - The recorder connects to signaling via `RECORDER_SIGNALING_URL` and writes MKVs to `/recordings` (no re-encode).
 - Keep the sidecar on the same host/bridge as signaling for minimal latency; avoid TURN by staying local.
-- Downloads are not exposed here; fetch files from the host recordings directory (mounted to `/recordings`) via SSH/volume or add a private download endpoint if needed.
+- For headless automation, prefer uploading to object storage via `/recordings/{filename}/upload` and serving downloads from there.

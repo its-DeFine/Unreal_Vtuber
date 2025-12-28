@@ -57,6 +57,7 @@ Program terms, eligibility, and payout rules are governed by the legal docs belo
 ## Docs
 
 - Orchestrator onboarding: `docs/orchestrator-onboarding.md`
+- CLI reference: `docs/embody-cli.md`
 - Architecture: `docs/pixel-streaming-architecture.md`
 - Recorder control: `docs/recorder-control.md`
 - Staging environment: `docs/staging.md`
