@@ -65,6 +65,13 @@ Minimum `.env`:
 
 ## Verify
 
+Preferred (includes edge connectivity + runner TCP + record/download + power API):
+```bash
+./scripts/embody_cli.sh verify
+./scripts/embody_cli.sh payments
+```
+
+Manual (local endpoints only):
 - Signaling health: `curl http://127.0.0.1:8080/healthz`
 - Runner health: `curl http://127.0.0.1:9877/health`
 - Orchestrator health: `curl http://127.0.0.1:9090/health`
