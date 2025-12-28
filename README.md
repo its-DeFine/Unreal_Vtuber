@@ -19,7 +19,7 @@ You’ll need:
 
 Run:
 ```bash
-git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && ./scripts/embody_cli.sh
+git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && sudo ./scripts/embody_cli.sh
 ```
 
 Day-to-day operations are also done via the CLI (no file edits needed):
