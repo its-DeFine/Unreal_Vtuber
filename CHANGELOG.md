@@ -2,17 +2,7 @@
 
 ## Unreleased
 
-Changes merged after `v1.2.2` (current tagged release).
-
-## v1.2.2 (2025-12-29)
-
-### Highlights
-
-- Docs: document the `upgrade` CLI command (update repo + pull/recreate containers).
-
-### Included PRs
-
-- [#118](https://github.com/its-DeFine/Unreal_Vtuber/pull/118) docs: document CLI upgrade command
+Changes merged after `v1.2.1` (current tagged release).
 
 ## v1.2.1 (2025-12-29)
 
@@ -21,7 +11,7 @@ Changes merged after `v1.2.2` (current tagged release).
 - CLI: add `upgrade` to update + pull/recreate service containers.
 - Onboarding: default to control-plane (“edge plane”) assignment (no manual edge IP needed).
 - Edge rotator: fix edge config token shadowing that caused plane polling 401s.
-- Docs: clarify VRAM requirement + invite contact.
+- Docs: clarify VRAM requirement + invite contact; document the `upgrade` command.
 
 ### Included PRs
 
@@ -29,6 +19,7 @@ Changes merged after `v1.2.2` (current tagged release).
 - [#115](https://github.com/its-DeFine/Unreal_Vtuber/pull/115) onboard: default to control-plane edge assignment
 - [#116](https://github.com/its-DeFine/Unreal_Vtuber/pull/116) edge-rotator: fix edge config token shadowing
 - [#117](https://github.com/its-DeFine/Unreal_Vtuber/pull/117) CLI: add upgrade to pull + recreate containers
+- [#118](https://github.com/its-DeFine/Unreal_Vtuber/pull/118) docs: document CLI upgrade command
 
 ## v1.2.0 (2025-12-28)
 
