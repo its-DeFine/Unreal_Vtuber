@@ -203,7 +203,7 @@ case "$COMMAND" in
         compose pull \
           turn-server unreal-signaling \
           vtuber-script-runner recorder-control \
-          orchestrator-health vtuber-watchdog vtuber-auto-updater \
+          orchestrator-edge-rotator orchestrator-health vtuber-watchdog vtuber-auto-updater \
           orchestrator-registration
         echo -e "${GREEN}Pull complete!${NC}"
         ;;
@@ -214,7 +214,7 @@ case "$COMMAND" in
         compose pull \
           turn-server unreal-signaling \
           vtuber-script-runner recorder-control \
-          orchestrator-health vtuber-watchdog vtuber-auto-updater \
+          orchestrator-edge-rotator orchestrator-health vtuber-watchdog vtuber-auto-updater \
           orchestrator-registration
         echo -e "${GREEN}Pull complete!${NC}"
         ;;
