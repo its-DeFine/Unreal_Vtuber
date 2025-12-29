@@ -492,7 +492,7 @@ def main() -> int:
         while True:
             time.sleep(60)
 
-    token = (os.environ.get("EDGE_CONFIG_TOKEN") or "").strip()
+    edge_config_token = (os.environ.get("EDGE_CONFIG_TOKEN") or "").strip()
     poll_s = int(os.environ.get("EDGE_POLL_INTERVAL_SECONDS", "15"))
 
     project_dir = (os.environ.get("EDGE_PROJECT_DIR") or "/home/ubuntu/Unreal_Vtuber").strip()
@@ -532,7 +532,7 @@ def main() -> int:
             url = control_plane_url
             q = urllib.parse.urlencode({"orchestrator_id": orch_id})
             url = f"{url}{'&' if '?' in url else '?'}{q}"
-            desired = _http_get_json(url, token=token)
+            desired = _http_get_json(url, token=edge_config_token)
 
             cidrs = _as_cidrs(desired)
             if not cidrs:
