@@ -2,7 +2,17 @@
 
 ## Unreleased
 
-Changes merged after `v1.2.1` (current tagged release).
+Changes merged after `v1.2.2` (current tagged release).
+
+## v1.2.2 (2025-12-29)
+
+### Highlights
+
+- Docs: document the `upgrade` CLI command (update repo + pull/recreate containers).
+
+### Included PRs
+
+- [#118](https://github.com/its-DeFine/Unreal_Vtuber/pull/118) docs: document CLI upgrade command
 
 ## v1.2.1 (2025-12-29)
 
