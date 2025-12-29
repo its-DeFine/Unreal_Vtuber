@@ -45,6 +45,7 @@ This repo ships a single entrypoint for onboarding and day-to-day operations: `.
 - Day-to-day stack control:
   - `start`, `stop`, `restart`, `status`, `logs [service]`, `health`
 - `update` – fast-forward this repo to `origin/main` (no merges)
+- `upgrade` – `update` plus pull/recreate service containers (safe to run while sleeping; won’t wake the game)
 
 ## Network / allowlists
 

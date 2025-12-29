@@ -26,7 +26,8 @@ Day-to-day operations are also done via the CLI (no file edits needed):
 - `./scripts/embody_cli.sh overview` – status dashboard (power, containers, registration)
 - `./scripts/embody_cli.sh verify --fix` – health + end-to-end checks (runner TCP + record/download)
 - `./scripts/embody_cli.sh power sleep|wake --ttl <seconds>` – stop/start the stack safely
-- `./scripts/embody_cli.sh update` – fast-forward this repo to latest `origin/main`
+- `./scripts/embody_cli.sh upgrade` – update repo + pull/recreate service containers (recommended after updates)
+- `./scripts/embody_cli.sh update` – fast-forward this repo to latest `origin/main` (does not recreate containers)
 
 The wizard will:
 - Preflight your host (and can install missing deps on Ubuntu/Debian)
