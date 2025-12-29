@@ -46,6 +46,7 @@ Usage:
   ./scripts/embody_cli.sh setup [args...]  # Run onboarding wizard
   ./scripts/embody_cli.sh overview         # Show a one-shot status dashboard
   ./scripts/embody_cli.sh update           # Update this repo to latest origin/main (fast-forward)
+  ./scripts/embody_cli.sh upgrade          # Update repo + pull/recreate service containers
   ./scripts/embody_cli.sh license          # Show license token status
   ./scripts/embody_cli.sh license redeem   # Redeem invite code → store token
   ./scripts/embody_cli.sh rollout          # Rollout encrypted game image (wraps tools/encrypted-game-image/rollout.sh)
@@ -929,6 +930,30 @@ payments_self_stats() {
 }
 
 cmd_update() {
+  local apply="0"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --apply|--with-stack)
+        apply="1"
+        shift
+        ;;
+      -h|--help|help)
+        cat <<'EOF'
+Usage:
+  ./scripts/embody_cli.sh update           # git pull --ff-only
+  ./scripts/embody_cli.sh update --apply   # update + pull/recreate containers
+  ./scripts/embody_cli.sh upgrade          # alias for update --apply
+EOF
+        return 0
+        ;;
+      *)
+        echo "Unknown arg for update: $1" >&2
+        return 1
+        ;;
+    esac
+  done
+
   init_ui
   if ! is_git_repo; then
     ui_check "update" "FAIL" "(not a git repo)"
@@ -968,17 +993,73 @@ cmd_update() {
   ab="$(git_ahead_behind_origin_main)"
   ahead="$(printf '%s' "$ab" | awk '{print $1}')"
   behind="$(printf '%s' "$ab" | awk '{print $2}')"
+  local did_update="0"
   if [[ "${behind:-0}" == "0" ]]; then
     ui_check "update" "OK" "(already up to date; HEAD=${before})"
+  else
+    if ! git -C "$REPO_ROOT" pull -q --ff-only origin main >/dev/null 2>&1; then
+      ui_check "update" "FAIL" "(git pull --ff-only failed)"
+      return 1
+    fi
+    after="$(git_remote_commit HEAD)"
+    ui_check "update" "OK" "(updated: ${before} -> ${after})"
+    did_update="1"
+  fi
+
+  if [[ "$apply" != "1" ]]; then
+    if [[ "$did_update" == "1" ]]; then
+      ui_check "apply" "WARN" "(run: ./scripts/embody_cli.sh upgrade)"
+    fi
     return 0
   fi
 
-  if ! git -C "$REPO_ROOT" pull -q --ff-only origin main >/dev/null 2>&1; then
-    ui_check "update" "FAIL" "(git pull --ff-only failed)"
+  if ! command -v docker >/dev/null 2>&1; then
+    ui_check "docker" "FAIL" "(missing dependency)"
     return 1
   fi
-  after="$(git_remote_commit HEAD)"
-  ui_check "update" "OK" "(updated: ${before} -> ${after})"
+  if [[ ! -f "$ENV_FILE" ]]; then
+    ui_check ".env" "FAIL" "(missing; run: ./scripts/embody_cli.sh setup)"
+    return 1
+  fi
+
+  if is_tty; then
+    if ! prompt_yes_no "Pull latest service images and recreate containers now? This may disconnect active sessions." "y"; then
+      ui_check "apply" "SKIP"
+      return 0
+    fi
+  fi
+
+  ui_section "Upgrade"
+  ui_check "pull" "WARN" "(pulling service images...)"
+  if ! "$START_SCRIPT" pull; then
+    ui_check "pull" "FAIL"
+    return 1
+  fi
+  ui_check "pull" "OK"
+
+  local awake="0"
+  if docker inspect -f '{{.State.Status}}' vtuber-unreal-game >/dev/null 2>&1; then
+    if [[ "$(docker inspect -f '{{.State.Status}}' vtuber-unreal-game 2>/dev/null || true)" == "running" ]]; then
+      awake="1"
+    fi
+  fi
+
+  local recreate_common=(orchestrator-edge-rotator orchestrator-health vtuber-watchdog vtuber-auto-updater)
+  ui_check "recreate" "WARN" "(recreating always-on services...)"
+  docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+    up -d --force-recreate "${recreate_common[@]}"
+
+  if [[ "$awake" == "1" ]]; then
+    ui_check "recreate" "WARN" "(stack awake; recreating signaling/turn/runner/recorder...)"
+    docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+      up -d --force-recreate turn-server unreal-signaling vtuber-script-runner recorder-control orchestrator-registration
+  else
+    ui_check "recreate" "WARN" "(stack sleeping; updating runtime containers without starting)"
+    docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+      up --no-start --force-recreate turn-server unreal-signaling vtuber-script-runner recorder-control orchestrator-registration
+  fi
+
+  ui_check "apply" "OK"
 }
 
 cmd_overview() {
@@ -2286,6 +2367,7 @@ menu() {
     ui_menu_item "9" "GPU capacity"
     ui_menu_item "r" "Rollout game image"
     ui_menu_item "u" "Update repo (git pull --ff-only)"
+    ui_menu_item "U" "Upgrade (update + pull/recreate containers)"
     ui_menu_item "v" "Verify (end-to-end)"
     ui_menu_item "m" "Payments status"
     ui_menu_item "p" "Power (sleep/wake)"
@@ -2311,7 +2393,8 @@ menu() {
       8) cmd_config ;;
       9) cmd_capacity ;;
       r|R) cmd_rollout || true ;;
-      u|U) cmd_update || true ;;
+      u) cmd_update || true ;;
+      U) cmd_update --apply || true ;;
       v|V) cmd_verify || true ;;
       m|M) cmd_payments status || true ;;
       p|P)
@@ -2346,9 +2429,13 @@ main() {
       shift || true
       cmd_overview "$@"
       ;;
-    update|upgrade)
+    update)
       shift || true
       cmd_update "$@"
+      ;;
+    upgrade)
+      shift || true
+      cmd_update --apply "$@"
       ;;
     license|token)
       shift || true
