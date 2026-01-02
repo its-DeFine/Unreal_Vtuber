@@ -5,13 +5,13 @@ on:
     types: [opened, ready_for_review]
 
 jobs:
-  codex:
-    if: ${{ secrets.OPENAI_API_KEY != '' }}
+  codex_review:
+    if: ${{ github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    outputs:
-      final_message: ${{ steps.run_codex.outputs['final-message'] }}
+      issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v5
         with:
@@ -23,7 +23,19 @@ jobs:
             ${{ github.event.pull_request.base.ref }} \
             +refs/pull/${{ github.event.pull_request.number }}/head
 
+      - name: Check required secrets
+        id: secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [[ -z "${OPENAI_API_KEY}" ]]; then
+            echo "can_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "can_run=true" >> "$GITHUB_OUTPUT"
+
       - name: Run Codex
+        if: ${{ steps.secrets.outputs.can_run == 'true' }}
         id: run_codex
         uses: openai/codex-action@v1
         with:
@@ -31,18 +43,11 @@ jobs:
           prompt-file: .github/codex/prompts/pr_review.md
           sandbox: read-only
 
-  post_feedback:
-    runs-on: ubuntu-latest
-    needs: codex
-    if: needs.codex.result == 'success' && needs.codex.outputs.final_message != ''
-    permissions:
-      issues: write
-      pull-requests: write
-    steps:
       - name: Post Codex review comment
+        if: ${{ steps.secrets.outputs.can_run == 'true' && steps.run_codex.outputs['final-message'] != '' }}
         uses: actions/github-script@v7
         env:
-          CODEX_FINAL_MESSAGE: ${{ needs.codex.outputs.final_message }}
+          CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs['final-message'] }}
         with:
           github-token: ${{ github.token }}
           script: |
