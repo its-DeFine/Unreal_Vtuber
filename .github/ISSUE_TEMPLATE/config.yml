@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discord (decision log)
+    url: https://discord.com/
+    about: Use Discord for discussion, but keep the source of truth in GitHub Issues/PRs.
+

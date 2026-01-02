@@ -1,0 +1,183 @@
+name: "Agent: Issue → Draft PR"
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  codex:
+    if: ${{ github.event.label.name == 'agent:code' || github.event.label.name == 'agent:marketing' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      projects: write
+    env:
+      BRANCH: agent/issue-${{ github.event.issue.number }}
+      BASE_BRANCH: ${{ github.event.repository.default_branch }}
+      LAUNCH_PROJECT_OWNER: its-DeFine
+      LAUNCH_PROJECT_NUMBER: "2"
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.BASE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Select prompt
+        run: |
+          case "${{ github.event.label.name }}" in
+            agent:code)
+              echo "PROMPT_FILE=.github/codex/prompts/agent_code.md" >> "$GITHUB_ENV"
+              ;;
+            agent:marketing)
+              echo "PROMPT_FILE=.github/codex/prompts/agent_marketing.md" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Unexpected label: ${{ github.event.label.name }}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Add issue to Launch project
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh project item-add "${LAUNCH_PROJECT_NUMBER}" --owner "${LAUNCH_PROJECT_OWNER}" --url "${{ github.event.issue.html_url }}" || true
+
+      - name: Create agent branch
+        run: |
+          git checkout -b "${BRANCH}"
+
+      - name: Check required secrets
+        id: secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [[ -z "${OPENAI_API_KEY}" ]]; then
+            echo "can_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "can_run=true" >> "$GITHUB_OUTPUT"
+
+      - name: Missing OPENAI_API_KEY
+        if: ${{ steps.secrets.outputs.can_run != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" --body "Cannot run agent: missing required secret OPENAI_API_KEY in repo settings."
+
+      - name: Run Codex
+        if: ${{ steps.secrets.outputs.can_run == 'true' }}
+        id: run_codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: ${{ env.PROMPT_FILE }}
+          sandbox: workspace-write
+          codex-args: --full-auto
+
+      - name: Detect changes
+        if: ${{ steps.secrets.outputs.can_run == 'true' }}
+        id: diff
+        run: |
+          if git diff --quiet; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Block forbidden path edits
+        if: ${{ steps.secrets.outputs.can_run == 'true' && steps.diff.outputs.has_changes == 'true' }}
+        run: |
+          set -euo pipefail
+          CHANGED_FILES="$(git diff --name-only)"
+          while IFS= read -r path; do
+            [[ -z "$path" ]] && continue
+            while IFS= read -r pattern; do
+              [[ -z "$pattern" ]] && continue
+              [[ "$pattern" == \#* ]] && continue
+              if [[ "$path" == $pattern ]]; then
+                echo "Forbidden change: $path matches $pattern" >&2
+                exit 1
+              fi
+            done < .github/codex/forbidden-paths.txt
+          done <<< "$CHANGED_FILES"
+
+      - name: Commit changes
+        if: ${{ steps.secrets.outputs.can_run == 'true' && steps.diff.outputs.has_changes == 'true' }}
+        run: |
+          set -euo pipefail
+          git add -A
+          git commit -m "Agent: #${{ github.event.issue.number }}"
+
+      - name: Push branch
+        if: ${{ steps.secrets.outputs.can_run == 'true' && steps.diff.outputs.has_changes == 'true' }}
+        run: |
+          git push --force-with-lease origin "${BRANCH}"
+
+      - name: Create or update draft PR
+        if: ${{ steps.secrets.outputs.can_run == 'true' && steps.diff.outputs.has_changes == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs.final-message }}
+        run: |
+          set -euo pipefail
+
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+          ISSUE_TITLE="${{ github.event.issue.title }}"
+          PR_TITLE="[Agent] ${ISSUE_TITLE}"
+
+          {
+            printf '%s\n' "${CODEX_FINAL_MESSAGE}"
+            echo
+            echo "Closes #${ISSUE_NUMBER}"
+          } > pr_body.md
+
+          EXISTING_PR="$(gh pr list --head "${BRANCH}" --state open --json number --jq '.[0].number')"
+          if [[ -n "${EXISTING_PR}" ]]; then
+            gh pr edit "${EXISTING_PR}" --title "${PR_TITLE}" --body-file pr_body.md
+            echo "Updated existing PR #${EXISTING_PR}"
+            exit 0
+          fi
+
+          gh pr create \
+            --draft \
+            --base "${BASE_BRANCH}" \
+            --head "${BRANCH}" \
+            --title "${PR_TITLE}" \
+            --body-file pr_body.md
+
+      - name: Comment on issue with result
+        if: ${{ steps.secrets.outputs.can_run == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs.final-message }}
+        run: |
+          set -euo pipefail
+
+          ISSUE_NUMBER="${{ github.event.issue.number }}"
+
+          if [[ "${{ steps.diff.outputs.has_changes }}" != "true" ]]; then
+            {
+              echo "Codex ran but produced no file changes."
+              echo
+              printf '%s\n' "${CODEX_FINAL_MESSAGE}"
+            } > issue_comment.md
+            gh issue comment "${ISSUE_NUMBER}" --body-file issue_comment.md
+            exit 0
+          fi
+
+          PR_URL="$(gh pr view --head "${BRANCH}" --json url --jq '.url')"
+          {
+            echo "Draft PR opened: ${PR_URL}"
+            echo
+            printf '%s\n' "${CODEX_FINAL_MESSAGE}"
+          } > issue_comment.md
+          gh issue comment "${ISSUE_NUMBER}" --body-file issue_comment.md

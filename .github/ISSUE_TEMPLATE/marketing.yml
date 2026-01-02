@@ -1,0 +1,66 @@
+name: Marketing
+description: Copy/positioning/assets (still tracked as a GitHub issue + PR).
+title: "[Marketing]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep marketing work deterministic too: outcome + scope + acceptance.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      placeholder: "Example: A landing page section that explains plan→record in 3 bullets."
+    validations:
+      required: true
+  - type: textarea
+    id: audience
+    attributes:
+      label: Audience
+      placeholder: "Example: Creators using Pixel Streaming to generate clips."
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      placeholder: |
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: allowed
+    attributes:
+      label: Allowed areas / paths
+      placeholder: |
+        README.md
+        docs/**
+        Frontend/**
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden
+    attributes:
+      label: Forbidden areas / paths
+      placeholder: |
+        .github/**
+        **/.env*
+        **/*.pem
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / links
+      description: Brand notes, examples, competitors, etc.
+    validations:
+      required: false
+

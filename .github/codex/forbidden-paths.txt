@@ -1,0 +1,6 @@
+.github/**
+*.env*
+*.pem
+*.key
+*secret*
+*credentials*

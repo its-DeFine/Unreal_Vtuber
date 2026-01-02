@@ -1,0 +1,62 @@
+name: Feature
+description: Product/engineering work with deterministic artifacts for agents.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If it's not written here, it doesn't exist. Agents will not guess.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What changes in the world when this ships?
+      placeholder: "Example: Pixel UI can generate a plan, push it to the runner, and start recording."
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Bullet list of what is in-scope.
+      placeholder: |
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checklist; the PR must satisfy every item.
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: allowed
+    attributes:
+      label: Allowed areas / paths
+      description: Files/directories the agent may modify (globs are OK).
+      placeholder: |
+        Frontend/**
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden
+    attributes:
+      label: Forbidden areas / paths
+      description: Files/directories the agent must not modify (globs are OK).
+      placeholder: |
+        .github/**
+        **/.env*
+        **/*.pem
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / links
+      description: Docs, screenshots, logs, or prior PRs.
+    validations:
+      required: false
+
