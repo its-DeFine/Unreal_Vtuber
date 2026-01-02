@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: read
-      projects: write
+      repository-projects: write
     env:
       LAUNCH_PROJECT_OWNER: its-DeFine
       LAUNCH_PROJECT_NUMBER: "2"
