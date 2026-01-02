@@ -1,16 +1,11 @@
-name: "Launch: Add to Project"
+name: "Launch: Issue Intake"
 
 on:
   issues:
-    types: [opened, labeled, reopened]
+    types: [opened, reopened]
 
 jobs:
   add_to_project:
-    if: >-
-      ${{
-        (github.event.action == 'labeled' && github.event.label.name == 'launch')
-        || (github.event.action != 'labeled' && contains(github.event.issue.labels.*.name, 'launch'))
-      }}
     runs-on: ubuntu-latest
     permissions:
       issues: read
@@ -20,7 +15,7 @@ jobs:
       LAUNCH_PROJECT_NUMBER: "2"
 
     steps:
-      - name: Add issue to Launch project and set Status=Todo
+      - name: Add issue to Launch project and set Status=Inbox
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -38,12 +33,12 @@ jobs:
 
           PROJECT_ID="$(gh project view "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.id')"
           STATUS_FIELD_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.fields[] | select(.name==\"Status\") | .id')"
-          TODO_OPTION_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.fields[] | select(.name==\"Status\") | .options[] | select(.name==\"Todo\") | .id')"
+          INBOX_OPTION_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.fields[] | select(.name==\"Status\") | .options[] | select(.name==\"Inbox\") | .id')"
 
           gh project item-edit \
             --id "${ITEM_ID}" \
             --project-id "${PROJECT_ID}" \
             --field-id "${STATUS_FIELD_ID}" \
-            --single-select-option-id "${TODO_OPTION_ID}"
+            --single-select-option-id "${INBOX_OPTION_ID}"
 
-          echo "Added to project and set Status=Todo."
+          echo "Added to project and set Status=Inbox."
