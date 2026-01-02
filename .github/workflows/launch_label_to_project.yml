@@ -2,7 +2,7 @@ name: "Launch: Issue Intake"
 
 on:
   issues:
-    types: [opened, reopened]
+    types: [opened, reopened, closed]
 
 jobs:
   add_to_project:
@@ -16,7 +16,7 @@ jobs:
       LAUNCH_PROJECT_NUMBER: "2"
 
     steps:
-      - name: Add issue to Launch project and set Status=Inbox
+      - name: Add/update issue in Launch project and set Status
         env:
           GH_TOKEN: ${{ secrets.LAUNCH_FACTORY_GH_TOKEN }}
         run: |
@@ -27,20 +27,34 @@ jobs:
             exit 1
           fi
 
+          ACTION="${{ github.event.action }}"
           ISSUE_URL="${{ github.event.issue.html_url }}"
           PROJECT_NUMBER="${LAUNCH_PROJECT_NUMBER}"
           PROJECT_OWNER="${LAUNCH_PROJECT_OWNER}"
 
-          ITEM_ID="$(gh project item-add "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --url "${ISSUE_URL}" --format json --jq '.id')"
+          if [[ "${ACTION}" == "closed" ]]; then
+            STATUS_NAME="Done"
+          else
+            STATUS_NAME="Inbox"
+          fi
+
+          ITEM_ID="$(gh project item-add "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --url "${ISSUE_URL}" --format json --jq '.id' 2>/dev/null || true)"
+          if [[ -z "${ITEM_ID}" ]]; then
+            ITEM_ID="$(gh project item-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --limit 200 --format json --jq ".items[] | select(.content.url==\"${ISSUE_URL}\") | .id" | head -n 1)"
+          fi
+          if [[ -z "${ITEM_ID}" ]]; then
+            echo "Could not locate project item for ${ISSUE_URL}; skipping."
+            exit 0
+          fi
 
           PROJECT_ID="$(gh project view "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.id')"
           STATUS_FIELD_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.fields[] | select(.name=="Status") | .id')"
-          INBOX_OPTION_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.fields[] | select(.name=="Status") | .options[] | select(.name=="Inbox") | .id')"
+          OPTION_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq ".fields[] | select(.name==\"Status\") | .options[] | select(.name==\"${STATUS_NAME}\") | .id")"
 
           gh project item-edit \
             --id "${ITEM_ID}" \
             --project-id "${PROJECT_ID}" \
             --field-id "${STATUS_FIELD_ID}" \
-            --single-select-option-id "${INBOX_OPTION_ID}"
+            --single-select-option-id "${OPTION_ID}"
 
-          echo "Added to project and set Status=Inbox."
+          echo "Set Status=${STATUS_NAME}."
