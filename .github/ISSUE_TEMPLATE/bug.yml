@@ -1,0 +1,73 @@
+name: Bug
+description: A broken behavior with a reproducible report.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Include a crisp repro and an acceptance checklist. Agents will not guess.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What should be true after the fix ships?
+      placeholder: "Example: Recording starts reliably and produces an MKV every time."
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro steps
+      description: Steps to reproduce (numbered list).
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checklist; the PR must satisfy every item.
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: allowed
+    attributes:
+      label: Allowed areas / paths
+      placeholder: |
+        Frontend/**
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden
+    attributes:
+      label: Forbidden areas / paths
+      placeholder: |
+        .github/**
+        **/.env*
+        **/*.pem
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / links
+      description: Logs, screenshots, console output, etc.
+    validations:
+      required: false
+
