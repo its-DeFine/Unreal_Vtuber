@@ -120,7 +120,7 @@ jobs:
         if: ${{ steps.secrets.outputs.can_run == 'true' }}
         id: diff
         run: |
-          if git diff --quiet; then
+          if [[ -z "$(git status --porcelain)" ]]; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
@@ -130,7 +130,12 @@ jobs:
         if: ${{ steps.secrets.outputs.can_run == 'true' && steps.diff.outputs.has_changes == 'true' }}
         run: |
           set -euo pipefail
-          CHANGED_FILES="$(git diff --name-only)"
+          CHANGED_FILES="$(
+            {
+              git diff --name-only
+              git ls-files --others --exclude-standard
+            } | sort -u
+          )"
           while IFS= read -r path; do
             [[ -z "$path" ]] && continue
             while IFS= read -r pattern; do
