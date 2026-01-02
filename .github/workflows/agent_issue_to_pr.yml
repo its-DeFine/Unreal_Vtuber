@@ -69,8 +69,8 @@ jobs:
           fi
 
           PROJECT_ID="$(gh project view "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.id' || true)"
-          STATUS_FIELD_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.fields[] | select(.name==\"Status\") | .id' || true)"
-          IN_PROGRESS_OPTION_ID="$(gh project field-list \"${PROJECT_NUMBER}\" --owner \"${PROJECT_OWNER}\" --format json --jq '.fields[] | select(.name==\"Status\") | .options[] | select(.name==\"In Progress\") | .id' || true)"
+          STATUS_FIELD_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.fields[] | select(.name=="Status") | .id' || true)"
+          IN_PROGRESS_OPTION_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.fields[] | select(.name=="Status") | .options[] | select(.name=="In Progress") | .id' || true)"
 
           if [[ -z "${PROJECT_ID}" || -z "${STATUS_FIELD_ID}" || -z "${IN_PROGRESS_OPTION_ID}" ]]; then
             echo "Launch project status update skipped (missing project/field/option IDs)."
