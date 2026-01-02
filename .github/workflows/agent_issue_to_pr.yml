@@ -12,7 +12,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      projects: write
     env:
       BRANCH: agent/issue-${{ github.event.issue.number }}
       BASE_BRANCH: ${{ github.event.repository.default_branch }}
@@ -126,7 +125,7 @@ jobs:
         if: ${{ steps.secrets.outputs.can_run == 'true' && steps.diff.outputs.has_changes == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs.final-message }}
+          CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs['final-message'] }}
         run: |
           set -euo pipefail
 
@@ -158,7 +157,7 @@ jobs:
         if: ${{ steps.secrets.outputs.can_run == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs.final-message }}
+          CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs['final-message'] }}
         run: |
           set -euo pipefail
 
