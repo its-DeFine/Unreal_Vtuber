@@ -173,7 +173,7 @@ jobs:
             exit 0
           fi
 
-          PR_URL="$(gh pr view --head "${BRANCH}" --json url --jq '.url')"
+          PR_URL="$(gh pr view "${BRANCH}" --json url --jq '.url')"
           {
             echo "Draft PR opened: ${PR_URL}"
             echo
