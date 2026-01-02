@@ -6,6 +6,7 @@ on:
 
 jobs:
   add_to_project:
+    if: ${{ contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) }}
     runs-on: ubuntu-latest
     permissions:
       issues: read
@@ -17,19 +18,20 @@ jobs:
     steps:
       - name: Add issue to Launch project and set Status=Inbox
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.LAUNCH_FACTORY_GH_TOKEN }}
         run: |
           set -euo pipefail
+
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "Missing required secret LAUNCH_FACTORY_GH_TOKEN; cannot add issues to Launch project." >&2
+            exit 1
+          fi
 
           ISSUE_URL="${{ github.event.issue.html_url }}"
           PROJECT_NUMBER="${LAUNCH_PROJECT_NUMBER}"
           PROJECT_OWNER="${LAUNCH_PROJECT_OWNER}"
 
-          ITEM_ID="$(gh project item-add "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --url "${ISSUE_URL}" --format json --jq '.id' || true)"
-          if [[ -z "${ITEM_ID}" ]]; then
-            echo "Project add skipped/failed (possibly already added)."
-            exit 0
-          fi
+          ITEM_ID="$(gh project item-add "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --url "${ISSUE_URL}" --format json --jq '.id')"
 
           PROJECT_ID="$(gh project view "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.id')"
           STATUS_FIELD_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.fields[] | select(.name==\"Status\") | .id')"
