@@ -1,0 +1,49 @@
+name: "Launch: Add to Project"
+
+on:
+  issues:
+    types: [opened, labeled, reopened]
+
+jobs:
+  add_to_project:
+    if: >-
+      ${{
+        (github.event.action == 'labeled' && github.event.label.name == 'launch')
+        || (github.event.action != 'labeled' && contains(github.event.issue.labels.*.name, 'launch'))
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      projects: write
+    env:
+      LAUNCH_PROJECT_OWNER: its-DeFine
+      LAUNCH_PROJECT_NUMBER: "2"
+
+    steps:
+      - name: Add issue to Launch project and set Status=Todo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          ISSUE_URL="${{ github.event.issue.html_url }}"
+          PROJECT_NUMBER="${LAUNCH_PROJECT_NUMBER}"
+          PROJECT_OWNER="${LAUNCH_PROJECT_OWNER}"
+
+          ITEM_ID="$(gh project item-add "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --url "${ISSUE_URL}" --format json --jq '.id' || true)"
+          if [[ -z "${ITEM_ID}" ]]; then
+            echo "Project add skipped/failed (possibly already added)."
+            exit 0
+          fi
+
+          PROJECT_ID="$(gh project view "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.id')"
+          STATUS_FIELD_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.fields[] | select(.name==\"Status\") | .id')"
+          TODO_OPTION_ID="$(gh project field-list "${PROJECT_NUMBER}" --owner "${PROJECT_OWNER}" --format json --jq '.fields[] | select(.name==\"Status\") | .options[] | select(.name==\"Todo\") | .id')"
+
+          gh project item-edit \
+            --id "${ITEM_ID}" \
+            --project-id "${PROJECT_ID}" \
+            --field-id "${STATUS_FIELD_ID}" \
+            --single-select-option-id "${TODO_OPTION_ID}"
+
+          echo "Added to project and set Status=Todo."

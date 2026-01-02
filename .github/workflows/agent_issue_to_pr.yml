@@ -11,6 +11,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      projects: write
       pull-requests: write
     env:
       BRANCH: agent/issue-${{ github.event.issue.number }}
