@@ -1,0 +1,62 @@
+name: "Launch: PR Intake"
+
+on:
+  pull_request:
+    types: [opened, reopened, closed]
+
+jobs:
+  add_to_project:
+    if: ${{ contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      repository-projects: write
+    env:
+      LAUNCH_PROJECT_OWNER: its-DeFine
+      LAUNCH_PROJECT_NUMBER: "2"
+
+    steps:
+      - name: Add/update PR in Launch project and set Status
+        env:
+          GH_TOKEN: ${{ secrets.LAUNCH_FACTORY_GH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "Missing required secret LAUNCH_FACTORY_GH_TOKEN; cannot add PRs to Launch project." >&2
+            exit 1
+          fi
+
+          ACTION="${{ github.event.action }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          MERGED="${{ github.event.pull_request.merged }}"
+
+          if [[ "${ACTION}" == "closed" && "${MERGED}" == "true" ]]; then
+            STATUS_NAME="Done"
+          elif [[ "${ACTION}" == "closed" ]]; then
+            STATUS_NAME="Inbox"
+          else
+            STATUS_NAME="Review"
+          fi
+
+          ITEM_ID="$(gh project item-add "${LAUNCH_PROJECT_NUMBER}" --owner "${LAUNCH_PROJECT_OWNER}" --url "${PR_URL}" --format json --jq '.id' 2>/dev/null || true)"
+          if [[ -z "${ITEM_ID}" ]]; then
+            ITEM_ID="$(gh project item-list "${LAUNCH_PROJECT_NUMBER}" --owner "${LAUNCH_PROJECT_OWNER}" --limit 500 --format json --jq ".items[] | select(.content.url==\"${PR_URL}\") | .id" | head -n 1)"
+          fi
+          if [[ -z "${ITEM_ID}" ]]; then
+            echo "Could not locate project item for ${PR_URL}; skipping."
+            exit 0
+          fi
+
+          PROJECT_ID="$(gh project view "${LAUNCH_PROJECT_NUMBER}" --owner "${LAUNCH_PROJECT_OWNER}" --format json --jq '.id')"
+          STATUS_FIELD_ID="$(gh project field-list "${LAUNCH_PROJECT_NUMBER}" --owner "${LAUNCH_PROJECT_OWNER}" --format json --jq '.fields[] | select(.name=="Status") | .id')"
+          OPTION_ID="$(gh project field-list "${LAUNCH_PROJECT_NUMBER}" --owner "${LAUNCH_PROJECT_OWNER}" --format json --jq ".fields[] | select(.name==\"Status\") | .options[] | select(.name==\"${STATUS_NAME}\") | .id")"
+
+          gh project item-edit \
+            --id "${ITEM_ID}" \
+            --project-id "${PROJECT_ID}" \
+            --field-id "${STATUS_FIELD_ID}" \
+            --single-select-option-id "${OPTION_ID}"
+
+          echo "Set Status=${STATUS_NAME}."
+
