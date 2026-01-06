@@ -259,6 +259,7 @@ def _run_job(session: requests.Session, cfg: AgentConfig, token: str, job: Dict[
         _post_status(session, cfg, token, job_id, "/api/jobs/record/{job_id}/fail", {"error": "runner not ready"})
         return
 
+    rec_headers = _recorder_headers(cfg)
     logger.info("Job %s: waiting for recorder", job_id)
     if not _wait_for_ready(
         session,
@@ -270,7 +271,6 @@ def _run_job(session: requests.Session, cfg: AgentConfig, token: str, job: Dict[
         _post_status(session, cfg, token, job_id, "/api/jobs/record/{job_id}/fail", {"error": "recorder not ready"})
         return
 
-    rec_headers = _recorder_headers(cfg)
     rec_filename = ""
     started_at = time.time()
     try:
