@@ -186,7 +186,7 @@ services:
       - ORCHESTRATOR_HEALTH_URL=
       - ORCHESTRATOR_HEALTH_PORT=9090
       - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-}
-      - POWER_KEEP_RUNNING_SERVICES=${POWER_KEEP_RUNNING_SERVICES-orchestrator-edge-rotator}
+      - POWER_KEEP_RUNNING_SERVICES=${POWER_KEEP_RUNNING_SERVICES-orchestrator-edge-rotator,orchestrator-job-agent}
       - POWER_ALLOWED_IPS_FILE=${EDGE_POWER_ALLOWED_IPS_FILE-/var/lib/vtuber/power-state/power_allowed_ips.txt}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -196,6 +196,33 @@ services:
     restart: unless-stopped
     networks:
       - vtuber_network
+
+  orchestrator-job-agent:
+    image: ghcr.io/its-define/unreal_vtuber/orchestrator-job-agent:${EMBODY_SERVICE_IMAGE_TAG:-latest}
+    container_name: vtuber-orchestrator-job-agent
+    env_file:
+      - .env
+    environment:
+      - JOB_AGENT_ENABLED=${JOB_AGENT_ENABLED:-0}
+      - JOB_AGENT_POLL_SECONDS=${JOB_AGENT_POLL_SECONDS:-10}
+      - JOB_AGENT_URL=${JOB_AGENT_URL:-}
+      - JOB_AGENT_HOST_GATEWAY=${JOB_AGENT_HOST_GATEWAY:-172.18.0.1}
+      - JOB_AGENT_RUNNER_URL=${JOB_AGENT_RUNNER_URL:-}
+      - JOB_AGENT_RECORDER_URL=${JOB_AGENT_RECORDER_URL:-}
+      - JOB_AGENT_POWER_URL=${JOB_AGENT_POWER_URL:-}
+      - JOB_AGENT_WAKE_SECONDS=${JOB_AGENT_WAKE_SECONDS:-2400}
+      - JOB_AGENT_MAX_WAIT_SECONDS=${JOB_AGENT_MAX_WAIT_SECONDS:-900}
+      - ORCHESTRATOR_TOKEN_FILE=${ORCHESTRATOR_TOKEN_FILE:-/var/lib/vtuber/embody/orch-license-token.txt}
+      - ORCHESTRATOR_TOKEN=${ORCHESTRATOR_TOKEN:-}
+      - RECORDINGS_API_TOKEN=${RECORDINGS_API_TOKEN:-}
+    volumes:
+      - ${ORCHESTRATOR_TOKEN_DIR:-/home/ubuntu/.embody}:/var/lib/vtuber/embody:ro
+    restart: unless-stopped
+    depends_on:
+      - unreal-game
+      - recorder-control
+      - orchestrator-health
+    network_mode: "service:unreal-game"
 
   orchestrator-edge-rotator:
     image: ghcr.io/its-define/unreal_vtuber/orchestrator-edge-rotator:${EMBODY_SERVICE_IMAGE_TAG:-latest}
@@ -247,6 +274,7 @@ services:
         "vtuber-recorder-control",
         "vtuber-orchestrator-edge-rotator",
         "vtuber-orchestrator-health",
+        "vtuber-orchestrator-job-agent",
         "vtuber-watchdog",
       ]
 

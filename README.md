@@ -67,6 +67,7 @@ Default allowlisted IPs depend on setup mode:
 - `scripts/onboard_orchestrator.sh` – deprecated alias for onboarding (calls `embody_cli.sh setup`)
 - `tools/encrypted-game-image/` – encrypted artifact consume/rollout helpers
 - `orchestrator-health/` – host-visible health endpoint (`http://<host>:9090/health`)
+- `orchestrator-job-agent/` – pull-mode recording job runner (optional)
 - `docs/` – architecture + operational guides
 
 ## Orchestrator incentives program
@@ -81,6 +82,7 @@ Program terms, eligibility, and payout rules are governed by the legal docs belo
 - CLI reference: `docs/embody-cli.md`
 - Architecture: `docs/pixel-streaming-architecture.md`
 - Recorder control: `docs/recorder-control.md`
+- Job agent (pull-mode jobs): `docs/job-agent.md`
 - Staging environment: `docs/staging.md`
 - Sleep/wake: `docs/sleep-wake.md`
 - Unreal integration notes: `docs/unreal-integration.md`

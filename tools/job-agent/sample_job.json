@@ -1,0 +1,17 @@
+{
+  "job_id": "job-local-001",
+  "orchestrator_id": "orch-local",
+  "script": {
+    "commands": [
+      {
+        "delay_ms": 0,
+        "type": "tcp",
+        "value": "TTS_BYOB_/opt/embody/sample-15s.mp3"
+      }
+    ]
+  },
+  "recording_label": "job_local",
+  "wake_seconds": 600,
+  "max_wait_seconds": 600,
+  "delete_after_upload": false
+}
