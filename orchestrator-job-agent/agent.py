@@ -132,10 +132,17 @@ def _safe_json(response: requests.Response) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _wait_for_ready(session: requests.Session, url: str, *, timeout: float, attempts: int) -> bool:
+def _wait_for_ready(
+    session: requests.Session,
+    url: str,
+    *,
+    timeout: float,
+    attempts: int,
+    headers: Optional[Dict[str, str]] = None,
+) -> bool:
     for _ in range(attempts):
         try:
-            resp = session.get(url, timeout=timeout)
+            resp = session.get(url, headers=headers, timeout=timeout)
             if resp.status_code == 200:
                 return True
         except requests.RequestException:
@@ -253,7 +260,13 @@ def _run_job(session: requests.Session, cfg: AgentConfig, token: str, job: Dict[
         return
 
     logger.info("Job %s: waiting for recorder", job_id)
-    if not _wait_for_ready(session, f"{cfg.recorder_url}/", timeout=cfg.timeout_seconds, attempts=60):
+    if not _wait_for_ready(
+        session,
+        f"{cfg.recorder_url}/",
+        timeout=cfg.timeout_seconds,
+        attempts=60,
+        headers=rec_headers,
+    ):
         _post_status(session, cfg, token, job_id, "/api/jobs/record/{job_id}/fail", {"error": "recorder not ready"})
         return
 
