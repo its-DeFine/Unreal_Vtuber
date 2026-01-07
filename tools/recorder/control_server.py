@@ -10,7 +10,7 @@ import aiohttp
 from aiohttp import web
 
 RECORDER_CTRL_PORT = int(os.environ.get("RECORDER_CTRL_PORT", "8889"))
-SIGNALING_URL = os.environ.get("RECORDER_SIGNALING_URL", "ws://unreal-signaling:8080")
+SIGNALING_URL = os.environ.get("RECORDER_SIGNALING_URL", "ws://unreal-signaling:80")
 OUTPUT_DIR = Path(os.environ.get("RECORDER_OUTPUT_DIR", "/recordings")).resolve()
 PY_RECORDER = os.environ.get("PY_RECORDER_PATH", "/opt/embody/recorder/gs_webrtc_recorder.py")
 

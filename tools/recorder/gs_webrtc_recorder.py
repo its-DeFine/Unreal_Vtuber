@@ -33,7 +33,7 @@ def _env_float(name: str, default: float) -> float:
     except ValueError:
         return default
 
-SIGNALING_URL = os.environ.get("RECORDER_SIGNALING_URL", "ws://127.0.0.1:8080")
+SIGNALING_URL = os.environ.get("RECORDER_SIGNALING_URL", "ws://127.0.0.1:80")
 OUTPUT_DIR = Path(os.environ.get("RECORDER_OUTPUT_DIR", "/recordings"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # TURN configuration via env; leave unset to skip TURN

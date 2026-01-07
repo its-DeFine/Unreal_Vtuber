@@ -44,7 +44,7 @@ services:
     env_file:
       - .env.turn
     ports:
-      - "8080:8080"     # HTTP web interface
+      - "8080:80"       # HTTP web interface
       - "8888:8888"     # Streamer port
     environment:
       PUBLIC_IP: ${PUBLIC_IP:-auto}
@@ -56,7 +56,7 @@ services:
       SIGNALING_EXTRA_ARGS: "${SIGNALING_EXTRA_ARGS:-} ${SIGNALING_MATCHMAKER_ARGS:-}"
       ENABLE_REST_API: ${ENABLE_REST_API:-0}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -259,7 +259,7 @@ services:
       - .env.turn
     environment:
       - RECORDER_CTRL_PORT=8889
-      - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL:-ws://vtuber-unreal-signaling:8080}
+      - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL:-ws://vtuber-unreal-signaling:80}
       - RECORDER_OUTPUT_DIR=/recordings
       - PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
       - RECORDER_STREAMER_WAIT_SECONDS=${RECORDER_STREAMER_WAIT_SECONDS:-30}

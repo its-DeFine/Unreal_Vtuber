@@ -25,7 +25,7 @@ This sidecar runs alongside the Pixel Streaming stack to control the GStreamer c
     image: ghcr.io/its-define/unreal_vtuber/recorder-control:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     environment:
       - RECORDER_CTRL_PORT=8889
-      - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL:-ws://vtuber-unreal-signaling:8080}
+      - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL:-ws://vtuber-unreal-signaling:80}
       - RECORDER_OUTPUT_DIR=/recordings
       - PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
       - RECORDER_STREAMER_WAIT_SECONDS=${RECORDER_STREAMER_WAIT_SECONDS:-30}
