@@ -58,6 +58,7 @@ curl -X POST http://<host>:8889/recordings/stop
 
 ## Notes
 - The recorder connects to signaling via `RECORDER_SIGNALING_URL` and writes MKVs to `/recordings` (no re-encode).
+- Video codecs are selected from the stream offer (H264/VP9/VP8). If you need H264-only, keep the Pixel Streaming codec flags aligned.
 - `RECORDER_STREAMER_WAIT_SECONDS` controls how long the recorder waits for a streamer to register before failing (set 0 to wait indefinitely).
 - `RECORDER_AV_WAIT_SECONDS` releases available tracks if audio is missing, avoiding empty video-only captures.
 - Keep the sidecar on the same host/bridge as signaling for minimal latency; avoid TURN by staying local.

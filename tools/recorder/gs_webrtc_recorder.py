@@ -189,15 +189,43 @@ class GstRecorder:
         media = s.get_value("media") if s.has_field("media") else None
         self.log(f"New pad: {media} {caps.to_string()}")
         if media == "video":
-            depay = Gst.ElementFactory.make("rtph264depay")
-            parse = Gst.ElementFactory.make("h264parse")
-            parse.set_property("config-interval", -1)
+            encoding = s.get_value("encoding-name") if s.has_field("encoding-name") else ""
+            encoding = (encoding or "").upper()
+            if encoding == "H264":
+                depay_name = "rtph264depay"
+                parse_name = "h264parse"
+            elif encoding == "VP9":
+                depay_name = "rtpvp9depay"
+                parse_name = "vp9parse"
+            elif encoding == "VP8":
+                depay_name = "rtpvp8depay"
+                parse_name = "vp8parse"
+            else:
+                self.log(f"Unsupported video encoding {encoding or '<unknown>'}; skipping")
+                return
+
+            depay = Gst.ElementFactory.make(depay_name)
+            if not depay:
+                self.log(f"Missing depay loader for {encoding}")
+                return
+            parse = Gst.ElementFactory.make(parse_name) if parse_name else None
+            if parse is None and parse_name:
+                self.log(f"Missing parser {parse_name}; continuing without parse")
             queue = Gst.ElementFactory.make("queue")
-            for e in [depay, parse, queue]:
+            elements = [depay]
+            if parse:
+                if encoding == "H264":
+                    parse.set_property("config-interval", -1)
+                elements.append(parse)
+            elements.append(queue)
+            for e in elements:
                 self.pipeline.add(e)
                 e.sync_state_with_parent()
-            depay.link(parse)
-            parse.link(queue)
+            if parse:
+                depay.link(parse)
+                parse.link(queue)
+            else:
+                depay.link(queue)
             pad.link(depay.get_static_pad("sink"))
             self.link_branch_to_mux(media, queue)
             self.video_queue = queue
@@ -261,7 +289,7 @@ class GstRecorder:
             kind = media.get_media().lower()
             direction = GstWebRTC.WebRTCRTPTransceiverDirection.RECVONLY
             if kind == "video":
-                caps = Gst.Caps.from_string("application/x-rtp,media=video,encoding-name=H264")
+                caps = Gst.Caps.from_string("application/x-rtp,media=video")
             elif kind == "audio":
                 caps = Gst.Caps.from_string("application/x-rtp,media=audio,encoding-name=OPUS")
             else:
