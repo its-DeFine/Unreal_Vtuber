@@ -65,6 +65,7 @@ Day-to-day commands:
   ./scripts/embody_cli.sh config
   ./scripts/embody_cli.sh capacity
   ./scripts/embody_cli.sh payments         # Payments checks + token helper
+  ./scripts/embody_cli.sh allowlists       # Check/fix Payments allowlists for /power + runner/recorder
 
 Notes:
   - Onboarding is stored in `scripts/embody_onboard.sh` (called by `setup`).
@@ -291,6 +292,38 @@ token = (os.environ.get("TOKEN") or "").strip()
 items = [part.strip() for part in csv.split(",") if part.strip()]
 print("1" if token and token in items else "0")
 PY
+}
+
+csv_add_token() {
+  local csv="$1" token="$2"
+  CSV="$csv" TOKEN="$token" python3 - <<'PY'
+import os
+
+csv = os.environ.get("CSV") or ""
+token = (os.environ.get("TOKEN") or "").strip()
+items = [part.strip() for part in csv.split(",") if part.strip()]
+if token and token not in items:
+    items.append(token)
+print(",".join(items))
+PY
+}
+
+upsert_env_kv() {
+  local file="$1" key="$2" value="$3"
+  [[ -f "$file" ]] || return 1
+  local tmp
+  tmp="$(mktemp)"
+  awk -v key="$key" -v value="$value" '
+    BEGIN { found=0 }
+    $0 ~ ("^" key "=") {
+      print key "=" value
+      found=1
+      next
+    }
+    { print }
+    END { if (!found) print key "=" value }
+  ' "$file" >"$tmp"
+  mv "$tmp" "$file"
 }
 
 extract_first_nonlocal_allowlist_token() {
@@ -1021,6 +1054,7 @@ EOF
     ui_check ".env" "FAIL" "(missing; run: ./scripts/embody_cli.sh setup)"
     return 1
   fi
+  command -v python3 >/dev/null 2>&1 || { ui_check "python3" "FAIL" "(missing dependency)"; return 1; }
 
   if is_tty; then
     if ! prompt_yes_no "Pull latest service images and recreate containers now? This may disconnect active sessions." "y"; then
@@ -1575,7 +1609,7 @@ Usage:
   ./scripts/embody_cli.sh verify [options]
 
 Options:
-  --fix        Attempt to fix common drift (recreate runner+recorder if allowlist env is stale)
+  --fix        Attempt to fix common drift (recreate runner+recorder; auto-fix Payments allowlists when possible)
   --payments   Also show Payments admin view (requires viewer/admin token)
   --no-record  Skip recorder start/download smoke test
 EOF
@@ -1764,19 +1798,60 @@ PY
       if [[ "$(csv_has_token "$fw_extra" "$want_cidr")" == "1" ]]; then
         ui_check "payments fw" "OK"
       else
-        ui_check "payments fw" "WARN" "(missing ${want_cidr}; fix: ./scripts/embody_cli.sh setup)"
+        ui_check "payments fw" "WARN" "(missing ${want_cidr}; fix: ./scripts/embody_cli.sh allowlists fix)"
       fi
 
       if [[ "$(csv_has_token "$power_extra" "$want_cidr")" == "1" ]]; then
         ui_check "payments /power" "OK"
       else
-        ui_check "payments /power" "WARN" "(missing ${want_cidr}; fix: ./scripts/embody_cli.sh setup)"
+        ui_check "payments /power" "WARN" "(missing ${want_cidr}; fix: ./scripts/embody_cli.sh allowlists fix)"
       fi
 
       if [[ "$(csv_has_token "$local_allow" "$payments_ip")" == "1" ]]; then
         ui_check "payments runner/rec" "OK"
       else
-        ui_check "payments runner/rec" "WARN" "(missing ${payments_ip}; fix: ./scripts/embody_cli.sh setup)"
+        ui_check "payments runner/rec" "WARN" "(missing ${payments_ip}; fix: ./scripts/embody_cli.sh allowlists fix)"
+      fi
+
+      if [[ "$fix" == "1" ]]; then
+        local changed="0"
+        if [[ "$(csv_has_token "$fw_extra" "$want_cidr")" != "1" ]]; then
+          fw_extra="$(csv_add_token "$fw_extra" "$want_cidr")"
+          if ! upsert_env_kv "$ENV_FILE" "EDGE_FIREWALL_EXTRA_CIDRS" "$fw_extra"; then
+            ui_check "env" "FAIL" "(failed to update EDGE_FIREWALL_EXTRA_CIDRS)"
+            return 1
+          fi
+          changed="1"
+        fi
+        if [[ "$(csv_has_token "$power_extra" "$want_cidr")" != "1" ]]; then
+          power_extra="$(csv_add_token "$power_extra" "$want_cidr")"
+          if ! upsert_env_kv "$ENV_FILE" "EDGE_POWER_EXTRA_CIDRS" "$power_extra"; then
+            ui_check "env" "FAIL" "(failed to update EDGE_POWER_EXTRA_CIDRS)"
+            return 1
+          fi
+          changed="1"
+        fi
+        if [[ -z "$local_allow" ]]; then
+          local_allow="127.0.0.1,::1,172.17.0.1,172.18.0.1"
+        fi
+        if [[ "$(csv_has_token "$local_allow" "$payments_ip")" != "1" ]]; then
+          local_allow="$(csv_add_token "$local_allow" "$payments_ip")"
+          if ! upsert_env_kv "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" "$local_allow"; then
+            ui_check "env" "FAIL" "(failed to update EDGE_LOCAL_ALLOWLIST)"
+            return 1
+          fi
+          changed="1"
+        fi
+
+        if [[ "$changed" == "1" ]]; then
+          ui_check "allowlists fix" "WARN" "(updated .env; restarting edge rotator)"
+          if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+            up -d --force-recreate orchestrator-edge-rotator >/dev/null 2>&1; then
+            ui_check "allowlists fix" "FAIL" "(docker compose failed)"
+            return 1
+          fi
+          ui_check "allowlists fix" "OK"
+        fi
       fi
     fi
 
@@ -1834,6 +1909,61 @@ PY
         ui_check "payments allowlist" "OK"
       else
         ui_check "payments allowlist" "WARN" "(missing ${payments_ip}; fix: ./scripts/embody_cli.sh setup --allowed-ip ${payments_ip})"
+      fi
+
+      if [[ "$fix" == "1" ]]; then
+        local changed="0"
+        if [[ -z "$allow_csv" ]]; then
+          allow_csv="127.0.0.1,::1,172.17.0.1,172.18.0.1"
+        fi
+        if [[ "$(csv_has_token "$allow_csv" "$payments_ip")" != "1" ]]; then
+          allow_csv="$(csv_add_token "$allow_csv" "$payments_ip")"
+          if ! upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allow_csv"; then
+            ui_check "env" "FAIL" "(failed to update VTUBER_ALLOWED_ADDRESSES)"
+            return 1
+          fi
+          changed="1"
+        fi
+
+        local power_allow want_cidr
+        power_allow="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "POWER_ALLOWED_IPS" 2>/dev/null || true)")"
+        want_cidr="${payments_ip}/32"
+        if [[ -z "$power_allow" ]]; then
+          power_allow="127.0.0.1/32,::1/128"
+        fi
+        if [[ "$(csv_has_token "$power_allow" "$want_cidr")" != "1" && "$(csv_has_token "$power_allow" "$payments_ip")" != "1" ]]; then
+          power_allow="$(csv_add_token "$power_allow" "$want_cidr")"
+          if ! upsert_env_kv "$ENV_FILE" "POWER_ALLOWED_IPS" "$power_allow"; then
+            ui_check "env" "FAIL" "(failed to update POWER_ALLOWED_IPS)"
+            return 1
+          fi
+          changed="1"
+        fi
+
+        if [[ "$changed" == "1" ]]; then
+          ui_check "allowlists fix" "WARN" "(updated .env; recreating containers)"
+          if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+            up -d --force-recreate orchestrator-health >/dev/null 2>&1; then
+            ui_check "allowlists fix" "FAIL" "(failed to recreate orchestrator-health)"
+            return 1
+          fi
+          if docker inspect -f '{{.State.Status}}' vtuber-unreal-game >/dev/null 2>&1; then
+            if [[ "$(docker inspect -f '{{.State.Status}}' vtuber-unreal-game 2>/dev/null || true)" == "running" ]]; then
+              if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+                up -d --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1; then
+                ui_check "allowlists fix" "FAIL" "(failed to recreate runner/recorder)"
+                return 1
+              fi
+            else
+              if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+                up --no-start --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1; then
+                ui_check "allowlists fix" "FAIL" "(failed to update runner/recorder)"
+                return 1
+              fi
+            fi
+          fi
+          ui_check "allowlists fix" "OK"
+        fi
       fi
     fi
   fi
@@ -2317,6 +2447,226 @@ PY
   esac
 }
 
+cmd_allowlists() {
+  init_ui
+  local sub="${1:-status}"
+  shift || true
+
+  local override_payments_ip=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --payments-ip)
+        override_payments_ip="${2:-}"
+        shift 2
+        ;;
+      -h|--help|help)
+        cat <<'EOF'
+Usage:
+  ./scripts/embody_cli.sh allowlists [status|fix] [options]
+
+Options:
+  --payments-ip <ip>   Override PAYMENTS_API_URL host parsing (IPv4 only).
+EOF
+        return 0
+        ;;
+      *)
+        echo "Unknown arg for allowlists: $1" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  if [[ ! -f "$ENV_FILE" ]]; then
+    ui_check ".env" "FAIL" "(missing; run: ./scripts/embody_cli.sh setup)"
+    return 1
+  fi
+
+  local payments_url payments_host payments_ip plane_url mode
+  payments_url="$(get_payments_api_url)"
+  payments_url="$(trim_whitespace "${payments_url:-}")"
+  [[ -n "$payments_url" ]] || payments_url="${PAYMENTS_API_URL:-$DEFAULT_PAYMENTS_API_URL}"
+
+  payments_host="$(extract_host_from_url "$payments_url")"
+  payments_ip=""
+  if [[ -n "$override_payments_ip" ]]; then
+    payments_ip="$(trim_whitespace "$override_payments_ip")"
+  elif [[ -n "$payments_host" ]] && is_ipv4 "$payments_host" >/dev/null 2>&1; then
+    payments_ip="$payments_host"
+  fi
+
+  plane_url="$(get_edge_config_url)"
+  mode="manual"
+  if [[ -n "$plane_url" ]]; then
+    mode="edge-plane"
+  fi
+
+  ui_title "Embody Orchestrator — Allowlists"
+  ui_section "Config"
+  ui_kv "mode" "$mode"
+  ui_kv "payments url" "$payments_url"
+  ui_kv "payments ip" "${payments_ip:-<unresolved>}"
+
+  if [[ -z "$payments_ip" ]]; then
+    ui_check "payments ip" "WARN" "(set PAYMENTS_API_URL to an IPv4 host or pass --payments-ip)"
+    [[ "$sub" == "fix" ]] && return 1
+  fi
+
+  case "$sub" in
+    ""|status)
+      ui_section "Status"
+      if [[ "$mode" == "edge-plane" ]]; then
+        local want_cidr fw_extra power_extra local_allow
+        want_cidr="${payments_ip}/32"
+        fw_extra="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_FIREWALL_EXTRA_CIDRS" 2>/dev/null || true)")"
+        power_extra="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_POWER_EXTRA_CIDRS" 2>/dev/null || true)")"
+        local_allow="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" 2>/dev/null || true)")"
+        ui_kv "EDGE_FIREWALL_EXTRA_CIDRS" "${fw_extra:-<unset>}"
+        ui_kv "EDGE_POWER_EXTRA_CIDRS" "${power_extra:-<unset>}"
+        ui_kv "EDGE_LOCAL_ALLOWLIST" "${local_allow:-<unset>}"
+        if [[ -n "$payments_ip" ]]; then
+          [[ "$(csv_has_token "$fw_extra" "$want_cidr")" == "1" ]] && ui_check "payments fw" "OK" || ui_check "payments fw" "WARN" "(missing ${want_cidr})"
+          [[ "$(csv_has_token "$power_extra" "$want_cidr")" == "1" ]] && ui_check "payments /power" "OK" || ui_check "payments /power" "WARN" "(missing ${want_cidr})"
+          [[ "$(csv_has_token "$local_allow" "$payments_ip")" == "1" ]] && ui_check "payments runner/rec" "OK" || ui_check "payments runner/rec" "WARN" "(missing ${payments_ip})"
+        fi
+      else
+        local allow_csv power_allow want_cidr
+        allow_csv="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)")"
+        power_allow="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "POWER_ALLOWED_IPS" 2>/dev/null || true)")"
+        ui_kv "VTUBER_ALLOWED_ADDRESSES" "${allow_csv:-<unset>}"
+        ui_kv "POWER_ALLOWED_IPS" "${power_allow:-<unset>}"
+        if [[ -n "$payments_ip" ]]; then
+          want_cidr="${payments_ip}/32"
+          [[ "$(csv_has_token "$allow_csv" "$payments_ip")" == "1" ]] && ui_check "payments runner/rec" "OK" || ui_check "payments runner/rec" "WARN" "(missing ${payments_ip})"
+          if [[ "$(csv_has_token "$power_allow" "$want_cidr")" == "1" || "$(csv_has_token "$power_allow" "$payments_ip")" == "1" ]]; then
+            ui_check "payments /power" "OK"
+          else
+            ui_check "payments /power" "WARN" "(missing ${want_cidr})"
+          fi
+        fi
+      fi
+      return 0
+      ;;
+    fix)
+      ui_section "Fix"
+      [[ -n "$payments_ip" ]] || { ui_check "fix" "FAIL" "(payments IP unresolved)"; return 1; }
+
+      local changed="0"
+      if [[ "$mode" == "edge-plane" ]]; then
+        local want_cidr fw_extra power_extra local_allow
+        want_cidr="${payments_ip}/32"
+        fw_extra="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_FIREWALL_EXTRA_CIDRS" 2>/dev/null || true)")"
+        power_extra="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_POWER_EXTRA_CIDRS" 2>/dev/null || true)")"
+        local_allow="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" 2>/dev/null || true)")"
+
+        if [[ "$(csv_has_token "$fw_extra" "$want_cidr")" != "1" ]]; then
+          fw_extra="$(csv_add_token "$fw_extra" "$want_cidr")"
+          upsert_env_kv "$ENV_FILE" "EDGE_FIREWALL_EXTRA_CIDRS" "$fw_extra" || true
+          changed="1"
+        fi
+        if [[ "$(csv_has_token "$power_extra" "$want_cidr")" != "1" ]]; then
+          power_extra="$(csv_add_token "$power_extra" "$want_cidr")"
+          upsert_env_kv "$ENV_FILE" "EDGE_POWER_EXTRA_CIDRS" "$power_extra" || true
+          changed="1"
+        fi
+        if [[ -z "$local_allow" ]]; then
+          local_allow="127.0.0.1,::1,172.17.0.1,172.18.0.1"
+        fi
+        if [[ "$(csv_has_token "$local_allow" "$payments_ip")" != "1" ]]; then
+          local_allow="$(csv_add_token "$local_allow" "$payments_ip")"
+          if ! upsert_env_kv "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" "$local_allow"; then
+            ui_check "env" "FAIL" "(failed to update EDGE_LOCAL_ALLOWLIST)"
+            return 1
+          fi
+          changed="1"
+        fi
+
+        if [[ "$changed" == "1" ]]; then
+          ui_check "env" "OK" "(updated $ENV_FILE)"
+          if command -v docker >/dev/null 2>&1; then
+            ui_check "edge rotator" "WARN" "(restarting)"
+            if docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+              up -d --force-recreate orchestrator-edge-rotator >/dev/null 2>&1; then
+              ui_check "edge rotator" "OK"
+            else
+              ui_check "edge rotator" "FAIL" "(docker compose failed)"
+              return 1
+            fi
+          else
+            ui_check "docker" "WARN" "(docker missing; restart orchestrator-edge-rotator to apply)"
+          fi
+        else
+          ui_check "fix" "OK" "(already configured)"
+        fi
+        return 0
+      fi
+
+      # manual mode
+      local allow_csv power_allow want_cidr
+      allow_csv="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)")"
+      power_allow="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "POWER_ALLOWED_IPS" 2>/dev/null || true)")"
+      want_cidr="${payments_ip}/32"
+      if [[ -z "$allow_csv" ]]; then
+        allow_csv="127.0.0.1,::1,172.17.0.1,172.18.0.1"
+      fi
+      if [[ "$(csv_has_token "$allow_csv" "$payments_ip")" != "1" ]]; then
+        allow_csv="$(csv_add_token "$allow_csv" "$payments_ip")"
+        if ! upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allow_csv"; then
+          ui_check "env" "FAIL" "(failed to update VTUBER_ALLOWED_ADDRESSES)"
+          return 1
+        fi
+        changed="1"
+      fi
+      if [[ -z "$power_allow" ]]; then
+        power_allow="127.0.0.1/32,::1/128"
+      fi
+      if [[ "$(csv_has_token "$power_allow" "$want_cidr")" != "1" && "$(csv_has_token "$power_allow" "$payments_ip")" != "1" ]]; then
+        power_allow="$(csv_add_token "$power_allow" "$want_cidr")"
+        if ! upsert_env_kv "$ENV_FILE" "POWER_ALLOWED_IPS" "$power_allow"; then
+          ui_check "env" "FAIL" "(failed to update POWER_ALLOWED_IPS)"
+          return 1
+        fi
+        changed="1"
+      fi
+
+      if [[ "$changed" == "1" ]]; then
+        ui_check "env" "OK" "(updated $ENV_FILE)"
+        if command -v docker >/dev/null 2>&1; then
+          ui_check "containers" "WARN" "(recreating orchestrator-health + runner/recorder)"
+          if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+            up -d --force-recreate orchestrator-health >/dev/null 2>&1; then
+            ui_check "containers" "FAIL" "(failed to recreate orchestrator-health)"
+            return 1
+          fi
+          if docker inspect -f '{{.State.Status}}' vtuber-unreal-game >/dev/null 2>&1; then
+            if [[ "$(docker inspect -f '{{.State.Status}}' vtuber-unreal-game 2>/dev/null || true)" == "running" ]]; then
+              if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+                up -d --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1; then
+                ui_check "containers" "FAIL" "(failed to recreate runner/recorder)"
+                return 1
+              fi
+            else
+              if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+                up --no-start --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1; then
+                ui_check "containers" "FAIL" "(failed to update runner/recorder)"
+                return 1
+              fi
+            fi
+          fi
+          ui_check "containers" "OK"
+        else
+          ui_check "docker" "WARN" "(docker missing; restart containers to apply)"
+        fi
+      else
+        ui_check "fix" "OK" "(already configured)"
+      fi
+      ;;
+    *)
+      echo "Unknown allowlists command: $sub" >&2
+      return 1
+      ;;
+  esac
+}
+
 menu_start_stack() {
   local gpu_arg=()
 
@@ -2477,6 +2827,10 @@ main() {
     payments)
       shift || true
       cmd_payments "$@"
+      ;;
+    allowlists|allowlist)
+      shift || true
+      cmd_allowlists "$@"
       ;;
     "")
       if setup_complete && is_tty; then

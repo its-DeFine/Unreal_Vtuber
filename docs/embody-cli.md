@@ -34,9 +34,10 @@ This repo ships a single entrypoint for onboarding and day-to-day operations: `.
     ```
 - `overview` – compact dashboard (power state, containers, key config)
 - `verify` – health + consistency checks (runner TCP + record/download smoke tests when awake)
-  - `--fix` recreates runner/recorder if allowlist env drift is detected
-  - Also checks outbound HTTPS (needed for presigned uploads) and warns if Payments allowlists look misconfigured
+  - `--fix` recreates runner/recorder if allowlist env drift is detected and auto-fixes common Payments allowlist gaps
+  - Also checks outbound HTTPS (needed for presigned uploads) and warns if allowlists look misconfigured
 - `payments` – Payments connectivity checks + viewer token helper (when a viewer token is available)
+- `allowlists` – check/fix allowlists needed for Payments-driven workloads (`/power`, runner, recorder)
 - `register` – register orchestrator in Payments (cached; skips when already registered)
 - `license` / `license redeem` – view or redeem license token (invite code → token)
 - `rollout` – load encrypted game image (wrapper for `tools/encrypted-game-image/rollout.sh`)
@@ -60,6 +61,11 @@ If `EDGE_CONFIG_URL` is configured, the `orchestrator-edge-rotator` sidecar mana
 - `EDGE_FIREWALL_EXTRA_CIDRS` – additional CIDRs to allow through host firewall (ex: Payments host for `/health`)
 - `EDGE_POWER_EXTRA_CIDRS` – additional CIDRs allowed to call `/power` (ex: Payments host for wake/sleep)
 - `EDGE_LOCAL_ALLOWLIST` – IPs prepended to `VTUBER_ALLOWED_ADDRESSES` (ex: Payments host for runner/recorder)
+
+CLI helper:
+
+- `./scripts/embody_cli.sh allowlists status`
+- `./scripts/embody_cli.sh allowlists fix`
 
 ## Remote workloads (record → upload)
 
