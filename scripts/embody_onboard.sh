@@ -325,6 +325,36 @@ read_env_value() {
   ' "$file"
 }
 
+seed_power_allowlist_file_best_effort() {
+  local path="$1" wanted="$2"
+  [[ -n "$path" ]] || return 0
+  [[ -n "$wanted" ]] || return 0
+
+  local existing raw_tokens token tokens=() deduped=()
+  existing=""
+  if [[ -f "$path" ]]; then
+    existing="$(tr -d '\n' <"$path" 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$existing" ]]; then
+    IFS=',' read -r -a raw_tokens <<<"$existing"
+    for token in "${raw_tokens[@]}"; do
+      token="$(trim_whitespace "$token")"
+      [[ -n "$token" ]] || continue
+      tokens+=("$token")
+    done
+  fi
+
+  tokens=("127.0.0.1/32" "${tokens[@]}" "$wanted")
+  while IFS= read -r token; do
+    deduped+=("$token")
+  done < <(dedupe_list "${tokens[@]}")
+
+  mkdir -p "$(dirname "$path")" 2>/dev/null || return 0
+  printf '%s\n' "$(join_csv "${deduped[@]}")" >"$path" 2>/dev/null || return 0
+  chmod 600 "$path" 2>/dev/null || true
+}
+
 is_valid_eth_address() {
   local addr="$1"
   [[ "$addr" =~ ^0x[0-9a-fA-F]{40}$ ]]
@@ -2028,6 +2058,16 @@ fi
     done < <(dedupe_list "${power_tokens[@]}")
     upsert_env_kv "$ENV_FILE" "EDGE_POWER_EXTRA_CIDRS" "$(join_csv "${deduped_power[@]}")"
 
+    # Best-effort: seed the power allowlist file so Payments can call /power even
+    # before the edge-rotator is healthy.
+    power_allowed_file="$(read_env_value "$ENV_FILE" "EDGE_POWER_ALLOWED_IPS_FILE" 2>/dev/null || true)"
+    power_allowed_file="$(trim_whitespace "$power_allowed_file")"
+    power_allowed_file="$(strip_inline_comment "$power_allowed_file")"
+    if [[ -z "$power_allowed_file" ]]; then
+      power_allowed_file="/var/lib/vtuber/power-state/power_allowed_ips.txt"
+    fi
+    seed_power_allowlist_file_best_effort "$power_allowed_file" "$wanted"
+
     # Allow Payments to reach runner/recorder (services match exact IP strings, not CIDRs).
     existing_local="$(read_env_value "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" 2>/dev/null || true)"
     existing_local="$(trim_whitespace "$existing_local")"
@@ -2175,7 +2215,7 @@ if [[ "$NO_PULL" != "1" ]]; then
   "${compose_cmd[@]}" -f "$COMPOSE_FILE" pull \
     turn-server unreal-signaling \
     vtuber-script-runner vtuber-watchdog \
-    orchestrator-registration orchestrator-health \
+    orchestrator-edge-rotator orchestrator-registration orchestrator-health \
     vtuber-auto-updater recorder-control
 fi
 
