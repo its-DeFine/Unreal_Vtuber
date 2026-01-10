@@ -1054,6 +1054,7 @@ EOF
     ui_check ".env" "FAIL" "(missing; run: ./scripts/embody_cli.sh setup)"
     return 1
   fi
+  command -v python3 >/dev/null 2>&1 || { ui_check "python3" "FAIL" "(missing dependency)"; return 1; }
 
   if is_tty; then
     if ! prompt_yes_no "Pull latest service images and recreate containers now? This may disconnect active sessions." "y"; then
@@ -1816,12 +1817,18 @@ PY
         local changed="0"
         if [[ "$(csv_has_token "$fw_extra" "$want_cidr")" != "1" ]]; then
           fw_extra="$(csv_add_token "$fw_extra" "$want_cidr")"
-          upsert_env_kv "$ENV_FILE" "EDGE_FIREWALL_EXTRA_CIDRS" "$fw_extra" || true
+          if ! upsert_env_kv "$ENV_FILE" "EDGE_FIREWALL_EXTRA_CIDRS" "$fw_extra"; then
+            ui_check "env" "FAIL" "(failed to update EDGE_FIREWALL_EXTRA_CIDRS)"
+            return 1
+          fi
           changed="1"
         fi
         if [[ "$(csv_has_token "$power_extra" "$want_cidr")" != "1" ]]; then
           power_extra="$(csv_add_token "$power_extra" "$want_cidr")"
-          upsert_env_kv "$ENV_FILE" "EDGE_POWER_EXTRA_CIDRS" "$power_extra" || true
+          if ! upsert_env_kv "$ENV_FILE" "EDGE_POWER_EXTRA_CIDRS" "$power_extra"; then
+            ui_check "env" "FAIL" "(failed to update EDGE_POWER_EXTRA_CIDRS)"
+            return 1
+          fi
           changed="1"
         fi
         if [[ -z "$local_allow" ]]; then
@@ -1829,14 +1836,20 @@ PY
         fi
         if [[ "$(csv_has_token "$local_allow" "$payments_ip")" != "1" ]]; then
           local_allow="$(csv_add_token "$local_allow" "$payments_ip")"
-          upsert_env_kv "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" "$local_allow" || true
+          if ! upsert_env_kv "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" "$local_allow"; then
+            ui_check "env" "FAIL" "(failed to update EDGE_LOCAL_ALLOWLIST)"
+            return 1
+          fi
           changed="1"
         fi
 
         if [[ "$changed" == "1" ]]; then
           ui_check "allowlists fix" "WARN" "(updated .env; restarting edge rotator)"
-          docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-            up -d --force-recreate orchestrator-edge-rotator >/dev/null 2>&1 || true
+          if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+            up -d --force-recreate orchestrator-edge-rotator >/dev/null 2>&1; then
+            ui_check "allowlists fix" "FAIL" "(docker compose failed)"
+            return 1
+          fi
           ui_check "allowlists fix" "OK"
         fi
       fi
@@ -1905,7 +1918,10 @@ PY
         fi
         if [[ "$(csv_has_token "$allow_csv" "$payments_ip")" != "1" ]]; then
           allow_csv="$(csv_add_token "$allow_csv" "$payments_ip")"
-          upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allow_csv" || true
+          if ! upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allow_csv"; then
+            ui_check "env" "FAIL" "(failed to update VTUBER_ALLOWED_ADDRESSES)"
+            return 1
+          fi
           changed="1"
         fi
 
@@ -1917,21 +1933,33 @@ PY
         fi
         if [[ "$(csv_has_token "$power_allow" "$want_cidr")" != "1" && "$(csv_has_token "$power_allow" "$payments_ip")" != "1" ]]; then
           power_allow="$(csv_add_token "$power_allow" "$want_cidr")"
-          upsert_env_kv "$ENV_FILE" "POWER_ALLOWED_IPS" "$power_allow" || true
+          if ! upsert_env_kv "$ENV_FILE" "POWER_ALLOWED_IPS" "$power_allow"; then
+            ui_check "env" "FAIL" "(failed to update POWER_ALLOWED_IPS)"
+            return 1
+          fi
           changed="1"
         fi
 
         if [[ "$changed" == "1" ]]; then
           ui_check "allowlists fix" "WARN" "(updated .env; recreating containers)"
-          docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-            up -d --force-recreate orchestrator-health >/dev/null 2>&1 || true
+          if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+            up -d --force-recreate orchestrator-health >/dev/null 2>&1; then
+            ui_check "allowlists fix" "FAIL" "(failed to recreate orchestrator-health)"
+            return 1
+          fi
           if docker inspect -f '{{.State.Status}}' vtuber-unreal-game >/dev/null 2>&1; then
             if [[ "$(docker inspect -f '{{.State.Status}}' vtuber-unreal-game 2>/dev/null || true)" == "running" ]]; then
-              docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-                up -d --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1 || true
+              if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+                up -d --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1; then
+                ui_check "allowlists fix" "FAIL" "(failed to recreate runner/recorder)"
+                return 1
+              fi
             else
-              docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-                up --no-start --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1 || true
+              if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+                up --no-start --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1; then
+                ui_check "allowlists fix" "FAIL" "(failed to update runner/recorder)"
+                return 1
+              fi
             fi
           fi
           ui_check "allowlists fix" "OK"
@@ -2545,7 +2573,10 @@ EOF
         fi
         if [[ "$(csv_has_token "$local_allow" "$payments_ip")" != "1" ]]; then
           local_allow="$(csv_add_token "$local_allow" "$payments_ip")"
-          upsert_env_kv "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" "$local_allow" || true
+          if ! upsert_env_kv "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" "$local_allow"; then
+            ui_check "env" "FAIL" "(failed to update EDGE_LOCAL_ALLOWLIST)"
+            return 1
+          fi
           changed="1"
         fi
 
@@ -2553,9 +2584,13 @@ EOF
           ui_check "env" "OK" "(updated $ENV_FILE)"
           if command -v docker >/dev/null 2>&1; then
             ui_check "edge rotator" "WARN" "(restarting)"
-            docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-              up -d --force-recreate orchestrator-edge-rotator >/dev/null 2>&1 || true
-            ui_check "edge rotator" "OK"
+            if docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+              up -d --force-recreate orchestrator-edge-rotator >/dev/null 2>&1; then
+              ui_check "edge rotator" "OK"
+            else
+              ui_check "edge rotator" "FAIL" "(docker compose failed)"
+              return 1
+            fi
           else
             ui_check "docker" "WARN" "(docker missing; restart orchestrator-edge-rotator to apply)"
           fi
@@ -2575,7 +2610,10 @@ EOF
       fi
       if [[ "$(csv_has_token "$allow_csv" "$payments_ip")" != "1" ]]; then
         allow_csv="$(csv_add_token "$allow_csv" "$payments_ip")"
-        upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allow_csv" || true
+        if ! upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allow_csv"; then
+          ui_check "env" "FAIL" "(failed to update VTUBER_ALLOWED_ADDRESSES)"
+          return 1
+        fi
         changed="1"
       fi
       if [[ -z "$power_allow" ]]; then
@@ -2583,7 +2621,10 @@ EOF
       fi
       if [[ "$(csv_has_token "$power_allow" "$want_cidr")" != "1" && "$(csv_has_token "$power_allow" "$payments_ip")" != "1" ]]; then
         power_allow="$(csv_add_token "$power_allow" "$want_cidr")"
-        upsert_env_kv "$ENV_FILE" "POWER_ALLOWED_IPS" "$power_allow" || true
+        if ! upsert_env_kv "$ENV_FILE" "POWER_ALLOWED_IPS" "$power_allow"; then
+          ui_check "env" "FAIL" "(failed to update POWER_ALLOWED_IPS)"
+          return 1
+        fi
         changed="1"
       fi
 
@@ -2591,15 +2632,24 @@ EOF
         ui_check "env" "OK" "(updated $ENV_FILE)"
         if command -v docker >/dev/null 2>&1; then
           ui_check "containers" "WARN" "(recreating orchestrator-health + runner/recorder)"
-          docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-            up -d --force-recreate orchestrator-health >/dev/null 2>&1 || true
+          if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+            up -d --force-recreate orchestrator-health >/dev/null 2>&1; then
+            ui_check "containers" "FAIL" "(failed to recreate orchestrator-health)"
+            return 1
+          fi
           if docker inspect -f '{{.State.Status}}' vtuber-unreal-game >/dev/null 2>&1; then
             if [[ "$(docker inspect -f '{{.State.Status}}' vtuber-unreal-game 2>/dev/null || true)" == "running" ]]; then
-              docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-                up -d --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1 || true
+              if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+                up -d --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1; then
+                ui_check "containers" "FAIL" "(failed to recreate runner/recorder)"
+                return 1
+              fi
             else
-              docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
-                up --no-start --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1 || true
+              if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+                up --no-start --force-recreate vtuber-script-runner recorder-control >/dev/null 2>&1; then
+                ui_check "containers" "FAIL" "(failed to update runner/recorder)"
+                return 1
+              fi
             fi
           fi
           ui_check "containers" "OK"
