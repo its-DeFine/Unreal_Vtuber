@@ -210,6 +210,12 @@ program
         config_file.matchmaker_keep_alive_interval || '30'
     )
     .option(
+        '--matchmaker_streamer_id <id>',
+        'Optional streamer identifier reported to the Matchmaker (used for targeted allocation).',
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        ((config_file as any).matchmaker_streamer_id as string) || ''
+    )
+    .option(
         '--auth_token_secret <secret>',
         'If set, requires a HS256 JWT in the player websocket query string (default param "token").',
         config_file.auth_token_secret || ''
@@ -390,7 +396,7 @@ if (options.serve) {
 const signallingServer = new SignallingServer(serverOpts);
 
 if (options.use_matchmaker) {
-    const getReady = () => signallingServer.streamerRegistry.streamers.some((s) => s.streaming);
+    const getReady = () => signallingServer.streamerRegistry.streamers.length > 0;
     const getPlayerConnected = () => signallingServer.playerRegistry.count() > 0;
 
     const matchmaker = new MatchmakerClient(
@@ -401,7 +407,9 @@ if (options.use_matchmaker) {
             publicPort: publicPort,
             publicHttps: Boolean(options.https),
             retryIntervalSeconds: parseInt(String(options.matchmaker_retry_interval || '5'), 10),
-            keepAliveIntervalSeconds: parseInt(String(options.matchmaker_keep_alive_interval || '30'), 10)
+            keepAliveIntervalSeconds: parseInt(String(options.matchmaker_keep_alive_interval || '30'), 10),
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+            streamerId: String(((options as any).matchmaker_streamer_id as string) || '').trim() || undefined
         },
         { getReady, getPlayerConnected }
     );

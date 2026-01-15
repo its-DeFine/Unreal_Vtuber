@@ -47,6 +47,18 @@ This repo ships a single entrypoint for onboarding and day-to-day operations: `.
   - `start`, `stop`, `restart`, `status`, `logs [service]`, `health`
 - `update` – fast-forward this repo to `origin/main` (no merges)
 - `upgrade` – `update` plus pull/recreate service containers (safe to run while sleeping; won’t wake the game)
+- `cluster` – multi-instance “cluster mode” (multiple concurrent avatars on one host)
+  - Config: `~/.embody/cluster.json` (override with `EMBODY_CLUSTER_FILE=/path/to/cluster.json`)
+  - Commands: `cluster plan`, `cluster list`, `cluster up`, `cluster down`, `cluster status`, `cluster logs`
+  - Port map (slot-based, deterministic):
+    - Signaling public port: `8080 + slot`
+    - Runner port: `9877 + slot`
+    - Recorder-control port: `8889 + slot`
+  - Per-instance isolation:
+    - Docker compose projects + per-instance networks
+    - Sessions: `${VTUBER_SESSION_DIR}/<avatar>`
+    - Recordings: `${VTUBER_RECORDINGS_DIR}/<avatar>`
+  - Note: `cluster up` enforces a conservative VRAM estimate (8GiB/instance); pass `--force` to bypass.
 
 ## Network / allowlists
 
