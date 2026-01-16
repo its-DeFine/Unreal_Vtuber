@@ -24,6 +24,15 @@ from gi.repository import Gst, GLib, GstWebRTC, GstSdp
 
 Gst.init(None)
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
 SIGNALING_URL = os.environ.get("RECORDER_SIGNALING_URL", "ws://127.0.0.1:80")
 OUTPUT_DIR = Path(os.environ.get("RECORDER_OUTPUT_DIR", "/recordings"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -33,17 +42,32 @@ TURN_USER = os.environ.get("RECORDER_TURN_USER") or os.environ.get("TURN_USER")
 TURN_PASS = os.environ.get("RECORDER_TURN_PASS") or os.environ.get("TURN_PASS")
 TURN_HOST = os.environ.get("RECORDER_TURN_HOST") or os.environ.get("TURN_HOST")
 TURN_PORT = int(os.environ.get("RECORDER_TURN_PORT") or os.environ.get("TURN_PORT") or "3478")
+STREAMER_WAIT_SECONDS = _env_float("RECORDER_STREAMER_WAIT_SECONDS", 30.0)
+STREAMER_POLL_SECONDS = _env_float("RECORDER_STREAMER_POLL_SECONDS", 2.0)
+AV_WAIT_SECONDS = _env_float("RECORDER_AV_WAIT_SECONDS", 3.0)
 
 def _sanitize_label(raw: str) -> str:
     cleaned = "".join(c if c.isalnum() or c in ("-", "_") else "-" for c in raw.strip())
     return cleaned or "capture"
 
 class GstRecorder:
-    def __init__(self, loop, label="capture", streamer_id=None, output_path: str | None = None):
+    def __init__(
+        self,
+        loop,
+        label="capture",
+        streamer_id=None,
+        output_path: str | None = None,
+        streamer_wait_seconds: float = STREAMER_WAIT_SECONDS,
+        streamer_poll_seconds: float = STREAMER_POLL_SECONDS,
+        av_wait_seconds: float = AV_WAIT_SECONDS,
+    ):
         self.loop = loop
         self.label = _sanitize_label(label or "capture")
         self.streamer_id = streamer_id
         self.player_id = str(uuid.uuid4())
+        self.streamer_wait_seconds = streamer_wait_seconds
+        self.streamer_poll_seconds = streamer_poll_seconds
+        self.av_wait_seconds = av_wait_seconds
         if output_path:
             out = Path(output_path)
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -61,6 +85,7 @@ class GstRecorder:
         self.allow_flow = False
         self.video_probe = None
         self.audio_probe = None
+        self.flow_timeout_id = None
 
     def log(self, msg):
         print(msg, flush=True)
@@ -121,16 +146,39 @@ class GstRecorder:
             return Gst.PadProbeReturn.DROP
         return Gst.PadProbeReturn.OK
 
+    def _release_flow(self, reason: str):
+        if self.allow_flow:
+            return
+        self.allow_flow = True
+        self.log(reason)
+        if self.video_probe and self.video_queue:
+            self.video_queue.get_static_pad("src").remove_probe(self.video_probe)
+            self.video_probe = None
+        if self.audio_probe and self.audio_queue:
+            self.audio_queue.get_static_pad("src").remove_probe(self.audio_probe)
+            self.audio_probe = None
+        if self.flow_timeout_id is not None:
+            GLib.source_remove(self.flow_timeout_id)
+            self.flow_timeout_id = None
+
+    def _schedule_flow_release(self):
+        if self.allow_flow or self.flow_timeout_id is not None or self.av_wait_seconds <= 0:
+            return
+
+        def _release_if_still_waiting():
+            if self.allow_flow:
+                self.flow_timeout_id = None
+                return False
+            if self.video_queue or self.audio_queue:
+                self._release_flow("Media wait elapsed; recording available tracks")
+            self.flow_timeout_id = None
+            return False
+
+        self.flow_timeout_id = GLib.timeout_add(int(self.av_wait_seconds * 1000), _release_if_still_waiting)
+
     def maybe_enable_flow(self):
         if self.video_queue and self.audio_queue and not self.allow_flow:
-            self.allow_flow = True
-            self.log("Audio+video ready, releasing buffers to mux")
-            if self.video_probe and self.video_queue:
-                self.video_queue.get_static_pad("src").remove_probe(self.video_probe)
-                self.video_probe = None
-            if self.audio_probe and self.audio_queue:
-                self.audio_queue.get_static_pad("src").remove_probe(self.audio_probe)
-                self.audio_probe = None
+            self._release_flow("Audio+video ready, releasing buffers to mux")
 
     def on_pad_added(self, webrtc, pad):
         caps = pad.get_current_caps()
@@ -141,15 +189,43 @@ class GstRecorder:
         media = s.get_value("media") if s.has_field("media") else None
         self.log(f"New pad: {media} {caps.to_string()}")
         if media == "video":
-            depay = Gst.ElementFactory.make("rtph264depay")
-            parse = Gst.ElementFactory.make("h264parse")
-            parse.set_property("config-interval", -1)
+            encoding = s.get_value("encoding-name") if s.has_field("encoding-name") else ""
+            encoding = (encoding or "").upper()
+            if encoding == "H264":
+                depay_name = "rtph264depay"
+                parse_name = "h264parse"
+            elif encoding == "VP9":
+                depay_name = "rtpvp9depay"
+                parse_name = "vp9parse"
+            elif encoding == "VP8":
+                depay_name = "rtpvp8depay"
+                parse_name = "vp8parse"
+            else:
+                self.log(f"Unsupported video encoding {encoding or '<unknown>'}; skipping")
+                return
+
+            depay = Gst.ElementFactory.make(depay_name)
+            if not depay:
+                self.log(f"Missing depay loader for {encoding}")
+                return
+            parse = Gst.ElementFactory.make(parse_name) if parse_name else None
+            if parse is None and parse_name:
+                self.log(f"Missing parser {parse_name}; continuing without parse")
             queue = Gst.ElementFactory.make("queue")
-            for e in [depay, parse, queue]:
+            elements = [depay]
+            if parse:
+                if encoding == "H264":
+                    parse.set_property("config-interval", -1)
+                elements.append(parse)
+            elements.append(queue)
+            for e in elements:
                 self.pipeline.add(e)
                 e.sync_state_with_parent()
-            depay.link(parse)
-            parse.link(queue)
+            if parse:
+                depay.link(parse)
+                parse.link(queue)
+            else:
+                depay.link(queue)
             pad.link(depay.get_static_pad("sink"))
             self.link_branch_to_mux(media, queue)
             self.video_queue = queue
@@ -157,6 +233,7 @@ class GstRecorder:
                 Gst.PadProbeType.BUFFER | Gst.PadProbeType.BUFFER_LIST, self.buffer_gate, "video"
             )
             self.maybe_enable_flow()
+            self._schedule_flow_release()
         elif media == "audio":
             depay = Gst.ElementFactory.make("rtpopusdepay")
             parse = Gst.ElementFactory.make("opusparse")
@@ -173,6 +250,7 @@ class GstRecorder:
                 Gst.PadProbeType.BUFFER | Gst.PadProbeType.BUFFER_LIST, self.buffer_gate, "audio"
             )
             self.maybe_enable_flow()
+            self._schedule_flow_release()
 
     def on_ice_candidate(self, element, mline, candidate):
         asyncio.run_coroutine_threadsafe(self.send_ws({
@@ -211,7 +289,7 @@ class GstRecorder:
             kind = media.get_media().lower()
             direction = GstWebRTC.WebRTCRTPTransceiverDirection.RECVONLY
             if kind == "video":
-                caps = Gst.Caps.from_string("application/x-rtp,media=video,encoding-name=H264")
+                caps = Gst.Caps.from_string("application/x-rtp,media=video")
             elif kind == "audio":
                 caps = Gst.Caps.from_string("application/x-rtp,media=audio,encoding-name=OPUS")
             else:
@@ -225,19 +303,45 @@ class GstRecorder:
         async with aiohttp.ClientSession() as session:
             async with session.ws_connect(SIGNALING_URL) as ws:
                 self.ws = ws
-                await ws.send_json({"type": "listStreamers"})
                 subscribed = False
-                async for msg in ws:
+                deadline = None
+                if self.streamer_wait_seconds and self.streamer_wait_seconds > 0:
+                    deadline = self.loop.time() + self.streamer_wait_seconds
+
+                await ws.send_json({"type": "listStreamers"})
+                while True:
+                    timeout = None if subscribed else max(self.streamer_poll_seconds, 0.5)
+                    try:
+                        msg = await ws.receive(timeout=timeout)
+                    except asyncio.TimeoutError:
+                        if not subscribed:
+                            if deadline is not None and self.loop.time() > deadline:
+                                raise RuntimeError("Timed out waiting for streamer")
+                            await ws.send_json({"type": "listStreamers"})
+                        continue
+
+                    if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                        break
                     if msg.type != aiohttp.WSMsgType.TEXT:
                         continue
                     data = msg.json()
+                    if not subscribed and deadline is not None and self.loop.time() > deadline:
+                        raise RuntimeError("Timed out waiting for streamer")
                     if data.get("type") == "streamerList" and not subscribed:
                         ids = data.get("ids", [])
-                        target = self.streamer_id or (ids[0] if ids else None)
+                        target = None
+                        if self.streamer_id:
+                            if self.streamer_id in ids:
+                                target = self.streamer_id
+                        elif ids:
+                            target = ids[0]
                         if not target:
-                            raise RuntimeError("No streamer")
+                            if deadline is not None and self.loop.time() > deadline:
+                                raise RuntimeError("No streamer available")
+                            continue
                         await ws.send_json({"type": "subscribe", "streamerId": target})
                         subscribed = True
+                        self.streamer_id = target
                         self.log(f"Subscribed to {target}")
                     elif data.get("type") == "offer":
                         offer_sdp = data["sdp"]
@@ -301,8 +405,34 @@ if __name__ == "__main__":
     parser.add_argument("--label", default="capture", help="Output label prefix")
     parser.add_argument("--streamer-id", default=None, help="Specific streamer id to subscribe to")
     parser.add_argument("--output", default=None, help="Absolute/relative output .mkv path (overrides label-based name)")
+    parser.add_argument(
+        "--streamer-wait-seconds",
+        type=float,
+        default=STREAMER_WAIT_SECONDS,
+        help="Seconds to wait for a streamer before exiting (0 = no wait)",
+    )
+    parser.add_argument(
+        "--streamer-poll-seconds",
+        type=float,
+        default=STREAMER_POLL_SECONDS,
+        help="Seconds between streamer list polls while waiting",
+    )
+    parser.add_argument(
+        "--av-wait-seconds",
+        type=float,
+        default=AV_WAIT_SECONDS,
+        help="Seconds to wait for both audio+video before recording available tracks",
+    )
     args = parser.parse_args()
 
     loop = asyncio.get_event_loop()
-    rec = GstRecorder(loop, label=args.label, streamer_id=args.streamer_id, output_path=args.output)
+    rec = GstRecorder(
+        loop,
+        label=args.label,
+        streamer_id=args.streamer_id,
+        output_path=args.output,
+        streamer_wait_seconds=args.streamer_wait_seconds,
+        streamer_poll_seconds=args.streamer_poll_seconds,
+        av_wait_seconds=args.av_wait_seconds,
+    )
     rec.run(duration=args.duration)

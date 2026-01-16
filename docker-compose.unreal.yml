@@ -262,6 +262,9 @@ services:
       - RECORDER_SIGNALING_URL=${RECORDER_SIGNALING_URL:-ws://vtuber-unreal-signaling:80}
       - RECORDER_OUTPUT_DIR=/recordings
       - PY_RECORDER_PATH=/opt/embody/recorder/gs_webrtc_recorder.py
+      - RECORDER_STREAMER_WAIT_SECONDS=${RECORDER_STREAMER_WAIT_SECONDS:-30}
+      - RECORDER_STREAMER_POLL_SECONDS=${RECORDER_STREAMER_POLL_SECONDS:-2}
+      - RECORDER_AV_WAIT_SECONDS=${RECORDER_AV_WAIT_SECONDS:-3}
       - VTUBER_ALLOWED_ADDRESSES=${VTUBER_ALLOWED_ADDRESSES:-127.0.0.1,::1,172.17.0.1,172.18.0.1}
       # Recorder connects on the docker network; default TURN host is the local coturn service.
       - RECORDER_TURN_HOST=${RECORDER_TURN_HOST:-vtuber-turn-server}

@@ -29,6 +29,18 @@ def _sanitize_label(raw: str) -> str:
     return cleaned or "capture"
 
 
+def _float_setting(data: dict, field: str, env: str) -> Optional[float]:
+    value = data.get(field)
+    if value is None:
+        value = os.environ.get(env)
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def client_ip(request: web.Request) -> Optional[str]:
     host = request.remote
     if not host:
@@ -77,6 +89,9 @@ async def handle_start(request: web.Request):
     label = _sanitize_label(data.get("label") or "capture")
     duration = data.get("duration")
     streamer_id = data.get("streamer_id")
+    streamer_wait_seconds = _float_setting(data, "streamer_wait_seconds", "RECORDER_STREAMER_WAIT_SECONDS")
+    streamer_poll_seconds = _float_setting(data, "streamer_poll_seconds", "RECORDER_STREAMER_POLL_SECONDS")
+    av_wait_seconds = _float_setting(data, "av_wait_seconds", "RECORDER_AV_WAIT_SECONDS")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"{label}_{int(time.time() * 1000)}.mkv"
@@ -86,6 +101,12 @@ async def handle_start(request: web.Request):
         cmd += ["--duration", str(duration)]
     if streamer_id:
         cmd += ["--streamer-id", streamer_id]
+    if streamer_wait_seconds is not None:
+        cmd += ["--streamer-wait-seconds", str(streamer_wait_seconds)]
+    if streamer_poll_seconds is not None:
+        cmd += ["--streamer-poll-seconds", str(streamer_poll_seconds)]
+    if av_wait_seconds is not None:
+        cmd += ["--av-wait-seconds", str(av_wait_seconds)]
 
     env = os.environ.copy()
     env.setdefault("RECORDER_SIGNALING_URL", SIGNALING_URL)
