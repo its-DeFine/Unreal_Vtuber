@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env"
 TURN_ENV_FILE="${REPO_ROOT}/.env.turn"
 COMPOSE_FILE="${REPO_ROOT}/docker-compose.unreal.yml"
+INSTANCE_COMPOSE_FILE="${REPO_ROOT}/docker-compose.unreal.instance.yml"
 START_SCRIPT="${REPO_ROOT}/scripts/start_vtuber_unreal.sh"
 ONBOARD_SCRIPT="${REPO_ROOT}/scripts/embody_onboard.sh"
 
@@ -22,8 +23,16 @@ fi
 TOKEN_FILE_DEFAULT="${TARGET_HOME}/.embody/orch-license-token.txt"
 PAYMENTS_VIEWER_TOKEN_FILE_DEFAULT="${TARGET_HOME}/.embody/payments-viewer-token.txt"
 REGISTRATION_STATE_FILE_DEFAULT="${TARGET_HOME}/.embody/orchestrator-registration.json"
+CLUSTER_CONFIG_FILE_DEFAULT="${TARGET_HOME}/.embody/cluster.json"
 DEFAULT_PAYMENTS_API_URL="http://3.141.111.200:8081"
 DEFAULT_LICENSE_IMAGE_REF="ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1"
+
+CLUSTER_MAX_SLOTS="20"
+CLUSTER_SIGNALING_PORT_BASE="8080"
+CLUSTER_RUNNER_PORT_BASE="9877"
+CLUSTER_RECORDER_PORT_BASE="8889"
+CLUSTER_GAME_TCP_PORT_BASE="7777"
+CLUSTER_HOST_PROJECT_NAME="vtuber-host"
 
 USE_COLOR="0"
 STYLE_RESET=""
@@ -53,6 +62,7 @@ Usage:
   ./scripts/embody_cli.sh register         # Register orchestrator in Payments (cached; skip when already registered)
   ./scripts/embody_cli.sh verify           # Full health/consistency checks (optionally auto-fix)
   ./scripts/embody_cli.sh power            # Sleep/wake via orchestrator-health /power
+  ./scripts/embody_cli.sh cluster <cmd>    # Multi-instance cluster mode (plan/list/up/down/status/logs)
 
 Day-to-day commands:
   ./scripts/embody_cli.sh start [--gpu <id|all|none>]   # Start stack (defaults to detached)
@@ -1319,6 +1329,607 @@ cmd_capacity() {
       echo "  GPU ${idx} (${name}): ${mem}"
     fi
   done
+}
+
+cluster_config_path() {
+  printf '%s' "${EMBODY_CLUSTER_FILE:-$CLUSTER_CONFIG_FILE_DEFAULT}"
+}
+
+cluster_print_example() {
+  cat <<'EOF'
+{
+  "slot_count": 20,
+  "default_gpu": "0",
+  "instances": [
+    { "avatar_id": "ghost", "slot": 0, "gpu": "0" },
+    { "avatar_id": "pon",   "slot": 1, "gpu": "0" }
+  ]
+}
+EOF
+}
+
+cluster_load_config_lines() {
+  local path
+  path="$(cluster_config_path)"
+  [[ -n "$path" ]] || { echo "Missing cluster config path" >&2; return 1; }
+  [[ -f "$path" ]] || { echo "Cluster config not found: $path" >&2; return 1; }
+  command -v python3 >/dev/null 2>&1 || { echo "Missing dependency: python3" >&2; return 1; }
+
+  CLUSTER_PATH="$path" CLUSTER_MAX_SLOTS="$CLUSTER_MAX_SLOTS" python3 - <<'PY'
+import json
+import os
+import re
+import sys
+
+path = os.environ.get("CLUSTER_PATH") or ""
+max_slots_raw = os.environ.get("CLUSTER_MAX_SLOTS") or "20"
+try:
+    max_slots = int(max_slots_raw)
+except Exception:
+    max_slots = 20
+
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except FileNotFoundError:
+    print(f"cluster: FAIL (config not found: {path})", file=sys.stderr)
+    raise SystemExit(1)
+except Exception as exc:
+    print(f"cluster: FAIL (invalid JSON in {path}: {exc})", file=sys.stderr)
+    raise SystemExit(1)
+
+if not isinstance(data, dict):
+    print("cluster: FAIL (config must be a JSON object)", file=sys.stderr)
+    raise SystemExit(1)
+
+slot_count = data.get("slot_count") or data.get("slots") or data.get("slotCount") or max_slots
+try:
+    slot_count = int(slot_count)
+except Exception:
+    print("cluster: FAIL (slot_count must be an integer)", file=sys.stderr)
+    raise SystemExit(1)
+if slot_count < 1 or slot_count > max_slots:
+    print(f"cluster: FAIL (slot_count must be 1..{max_slots})", file=sys.stderr)
+    raise SystemExit(1)
+
+instances = data.get("instances") or data.get("avatars") or data.get("vtubers") or []
+if not isinstance(instances, list):
+    print("cluster: FAIL (instances must be a JSON list)", file=sys.stderr)
+    raise SystemExit(1)
+if not instances:
+    print("cluster: FAIL (instances is empty)", file=sys.stderr)
+    raise SystemExit(1)
+
+default_gpu = (data.get("default_gpu") or data.get("defaultGpu") or data.get("gpu") or "all")
+default_gpu = str(default_gpu).strip() or "all"
+
+used_ids: set[str] = set()
+used_slugs: set[str] = set()
+used_slots: set[int] = set()
+next_slot = 0
+
+out: list[tuple[str, str, int, str]] = []
+
+def slugify(raw: str) -> str:
+    s = raw.strip().lower()
+    s = re.sub(r"[^a-z0-9_.-]+", "-", s)
+    s = s.strip("-_.")
+    return s
+
+def alloc_slot() -> int:
+    global next_slot
+    while next_slot in used_slots:
+        next_slot += 1
+    return next_slot
+
+for item in instances:
+    avatar_id = ""
+    slot = None
+    gpu = None
+
+    if isinstance(item, str):
+        avatar_id = item.strip()
+    elif isinstance(item, dict):
+        avatar_id = str(
+            item.get("avatar_id")
+            or item.get("avatar")
+            or item.get("streamer_id")
+            or item.get("streamerId")
+            or item.get("id")
+            or ""
+        ).strip()
+        slot = item.get("slot")
+        gpu = (
+            item.get("gpu")
+            or item.get("gpu_id")
+            or item.get("gpuId")
+            or item.get("nvidia_visible_devices")
+            or item.get("nvidiaVisibleDevices")
+        )
+    else:
+        print("cluster: FAIL (each instance must be an object or string)", file=sys.stderr)
+        raise SystemExit(1)
+
+    if not avatar_id:
+        print("cluster: FAIL (instance missing avatar_id)", file=sys.stderr)
+        raise SystemExit(1)
+    if avatar_id in used_ids:
+        print(f"cluster: FAIL (duplicate avatar_id: {avatar_id})", file=sys.stderr)
+        raise SystemExit(1)
+
+    slug = slugify(avatar_id)
+    if not slug:
+        print(f"cluster: FAIL (avatar_id produces empty slug: {avatar_id})", file=sys.stderr)
+        raise SystemExit(1)
+    if slug in used_slugs:
+        print(f"cluster: FAIL (duplicate avatar slug after normalization: {slug})", file=sys.stderr)
+        raise SystemExit(1)
+
+    if slot is None or (isinstance(slot, str) and not slot.strip()):
+        slot = alloc_slot()
+    try:
+        slot_int = int(slot)
+    except Exception:
+        print(f"cluster: FAIL (slot must be an integer for {avatar_id})", file=sys.stderr)
+        raise SystemExit(1)
+
+    if slot_int < 0 or slot_int >= slot_count:
+        print(f"cluster: FAIL (slot out of range for {avatar_id}: {slot_int} (slot_count={slot_count}))", file=sys.stderr)
+        raise SystemExit(1)
+    if slot_int in used_slots:
+        print(f"cluster: FAIL (duplicate slot {slot_int})", file=sys.stderr)
+        raise SystemExit(1)
+
+    gpu_value = str(gpu if gpu is not None else default_gpu).strip() or default_gpu
+
+    used_ids.add(avatar_id)
+    used_slugs.add(slug)
+    used_slots.add(slot_int)
+    out.append((avatar_id, slug, slot_int, gpu_value))
+
+out.sort(key=lambda t: t[2])
+
+print(f"SLOT_COUNT\t{slot_count}")
+for avatar_id, slug, slot_int, gpu_value in out:
+    print(f"INSTANCE\t{avatar_id}\t{slug}\t{slot_int}\t{gpu_value}")
+PY
+}
+
+get_vtuber_session_dir_base() {
+  local raw
+  raw="$(read_env_value "$ENV_FILE" "VTUBER_SESSION_DIR" 2>/dev/null || true)"
+  raw="$(strip_inline_comment "$raw")"
+  raw="$(trim_whitespace "$raw")"
+  [[ -n "$raw" ]] || raw="/home/ubuntu/vtuber_sessions"
+  printf '%s' "$raw"
+}
+
+get_vtuber_recordings_dir_base() {
+  local raw
+  raw="$(read_env_value "$ENV_FILE" "VTUBER_RECORDINGS_DIR" 2>/dev/null || true)"
+  raw="$(strip_inline_comment "$raw")"
+  raw="$(trim_whitespace "$raw")"
+  [[ -n "$raw" ]] || raw="/home/ubuntu/recordings"
+  printf '%s' "$raw"
+}
+
+ensure_turn_env() {
+  if [[ ! -s "$TURN_ENV_FILE" ]]; then
+    echo "TURN credentials missing; generating .env.turn..." >&2
+    "${REPO_ROOT}/scripts/generate_turn_credentials.sh"
+  fi
+}
+
+cluster_read_config() {
+  CLUSTER_SLOT_COUNT=""
+  CLUSTER_AVATAR_IDS=()
+  CLUSTER_AVATAR_SLUGS=()
+  CLUSTER_SLOTS=()
+  CLUSTER_GPUS=()
+
+  local kind a b c d
+  while IFS=$'\t' read -r kind a b c d; do
+    case "$kind" in
+      SLOT_COUNT)
+        CLUSTER_SLOT_COUNT="$a"
+        ;;
+      INSTANCE)
+        CLUSTER_AVATAR_IDS+=("$a")
+        CLUSTER_AVATAR_SLUGS+=("$b")
+        CLUSTER_SLOTS+=("$c")
+        CLUSTER_GPUS+=("$d")
+        ;;
+    esac
+  done < <(cluster_load_config_lines)
+
+  [[ -n "${CLUSTER_SLOT_COUNT:-}" ]] || CLUSTER_SLOT_COUNT="$CLUSTER_MAX_SLOTS"
+  if [[ "${#CLUSTER_AVATAR_IDS[@]}" -lt 1 ]]; then
+    echo "cluster: no instances configured" >&2
+    return 1
+  fi
+}
+
+cluster_instance_ports() {
+  local slot="$1"
+  local signaling runner recorder game
+  signaling=$(( CLUSTER_SIGNALING_PORT_BASE + slot ))
+  runner=$(( CLUSTER_RUNNER_PORT_BASE + slot ))
+  recorder=$(( CLUSTER_RECORDER_PORT_BASE + slot ))
+  game=$(( CLUSTER_GAME_TCP_PORT_BASE + slot ))
+  printf '%s\t%s\t%s\t%s\n' "$signaling" "$runner" "$recorder" "$game"
+}
+
+cluster_find_instance_index() {
+  local query="$1"
+  local i
+  for i in "${!CLUSTER_AVATAR_IDS[@]}"; do
+    if [[ "${CLUSTER_AVATAR_IDS[$i]}" == "$query" || "${CLUSTER_AVATAR_SLUGS[$i]}" == "$query" ]]; then
+      printf '%s' "$i"
+      return 0
+    fi
+  done
+  return 1
+}
+
+cluster_ensure_docker() {
+  command -v docker >/dev/null 2>&1 || { echo "Missing dependency: docker" >&2; return 1; }
+  docker compose version >/dev/null 2>&1 || { echo "docker compose plugin not available (docker compose)" >&2; return 1; }
+  return 0
+}
+
+cluster_max_slot() {
+  local max="-1" slot
+  for slot in "${CLUSTER_SLOTS[@]}"; do
+    if [[ "$slot" =~ ^[0-9]+$ && "$slot" -gt "$max" ]]; then
+      max="$slot"
+    fi
+  done
+  printf '%s' "$max"
+}
+
+cluster_edge_allow_ports() {
+  local max_slot="$1"
+  local sig_end run_end rec_end
+  sig_end=$(( CLUSTER_SIGNALING_PORT_BASE + max_slot ))
+  run_end=$(( CLUSTER_RUNNER_PORT_BASE + max_slot ))
+  rec_end=$(( CLUSTER_RECORDER_PORT_BASE + max_slot ))
+  printf '%s' "80/tcp,${CLUSTER_SIGNALING_PORT_BASE}-${sig_end}/tcp,${CLUSTER_RUNNER_PORT_BASE}-${run_end}/tcp,${CLUSTER_RECORDER_PORT_BASE}-${rec_end}/tcp,9090/tcp,3478/tcp,3478/udp,49160-49200/udp"
+}
+
+cluster_monitored_services() {
+  local out="vtuber-turn-server"
+  local slug
+  for slug in "${CLUSTER_AVATAR_SLUGS[@]}"; do
+    out+=",vtuber-${slug}-unreal-game,vtuber-${slug}-unreal-signaling"
+  done
+  printf '%s' "$out"
+}
+
+cluster_enforce_capacity() {
+  command -v nvidia-smi >/dev/null 2>&1 || return 0
+
+  local raw
+  raw="$(nvidia-smi --query-gpu=index,memory.total --format=csv,noheader,nounits 2>/dev/null || true)"
+  [[ -n "$raw" ]] || return 0
+
+  declare -A cap
+  local idx mem
+  while IFS=',' read -r idx mem; do
+    idx="$(trim_whitespace "$idx")"
+    mem="$(trim_whitespace "$mem")"
+    if [[ "$idx" =~ ^[0-9]+$ && "$mem" =~ ^[0-9]+$ ]]; then
+      cap["$idx"]=$(( mem / 8192 ))
+    fi
+  done <<<"$raw"
+
+  declare -A need
+  local i gpu
+  for i in "${!CLUSTER_GPUS[@]}"; do
+    gpu="$(trim_whitespace "${CLUSTER_GPUS[$i]}")"
+    [[ -n "$gpu" ]] || gpu="all"
+    if [[ "$gpu" =~ ^[0-9]+$ ]]; then
+      need["$gpu"]=$(( ${need["$gpu"]:-0} + 1 ))
+    fi
+  done
+
+  local violated="0"
+  for idx in "${!need[@]}"; do
+    local want="${need[$idx]}"
+    local have="${cap[$idx]:-0}"
+    if [[ "$have" -gt 0 && "$want" -gt "$have" ]]; then
+      echo "cluster: capacity exceeded on GPU ${idx}: want=${want} estimated=${have} (8GiB/instance)" >&2
+      violated="1"
+    fi
+  done
+
+  [[ "$violated" == "0" ]]
+}
+
+cluster_plan() {
+  cluster_read_config || return 1
+  local cfg
+  cfg="$(cluster_config_path)"
+  echo "Cluster config: $cfg"
+  echo "Instance compose: ${INSTANCE_COMPOSE_FILE}"
+  echo ""
+
+  local max_slot
+  max_slot="$(cluster_max_slot)"
+  if [[ ! "$max_slot" =~ ^[0-9]+$ || "$max_slot" -lt 0 ]]; then
+    echo "cluster: invalid slot set" >&2
+    return 1
+  fi
+
+  local session_base recordings_base
+  session_base="$(get_vtuber_session_dir_base)"
+  recordings_base="$(get_vtuber_recordings_dir_base)"
+
+  local i avatar slug slot gpu ports signaling runner recorder game project
+  echo "Instances:"
+  for i in "${!CLUSTER_AVATAR_IDS[@]}"; do
+    avatar="${CLUSTER_AVATAR_IDS[$i]}"
+    slug="${CLUSTER_AVATAR_SLUGS[$i]}"
+    slot="${CLUSTER_SLOTS[$i]}"
+    gpu="${CLUSTER_GPUS[$i]}"
+    IFS=$'\t' read -r signaling runner recorder game < <(cluster_instance_ports "$slot")
+    project="vtuber-${slug}"
+    echo "  - avatar=${avatar} (slot=${slot}, gpu=${gpu}, project=${project})"
+    echo "    signaling=${signaling} runner=${runner} recorder=${recorder} game_tcp=${game}"
+    echo "    sessions=${session_base%/}/${slug}"
+    echo "    recordings=${recordings_base%/}/${slug}"
+  done
+
+  echo ""
+  echo "Host-level:"
+  echo "  EDGE_ALLOW_PORTS=$(cluster_edge_allow_ports "$max_slot")"
+  echo "  MONITORED_SERVICES=$(cluster_monitored_services)"
+}
+
+cluster_list() {
+  cluster_read_config || return 1
+  local i avatar slug slot gpu
+  for i in "${!CLUSTER_AVATAR_IDS[@]}"; do
+    avatar="${CLUSTER_AVATAR_IDS[$i]}"
+    slug="${CLUSTER_AVATAR_SLUGS[$i]}"
+    slot="${CLUSTER_SLOTS[$i]}"
+    gpu="${CLUSTER_GPUS[$i]}"
+    local game_container="vtuber-${slug}-unreal-game"
+    local status
+    status="$(docker inspect -f '{{.State.Status}}' "$game_container" 2>/dev/null || true)"
+    [[ -n "$status" ]] || status="missing"
+    echo "${avatar}\t${slug}\tslot=${slot}\tgpu=${gpu}\tgame=${status}"
+  done
+}
+
+cluster_up() {
+  cd "$REPO_ROOT"
+  [[ -f "$ENV_FILE" ]] || { echo "Missing .env (run: ./scripts/embody_cli.sh setup)" >&2; return 1; }
+  [[ -f "$COMPOSE_FILE" ]] || { echo "Missing compose file: $COMPOSE_FILE" >&2; return 1; }
+  [[ -f "$INSTANCE_COMPOSE_FILE" ]] || { echo "Missing instance compose file: $INSTANCE_COMPOSE_FILE" >&2; return 1; }
+  cluster_ensure_docker || return 1
+  ensure_turn_env || return 1
+
+  cluster_read_config || return 1
+
+  local force="0"
+  local only=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force)
+        force="1"
+        shift 1
+        ;;
+      *)
+        only+=("$1")
+        shift 1
+        ;;
+    esac
+  done
+
+  if [[ "$force" != "1" ]] && ! cluster_enforce_capacity; then
+    echo "cluster: refusing to start (capacity exceeded). Reconfigure instances/GPU assignment." >&2
+    echo "cluster: re-run with --force to bypass the estimate." >&2
+    return 1
+  fi
+
+  local max_slot
+  max_slot="$(cluster_max_slot)"
+  [[ "$max_slot" =~ ^[0-9]+$ ]] || { echo "cluster: invalid max slot" >&2; return 1; }
+
+  local session_base recordings_base
+  session_base="$(get_vtuber_session_dir_base)"
+  recordings_base="$(get_vtuber_recordings_dir_base)"
+
+  mkdir -p "$session_base" "$recordings_base" || true
+
+  docker network create vtuber_network 2>/dev/null || true
+
+  local edge_ports monitored
+  edge_ports="$(cluster_edge_allow_ports "$max_slot")"
+  monitored="$(cluster_monitored_services)"
+
+  EDGE_ALLOW_PORTS="$edge_ports" MONITORED_SERVICES="$monitored" docker compose \
+    -p "$CLUSTER_HOST_PROJECT_NAME" -f "$COMPOSE_FILE" \
+    up -d --no-deps \
+    turn-server orchestrator-health orchestrator-edge-rotator vtuber-auto-updater orchestrator-registration
+
+  local i avatar slug slot gpu project signaling runner recorder game instance_args session_dir recordings_dir
+  for i in "${!CLUSTER_AVATAR_IDS[@]}"; do
+    avatar="${CLUSTER_AVATAR_IDS[$i]}"
+    slug="${CLUSTER_AVATAR_SLUGS[$i]}"
+    slot="${CLUSTER_SLOTS[$i]}"
+    gpu="$(trim_whitespace "${CLUSTER_GPUS[$i]}")"
+    project="vtuber-${slug}"
+
+    if [[ "${#only[@]}" -gt 0 ]]; then
+      local match="0" q
+      for q in "${only[@]}"; do
+        if [[ "$q" == "$avatar" || "$q" == "$slug" ]]; then
+          match="1"
+          break
+        fi
+      done
+      [[ "$match" == "1" ]] || continue
+    fi
+
+    IFS=$'\t' read -r signaling runner recorder game < <(cluster_instance_ports "$slot")
+    session_dir="${session_base%/}/${slug}"
+    recordings_dir="${recordings_base%/}/${slug}"
+    mkdir -p "$session_dir" "$recordings_dir" || true
+
+    instance_args="--public_port ${signaling} --matchmaker_streamer_id ${avatar}"
+
+    VTUBER_AVATAR_ID="$avatar" \
+      VTUBER_AVATAR_SLUG="$slug" \
+      VTUBER_INSTANCE_PROJECT_NAME="$project" \
+      VTUBER_SIGNALING_PUBLIC_PORT="$signaling" \
+      VTUBER_RUNNER_PORT="$runner" \
+      VTUBER_RECORDER_PORT="$recorder" \
+      VTUBER_GAME_TCP_PORT="$game" \
+      VTUBER_SESSION_DIR="$session_dir" \
+      VTUBER_RECORDINGS_DIR="$recordings_dir" \
+      VTUBER_SIGNALING_INSTANCE_ARGS="$instance_args" \
+      NVIDIA_VISIBLE_DEVICES="${gpu:-all}" \
+      docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" up -d
+  done
+}
+
+cluster_down() {
+  cd "$REPO_ROOT"
+  cluster_read_config || return 1
+  cluster_ensure_docker || return 1
+
+  local only=()
+  if [[ $# -gt 0 ]]; then
+    only=("$@")
+  fi
+
+  local i avatar slug project match q
+  for i in "${!CLUSTER_AVATAR_IDS[@]}"; do
+    avatar="${CLUSTER_AVATAR_IDS[$i]}"
+    slug="${CLUSTER_AVATAR_SLUGS[$i]}"
+    project="vtuber-${slug}"
+
+    if [[ "${#only[@]}" -gt 0 ]]; then
+      match="0"
+      for q in "${only[@]}"; do
+        if [[ "$q" == "$avatar" || "$q" == "$slug" ]]; then
+          match="1"
+          break
+        fi
+      done
+      [[ "$match" == "1" ]] || continue
+    fi
+
+    docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" down
+  done
+
+  if [[ "${#only[@]}" -eq 0 ]]; then
+    docker compose -p "$CLUSTER_HOST_PROJECT_NAME" -f "$COMPOSE_FILE" down || true
+  fi
+}
+
+cluster_status() {
+  cd "$REPO_ROOT"
+  cluster_read_config || return 1
+  cluster_ensure_docker || return 1
+
+  echo "Host:"
+  docker compose -p "$CLUSTER_HOST_PROJECT_NAME" -f "$COMPOSE_FILE" ps || true
+  echo ""
+
+  local only=()
+  if [[ $# -gt 0 ]]; then
+    only=("$@")
+  fi
+
+  local i avatar slug project match q
+  for i in "${!CLUSTER_AVATAR_IDS[@]}"; do
+    avatar="${CLUSTER_AVATAR_IDS[$i]}"
+    slug="${CLUSTER_AVATAR_SLUGS[$i]}"
+    project="vtuber-${slug}"
+
+    if [[ "${#only[@]}" -gt 0 ]]; then
+      match="0"
+      for q in "${only[@]}"; do
+        if [[ "$q" == "$avatar" || "$q" == "$slug" ]]; then
+          match="1"
+          break
+        fi
+      done
+      [[ "$match" == "1" ]] || continue
+    fi
+
+    echo "Instance: ${avatar} (project=${project})"
+    docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" ps || true
+    echo ""
+  done
+}
+
+cluster_logs() {
+  cd "$REPO_ROOT"
+  cluster_read_config || return 1
+  cluster_ensure_docker || return 1
+  local which="${1:-}"
+  local service="${2:-}"
+  [[ -n "$which" ]] || { echo "Usage: ./scripts/embody_cli.sh cluster logs <avatar|slug> [service]" >&2; return 1; }
+  local idx
+  idx="$(cluster_find_instance_index "$which" 2>/dev/null || true)"
+  [[ -n "$idx" ]] || { echo "Unknown instance: $which" >&2; return 1; }
+  local slug="${CLUSTER_AVATAR_SLUGS[$idx]}"
+  local project="vtuber-${slug}"
+  if [[ -n "$service" ]]; then
+    docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" logs --tail=200 "$service"
+  else
+    docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" logs --tail=200
+  fi
+}
+
+cmd_cluster() {
+  local sub="${1:-}"
+  shift || true
+  case "$sub" in
+    plan)
+      cluster_plan "$@"
+      ;;
+    list)
+      cluster_list "$@"
+      ;;
+    up|start)
+      cluster_up "$@"
+      ;;
+    down|stop)
+      cluster_down "$@"
+      ;;
+    status|ps)
+      cluster_status "$@"
+      ;;
+    logs)
+      cluster_logs "$@"
+      ;;
+    ""|-h|--help|help)
+      cat <<EOF
+Usage:
+  ./scripts/embody_cli.sh cluster plan
+  ./scripts/embody_cli.sh cluster list
+  ./scripts/embody_cli.sh cluster up [--force] [avatar|slug...]
+  ./scripts/embody_cli.sh cluster down [avatar|slug...]
+  ./scripts/embody_cli.sh cluster status [avatar|slug...]
+  ./scripts/embody_cli.sh cluster logs <avatar|slug> [service]
+
+Config:
+  Path: $(cluster_config_path)
+  Override: set EMBODY_CLUSTER_FILE=/path/to/cluster.json
+
+Example:
+$(cluster_print_example)
+EOF
+      ;;
+    *)
+      echo "Unknown cluster command: $sub" >&2
+      return 1
+      ;;
+  esac
 }
 
 cmd_register() {
@@ -2820,6 +3431,10 @@ main() {
       ;;
     config)
       cmd_config
+      ;;
+    cluster)
+      shift || true
+      cmd_cluster "$@"
       ;;
     capacity)
       cmd_capacity

@@ -10,6 +10,7 @@ export type MatchmakerClientConfig = {
     publicHttps: boolean;
     retryIntervalSeconds: number;
     keepAliveIntervalSeconds: number;
+    streamerId?: string;
 };
 
 export type MatchmakerStateProvider = {
@@ -25,9 +26,10 @@ type MatchmakerMessage =
           https: boolean;
           ready: boolean;
           playerConnected: boolean;
+          streamer_id?: string;
       }
-    | { type: 'streamerConnected' }
-    | { type: 'streamerDisconnected' }
+    | { type: 'streamerConnected'; streamer_id?: string }
+    | { type: 'streamerDisconnected'; streamer_id?: string }
     | { type: 'clientConnected' }
     | { type: 'clientDisconnected' }
     | { type: 'ping' };
@@ -128,23 +130,27 @@ export class MatchmakerClient {
     }
 
     private sendConnect(): void {
+        const streamerId = (this.cfg.streamerId || '').trim();
         const message: MatchmakerMessage = {
             type: 'connect',
             address: this.cfg.publicAddress,
             port: this.cfg.publicPort,
             https: this.cfg.publicHttps,
             ready: this.stateProvider.getReady(),
-            playerConnected: this.stateProvider.getPlayerConnected()
+            playerConnected: this.stateProvider.getPlayerConnected(),
+            streamer_id: streamerId || undefined
         };
         this.write(message);
     }
 
     sendStreamerConnected(): void {
-        this.write({ type: 'streamerConnected' });
+        const streamerId = (this.cfg.streamerId || '').trim();
+        this.write({ type: 'streamerConnected', streamer_id: streamerId || undefined });
     }
 
     sendStreamerDisconnected(): void {
-        this.write({ type: 'streamerDisconnected' });
+        const streamerId = (this.cfg.streamerId || '').trim();
+        this.write({ type: 'streamerDisconnected', streamer_id: streamerId || undefined });
     }
 
     sendClientConnected(): void {
@@ -166,4 +172,3 @@ export class MatchmakerClient {
         }
     }
 }
-
