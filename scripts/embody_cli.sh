@@ -1081,6 +1081,14 @@ EOF
   fi
   ui_check "pull" "OK"
 
+  local game_image
+  game_image="$(detect_game_image_from_compose "$COMPOSE_FILE" || true)"
+  if [[ -n "$game_image" ]] && ! docker_image_present "$game_image"; then
+    ui_check "game image" "FAIL" "(${game_image}; run: ./scripts/embody_cli.sh rollout)"
+    echo "Docs: docs/admin-encrypted-game-image.md" >&2
+    return 1
+  fi
+
   local awake="0"
   if docker inspect -f '{{.State.Status}}' vtuber-unreal-game >/dev/null 2>&1; then
     if [[ "$(docker inspect -f '{{.State.Status}}' vtuber-unreal-game 2>/dev/null || true)" == "running" ]]; then
@@ -1709,9 +1717,20 @@ cluster_up() {
   cluster_ensure_docker || return 1
   ensure_turn_env || return 1
 
+  local game_image
+  game_image="$(detect_game_image_from_compose "$COMPOSE_FILE" || true)"
+  if [[ -n "$game_image" ]] && ! docker_image_present "$game_image"; then
+    echo "Missing local game image: ${game_image}" >&2
+    echo "Next: ./scripts/embody_cli.sh rollout (Payments lease → download/decrypt/load)" >&2
+    echo "Docs: docs/admin-encrypted-game-image.md" >&2
+    return 1
+  fi
+
   cluster_read_config || return 1
 
   local force="0"
+  local recreate="0"
+  local pull_mode=""
   local only=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -1719,12 +1738,25 @@ cluster_up() {
         force="1"
         shift 1
         ;;
+      --recreate|--force-recreate)
+        recreate="1"
+        shift 1
+        ;;
+      --pull)
+        pull_mode="${2:-}"
+        shift 2
+        ;;
       *)
         only+=("$1")
         shift 1
         ;;
     esac
   done
+  pull_mode="$(trim_whitespace "${pull_mode:-}")"
+  if [[ -n "$pull_mode" ]] && [[ "$pull_mode" != "always" && "$pull_mode" != "missing" && "$pull_mode" != "never" ]]; then
+    echo "cluster: invalid --pull value (expected: always|missing|never)" >&2
+    return 1
+  fi
 
   if [[ "$force" != "1" ]] && ! cluster_enforce_capacity; then
     echo "cluster: refusing to start (capacity exceeded). Reconfigure instances/GPU assignment." >&2
@@ -1748,9 +1780,20 @@ cluster_up() {
   edge_ports="$(cluster_edge_allow_ports "$max_slot")"
   monitored="$(cluster_monitored_services)"
 
+  local host_up_flags=(-d --no-deps)
+  local instance_up_flags=(-d)
+  if [[ -n "$pull_mode" ]]; then
+    host_up_flags+=(--pull "$pull_mode")
+    instance_up_flags+=(--pull "$pull_mode")
+  fi
+  if [[ "$recreate" == "1" ]]; then
+    host_up_flags+=(--force-recreate)
+    instance_up_flags+=(--force-recreate)
+  fi
+
   EDGE_ALLOW_PORTS="$edge_ports" MONITORED_SERVICES="$monitored" docker compose \
     -p "$CLUSTER_HOST_PROJECT_NAME" -f "$COMPOSE_FILE" \
-    up -d --no-deps \
+    up "${host_up_flags[@]}" \
     turn-server orchestrator-health orchestrator-edge-rotator vtuber-auto-updater orchestrator-registration
 
   local i avatar slug slot gpu project signaling runner recorder game instance_args session_dir recordings_dir
@@ -1787,11 +1830,66 @@ cluster_up() {
       VTUBER_RECORDER_PORT="$recorder" \
       VTUBER_GAME_TCP_PORT="$game" \
       VTUBER_SESSION_DIR="$session_dir" \
-      VTUBER_RECORDINGS_DIR="$recordings_dir" \
-      VTUBER_SIGNALING_INSTANCE_ARGS="$instance_args" \
-      NVIDIA_VISIBLE_DEVICES="${gpu:-all}" \
-      docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" up -d
+    VTUBER_RECORDINGS_DIR="$recordings_dir" \
+    VTUBER_SIGNALING_INSTANCE_ARGS="$instance_args" \
+    NVIDIA_VISIBLE_DEVICES="${gpu:-all}" \
+      docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" up "${instance_up_flags[@]}"
   done
+}
+
+cluster_compose_instance() {
+  local project="$1"
+  local slug="$2"
+  shift 2
+  VTUBER_AVATAR_SLUG="$slug" \
+    VTUBER_INSTANCE_PROJECT_NAME="$project" \
+    docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" "$@"
+}
+
+cluster_deploy() {
+  cd "$REPO_ROOT"
+  [[ -f "$ENV_FILE" ]] || { echo "Missing .env (run: ./scripts/embody_cli.sh setup)" >&2; return 1; }
+  [[ -f "$COMPOSE_FILE" ]] || { echo "Missing compose file: $COMPOSE_FILE" >&2; return 1; }
+  [[ -f "$INSTANCE_COMPOSE_FILE" ]] || { echo "Missing instance compose file: $INSTANCE_COMPOSE_FILE" >&2; return 1; }
+  cluster_ensure_docker || return 1
+
+  local do_update="1"
+  local do_pull="1"
+  local do_recreate="1"
+  local up_args=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --no-update)
+        do_update="0"
+        shift 1
+        ;;
+      --no-pull)
+        do_pull="0"
+        shift 1
+        ;;
+      --no-recreate)
+        do_recreate="0"
+        shift 1
+        ;;
+      *)
+        up_args+=("$1")
+        shift 1
+        ;;
+    esac
+  done
+
+  if [[ "$do_update" == "1" ]]; then
+    cmd_update || return 1
+  fi
+  if [[ "$do_pull" == "1" ]]; then
+    "$START_SCRIPT" pull || return 1
+  fi
+  if [[ "$do_recreate" == "1" ]]; then
+    cluster_up --recreate "${up_args[@]}"
+  else
+    cluster_up "${up_args[@]}"
+  fi
 }
 
 cluster_down() {
@@ -1821,7 +1919,7 @@ cluster_down() {
       [[ "$match" == "1" ]] || continue
     fi
 
-    docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" down
+    cluster_compose_instance "$project" "$slug" down
   done
 
   if [[ "${#only[@]}" -eq 0 ]]; then
@@ -1861,7 +1959,7 @@ cluster_status() {
     fi
 
     echo "Instance: ${avatar} (project=${project})"
-    docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" ps || true
+    cluster_compose_instance "$project" "$slug" ps || true
     echo ""
   done
 }
@@ -1879,9 +1977,9 @@ cluster_logs() {
   local slug="${CLUSTER_AVATAR_SLUGS[$idx]}"
   local project="vtuber-${slug}"
   if [[ -n "$service" ]]; then
-    docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" logs --tail=200 "$service"
+    cluster_compose_instance "$project" "$slug" logs --tail=200 "$service"
   else
-    docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" logs --tail=200
+    cluster_compose_instance "$project" "$slug" logs --tail=200
   fi
 }
 
@@ -1901,6 +1999,9 @@ cmd_cluster() {
     down|stop)
       cluster_down "$@"
       ;;
+    deploy)
+      cluster_deploy "$@"
+      ;;
     status|ps)
       cluster_status "$@"
       ;;
@@ -1912,7 +2013,8 @@ cmd_cluster() {
 Usage:
   ./scripts/embody_cli.sh cluster plan
   ./scripts/embody_cli.sh cluster list
-  ./scripts/embody_cli.sh cluster up [--force] [avatar|slug...]
+  ./scripts/embody_cli.sh cluster up [--force] [--recreate] [--pull always|missing|never] [avatar|slug...]
+  ./scripts/embody_cli.sh cluster deploy [--no-update] [--no-pull] [--no-recreate] [--force] [--pull always|missing|never] [avatar|slug...]
   ./scripts/embody_cli.sh cluster down [avatar|slug...]
   ./scripts/embody_cli.sh cluster status [avatar|slug...]
   ./scripts/embody_cli.sh cluster logs <avatar|slug> [service]

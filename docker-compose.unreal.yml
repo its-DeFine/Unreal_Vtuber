@@ -112,13 +112,6 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
   vtuber-script-runner:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-script-runner:${EMBODY_SERVICE_IMAGE_TAG:-latest}

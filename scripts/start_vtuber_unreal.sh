@@ -119,6 +119,34 @@ ensure_env() {
     fi
 }
 
+detect_game_image_from_compose() {
+    awk '
+        /^[[:space:]]*unreal-game:[[:space:]]*$/ { in_game=1; next }
+        in_game && /^[[:space:]]*image:[[:space:]]*/ {
+            sub(/^[[:space:]]*image:[[:space:]]*/, "", $0)
+            gsub(/[[:space:]]+$/, "", $0)
+            print $0
+            exit
+        }
+        in_game && /^[^[:space:]]/ { in_game=0 }
+    ' "$1"
+}
+
+ensure_game_image() {
+    local GAME_IMAGE=""
+    GAME_IMAGE="$(detect_game_image_from_compose "${COMPOSE_FILE}" 2>/dev/null || true)"
+    if [ -z "$GAME_IMAGE" ]; then
+        echo -e "${YELLOW}Warning: could not detect unreal-game image from compose; skipping preflight.${NC}"
+        return 0
+    fi
+    if ! docker image inspect "$GAME_IMAGE" >/dev/null 2>&1; then
+        echo -e "${RED}Error: game image not present locally: ${GAME_IMAGE}${NC}"
+        echo -e "${YELLOW}Next step: run ./scripts/embody_cli.sh rollout (Payments lease → download/decrypt/load).${NC}"
+        echo -e "${YELLOW}Docs: docs/admin-encrypted-game-image.md${NC}"
+        exit 1
+    fi
+}
+
 echo -e "${YELLOW}Checking environment configuration...${NC}"
 
 check_health() {
@@ -148,6 +176,8 @@ case "$COMMAND" in
             echo -e "${YELLOW}TURN credentials missing; generating .env.turn...${NC}"
             ./scripts/generate_turn_credentials.sh
         fi
+
+        ensure_game_image
 
         if [ -n "$GPU_SELECTION" ]; then
             echo -e "${YELLOW}Using NVIDIA_VISIBLE_DEVICES=${GPU_SELECTION}${NC}"
@@ -183,6 +213,9 @@ case "$COMMAND" in
         echo -e "${YELLOW}Restarting services...${NC}"
         compose down
         sleep 2
+
+        ensure_game_image
+
         if [ -n "$GPU_SELECTION" ]; then
             echo -e "${YELLOW}Using NVIDIA_VISIBLE_DEVICES=${GPU_SELECTION}${NC}"
         fi
