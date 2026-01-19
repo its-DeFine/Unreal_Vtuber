@@ -2632,27 +2632,73 @@ cmd_power() {
 Usage:
   ./scripts/embody_cli.sh power
   ./scripts/embody_cli.sh power status
-  ./scripts/embody_cli.sh power sleep
-  ./scripts/embody_cli.sh power wake [--ttl <seconds>]
+  ./scripts/embody_cli.sh power status [--project <compose_project>]
+  ./scripts/embody_cli.sh power sleep [--project <compose_project>]
+  ./scripts/embody_cli.sh power wake [--ttl <seconds>] [--project <compose_project>]
 EOF
       return 0
       ;;
     ""|status)
-      curl -fsS --max-time 2 http://127.0.0.1:9090/power
+      local project=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --project)
+            project="${2:-}"
+            shift 2
+            ;;
+          -h|--help)
+            exec "$0" power --help
+            ;;
+          *)
+            echo "Unknown arg for power status: $1" >&2
+            return 1
+            ;;
+        esac
+      done
+      local endpoint="http://127.0.0.1:9090/power"
+      if [[ -n "$project" ]]; then
+        endpoint="http://127.0.0.1:9090/power/projects/${project}"
+      fi
+      curl -fsS --max-time 2 "$endpoint"
       echo ""
       ;;
     sleep)
-      curl -fsS --max-time 5 -X POST http://127.0.0.1:9090/power \
+      local project=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --project)
+            project="${2:-}"
+            shift 2
+            ;;
+          -h|--help)
+            exec "$0" power --help
+            ;;
+          *)
+            echo "Unknown arg for power sleep: $1" >&2
+            return 1
+            ;;
+        esac
+      done
+      local endpoint="http://127.0.0.1:9090/power"
+      if [[ -n "$project" ]]; then
+        endpoint="http://127.0.0.1:9090/power/projects/${project}"
+      fi
+      curl -fsS --max-time 5 -X POST "$endpoint" \
         -H "Content-Type: application/json" \
         -d '{"action":"sleep","reason":"cli"}'
       echo ""
       ;;
     wake)
       local ttl=""
+      local project=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --ttl)
             ttl="${2:-}"
+            shift 2
+            ;;
+          --project)
+            project="${2:-}"
             shift 2
             ;;
           -h|--help)
@@ -2678,7 +2724,11 @@ print(json.dumps({"action": "wake", "reason": "cli", "awake_seconds": sec}))
 PY
         )" || { echo "Invalid --ttl value (expected integer seconds)" >&2; return 1; }
       fi
-      curl -fsS --max-time 10 -X POST http://127.0.0.1:9090/power \
+      local endpoint="http://127.0.0.1:9090/power"
+      if [[ -n "$project" ]]; then
+        endpoint="http://127.0.0.1:9090/power/projects/${project}"
+      fi
+      curl -fsS --max-time 10 -X POST "$endpoint" \
         -H "Content-Type: application/json" \
         -d "$payload"
       echo ""
