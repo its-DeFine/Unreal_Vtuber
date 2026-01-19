@@ -1347,7 +1347,7 @@ cmd_capacity() {
     return 1
   fi
   local raw
-  raw="$(nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader,nounits 2>/dev/null || true)"
+  raw="$(nvidia-smi --query-gpu=index,name,memory.total,memory.used --format=csv,noheader,nounits 2>/dev/null || true)"
   if [[ -z "$raw" ]]; then
     echo "nvidia-smi returned no GPU info." >&2
     return 1
@@ -1360,34 +1360,39 @@ cmd_capacity() {
     echo "NVIDIA_VISIBLE_DEVICES=none; no GPUs selected." >&2
     return 1
   fi
-  echo "Estimated capacity (assuming ~${per_gib}GiB VRAM per UE instance):"
+  echo "Estimated capacity (based on FREE VRAM; ~${per_gib}GiB per UE instance):"
   local total="0" seen="0"
-  local idx name mem
-  while IFS=',' read -r idx name mem; do
+  local idx name mem_total mem_used
+  while IFS=',' read -r idx name mem_total mem_used; do
     idx="$(trim_whitespace "$idx")"
     name="$(trim_whitespace "$name")"
-    mem="$(trim_whitespace "$mem")"
+    mem_total="$(trim_whitespace "$mem_total")"
+    mem_used="$(trim_whitespace "${mem_used:-0}")"
     [[ -n "$idx" ]] || continue
     if [[ "$devices" != "all" ]]; then
       if [[ "$(csv_has_token "$devices" "$idx")" != "1" ]]; then
         continue
       fi
     fi
-    if [[ "$mem" =~ ^[0-9]+$ ]]; then
-      local instances=$(( mem / per ))
+    if [[ "$mem_total" =~ ^[0-9]+$ && "$mem_used" =~ ^[0-9]+$ ]]; then
+      local free=$(( mem_total - mem_used ))
+      if [[ "$free" -lt 0 ]]; then
+        free="0"
+      fi
+      local instances=$(( free / per ))
       total=$(( total + instances ))
       seen=$(( seen + 1 ))
-      echo "  GPU ${idx} (${name}): ${mem} MiB -> ~${instances} instance(s)"
+      echo "  GPU ${idx} (${name}): total=${mem_total} used=${mem_used} free=${free} MiB -> ~${instances} instance(s)"
     else
       seen=$(( seen + 1 ))
-      echo "  GPU ${idx} (${name}): ${mem}"
+      echo "  GPU ${idx} (${name}): total=${mem_total} used=${mem_used}"
     fi
   done <<<"$raw"
   if [[ "$seen" -eq 0 ]]; then
     echo "No GPUs matched NVIDIA_VISIBLE_DEVICES=${devices}." >&2
     return 1
   fi
-  echo "Total: ~${total} instance(s) across ${seen} GPU(s)"
+  echo "Total: ~${total} instance(s) across ${seen} GPU(s) (NVIDIA_VISIBLE_DEVICES=${devices})"
 }
 
 cluster_config_path() {
@@ -1409,13 +1414,13 @@ EOF
 
 cluster_nvidia_smi_raw() {
   command -v nvidia-smi >/dev/null 2>&1 || return 1
-  nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader,nounits 2>/dev/null || true
+  nvidia-smi --query-gpu=index,name,memory.total,memory.used --format=csv,noheader,nounits 2>/dev/null || true
 }
 
 cluster_auto_estimate_instance_count() {
   local raw="$1" devices="$2" per="$3" max_instances="${4:-}"
   local total="0"
-  local idx mem
+  local idx mem_total mem_used
 
   devices="$(normalize_gpu_devices_csv "$devices")"
   if [[ "$devices" == "none" ]]; then
@@ -1426,17 +1431,22 @@ cluster_auto_estimate_instance_count() {
     per="8192"
   fi
 
-  while IFS=',' read -r idx _name mem; do
+  while IFS=',' read -r idx _name mem_total mem_used; do
     idx="$(trim_whitespace "$idx")"
-    mem="$(trim_whitespace "$mem")"
+    mem_total="$(trim_whitespace "$mem_total")"
+    mem_used="$(trim_whitespace "${mem_used:-0}")"
     [[ -n "$idx" ]] || continue
     if [[ "$devices" != "all" ]]; then
       if [[ "$(csv_has_token "$devices" "$idx")" != "1" ]]; then
         continue
       fi
     fi
-    if [[ "$idx" =~ ^[0-9]+$ && "$mem" =~ ^[0-9]+$ ]]; then
-      total=$(( total + (mem / per) ))
+    if [[ "$idx" =~ ^[0-9]+$ && "$mem_total" =~ ^[0-9]+$ && "$mem_used" =~ ^[0-9]+$ ]]; then
+      local free=$(( mem_total - mem_used ))
+      if [[ "$free" -lt 0 ]]; then
+        free="0"
+      fi
+      total=$(( total + (free / per) ))
     fi
   done <<<"$raw"
 
@@ -1449,6 +1459,41 @@ cluster_auto_estimate_instance_count() {
     total="$CLUSTER_MAX_SLOTS"
   fi
   printf '%s' "$total"
+}
+
+cluster_count_available_gpus() {
+  local raw="$1" devices="$2" per="$3"
+  local count="0"
+  local idx mem_total mem_used
+
+  devices="$(normalize_gpu_devices_csv "$devices")"
+  if [[ "$devices" == "none" ]]; then
+    printf '%s' "0"
+    return 0
+  fi
+  if [[ ! "$per" =~ ^[0-9]+$ || "$per" -lt 1024 ]]; then
+    per="8192"
+  fi
+
+  while IFS=',' read -r idx _name mem_total mem_used; do
+    idx="$(trim_whitespace "$idx")"
+    mem_total="$(trim_whitespace "$mem_total")"
+    mem_used="$(trim_whitespace "${mem_used:-0}")"
+    [[ -n "$idx" ]] || continue
+    if [[ "$devices" != "all" ]]; then
+      if [[ "$(csv_has_token "$devices" "$idx")" != "1" ]]; then
+        continue
+      fi
+    fi
+    if [[ "$idx" =~ ^[0-9]+$ && "$mem_total" =~ ^[0-9]+$ && "$mem_used" =~ ^[0-9]+$ ]]; then
+      local free=$(( mem_total - mem_used ))
+      if [[ "$free" -ge "$per" ]]; then
+        count=$(( count + 1 ))
+      fi
+    fi
+  done <<<"$raw"
+
+  printf '%s' "$count"
 }
 
 cluster_write_auto_config() {
@@ -1489,6 +1534,10 @@ cluster_write_auto_config() {
     avatar_prefix="$orch_id"
   fi
   [[ -n "$avatar_prefix" ]] || avatar_prefix="avatar"
+
+  if [[ -z "${max_instances:-}" ]]; then
+    max_instances="$(cluster_count_available_gpus "$raw" "$gpu_devices" "$per")"
+  fi
 
   local estimate
   estimate="$(cluster_auto_estimate_instance_count "$raw" "$gpu_devices" "$per" "$max_instances")"
@@ -1538,29 +1587,38 @@ for line in gpu_raw.splitlines():
     parts = [p.strip() for p in line.split(",")]
     if len(parts) < 3:
         continue
-    idx, name, mem = parts[0], parts[1], parts[2]
+    idx, name = parts[0], parts[1]
+    total = parts[2] if len(parts) >= 3 else ""
+    used = parts[3] if len(parts) >= 4 else "0"
     if allowed is not None and idx not in allowed:
         continue
     try:
         i = int(idx)
-        m = int(mem)
+        total_m = int(total)
+        used_m = int(used)
     except Exception:
         continue
-    gpus.append((i, name, m))
+    free_m = max(0, total_m - used_m)
+    cap = max(0, free_m // max(per_mib, 1))
+    gpus.append((i, name, cap))
 
 gpus.sort(key=lambda t: t[0])
 
 instances = []
 slot = 0
-for i, _name, mem in gpus:
-    cap = max(0, mem // max(per_mib, 1))
-    for _ in range(cap):
-        if slot >= want:
-            break
-        instances.append({"avatar_id": f"{prefix}-{slot}", "slot": slot, "gpu": str(i)})
-        slot += 1
-    if slot >= want:
+round_idx = 0
+while slot < want:
+    progressed = False
+    for i, _name, cap in gpus:
+        if cap > round_idx:
+            instances.append({"avatar_id": f"{prefix}-{slot}", "slot": slot, "gpu": str(i)})
+            slot += 1
+            progressed = True
+            if slot >= want:
+                break
+    if not progressed:
         break
+    round_idx += 1
 
 if not instances:
     raise SystemExit(1)
@@ -1899,16 +1957,21 @@ cluster_enforce_capacity() {
   per_gib=$(( per / 1024 ))
 
   local raw
-  raw="$(nvidia-smi --query-gpu=index,memory.total --format=csv,noheader,nounits 2>/dev/null || true)"
+  raw="$(nvidia-smi --query-gpu=index,memory.total,memory.used --format=csv,noheader,nounits 2>/dev/null || true)"
   [[ -n "$raw" ]] || return 0
 
   declare -A cap
-  local idx mem
-  while IFS=',' read -r idx mem; do
+  local idx mem_total mem_used
+  while IFS=',' read -r idx mem_total mem_used; do
     idx="$(trim_whitespace "$idx")"
-    mem="$(trim_whitespace "$mem")"
-    if [[ "$idx" =~ ^[0-9]+$ && "$mem" =~ ^[0-9]+$ ]]; then
-      cap["$idx"]=$(( mem / per ))
+    mem_total="$(trim_whitespace "$mem_total")"
+    mem_used="$(trim_whitespace "${mem_used:-0}")"
+    if [[ "$idx" =~ ^[0-9]+$ && "$mem_total" =~ ^[0-9]+$ && "$mem_used" =~ ^[0-9]+$ ]]; then
+      local free=$(( mem_total - mem_used ))
+      if [[ "$free" -lt 0 ]]; then
+        free="0"
+      fi
+      cap["$idx"]=$(( free / per ))
     fi
   done <<<"$raw"
 
@@ -2058,12 +2121,16 @@ cluster_up() {
       return 1
     fi
 
-    local raw devices per per_gib estimate
+    local raw devices per per_gib estimate effective_max
     raw="$(cluster_nvidia_smi_raw || true)"
     devices="$(normalize_gpu_devices_csv "$(get_gpu_devices 2>/dev/null || true)")"
     per="$(get_vram_per_instance_mib)"
     per_gib=$(( per / 1024 ))
-    estimate="$(cluster_auto_estimate_instance_count "$raw" "$devices" "$per" "$auto_max_instances")"
+    effective_max="$auto_max_instances"
+    if [[ -z "${effective_max:-}" ]]; then
+      effective_max="$(cluster_count_available_gpus "$raw" "$devices" "$per")"
+    fi
+    estimate="$(cluster_auto_estimate_instance_count "$raw" "$devices" "$per" "$effective_max")"
     if [[ ! "$estimate" =~ ^[0-9]+$ || "$estimate" -lt 1 ]]; then
       echo "cluster: auto failed (nvidia-smi missing/unreadable, or insufficient VRAM for estimate)" >&2
       echo "Next: ./scripts/embody_cli.sh cluster init" >&2
@@ -2077,7 +2144,7 @@ cluster_up() {
       fi
     fi
 
-    cluster_write_auto_config "$cfg_path" "$auto_prefix" "$auto_max_instances" "$devices" "0" || return 1
+    cluster_write_auto_config "$cfg_path" "$auto_prefix" "$effective_max" "$devices" "0" || return 1
   fi
 
   local game_image
