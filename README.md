@@ -63,12 +63,12 @@ Cluster mode runs multiple isolated Pixel Streaming stacks on one host (one comp
 
 One-command deploy (auto-configures based on GPU VRAM, then launches all instances):
 ```bash
-sudo ./scripts/embody_cli.sh cluster deploy --auto --yes --pull missing
+sudo ./scripts/embody_cli.sh cluster deploy --no-update --auto --yes --pull missing
 ```
 
 Cap the number of instances:
 ```bash
-sudo ./scripts/embody_cli.sh cluster deploy --auto --yes --max-instances 12 --pull missing
+sudo ./scripts/embody_cli.sh cluster deploy --no-update --auto --yes --max-instances 12 --pull missing
 ```
 
 ## Per-avatar sleep/wake (cluster mode)
