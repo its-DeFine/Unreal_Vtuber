@@ -22,12 +22,23 @@ Run:
 git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && sudo ./scripts/embody_cli.sh
 ```
 
+Recommended: pin to a release tag (avoids “main drift” and guarantees service images match the CLI version):
+```bash
+git fetch --tags
+git checkout v1.3.1-beta.4
+sudo ./scripts/embody_cli.sh
+```
+
 Day-to-day operations are also done via the CLI (no file edits needed):
 - `./scripts/embody_cli.sh overview` – status dashboard (power, containers, registration)
 - `./scripts/embody_cli.sh verify --fix` – health + end-to-end checks (runner TCP + record/download)
 - `./scripts/embody_cli.sh power sleep|wake --ttl <seconds>` – stop/start the stack safely
 - `./scripts/embody_cli.sh upgrade` – update repo + pull/recreate service containers (recommended after updates)
 - `./scripts/embody_cli.sh update` – fast-forward this repo to latest `origin/main` (does not recreate containers)
+
+Important: the Unreal game image is delivered **encrypted** (not anonymously pullable from GHCR).
+If you see `denied` pulling `ghcr.io/.../embody-ue-ps:*`, run:
+- `./scripts/embody_cli.sh rollout` (Payments lease → download/decrypt/load)
 
 The wizard will:
 - Preflight your host (and can install missing deps on Ubuntu/Debian)
@@ -45,6 +56,31 @@ Multi-edge deployments:
 - Verify the orchestrator registers on the intended edge matchmaker after onboarding (see `docs/orchestrator-onboarding.md`).
 - If needed, set `SIGNALING_MATCHMAKER_ARGS` in `.env` (example: `--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889`).
 - To rotate edges without SSH (recommended), enable control-plane mode (`EDGE_CONFIG_URL`) so the included `orchestrator-edge-rotator` sidecar can manage edge assignment (`docs/orchestrator-onboarding.md`).
+
+## Cluster mode (multiple avatars on one GPU host)
+
+Cluster mode runs multiple isolated Pixel Streaming stacks on one host (one compose project per avatar) so an edge can allocate multiple concurrent sessions.
+
+One-command deploy (auto-configures based on GPU VRAM, then launches all instances):
+```bash
+sudo ./scripts/embody_cli.sh cluster deploy --auto --yes --pull missing
+```
+
+Cap the number of instances:
+```bash
+sudo ./scripts/embody_cli.sh cluster deploy --auto --yes --max-instances 12 --pull missing
+```
+
+## Per-avatar sleep/wake (cluster mode)
+
+In cluster mode, each avatar is its own compose project (example: `vtuber-embody-0`). You can sleep/wake a single avatar locally:
+```bash
+./scripts/embody_cli.sh power sleep --project vtuber-embody-0
+./scripts/embody_cli.sh power wake --ttl 3600 --project vtuber-embody-0
+```
+
+Remote automation (ex: Payments) can call:
+- `POST http://<host>:9090/power/projects/<compose_project>`
 
 ## Security / allowlists
 
