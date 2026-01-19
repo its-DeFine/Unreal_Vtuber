@@ -11,6 +11,8 @@ skips recovery while sleeping.
   - `{"action":"sleep","reason":"maintenance"}` – stop all orchestrator containers (except `orchestrator-health`).
   - `{"action":"wake"}` – start all containers in dependency order.
   - `{"action":"wake","awake_seconds":3600}` – start all containers, then auto-sleep after `awake_seconds`.
+- `GET /power/projects/{project}` – returns current power state for a specific compose project (cluster instance).
+- `POST /power/projects/{project}` – same body as `POST /power`, but targets only that compose project.
 - `GET /health` – continues to report service status; while sleeping, game shows as exited.
 
 ## Auth / allowlist
@@ -19,12 +21,15 @@ skips recovery while sleeping.
 - `POWER_ALLOWED_IPS_FILE` (optional) points at a host-mounted file containing the same CSV allowlist.
   If present and non-empty, it overrides `POWER_ALLOWED_IPS` (useful when another service rotates edges).
 - Requests from other IPs receive a 403.
+- `POWER_ALLOWED_PROJECT_PREFIXES` restricts which compose projects can be controlled via `/power/projects/*`
+  (defaults to `vtuber-`).
 
 ## Behavior
 - `sleep` writes state first, then stops every container in the compose project except itself (and any service
   listed in `POWER_KEEP_RUNNING_SERVICES`).
 - `wake` flips state to `awake`, starts the stack in dependency order (TURN → signaling → game → runner/recorder/watchdog).
 - If `awake_seconds` is provided on wake, the service schedules an automatic `sleep` after that TTL (best-effort).
+- For cluster mode, `/power/projects/{project}` sleeps/wakes only that instance’s compose project (example: `vtuber-embody-0`).
 
 ## Compose wiring
 `docker-compose.unreal.yml` already mounts the shared power-state file and passes the
@@ -62,4 +67,14 @@ curl -X POST -H "Content-Type: application/json" \
 curl -X POST -H "Content-Type: application/json" \
   -d '{"action":"wake","awake_seconds":3600,"reason":"session TTL"}' \
   http://<host>:9090/power
+
+# sleep a single cluster instance project
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"action":"sleep","reason":"maintenance"}' \
+  http://<host>:9090/power/projects/vtuber-embody-0
+
+# wake a single cluster instance project for 1 hour
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"action":"wake","awake_seconds":3600,"reason":"session TTL"}' \
+  http://<host>:9090/power/projects/vtuber-embody-0
 ```

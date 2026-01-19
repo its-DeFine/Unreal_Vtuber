@@ -41,7 +41,8 @@ This repo ships a single entrypoint for onboarding and day-to-day operations: `.
 - `register` – register orchestrator in Payments (cached; skips when already registered)
 - `license` / `license redeem` – view or redeem license token (invite code → token)
 - `rollout` – load encrypted game image (wrapper for `tools/encrypted-game-image/rollout.sh`)
-- `power` – sleep/wake the stack via `http://127.0.0.1:9090/power`
+- `power` – sleep/wake the stack via `http://127.0.0.1:9090/power` (or a single compose project via `/power/projects/<project>`)
+  - `power sleep|wake --project <compose_project>` targets one cluster instance (example: `vtuber-embody-0`)
   - `power wake --ttl <seconds>` sets an auto-sleep TTL on wake
 - Day-to-day stack control:
   - `start`, `stop`, `restart`, `status`, `logs [service]`, `health`
