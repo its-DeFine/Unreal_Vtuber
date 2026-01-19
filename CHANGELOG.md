@@ -2,7 +2,106 @@
 
 ## Unreleased
 
-Changes merged after `v1.2.1` (current tagged release).
+Changes merged after `v1.3.1-beta.6` (current tagged release).
+
+## v1.3.1-beta.6 (2026-01-19)
+
+### Highlights
+
+- Docs: recommend `cluster deploy --no-update ...` when pinned to a release tag.
+
+### Included PRs
+
+- [#156](https://github.com/its-DeFine/Unreal_Vtuber/pull/156) docs: cluster deploy uses --no-update when pinned
+
+## v1.3.1-beta.5 (2026-01-19)
+
+### Highlights
+
+- Docs: onboarding improvements for cluster mode + per-avatar power control.
+
+### Included PRs
+
+- [#155](https://github.com/its-DeFine/Unreal_Vtuber/pull/155) docs: onboarding for v1.3.1-beta.4 (cluster + per-avatar power)
+
+## v1.3.1-beta.4 (2026-01-19)
+
+### Highlights
+
+- Orchestrator health: per-project sleep/wake for cluster instances (`/power/projects/{project}` + CLI `power --project`).
+
+### Included PRs
+
+- [#154](https://github.com/its-DeFine/Unreal_Vtuber/pull/154) orchestrator-health: per-project sleep/wake for cluster instances
+
+## v1.3.1-beta.3 (2026-01-19)
+
+### Highlights
+
+- CLI: auto-generate multi-avatar cluster config from GPU capacity (free VRAM + skip busy GPUs + spread across GPUs).
+
+### Included PRs
+
+- [#152](https://github.com/its-DeFine/Unreal_Vtuber/pull/152) feat(cli): auto-generate multi-avatar cluster from GPU capacity
+
+## v1.3.1-beta.2 (2026-01-19)
+
+### Highlights
+
+- Edge rotator: cluster fixes (iptables-nft/DOCKER-USER allowlist, cluster-mode recreate).
+- CI/ops: publish service images with git release tags (enables version pinning).
+
+### Included PRs
+
+- [#149](https://github.com/its-DeFine/Unreal_Vtuber/pull/149) Issue #148: edge-rotator cluster fixes
+- [#151](https://github.com/its-DeFine/Unreal_Vtuber/pull/151) Issue #150: publish service images with release tags
+
+## v1.3.1-beta.1 (2026-01-19)
+
+### Highlights
+
+- CLI: one-command cluster deploy wrapper + game image preflight (avoid GHCR `denied`; use `rollout` for encrypted game images).
+
+### Included PRs
+
+- [#147](https://github.com/its-DeFine/Unreal_Vtuber/pull/147) CLI: one-command cluster deploy + game image preflight
+
+## v1.3.0-beta.1 (2026-01-16)
+
+### Highlights
+
+- Cluster mode: multi-instance avatar stacks with deterministic ports.
+
+### Included PRs
+
+- [#143](https://github.com/its-DeFine/Unreal_Vtuber/pull/143) Cluster mode: multi-instance avatar stacks (deterministic ports)
+
+## v1.2.4 (2026-01-16)
+
+### Highlights
+
+- Recorder: harden headless recorder for unattended runs.
+
+### Included PRs
+
+- [#136](https://github.com/its-DeFine/Unreal_Vtuber/pull/136) Harden headless recorder
+
+## v1.2.3 (2026-01-16)
+
+### Highlights
+
+- Onboarding/CLI: fix Payments `/power` allowlist seeding and add a one-command “fix” for allowlist issues.
+
+### Included PRs
+
+- [#139](https://github.com/its-DeFine/Unreal_Vtuber/pull/139) Fix onboarding /power allowlist seeding
+- [#141](https://github.com/its-DeFine/Unreal_Vtuber/pull/141) CLI: one-command fix for Payments /power allowlist
+
+## v1.2.2 (2026-01-16)
+
+### Highlights
+
+- Repo automation: launch factory starter kit chores/workflows.
 
 ## v1.2.1 (2025-12-29)
 
