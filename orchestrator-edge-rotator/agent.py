@@ -100,12 +100,41 @@ def _iptables(args: list[str], *, check: bool = True) -> subprocess.CompletedPro
     return _run(["iptables", *args], check=check)
 
 
-def _ensure_jump(parent_chain: str, rule_spec: list[str]) -> None:
+def _delete_jump(parent_chain: str, rule_spec: list[str]) -> None:
     while True:
         cp = _iptables(["-D", parent_chain, *rule_spec], check=False)
         if cp.returncode != 0:
             break
+
+
+def _ensure_jump(parent_chain: str, rule_spec: list[str]) -> None:
+    _delete_jump(parent_chain, rule_spec)
     _iptables(["-I", parent_chain, "1", *rule_spec], check=False)
+
+
+def _ensure_docker_user_jump(chain: str) -> None:
+    # The original rule used multiple `-i` flags:
+    #   ! -i docker0 ! -i br+ ! -i veth+ -j <chain>
+    #
+    # This is invalid on iptables-nft ("multiple -i flags not allowed").
+    #
+    # Equivalent portable behavior:
+    #   - return early for intra-docker traffic (docker0, br*, veth*)
+    #   - jump everything else into the allowlist chain
+    old_rule = ["!", "-i", "docker0", "!", "-i", "br+", "!", "-i", "veth+", "-j", chain]
+    _delete_jump("DOCKER-USER", old_rule)
+
+    rules = [
+        ["-i", "docker0", "-j", "RETURN"],
+        ["-i", "br+", "-j", "RETURN"],
+        ["-i", "veth+", "-j", "RETURN"],
+        ["-j", chain],
+    ]
+    for rule in rules:
+        _delete_jump("DOCKER-USER", rule)
+
+    for rule in reversed(rules):
+        _iptables(["-I", "DOCKER-USER", "1", *rule], check=False)
 
 
 def _ensure_iptables_chain(chain: str) -> None:
@@ -116,11 +145,7 @@ def _ensure_iptables_chain(chain: str) -> None:
     # Hook early in INPUT (host-network services) and DOCKER-USER (docker-mapped ports).
     _ensure_jump("INPUT", ["-j", chain])
 
-    # Avoid breaking intra-docker traffic (container-to-container) on the same ports.
-    _ensure_jump(
-        "DOCKER-USER",
-        ["!", "-i", "docker0", "!", "-i", "br+", "!", "-i", "veth+", "-j", chain],
-    )
+    _ensure_docker_user_jump(chain)
 
     _iptables(["-F", chain], check=False)
 
@@ -494,6 +519,7 @@ def main() -> int:
 
     edge_config_token = (os.environ.get("EDGE_CONFIG_TOKEN") or "").strip()
     poll_s = int(os.environ.get("EDGE_POLL_INTERVAL_SECONDS", "15"))
+    skip_compose_recreate = _env_bool("EDGE_SKIP_COMPOSE_RECREATE", default=False)
 
     project_dir = (os.environ.get("EDGE_PROJECT_DIR") or "/home/ubuntu/Unreal_Vtuber").strip()
     env_file = Path(project_dir) / ".env"
@@ -634,17 +660,18 @@ def main() -> int:
                 recently_changed = abs((now - updated_at).total_seconds()) < wake_settle_s
 
             drifted = False
-            if desired_allowed_csv:
-                runner_allowed = _container_env_value("vtuber-script-runner", "VTUBER_ALLOWED_ADDRESSES")
-                recorder_allowed = _container_env_value("vtuber-recorder-control", "VTUBER_ALLOWED_ADDRESSES")
-                if runner_allowed and runner_allowed != desired_allowed_csv:
-                    drifted = True
-                if recorder_allowed and recorder_allowed != desired_allowed_csv:
-                    drifted = True
+            if not skip_compose_recreate:
+                if desired_allowed_csv:
+                    runner_allowed = _container_env_value("vtuber-script-runner", "VTUBER_ALLOWED_ADDRESSES")
+                    recorder_allowed = _container_env_value("vtuber-recorder-control", "VTUBER_ALLOWED_ADDRESSES")
+                    if runner_allowed and runner_allowed != desired_allowed_csv:
+                        drifted = True
+                    if recorder_allowed and recorder_allowed != desired_allowed_csv:
+                        drifted = True
 
-            signaling_args = _container_env_value("vtuber-unreal-signaling", "SIGNALING_EXTRA_ARGS")
-            if signaling_args and _normalize_ws(args) not in _normalize_ws(signaling_args):
-                drifted = True
+                signaling_args = _container_env_value("vtuber-unreal-signaling", "SIGNALING_EXTRA_ARGS")
+                if signaling_args and _normalize_ws(args) not in _normalize_ws(signaling_args):
+                    drifted = True
 
             needs_recreate = desired_changed or env_changed or drifted
 
@@ -653,7 +680,17 @@ def main() -> int:
                 # If we're in the first moments of a wake transition, avoid fighting the wake sequence.
                 reason = "config changed" if env_changed else ("edge changed" if desired_changed else "drift detected")
 
-                if state != "sleeping" and recently_changed:
+                if skip_compose_recreate:
+                    _log(f"{reason}; EDGE_SKIP_COMPOSE_RECREATE=1 -> skipping docker compose recreate")
+                    last_applied_key = apply_key
+                    _write_json_file(
+                        state_file,
+                        {
+                            "last_applied_key": last_applied_key,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
+                elif state != "sleeping" and recently_changed:
                     _log(f"{reason}; state={state} recently_changed={recently_changed} -> deferring recreate")
                 else:
                     if state == "sleeping":

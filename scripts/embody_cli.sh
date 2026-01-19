@@ -1839,7 +1839,7 @@ cluster_up() {
     instance_up_flags+=(--force-recreate)
   fi
 
-  EDGE_ALLOW_PORTS="$edge_ports" MONITORED_SERVICES="$monitored" docker compose \
+  EDGE_ALLOW_PORTS="$edge_ports" MONITORED_SERVICES="$monitored" EDGE_SKIP_COMPOSE_RECREATE="1" docker compose \
     -p "$CLUSTER_HOST_PROJECT_NAME" -f "$COMPOSE_FILE" \
     up "${host_up_flags[@]}" \
     turn-server orchestrator-health orchestrator-edge-rotator vtuber-auto-updater orchestrator-registration
