@@ -52,6 +52,7 @@ This repo ships a single entrypoint for onboarding and day-to-day operations: `.
   - Config: `~/.embody/cluster.json` (override with `EMBODY_CLUSTER_FILE=/path/to/cluster.json`)
   - Commands: `cluster plan`, `cluster list`, `cluster up`, `cluster deploy`, `cluster down`, `cluster status`, `cluster logs`
     - `cluster deploy` is a convenience wrapper: `update` + `pull` + `cluster up --recreate` (disable pieces with `--no-update`, `--no-pull`, `--no-recreate`)
+    - If you’re pinned to a release tag, use `cluster deploy --no-update ...` to avoid switching to `main`
   - Port map (slot-based, deterministic):
     - Signaling public port: `8080 + slot`
     - Runner port: `9877 + slot`
