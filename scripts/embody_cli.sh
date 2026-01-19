@@ -1567,6 +1567,54 @@ cluster_instance_ports() {
   printf '%s\t%s\t%s\t%s\n' "$signaling" "$runner" "$recorder" "$game"
 }
 
+cluster_instance_subnet() {
+  local slot="$1"
+  printf '172.30.%s.0/24' "$slot"
+}
+
+cluster_instance_gateway() {
+  local slot="$1"
+  printf '172.30.%s.1' "$slot"
+}
+
+cluster_instance_allowlist() {
+  local gateway="$1"
+  local allow_csv local_allow edge_local token
+  local -a tokens
+
+  allow_csv="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)")"
+  edge_local="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EDGE_LOCAL_ALLOWLIST" 2>/dev/null || true)")"
+
+  local_allow="127.0.0.1,::1,172.17.0.1,172.18.0.1"
+  if [[ -z "$allow_csv" ]]; then
+    allow_csv="$local_allow"
+  fi
+
+  IFS=',' read -r -a tokens <<<"$local_allow"
+  for token in "${tokens[@]}"; do
+    token="$(trim_whitespace "$token")"
+    [[ -n "$token" ]] || continue
+    allow_csv="$(csv_add_token "$allow_csv" "$token")"
+  done
+
+  if [[ -n "$edge_local" ]]; then
+    IFS=',' read -r -a tokens <<<"$edge_local"
+    for token in "${tokens[@]}"; do
+      token="$(trim_whitespace "$token")"
+      token="$(strip_inline_comment "$token")"
+      [[ -n "$token" ]] || continue
+      allow_csv="$(csv_add_token "$allow_csv" "$token")"
+    done
+  fi
+
+  gateway="$(trim_whitespace "${gateway:-}")"
+  if [[ -n "$gateway" ]]; then
+    allow_csv="$(csv_add_token "$allow_csv" "$gateway")"
+  fi
+
+  printf '%s' "$allow_csv"
+}
+
 cluster_find_instance_index() {
   local query="$1"
   local i
@@ -1803,6 +1851,10 @@ cluster_up() {
     slot="${CLUSTER_SLOTS[$i]}"
     gpu="$(trim_whitespace "${CLUSTER_GPUS[$i]}")"
     project="vtuber-${slug}"
+    local subnet gateway allow_csv
+    subnet="$(cluster_instance_subnet "$slot")"
+    gateway="$(cluster_instance_gateway "$slot")"
+    allow_csv="$(cluster_instance_allowlist "$gateway")"
 
     if [[ "${#only[@]}" -gt 0 ]]; then
       local match="0" q
@@ -1832,6 +1884,8 @@ cluster_up() {
       VTUBER_SESSION_DIR="$session_dir" \
     VTUBER_RECORDINGS_DIR="$recordings_dir" \
     VTUBER_SIGNALING_INSTANCE_ARGS="$instance_args" \
+    VTUBER_DOCKER_SUBNET="$subnet" \
+    VTUBER_ALLOWED_ADDRESSES="$allow_csv" \
     NVIDIA_VISIBLE_DEVICES="${gpu:-all}" \
       docker compose -p "$project" -f "$INSTANCE_COMPOSE_FILE" up "${instance_up_flags[@]}"
   done
