@@ -257,6 +257,45 @@ strip_inline_comment() {
   trim_whitespace "$s"
 }
 
+normalize_gpu_devices_csv() {
+  local raw="${1:-}"
+  raw="$(trim_whitespace "$raw")"
+  raw="${raw// /}"
+  if [[ -z "$raw" || "$raw" == "all" ]]; then
+    printf '%s' "all"
+    return 0
+  fi
+  if [[ "$raw" == "none" ]]; then
+    printf '%s' "none"
+    return 0
+  fi
+  printf '%s' "$raw"
+}
+
+get_vram_per_instance_mib() {
+  local raw="${EMBODY_VRAM_PER_INSTANCE_MIB:-8192}"
+  raw="$(trim_whitespace "${raw:-}")"
+  if [[ ! "$raw" =~ ^[0-9]+$ ]]; then
+    raw="8192"
+  fi
+  if [[ "$raw" -lt 1024 ]]; then
+    raw="8192"
+  fi
+  printf '%s' "$raw"
+}
+
+get_auto_gpu_util_max_percent() {
+  local raw="${EMBODY_AUTO_GPU_UTIL_MAX:-20}"
+  raw="$(trim_whitespace "${raw:-}")"
+  if [[ ! "$raw" =~ ^[0-9]+$ ]]; then
+    raw="20"
+  fi
+  if [[ "$raw" -gt 100 ]]; then
+    raw="100"
+  fi
+  printf '%s' "$raw"
+}
+
 extract_host_from_url() {
   local raw="$1"
   URL="$raw" python3 - <<'PY'
@@ -1320,23 +1359,63 @@ cmd_capacity() {
     return 1
   fi
   local raw
-  raw="$(nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader,nounits 2>/dev/null || true)"
+  raw="$(nvidia-smi --query-gpu=index,name,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null || true)"
   if [[ -z "$raw" ]]; then
     echo "nvidia-smi returned no GPU info." >&2
     return 1
   fi
-  echo "Estimated capacity (assuming ~8GB VRAM per UE instance):"
-  echo "$raw" | while IFS=',' read -r idx name mem; do
+  local per per_gib devices util_max
+  per="$(get_vram_per_instance_mib)"
+  per_gib=$(( per / 1024 ))
+  devices="$(normalize_gpu_devices_csv "$(get_gpu_devices 2>/dev/null || true)")"
+  util_max="$(get_auto_gpu_util_max_percent)"
+  if [[ "$devices" == "none" ]]; then
+    echo "NVIDIA_VISIBLE_DEVICES=none; no GPUs selected." >&2
+    return 1
+  fi
+  echo "Estimated capacity (based on FREE VRAM; ~${per_gib}GiB per UE instance; auto uses <=${util_max}% util):"
+  local total="0" seen="0"
+  local auto_total="0" auto_seen="0"
+  local idx name mem_total mem_used util
+  while IFS=',' read -r idx name mem_total mem_used util; do
     idx="$(trim_whitespace "$idx")"
     name="$(trim_whitespace "$name")"
-    mem="$(trim_whitespace "$mem")"
-    if [[ "$mem" =~ ^[0-9]+$ ]]; then
-      local instances=$(( mem / 8192 ))
-      echo "  GPU ${idx} (${name}): ${mem} MiB -> ~${instances} instance(s)"
-    else
-      echo "  GPU ${idx} (${name}): ${mem}"
+    mem_total="$(trim_whitespace "$mem_total")"
+    mem_used="$(trim_whitespace "${mem_used:-0}")"
+    util="$(trim_whitespace "${util:-0}")"
+    [[ -n "$idx" ]] || continue
+    if [[ "$devices" != "all" ]]; then
+      if [[ "$(csv_has_token "$devices" "$idx")" != "1" ]]; then
+        continue
+      fi
     fi
-  done
+    if [[ "$mem_total" =~ ^[0-9]+$ && "$mem_used" =~ ^[0-9]+$ && "$util" =~ ^[0-9]+$ ]]; then
+      local free=$(( mem_total - mem_used ))
+      if [[ "$free" -lt 0 ]]; then
+        free="0"
+      fi
+      local instances=$(( free / per ))
+      total=$(( total + instances ))
+      seen=$(( seen + 1 ))
+      local busy=""
+      if [[ "$util" -gt "$util_max" ]]; then
+        busy=" (busy)"
+      else
+        auto_total=$(( auto_total + instances ))
+        auto_seen=$(( auto_seen + 1 ))
+      fi
+      echo "  GPU ${idx} (${name}): util=${util}%${busy} total=${mem_total} used=${mem_used} free=${free} MiB -> ~${instances} instance(s)"
+    else
+      seen=$(( seen + 1 ))
+      echo "  GPU ${idx} (${name}): total=${mem_total} used=${mem_used} util=${util}"
+    fi
+  done <<<"$raw"
+  if [[ "$seen" -eq 0 ]]; then
+    echo "No GPUs matched NVIDIA_VISIBLE_DEVICES=${devices}." >&2
+    return 1
+  fi
+  echo "Total: ~${total} instance(s) across ${seen} GPU(s) (NVIDIA_VISIBLE_DEVICES=${devices})"
+  echo "Auto-available: ~${auto_total} instance(s) across ${auto_seen} GPU(s) (util<=${util_max}%)"
 }
 
 cluster_config_path() {
@@ -1354,6 +1433,258 @@ cluster_print_example() {
   ]
 }
 EOF
+}
+
+cluster_nvidia_smi_raw() {
+  command -v nvidia-smi >/dev/null 2>&1 || return 1
+  nvidia-smi --query-gpu=index,name,memory.total,memory.used,utilization.gpu --format=csv,noheader,nounits 2>/dev/null || true
+}
+
+cluster_auto_estimate_instance_count() {
+  local raw="$1" devices="$2" per="$3" max_instances="${4:-}"
+  local total="0"
+  local idx mem_total mem_used util
+  local util_max
+  util_max="$(get_auto_gpu_util_max_percent)"
+
+  devices="$(normalize_gpu_devices_csv "$devices")"
+  if [[ "$devices" == "none" ]]; then
+    printf '%s' "0"
+    return 0
+  fi
+  if [[ ! "$per" =~ ^[0-9]+$ || "$per" -lt 1024 ]]; then
+    per="8192"
+  fi
+
+  while IFS=',' read -r idx _name mem_total mem_used util; do
+    idx="$(trim_whitespace "$idx")"
+    mem_total="$(trim_whitespace "$mem_total")"
+    mem_used="$(trim_whitespace "${mem_used:-0}")"
+    util="$(trim_whitespace "${util:-0}")"
+    [[ -n "$idx" ]] || continue
+    if [[ "$devices" != "all" ]]; then
+      if [[ "$(csv_has_token "$devices" "$idx")" != "1" ]]; then
+        continue
+      fi
+    fi
+    if [[ "$idx" =~ ^[0-9]+$ && "$mem_total" =~ ^[0-9]+$ && "$mem_used" =~ ^[0-9]+$ && "$util" =~ ^[0-9]+$ ]]; then
+      if [[ "$util" -gt "$util_max" ]]; then
+        continue
+      fi
+      local free=$(( mem_total - mem_used ))
+      if [[ "$free" -lt 0 ]]; then
+        free="0"
+      fi
+      total=$(( total + (free / per) ))
+    fi
+  done <<<"$raw"
+
+  if [[ -n "$max_instances" && "$max_instances" =~ ^[0-9]+$ && "$max_instances" -gt 0 ]]; then
+    if [[ "$total" -gt "$max_instances" ]]; then
+      total="$max_instances"
+    fi
+  fi
+  if [[ "$total" -gt "$CLUSTER_MAX_SLOTS" ]]; then
+    total="$CLUSTER_MAX_SLOTS"
+  fi
+  printf '%s' "$total"
+}
+
+cluster_count_available_gpus() {
+  local raw="$1" devices="$2" per="$3"
+  local count="0"
+  local idx mem_total mem_used util
+  local util_max
+  util_max="$(get_auto_gpu_util_max_percent)"
+
+  devices="$(normalize_gpu_devices_csv "$devices")"
+  if [[ "$devices" == "none" ]]; then
+    printf '%s' "0"
+    return 0
+  fi
+  if [[ ! "$per" =~ ^[0-9]+$ || "$per" -lt 1024 ]]; then
+    per="8192"
+  fi
+
+  while IFS=',' read -r idx _name mem_total mem_used util; do
+    idx="$(trim_whitespace "$idx")"
+    mem_total="$(trim_whitespace "$mem_total")"
+    mem_used="$(trim_whitespace "${mem_used:-0}")"
+    util="$(trim_whitespace "${util:-0}")"
+    [[ -n "$idx" ]] || continue
+    if [[ "$devices" != "all" ]]; then
+      if [[ "$(csv_has_token "$devices" "$idx")" != "1" ]]; then
+        continue
+      fi
+    fi
+    if [[ "$idx" =~ ^[0-9]+$ && "$mem_total" =~ ^[0-9]+$ && "$mem_used" =~ ^[0-9]+$ && "$util" =~ ^[0-9]+$ ]]; then
+      if [[ "$util" -gt "$util_max" ]]; then
+        continue
+      fi
+      local free=$(( mem_total - mem_used ))
+      if [[ "$free" -ge "$per" ]]; then
+        count=$(( count + 1 ))
+      fi
+    fi
+  done <<<"$raw"
+
+  printf '%s' "$count"
+}
+
+cluster_write_auto_config() {
+  local out_path="$1" avatar_prefix="$2" max_instances="${3:-}" gpu_devices="${4:-all}" force="${5:-0}"
+
+  out_path="$(trim_whitespace "$out_path")"
+  [[ -n "$out_path" ]] || out_path="$(cluster_config_path)"
+
+  if [[ -f "$out_path" && "$force" != "1" ]]; then
+    echo "cluster init: config already exists: $out_path" >&2
+    echo "cluster init: re-run with --force to overwrite" >&2
+    return 1
+  fi
+
+  command -v python3 >/dev/null 2>&1 || { echo "Missing dependency: python3" >&2; return 1; }
+  local raw
+  raw="$(cluster_nvidia_smi_raw)"
+  if [[ -z "$raw" ]]; then
+    echo "cluster init: nvidia-smi returned no GPU info" >&2
+    return 1
+  fi
+
+  local per per_gib
+  per="$(get_vram_per_instance_mib)"
+  per_gib=$(( per / 1024 ))
+  local util_max
+  util_max="$(get_auto_gpu_util_max_percent)"
+
+  gpu_devices="$(normalize_gpu_devices_csv "$gpu_devices")"
+  if [[ "$gpu_devices" == "none" ]]; then
+    echo "cluster init: NVIDIA_VISIBLE_DEVICES=none; no GPUs selected" >&2
+    return 1
+  fi
+
+  local orch_id
+  orch_id="$(get_orchestrator_id 2>/dev/null || true)"
+  orch_id="$(trim_whitespace "${orch_id:-}")"
+  avatar_prefix="$(trim_whitespace "${avatar_prefix:-}")"
+  if [[ -z "$avatar_prefix" ]]; then
+    avatar_prefix="$orch_id"
+  fi
+  [[ -n "$avatar_prefix" ]] || avatar_prefix="avatar"
+
+  if [[ -z "${max_instances:-}" ]]; then
+    max_instances="$(cluster_count_available_gpus "$raw" "$gpu_devices" "$per")"
+  fi
+
+  local estimate
+  estimate="$(cluster_auto_estimate_instance_count "$raw" "$gpu_devices" "$per" "$max_instances")"
+  if [[ ! "$estimate" =~ ^[0-9]+$ || "$estimate" -lt 1 ]]; then
+    echo "cluster init: could not estimate capacity (per_instance=${per}MiB); please create $(cluster_config_path) manually" >&2
+    return 1
+  fi
+
+  local dir
+  dir="$(dirname "$out_path")"
+  umask 077
+  mkdir -p "$dir"
+  chmod 700 "$dir" 2>/dev/null || true
+
+  OUT_PATH="$out_path" GPU_RAW="$raw" GPU_DEVICES="$gpu_devices" PREFIX="$avatar_prefix" \
+    MAX_SLOTS="$CLUSTER_MAX_SLOTS" MAX_INSTANCES="$estimate" VRAM_PER_INSTANCE_MIB="$per" GPU_UTIL_MAX_PERCENT="$(get_auto_gpu_util_max_percent)" python3 - <<'PY'
+import json
+import os
+import re
+from pathlib import Path
+
+def slugify(raw: str) -> str:
+    s = (raw or "").strip().lower()
+    s = re.sub(r"[^a-z0-9_.-]+", "-", s)
+    s = s.strip("-_.")
+    return s or "avatar"
+
+out_path = os.environ.get("OUT_PATH") or ""
+gpu_raw = os.environ.get("GPU_RAW") or ""
+gpu_devices = (os.environ.get("GPU_DEVICES") or "all").strip()
+prefix = slugify(os.environ.get("PREFIX") or "")
+max_slots = int(os.environ.get("MAX_SLOTS") or "20")
+max_instances = int(os.environ.get("MAX_INSTANCES") or "0")
+per_mib = int(os.environ.get("VRAM_PER_INSTANCE_MIB") or "8192")
+util_max = int(os.environ.get("GPU_UTIL_MAX_PERCENT") or "20")
+
+want = max_instances
+if want < 1:
+    raise SystemExit(1)
+want = min(want, max_slots)
+
+allowed = None
+if gpu_devices and gpu_devices not in ("all", "none"):
+    allowed = {part.strip() for part in gpu_devices.split(",") if part.strip()}
+
+gpus = []
+for line in gpu_raw.splitlines():
+    parts = [p.strip() for p in line.split(",")]
+    if len(parts) < 3:
+        continue
+    idx, name = parts[0], parts[1]
+    total = parts[2] if len(parts) >= 3 else ""
+    used = parts[3] if len(parts) >= 4 else "0"
+    util = parts[4] if len(parts) >= 5 else "0"
+    if allowed is not None and idx not in allowed:
+        continue
+    try:
+        i = int(idx)
+        total_m = int(total)
+        used_m = int(used)
+        util_p = int(util)
+    except Exception:
+        continue
+    if util_p > util_max:
+        continue
+    free_m = max(0, total_m - used_m)
+    cap = max(0, free_m // max(per_mib, 1))
+    gpus.append((i, name, cap))
+
+gpus.sort(key=lambda t: t[0])
+
+instances = []
+slot = 0
+round_idx = 0
+while slot < want:
+    progressed = False
+    for i, _name, cap in gpus:
+        if cap > round_idx:
+            instances.append({"avatar_id": f"{prefix}-{slot}", "slot": slot, "gpu": str(i)})
+            slot += 1
+            progressed = True
+            if slot >= want:
+                break
+    if not progressed:
+        break
+    round_idx += 1
+
+if not instances:
+    raise SystemExit(1)
+
+data = {"slot_count": max_slots, "default_gpu": "all", "instances": instances}
+
+path = Path(out_path)
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+print(f"Wrote cluster config: {out_path}")
+print(f"Instances: {len(instances)} (vram_per_instance_mib={per_mib})")
+print(f"GPU devices: {gpu_devices or 'all'}")
+PY
+
+  chmod 600 "$out_path" 2>/dev/null || true
+  if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
+    chown "$SUDO_USER":"$SUDO_USER" "$out_path" 2>/dev/null || true
+    chown "$SUDO_USER":"$SUDO_USER" "$dir" 2>/dev/null || true
+  fi
+
+  echo "Tip: ./scripts/embody_cli.sh cluster plan"
+  echo "Tip: ./scripts/embody_cli.sh cluster deploy --auto"
+  echo "Note: estimate assumes ~${per_gib}GiB VRAM per UE instance (override: EMBODY_VRAM_PER_INSTANCE_MIB=<MiB>)"
+  echo "Note: auto excludes GPUs over ${util_max}% utilization (override: EMBODY_AUTO_GPU_UTIL_MAX=100)"
 }
 
 cluster_load_config_lines() {
@@ -1664,17 +1995,26 @@ cluster_monitored_services() {
 cluster_enforce_capacity() {
   command -v nvidia-smi >/dev/null 2>&1 || return 0
 
+  local per per_gib
+  per="$(get_vram_per_instance_mib)"
+  per_gib=$(( per / 1024 ))
+
   local raw
-  raw="$(nvidia-smi --query-gpu=index,memory.total --format=csv,noheader,nounits 2>/dev/null || true)"
+  raw="$(nvidia-smi --query-gpu=index,memory.total,memory.used --format=csv,noheader,nounits 2>/dev/null || true)"
   [[ -n "$raw" ]] || return 0
 
   declare -A cap
-  local idx mem
-  while IFS=',' read -r idx mem; do
+  local idx mem_total mem_used
+  while IFS=',' read -r idx mem_total mem_used; do
     idx="$(trim_whitespace "$idx")"
-    mem="$(trim_whitespace "$mem")"
-    if [[ "$idx" =~ ^[0-9]+$ && "$mem" =~ ^[0-9]+$ ]]; then
-      cap["$idx"]=$(( mem / 8192 ))
+    mem_total="$(trim_whitespace "$mem_total")"
+    mem_used="$(trim_whitespace "${mem_used:-0}")"
+    if [[ "$idx" =~ ^[0-9]+$ && "$mem_total" =~ ^[0-9]+$ && "$mem_used" =~ ^[0-9]+$ ]]; then
+      local free=$(( mem_total - mem_used ))
+      if [[ "$free" -lt 0 ]]; then
+        free="0"
+      fi
+      cap["$idx"]=$(( free / per ))
     fi
   done <<<"$raw"
 
@@ -1693,7 +2033,7 @@ cluster_enforce_capacity() {
     local want="${need[$idx]}"
     local have="${cap[$idx]:-0}"
     if [[ "$have" -gt 0 && "$want" -gt "$have" ]]; then
-      echo "cluster: capacity exceeded on GPU ${idx}: want=${want} estimated=${have} (8GiB/instance)" >&2
+      echo "cluster: capacity exceeded on GPU ${idx}: want=${want} estimated=${have} (~${per_gib}GiB/instance)" >&2
       violated="1"
     fi
   done
@@ -1765,20 +2105,13 @@ cluster_up() {
   cluster_ensure_docker || return 1
   ensure_turn_env || return 1
 
-  local game_image
-  game_image="$(detect_game_image_from_compose "$COMPOSE_FILE" || true)"
-  if [[ -n "$game_image" ]] && ! docker_image_present "$game_image"; then
-    echo "Missing local game image: ${game_image}" >&2
-    echo "Next: ./scripts/embody_cli.sh rollout (Payments lease → download/decrypt/load)" >&2
-    echo "Docs: docs/admin-encrypted-game-image.md" >&2
-    return 1
-  fi
-
-  cluster_read_config || return 1
-
   local force="0"
   local recreate="0"
   local pull_mode=""
+  local auto="0"
+  local auto_yes="0"
+  local auto_prefix=""
+  local auto_max_instances=""
   local only=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -1794,6 +2127,22 @@ cluster_up() {
         pull_mode="${2:-}"
         shift 2
         ;;
+      --auto)
+        auto="1"
+        shift 1
+        ;;
+      --yes|--auto-yes)
+        auto_yes="1"
+        shift 1
+        ;;
+      --avatar-prefix|--prefix)
+        auto_prefix="${2:-}"
+        shift 2
+        ;;
+      --max-instances)
+        auto_max_instances="${2:-}"
+        shift 2
+        ;;
       *)
         only+=("$1")
         shift 1
@@ -1805,6 +2154,52 @@ cluster_up() {
     echo "cluster: invalid --pull value (expected: always|missing|never)" >&2
     return 1
   fi
+
+  local cfg_path
+  cfg_path="$(cluster_config_path)"
+  if [[ ! -f "$cfg_path" ]]; then
+    if [[ "$auto" != "1" ]]; then
+      echo "Cluster config not found: $cfg_path" >&2
+      echo "Next: ./scripts/embody_cli.sh cluster init (or set EMBODY_CLUSTER_FILE=/path/to/cluster.json)" >&2
+      return 1
+    fi
+
+    local raw devices per per_gib estimate effective_max
+    raw="$(cluster_nvidia_smi_raw || true)"
+    devices="$(normalize_gpu_devices_csv "$(get_gpu_devices 2>/dev/null || true)")"
+    per="$(get_vram_per_instance_mib)"
+    per_gib=$(( per / 1024 ))
+    effective_max="$auto_max_instances"
+    if [[ -z "${effective_max:-}" ]]; then
+      effective_max="$(cluster_count_available_gpus "$raw" "$devices" "$per")"
+    fi
+    estimate="$(cluster_auto_estimate_instance_count "$raw" "$devices" "$per" "$effective_max")"
+    if [[ ! "$estimate" =~ ^[0-9]+$ || "$estimate" -lt 1 ]]; then
+      echo "cluster: auto failed (nvidia-smi missing/unreadable, or insufficient VRAM for estimate)" >&2
+      echo "Next: ./scripts/embody_cli.sh cluster init" >&2
+      return 1
+    fi
+
+    if is_tty && [[ "$auto_yes" != "1" ]]; then
+      if ! prompt_yes_no "Cluster config missing. Auto-generate ${estimate} instance(s) and start now? (~${per_gib}GiB/instance)" "n"; then
+        echo "cluster: canceled" >&2
+        return 1
+      fi
+    fi
+
+    cluster_write_auto_config "$cfg_path" "$auto_prefix" "$effective_max" "$devices" "0" || return 1
+  fi
+
+  local game_image
+  game_image="$(detect_game_image_from_compose "$COMPOSE_FILE" || true)"
+  if [[ -n "$game_image" ]] && ! docker_image_present "$game_image"; then
+    echo "Missing local game image: ${game_image}" >&2
+    echo "Next: ./scripts/embody_cli.sh rollout (Payments lease → download/decrypt/load)" >&2
+    echo "Docs: docs/admin-encrypted-game-image.md" >&2
+    return 1
+  fi
+
+  cluster_read_config || return 1
 
   if [[ "$force" != "1" ]] && ! cluster_enforce_capacity; then
     echo "cluster: refusing to start (capacity exceeded). Reconfigure instances/GPU assignment." >&2
@@ -2041,6 +2436,54 @@ cmd_cluster() {
   local sub="${1:-}"
   shift || true
   case "$sub" in
+    init)
+      local out="" prefix="" max_instances="" force="0"
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --output|--out)
+            out="${2:-}"
+            shift 2
+            ;;
+          --avatar-prefix|--prefix)
+            prefix="${2:-}"
+            shift 2
+            ;;
+          --max-instances)
+            max_instances="${2:-}"
+            shift 2
+            ;;
+          --force)
+            force="1"
+            shift 1
+            ;;
+          -h|--help|help)
+            cat <<'EOF'
+Usage:
+  ./scripts/embody_cli.sh cluster init [options]
+
+Generates a default cluster config by inspecting local GPUs (via nvidia-smi).
+Writes: ~/.embody/cluster.json (or --output).
+
+Options:
+  --output <path>         Write config to a custom path
+  --avatar-prefix <text>  Prefix for generated avatar_id values (defaults to ORCHESTRATOR_ID)
+  --max-instances <n>     Cap total instances (also capped to 20 slots)
+  --force                Overwrite existing config file
+
+Notes:
+  - The estimate assumes ~8GiB VRAM per UE instance (override: EMBODY_VRAM_PER_INSTANCE_MIB=<MiB>)
+  - cluster deploy can also auto-generate when config is missing: cluster deploy --auto
+EOF
+            return 0
+            ;;
+          *)
+            echo "Unknown arg for cluster init: $1" >&2
+            return 1
+            ;;
+        esac
+      done
+      cluster_write_auto_config "${out:-$(cluster_config_path)}" "$prefix" "$max_instances" "$(normalize_gpu_devices_csv "$(get_gpu_devices 2>/dev/null || true)")" "$force"
+      ;;
     plan)
       cluster_plan "$@"
       ;;
@@ -2056,6 +2499,9 @@ cmd_cluster() {
     deploy)
       cluster_deploy "$@"
       ;;
+    auto)
+      cluster_deploy --auto "$@"
+      ;;
     status|ps)
       cluster_status "$@"
       ;;
@@ -2066,9 +2512,10 @@ cmd_cluster() {
       cat <<EOF
 Usage:
   ./scripts/embody_cli.sh cluster plan
+  ./scripts/embody_cli.sh cluster init
   ./scripts/embody_cli.sh cluster list
-  ./scripts/embody_cli.sh cluster up [--force] [--recreate] [--pull always|missing|never] [avatar|slug...]
-  ./scripts/embody_cli.sh cluster deploy [--no-update] [--no-pull] [--no-recreate] [--force] [--pull always|missing|never] [avatar|slug...]
+  ./scripts/embody_cli.sh cluster up [--auto] [--yes] [--avatar-prefix <text>] [--max-instances <n>] [--force] [--recreate] [--pull always|missing|never] [avatar|slug...]
+  ./scripts/embody_cli.sh cluster deploy [--no-update] [--no-pull] [--no-recreate] [--auto] [--yes] [--avatar-prefix <text>] [--max-instances <n>] [--force] [--pull always|missing|never] [avatar|slug...]
   ./scripts/embody_cli.sh cluster down [avatar|slug...]
   ./scripts/embody_cli.sh cluster status [avatar|slug...]
   ./scripts/embody_cli.sh cluster logs <avatar|slug> [service]
@@ -2076,6 +2523,10 @@ Usage:
 Config:
   Path: $(cluster_config_path)
   Override: set EMBODY_CLUSTER_FILE=/path/to/cluster.json
+
+Auto config:
+  - Use --auto to generate the cluster config if missing (GPU detection + VRAM heuristic)
+  - Confirm prompts: add --yes
 
 Example:
 $(cluster_print_example)
@@ -3482,6 +3933,9 @@ menu() {
     ui_menu_item "7" "TCP test (runner → game)"
     ui_menu_item "8" "Config summary"
     ui_menu_item "9" "GPU capacity"
+    ui_menu_item "c" "Cluster deploy (auto)"
+    ui_menu_item "C" "Cluster status"
+    ui_menu_item "x" "Cluster down"
     ui_menu_item "r" "Rollout game image"
     ui_menu_item "u" "Update repo (git pull --ff-only)"
     ui_menu_item "U" "Upgrade (update + pull/recreate containers)"
@@ -3509,6 +3963,9 @@ menu() {
       7) "$START_SCRIPT" test || true ;;
       8) cmd_config ;;
       9) cmd_capacity ;;
+      c) cmd_cluster deploy --auto || true ;;
+      C) cmd_cluster status || true ;;
+      x) cmd_cluster down || true ;;
       r|R) cmd_rollout || true ;;
       u) cmd_update || true ;;
       U) cmd_update --apply || true ;;
