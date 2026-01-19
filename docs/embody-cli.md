@@ -49,7 +49,8 @@ This repo ships a single entrypoint for onboarding and day-to-day operations: `.
 - `upgrade` – `update` plus pull/recreate service containers (safe to run while sleeping; won’t wake the game)
 - `cluster` – multi-instance “cluster mode” (multiple concurrent avatars on one host)
   - Config: `~/.embody/cluster.json` (override with `EMBODY_CLUSTER_FILE=/path/to/cluster.json`)
-  - Commands: `cluster plan`, `cluster list`, `cluster up`, `cluster down`, `cluster status`, `cluster logs`
+  - Commands: `cluster plan`, `cluster list`, `cluster up`, `cluster deploy`, `cluster down`, `cluster status`, `cluster logs`
+    - `cluster deploy` is a convenience wrapper: `update` + `pull` + `cluster up --recreate` (disable pieces with `--no-update`, `--no-pull`, `--no-recreate`)
   - Port map (slot-based, deterministic):
     - Signaling public port: `8080 + slot`
     - Runner port: `9877 + slot`
@@ -58,6 +59,7 @@ This repo ships a single entrypoint for onboarding and day-to-day operations: `.
     - Docker compose projects + per-instance networks
     - Sessions: `${VTUBER_SESSION_DIR}/<avatar>`
     - Recordings: `${VTUBER_RECORDINGS_DIR}/<avatar>`
+    - Deterministic per-slot Docker subnet: `172.30.<slot>.0/24` (gateway `172.30.<slot>.1` is auto-added to `VTUBER_ALLOWED_ADDRESSES` so host → runner/recorder calls work)
   - Note: `cluster up` enforces a conservative VRAM estimate (8GiB/instance); pass `--force` to bypass.
 
 ## Network / allowlists

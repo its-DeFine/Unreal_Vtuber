@@ -82,13 +82,6 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
   vtuber-script-runner:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-script-runner:${EMBODY_SERVICE_IMAGE_TAG:-latest}
@@ -116,6 +109,7 @@ services:
       - WATCHDOG_RUNNER_SERVICE=vtuber-script-runner
       - WATCHDOG_GAME_CONTAINER=vtuber-${VTUBER_AVATAR_SLUG:?VTUBER_AVATAR_SLUG is required}-unreal-game
       - WATCHDOG_PROJECT_NAME=${VTUBER_INSTANCE_PROJECT_NAME:-}
+      - VTUBER_AVATAR_SLUG=${VTUBER_AVATAR_SLUG:?VTUBER_AVATAR_SLUG is required}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./docker-compose.unreal.instance.yml:/workspace/docker-compose.unreal.instance.yml:ro
@@ -145,3 +139,9 @@ services:
     restart: unless-stopped
     ports:
       - "${VTUBER_RECORDER_PORT:-8889}:8889"
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${VTUBER_DOCKER_SUBNET:-172.30.0.0/24}
