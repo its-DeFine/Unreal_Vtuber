@@ -90,7 +90,7 @@ services:
       - HOST_ULIMIT_NOFILE=1040
       - ULIMIT_NOFILE=1040
       - HOST_LIB_PATHS=/host-libs/usr/lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:/host-libs/lib64:/host-libs/usr/lib64:/host-libs/usr/lib/nvidia
-      - EMBODY_EXTRA_ARGS=-ForceRes -ResX=1920 -ResY=1080 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9
+      - EMBODY_EXTRA_ARGS=${EMBODY_EXTRA_ARGS:--ForceRes -ResX=1920 -ResY=1080 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9}
       - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
     volumes:
@@ -102,8 +102,8 @@ services:
       - /usr/share/vulkan:/host-libs/usr/share/vulkan:ro
       - /etc/vulkan:/host-libs/etc/vulkan:ro
       - /usr/share/glvnd:/host-libs/usr/share/glvnd:ro
-      - ./pixel-streaming/config/ConsoleVariables.ini:/opt/embody/Embody/Saved/Config/LinuxNoEditor/ConsoleVariables.ini:ro
-      - ./pixel-streaming/config/GameUserSettings.ini:/opt/embody/Embody/Saved/Config/LinuxNoEditor/GameUserSettings.ini:ro
+      - ${VTUBER_CONSOLE_VARIABLES_FILE:-./pixel-streaming/config/ConsoleVariables.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/ConsoleVariables.ini:ro
+      - ${VTUBER_GAME_USER_SETTINGS_FILE:-./pixel-streaming/config/GameUserSettings.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/GameUserSettings.ini:ro
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     networks:
       - vtuber_network

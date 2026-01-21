@@ -71,6 +71,13 @@ Cap the number of instances:
 sudo ./scripts/embody_cli.sh cluster deploy --no-update --auto --yes --max-instances 12 --pull missing
 ```
 
+Optional: lower per-instance GPU load (helps smaller GPUs run >1 instance):
+- Set these env vars (shell or `.env`), then recreate the game containers.
+```bash
+export VTUBER_CONSOLE_VARIABLES_FILE=./pixel-streaming/config/ConsoleVariables.lowload.30fps.720p.ini
+export EMBODY_EXTRA_ARGS="-ForceRes -ResX=1280 -ResY=720 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9"
+```
+
 ## Per-avatar sleep/wake (cluster mode)
 
 In cluster mode, each avatar is its own compose project (example: `vtuber-embody-0`). You can sleep/wake a single avatar locally:
