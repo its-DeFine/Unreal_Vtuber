@@ -334,3 +334,74 @@ def test_docker_port_conflicts_ignores_target_project(cluster_app, monkeypatch):
 
     monkeypatch.setattr(svc, "docker_client", DummyDocker([same_project, other_project]))
     assert svc._docker_port_conflicts(want, ignore_project="vtuber-embody-0") == {8081: "other"}
+
+
+def test_meta_endpoint_reports_git_and_containers(power_app, monkeypatch):
+    app, svc = power_app
+    client = TestClient(app)
+
+    class DummyExecResult:
+        def __init__(self, exit_code: int, stdout: str):
+            self.exit_code = exit_code
+            self.output = (stdout.encode("utf-8"), b"")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002 - match docker SDK signature
+            assert cmd[0] == "cat"
+            path = cmd[1]
+            if path.endswith("/.git/HEAD"):
+                return DummyExecResult(0, "ref: refs/heads/main\n")
+            if path.endswith("/.git/refs/heads/main"):
+                return DummyExecResult(0, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n")
+            return DummyExecResult(1, "")
+
+    class DummyContainer:
+        def __init__(self):
+            self.name = "vtuber-unreal-game"
+            self.status = "running"
+            self.attrs = {
+                "Config": {
+                    "Labels": {
+                        "com.docker.compose.project": "unreal_vtuber",
+                        "com.docker.compose.service": "unreal-game",
+                    },
+                    "Image": "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest",
+                }
+            }
+
+            class _Image:
+                id = "sha256:abc123"
+
+            self.image = _Image()
+
+        def reload(self) -> None:  # pragma: no cover - used by service code
+            return None
+
+    class DummyDocker:
+        def __init__(self, executor, containers):
+            self._executor = executor
+            self._containers = containers
+
+            class _Containers:
+                def __init__(self, parent):
+                    self._parent = parent
+
+                def list(self, all: bool = False, **_kwargs):  # noqa: A002 - match docker SDK signature
+                    assert all is True
+                    return self._parent._containers
+
+                def get(self, name: str):  # noqa: ANN001 - match docker SDK signature
+                    if name == "vtuber-orchestrator-edge-rotator":
+                        return self._parent._executor
+                    raise KeyError(name)
+
+            self.containers = _Containers(self)
+
+    monkeypatch.setattr(svc, "docker_client", DummyDocker(DummyExecutor(), [DummyContainer()]))
+
+    resp = client.get("/meta")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["git"]["sha"].startswith("deadbeef")
+    assert data["containers"][0]["name"] == "vtuber-unreal-game"
+    assert data["containers"][0]["image_id"] == "sha256:abc123"

@@ -304,6 +304,96 @@ def _cluster_executor_container() -> Any:
         raise HTTPException(status_code=503, detail=f"cluster executor not running: {name}") from exc
 
 
+def _cluster_executor_try_container() -> Optional[Any]:
+    name = (os.environ.get("CLUSTER_EXECUTOR_CONTAINER") or "vtuber-orchestrator-edge-rotator").strip()
+    try:
+        return docker_client.containers.get(name)
+    except Exception:
+        return None
+
+
+def _cluster_executor_read_file(executor: Any, path: str) -> Optional[str]:
+    try:
+        result = executor.exec_run(["cat", path], demux=True)
+    except Exception:  # noqa: BLE001
+        return None
+    if getattr(result, "exit_code", 1) != 0:
+        return None
+    stdout_b, _stderr_b = result.output or (b"", b"")
+    return (stdout_b or b"").decode("utf-8", errors="replace").strip() or None
+
+
+def _cluster_project_dir() -> str:
+    project_dir = (os.environ.get("ORCHESTRATOR_PROJECT_DIR") or "/home/ubuntu/Unreal_Vtuber").strip()
+    if not project_dir.startswith("/"):
+        return ""
+    return project_dir
+
+
+def _resolve_git_ref_from_packed_refs(packed: str, ref: str) -> Optional[str]:
+    ref = ref.strip()
+    if not ref:
+        return None
+    for line in packed.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("^"):
+            continue
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        sha, name = parts
+        if name == ref and sha:
+            return sha
+    return None
+
+
+def _git_head_info_from_executor(executor: Any, project_dir: str) -> Optional[dict[str, str]]:
+    if not project_dir:
+        return None
+    head_path = f"{project_dir}/.git/HEAD"
+    head = _cluster_executor_read_file(executor, head_path)
+    if not head:
+        return None
+    head = head.strip()
+
+    if head.startswith("ref:"):
+        ref = head.split(":", 1)[1].strip()
+        sha = _cluster_executor_read_file(executor, f"{project_dir}/.git/{ref}")
+        if not sha:
+            packed = _cluster_executor_read_file(executor, f"{project_dir}/.git/packed-refs")
+            if packed:
+                sha = _resolve_git_ref_from_packed_refs(packed, ref)
+        if not sha:
+            return {"mode": "ref", "ref": ref, "sha": ""}
+        return {"mode": "ref", "ref": ref, "sha": sha.strip()}
+
+    return {"mode": "detached", "ref": "", "sha": head}
+
+
+def _container_meta(container: Any) -> dict[str, Any]:
+    try:
+        container.reload()
+    except Exception:  # pragma: no cover - defensive
+        pass
+    labels = ((container.attrs or {}).get("Config", {}) or {}).get("Labels") or {}
+    project = (labels.get("com.docker.compose.project") or "").strip() or None
+    service = (labels.get("com.docker.compose.service") or "").strip() or None
+    image_ref = (((container.attrs or {}).get("Config", {}) or {}).get("Image") or "").strip() or None
+    image_id = None
+    try:
+        image_id = getattr(getattr(container, "image", None), "id", None)
+    except Exception:  # pragma: no cover - defensive
+        image_id = None
+    return {
+        "name": getattr(container, "name", ""),
+        "status": getattr(container, "status", ""),
+        "project": project,
+        "service": service,
+        "image": image_ref,
+        "image_id": image_id,
+    }
+
+
 def _cluster_compose_instance(*, project: str, args: list[str], env: dict[str, str]) -> dict[str, Any]:
     project_dir = (os.environ.get("ORCHESTRATOR_PROJECT_DIR") or "/home/ubuntu/Unreal_Vtuber").strip()
     instance_compose = (os.environ.get("CLUSTER_INSTANCE_COMPOSE_FILE") or "docker-compose.unreal.instance.yml").strip()
@@ -684,6 +774,36 @@ def read_health() -> dict:
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.exception("Remote health check failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
+
+@app.get("/meta")
+def read_meta(request: Request) -> dict[str, Any]:
+    """Return best-effort deployment metadata (images + git head) for remote debugging."""
+    _require_auth(request)
+    project_dir = _cluster_project_dir()
+    instance_compose = (os.environ.get("CLUSTER_INSTANCE_COMPOSE_FILE") or "docker-compose.unreal.instance.yml").strip()
+
+    executor = _cluster_executor_try_container()
+    git_info: Optional[dict[str, str]] = None
+    if executor is not None:
+        git_info = _git_head_info_from_executor(executor, project_dir)
+
+    containers: list[dict[str, Any]] = []
+    try:
+        for container in docker_client.containers.list(all=True):
+            containers.append(_container_meta(container))
+    except Exception:  # pragma: no cover - defensive
+        containers = []
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "env": {
+            "EMBODY_SERVICE_IMAGE_TAG": (os.environ.get("EMBODY_SERVICE_IMAGE_TAG") or "").strip() or None,
+            "ORCHESTRATOR_PROJECT_DIR": project_dir or None,
+            "CLUSTER_INSTANCE_COMPOSE_FILE": instance_compose or None,
+        },
+        "git": git_info,
+        "containers": containers,
+    }
 
 
 @app.get("/power", response_model=PowerState)
