@@ -203,11 +203,11 @@ def test_cluster_deploy_calls_compose(cluster_app, monkeypatch):
 
     monkeypatch.setattr(svc, "_cluster_compose_instance", fake_compose_instance)
 
-    resp = client.post("/cluster/deploy", json={"avatar_id": "Arthur-0", "slot": 1, "gpu": "0"})
+    resp = client.post("/cluster/deploy", json={"avatar_id": "demo-0", "slot": 1, "gpu": "0"})
     assert resp.status_code == 200
     data = resp.json()
-    assert data["project"] == "vtuber-arthur-0"
-    assert called["project"] == "vtuber-arthur-0"
+    assert data["project"] == "vtuber-demo-0"
+    assert called["project"] == "vtuber-demo-0"
 
     env = called["env"]
     assert env["VTUBER_SIGNALING_PUBLIC_PORT"] == "8081"
@@ -215,6 +215,45 @@ def test_cluster_deploy_calls_compose(cluster_app, monkeypatch):
     assert env["VTUBER_RECORDER_PORT"] == "8890"
     assert env["VTUBER_GAME_TCP_PORT"] == "7778"
     assert env["NVIDIA_VISIBLE_DEVICES"] == "0"
+
+
+def test_cluster_deploy_rejects_empty_slug(cluster_app):
+    app, _svc = cluster_app
+    client = TestClient(app)
+    resp = client.post("/cluster/deploy", json={"avatar_id": "!!!", "slot": 0})
+    assert resp.status_code == 400
+
+
+def test_cluster_deploy_rejects_port_conflicts(cluster_app, monkeypatch):
+    app, svc = cluster_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports: {8081: "busy-container"})
+    resp = client.post("/cluster/deploy", json={"avatar_id": "embody-0", "slot": 1})
+    assert resp.status_code == 409
+    assert "8081" in resp.json()["detail"]
+
+
+def test_cluster_deploy_force_recreate(cluster_app, monkeypatch):
+    app, svc = cluster_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports: {})
+
+    called: dict[str, object] = {}
+
+    def fake_compose_instance(*, project: str, args: list[str], env: dict[str, str]):
+        called["project"] = project
+        called["args"] = args
+        called["env"] = env
+        return {"exit_code": 0, "stdout": "", "stderr": "", "cmd": []}
+
+    monkeypatch.setattr(svc, "_cluster_compose_instance", fake_compose_instance)
+
+    resp = client.post("/cluster/deploy", json={"avatar_id": "embody-0", "slot": 0, "recreate": True})
+    assert resp.status_code == 200
+    assert called["project"] == "vtuber-embody-0"
+    assert called["args"] == ["up", "--force-recreate", "-d"]
 
 
 def test_cluster_down_requires_target(cluster_app):
@@ -237,5 +276,22 @@ def test_cluster_down_calls_compose(cluster_app, monkeypatch):
     monkeypatch.setattr(svc, "_cluster_compose_instance", fake_compose_instance)
 
     resp = client.post("/cluster/down", json={"project": "vtuber-embody-0"})
+    assert resp.status_code == 200
+    assert resp.json()["project"] == "vtuber-embody-0"
+
+
+def test_cluster_down_with_avatar_id_calls_compose(cluster_app, monkeypatch):
+    app, svc = cluster_app
+    client = TestClient(app)
+
+    def fake_compose_instance(*, project: str, args: list[str], env: dict[str, str]):
+        assert project == "vtuber-embody-0"
+        assert args == ["down"]
+        assert env == {"VTUBER_AVATAR_SLUG": "embody-0", "VTUBER_INSTANCE_PROJECT_NAME": "vtuber-embody-0"}
+        return {"exit_code": 0, "stdout": "", "stderr": "", "cmd": []}
+
+    monkeypatch.setattr(svc, "_cluster_compose_instance", fake_compose_instance)
+
+    resp = client.post("/cluster/down", json={"avatar_id": "Embody-0"})
     assert resp.status_code == 200
     assert resp.json()["project"] == "vtuber-embody-0"
