@@ -228,14 +228,25 @@ def test_ops_upgrade_execs_script(ops_app, monkeypatch):
     monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
 
     class DummyResult:
-        exit_code = 0
-        output = (b"ok\n", b"")
+        def __init__(self, exit_code: int = 0, stdout: str = "", stderr: str = ""):
+            self.exit_code = exit_code
+            self.output = (stdout.encode("utf-8"), stderr.encode("utf-8"))
 
     class DummyExecutor:
         def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
-            assert cmd[:2] == ["bash", "-lc"]
-            assert "embody_cli.sh update" in cmd[2]
-            return DummyResult()
+            if cmd[:3] == ["git", "-C", "/tmp/repo"]:
+                if cmd[3:6] == ["rev-parse", "--is-inside-work-tree"]:
+                    return DummyResult(stdout="true\n")
+                if cmd[3:5] == ["status", "--porcelain"]:
+                    return DummyResult(stdout="")
+                if cmd[3:6] == ["rev-parse", "--short", "HEAD"]:
+                    return DummyResult(stdout="abc123\n")
+                if cmd[3:5] == ["fetch", "-q"]:
+                    return DummyResult(stdout="")
+                if cmd[3:6] == ["pull", "-q", "--ff-only"]:
+                    return DummyResult(stdout="")
+                return DummyResult(stdout="")
+            raise AssertionError(f"unexpected cmd: {cmd}")
 
     monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
     monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
@@ -250,21 +261,22 @@ def test_ops_rollout_execs_script(ops_app, monkeypatch):
     client = TestClient(app)
 
     monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
 
     class DummyResult:
         exit_code = 0
-        output = (b"ok\n", b"")
+        output = (b"loaded\n", b"")
 
     class DummyExecutor:
         def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
-            assert cmd[:2] == ["bash", "-lc"]
-            assert "embody_cli.sh rollout" in cmd[2]
+            assert cmd[0] == "bash"
+            assert cmd[1].endswith("/tmp/repo/tools/encrypted-game-image/consume.sh")
             return DummyResult()
 
     monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
     monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
 
-    resp = client.post("/ops/rollout", json={"no_verify": True})
+    resp = client.post("/ops/rollout", json={"no_verify": True, "payments_api_url": "http://payments:8081"})
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
 

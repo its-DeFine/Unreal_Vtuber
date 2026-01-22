@@ -6,7 +6,6 @@ import os
 import ipaddress
 import re
 import threading
-import shlex
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -117,7 +116,7 @@ class ClusterDownRequest(BaseModel):
 
 
 class OpsUpgradeRequest(BaseModel):
-    apply: bool = Field(default=True, description="If true, pull/recreate containers after updating the repo.")
+    apply: bool = Field(default=False, description="If true, pull/recreate host-level containers after updating the repo.")
 
 
 class OpsRolloutRequest(BaseModel):
@@ -249,6 +248,15 @@ def _validate_power_project(project: str) -> str:
         raise HTTPException(status_code=400, detail="invalid project name")
     if POWER_ALLOWED_PROJECT_PREFIXES and not any(project.startswith(prefix) for prefix in POWER_ALLOWED_PROJECT_PREFIXES):
         raise HTTPException(status_code=403, detail="project not allowed")
+    return project
+
+
+def _validate_compose_project_name(project: str) -> str:
+    project = project.strip()
+    if not project:
+        raise HTTPException(status_code=400, detail="project is required")
+    if not _PROJECT_NAME_RE.match(project):
+        raise HTTPException(status_code=400, detail="invalid project name")
     return project
 
 
@@ -888,49 +896,143 @@ def read_meta(request: Request) -> dict[str, Any]:
 
 @app.post("/ops/upgrade")
 def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
-    """EXPERIMENTAL: update the repo (ff-only) and optionally recreate containers."""
+    """EXPERIMENTAL: update the repo (ff-only) and optionally recreate host-level containers."""
     _require_remote_ops_enabled()
     _require_auth_strict(request)
     project_dir = _cluster_project_dir()
     if not project_dir:
         raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
 
-    apply = " --apply" if payload.apply else ""
-    cmd = ["bash", "-lc", f"cd {shlex.quote(project_dir)} && ./scripts/embody_cli.sh update{apply}"]
     executor = _cluster_executor_container()
-    out = _cluster_executor_exec(executor, cmd)
-    out["stdout"] = _tail(out.get("stdout", ""))
-    out["stderr"] = _tail(out.get("stderr", ""))
-    out["ok"] = out.get("exit_code") == 0
-    return out
+    steps: list[dict[str, Any]] = []
+
+    def run_step(name: str, cmd: list[str]) -> dict[str, Any]:
+        out = _cluster_executor_exec(executor, cmd)
+        out["name"] = name
+        out["stdout"] = _tail(out.get("stdout", ""))
+        out["stderr"] = _tail(out.get("stderr", ""))
+        steps.append(out)
+        return out
+
+    repo = run_step("git_is_repo", ["git", "-C", project_dir, "rev-parse", "--is-inside-work-tree"])
+    if repo["exit_code"] != 0:
+        return {"ok": False, "exit_code": repo["exit_code"], "steps": steps}
+
+    dirty = run_step("git_status", ["git", "-C", project_dir, "status", "--porcelain"])
+    if dirty["exit_code"] == 0 and (dirty.get("stdout") or "").strip():
+        return {"ok": False, "exit_code": 409, "detail": "dirty working tree", "steps": steps}
+
+    before = run_step("git_head_before", ["git", "-C", project_dir, "rev-parse", "--short", "HEAD"])
+    fetch = run_step("git_fetch", ["git", "-C", project_dir, "fetch", "-q", "origin", "main"])
+    if fetch["exit_code"] != 0:
+        return {"ok": False, "exit_code": fetch["exit_code"], "steps": steps}
+    pull = run_step("git_pull", ["git", "-C", project_dir, "pull", "-q", "--ff-only", "origin", "main"])
+    if pull["exit_code"] != 0:
+        return {"ok": False, "exit_code": pull["exit_code"], "steps": steps}
+    after = run_step("git_head_after", ["git", "-C", project_dir, "rev-parse", "--short", "HEAD"])
+
+    if payload.apply:
+        _detect_compose_identity()
+        host_project = (POWER_PROJECT_NAME or os.environ.get("COMPOSE_PROJECT_NAME") or "unreal_vtuber").strip()
+        host_project = _validate_compose_project_name(host_project)
+        compose_file = f"{project_dir}/docker-compose.unreal.yml"
+        env_file = f"{project_dir}/.env"
+        services = ["turn-server", "orchestrator-edge-rotator", "vtuber-auto-updater", "orchestrator-registration"]
+
+        run_step(
+            "compose_pull",
+            [
+                "docker",
+                "compose",
+                "-p",
+                host_project,
+                "--project-directory",
+                project_dir,
+                "--env-file",
+                env_file,
+                "-f",
+                compose_file,
+                "pull",
+                *services,
+            ],
+        )
+        run_step(
+            "compose_recreate",
+            [
+                "docker",
+                "compose",
+                "-p",
+                host_project,
+                "--project-directory",
+                project_dir,
+                "--env-file",
+                env_file,
+                "-f",
+                compose_file,
+                "up",
+                "-d",
+                "--no-deps",
+                "--force-recreate",
+                *services,
+            ],
+        )
+
+    return {
+        "ok": True,
+        "exit_code": 0,
+        "before": (before.get("stdout") or "").strip() or None,
+        "after": (after.get("stdout") or "").strip() or None,
+        "steps": steps,
+    }
 
 
 @app.post("/ops/rollout")
 def ops_rollout(payload: OpsRolloutRequest, request: Request) -> dict[str, Any]:
-    """EXPERIMENTAL: rollout a new encrypted game image via a Payments lease."""
+    """EXPERIMENTAL: load a new encrypted game image via a Payments lease (no container restarts)."""
     _require_remote_ops_enabled()
     _require_auth_strict(request)
     project_dir = _cluster_project_dir()
     if not project_dir:
         raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
 
-    args = ["./scripts/embody_cli.sh", "rollout"]
-    if payload.payments_api_url:
-        payments_url = payload.payments_api_url.strip()
-        if "\x00" in payments_url or "\n" in payments_url or "\r" in payments_url:
-            raise HTTPException(status_code=400, detail="payments_api_url contains invalid characters")
-        args.extend(["--payments-api-url", shlex.quote(payments_url)])
-    if payload.image_ref:
-        image_ref = payload.image_ref.strip()
-        if "\x00" in image_ref or "\n" in image_ref or "\r" in image_ref:
-            raise HTTPException(status_code=400, detail="image_ref contains invalid characters")
-        args.extend(["--image-ref", shlex.quote(image_ref)])
-    if payload.no_verify:
-        args.append("--no-verify")
+    payments_url = (payload.payments_api_url or os.environ.get("PAYMENTS_API_URL") or "").strip()
+    if not payments_url:
+        raise HTTPException(status_code=400, detail="payments_api_url is required (or set PAYMENTS_API_URL)")
+    if "\x00" in payments_url or "\n" in payments_url or "\r" in payments_url:
+        raise HTTPException(status_code=400, detail="payments_api_url contains invalid characters")
 
-    shell_cmd = " ".join(args)
-    cmd = ["bash", "-lc", f"cd {shlex.quote(project_dir)} && {shell_cmd}"]
+    image_ref = (payload.image_ref or "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1").strip()
+    if "\x00" in image_ref or "\n" in image_ref or "\r" in image_ref:
+        raise HTTPException(status_code=400, detail="image_ref contains invalid characters")
+
+    running = []
+    try:
+        for container in docker_client.containers.list(
+            all=True, filters={"label": ["com.docker.compose.service=unreal-game"]}
+        ):
+            try:
+                container.reload()
+            except Exception:  # pragma: no cover - defensive
+                pass
+            if getattr(container, "status", "") == "running":
+                running.append(getattr(container, "name", ""))
+    except Exception:  # pragma: no cover - defensive
+        running = []
+    if running:
+        raise HTTPException(status_code=409, detail=f"refusing rollout while unreal-game is running: {', '.join(running)}")
+
     executor = _cluster_executor_container()
+    token_path = "/root/.embody/orch-license-token.txt"
+    cmd = [
+        "bash",
+        f"{project_dir}/tools/encrypted-game-image/consume.sh",
+        "--payments-api-url",
+        payments_url,
+        "--image-ref",
+        image_ref,
+        "--orch-token-file",
+        token_path,
+    ]
     out = _cluster_executor_exec(executor, cmd)
     out["stdout"] = _tail(out.get("stdout", ""))
     out["stderr"] = _tail(out.get("stderr", ""))
