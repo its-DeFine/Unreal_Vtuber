@@ -6,6 +6,7 @@ import os
 import ipaddress
 import re
 import threading
+import shlex
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -115,6 +116,16 @@ class ClusterDownRequest(BaseModel):
         return self
 
 
+class OpsUpgradeRequest(BaseModel):
+    apply: bool = Field(default=True, description="If true, pull/recreate containers after updating the repo.")
+
+
+class OpsRolloutRequest(BaseModel):
+    payments_api_url: Optional[str] = Field(default=None, description="Payments backend base URL override.")
+    image_ref: Optional[str] = Field(default=None, description="Payments license image_ref override (enc-v1, etc).")
+    no_verify: bool = Field(default=False, description="Skip post-rollout health verification.")
+
+
 def _env_truthy(key: str, default: bool = False) -> bool:
     raw = os.environ.get(key)
     if raw is None:
@@ -127,10 +138,24 @@ def _require_cluster_control_enabled() -> None:
         raise HTTPException(status_code=404, detail="cluster control not enabled")
 
 
+def _require_remote_ops_enabled() -> None:
+    if not _env_truthy("EXPERIMENTAL_REMOTE_OPS", default=False):
+        raise HTTPException(status_code=404, detail="remote ops not enabled")
+
+
 def _require_auth(request: Request) -> None:
     allowed = _get_power_allowed_ips()
     if not allowed:
         return
+    client_ip = request.client.host if request.client else None
+    if (not client_ip) or (not _ip_in_allowlist(client_ip, allowed)):
+        raise HTTPException(status_code=403, detail="client address not allowed")
+
+
+def _require_auth_strict(request: Request) -> None:
+    allowed = _get_power_allowed_ips()
+    if not allowed:
+        raise HTTPException(status_code=403, detail="POWER_ALLOWED_IPS must be set for remote ops")
     client_ip = request.client.host if request.client else None
     if (not client_ip) or (not _ip_in_allowlist(client_ip, allowed)):
         raise HTTPException(status_code=403, detail="client address not allowed")
@@ -350,6 +375,32 @@ def _cluster_executor_read_file(executor: Any, path: str) -> Optional[str]:
         return None
     stdout_b, _stderr_b = result.output or (b"", b"")
     return (stdout_b or b"").decode("utf-8", errors="replace").strip() or None
+
+
+def _cluster_executor_exec(executor: Any, cmd: list[str], *, env: Optional[dict[str, str]] = None) -> dict[str, Any]:
+    try:
+        result = executor.exec_run(cmd, environment=env, demux=True)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"exec failed: {exc}") from exc
+    stdout_b, stderr_b = result.output or (b"", b"")
+    return {
+        "exit_code": getattr(result, "exit_code", 1),
+        "stdout": (stdout_b or b"").decode("utf-8", errors="replace"),
+        "stderr": (stderr_b or b"").decode("utf-8", errors="replace"),
+        "cmd": cmd,
+    }
+
+
+def _tail(text: str, *, max_lines: int = 200, max_chars: int = 50_000) -> str:
+    if not text:
+        return ""
+    lines = text.splitlines()
+    if len(lines) > max_lines:
+        lines = lines[-max_lines:]
+    out = "\n".join(lines)
+    if len(out) > max_chars:
+        out = out[-max_chars:]
+    return out
 
 
 def _cluster_project_dir() -> str:
@@ -833,6 +884,58 @@ def read_meta(request: Request) -> dict[str, Any]:
         "git": git_info,
         "containers": containers,
     }
+
+
+@app.post("/ops/upgrade")
+def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
+    """EXPERIMENTAL: update the repo (ff-only) and optionally recreate containers."""
+    _require_auth_strict(request)
+    _require_remote_ops_enabled()
+    project_dir = _cluster_project_dir()
+    if not project_dir:
+        raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
+
+    apply = " --apply" if payload.apply else ""
+    cmd = ["bash", "-lc", f"cd {shlex.quote(project_dir)} && ./scripts/embody_cli.sh update{apply}"]
+    executor = _cluster_executor_container()
+    out = _cluster_executor_exec(executor, cmd)
+    out["stdout"] = _tail(out.get("stdout", ""))
+    out["stderr"] = _tail(out.get("stderr", ""))
+    out["ok"] = out.get("exit_code") == 0
+    return out
+
+
+@app.post("/ops/rollout")
+def ops_rollout(payload: OpsRolloutRequest, request: Request) -> dict[str, Any]:
+    """EXPERIMENTAL: rollout a new encrypted game image via a Payments lease."""
+    _require_auth_strict(request)
+    _require_remote_ops_enabled()
+    project_dir = _cluster_project_dir()
+    if not project_dir:
+        raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
+
+    args = ["./scripts/embody_cli.sh", "rollout"]
+    if payload.payments_api_url:
+        payments_url = payload.payments_api_url.strip()
+        if "\x00" in payments_url or "\n" in payments_url or "\r" in payments_url:
+            raise HTTPException(status_code=400, detail="payments_api_url contains invalid characters")
+        args.extend(["--payments-api-url", shlex.quote(payments_url)])
+    if payload.image_ref:
+        image_ref = payload.image_ref.strip()
+        if "\x00" in image_ref or "\n" in image_ref or "\r" in image_ref:
+            raise HTTPException(status_code=400, detail="image_ref contains invalid characters")
+        args.extend(["--image-ref", shlex.quote(image_ref)])
+    if payload.no_verify:
+        args.append("--no-verify")
+
+    shell_cmd = " ".join(args)
+    cmd = ["bash", "-lc", f"cd {shlex.quote(project_dir)} && {shell_cmd}"]
+    executor = _cluster_executor_container()
+    out = _cluster_executor_exec(executor, cmd)
+    out["stdout"] = _tail(out.get("stdout", ""))
+    out["stderr"] = _tail(out.get("stderr", ""))
+    out["ok"] = out.get("exit_code") == 0
+    return out
 
 
 @app.get("/power", response_model=PowerState)

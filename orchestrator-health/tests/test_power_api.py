@@ -180,6 +180,90 @@ def cluster_app(monkeypatch, tmp_path):
     return app, svc
 
 
+@pytest.fixture
+def ops_app(monkeypatch, tmp_path):
+    monkeypatch.delenv("POWER_ALLOWED_IPS", raising=False)
+    monkeypatch.delenv("VTUBER_ALLOWED_ADDRESSES", raising=False)
+    monkeypatch.delenv("POWER_ALLOWED_PROJECT_PREFIXES", raising=False)
+    monkeypatch.setenv("DOCKER_API_VERSION", "1.41")
+    monkeypatch.setenv("POWER_STATE_FILE", str(tmp_path / "power_state.json"))
+    monkeypatch.setenv("EXPERIMENTAL_REMOTE_OPS", "1")
+    monkeypatch.setenv("POWER_ALLOWED_IPS", "127.0.0.1")
+    import orchestrator_health.remote_health_service as svc
+
+    importlib.reload(svc)
+    app = svc.app
+    return app, svc
+
+
+def test_ops_endpoints_disabled_by_default(power_app):
+    app, _svc = power_app
+    client = TestClient(app)
+
+    resp = client.post("/ops/upgrade", json={"apply": False})
+    assert resp.status_code == 404
+
+    resp = client.post("/ops/rollout", json={})
+    assert resp.status_code == 404
+
+
+def test_ops_endpoints_require_allowlist(monkeypatch, tmp_path):
+    monkeypatch.delenv("POWER_ALLOWED_IPS", raising=False)
+    monkeypatch.delenv("VTUBER_ALLOWED_ADDRESSES", raising=False)
+    monkeypatch.setenv("DOCKER_API_VERSION", "1.41")
+    monkeypatch.setenv("POWER_STATE_FILE", str(tmp_path / "power_state.json"))
+    monkeypatch.setenv("EXPERIMENTAL_REMOTE_OPS", "1")
+    import orchestrator_health.remote_health_service as svc
+
+    importlib.reload(svc)
+    client = TestClient(svc.app)
+    resp = client.post("/ops/upgrade", json={"apply": False})
+    assert resp.status_code == 403
+
+
+def test_ops_upgrade_execs_script(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    class DummyResult:
+        exit_code = 0
+        output = (b"ok\n", b"")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            assert cmd[:2] == ["bash", "-lc"]
+            assert "embody_cli.sh update" in cmd[2]
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post("/ops/upgrade", json={"apply": False})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_ops_rollout_execs_script(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    class DummyResult:
+        exit_code = 0
+        output = (b"ok\n", b"")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            assert cmd[:2] == ["bash", "-lc"]
+            assert "embody_cli.sh rollout" in cmd[2]
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post("/ops/rollout", json={"no_verify": True})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
 def test_cluster_deploy_disabled_by_default(power_app):
     app, _svc = power_app
     client = TestClient(app)
