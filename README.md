@@ -76,6 +76,7 @@ Optional: lower per-instance GPU load (helps smaller GPUs run >1 instance):
 ```bash
 # Balanced preset (720p @ 30fps):
 export VTUBER_CONSOLE_VARIABLES_FILE=./pixel-streaming/config/ConsoleVariables.lowload.30fps.720p.ini
+export VTUBER_GAME_USER_SETTINGS_FILE=./pixel-streaming/config/GameUserSettings.lowload.30fps.720p.ini
 export EMBODY_EXTRA_ARGS="-ForceRes -ResX=1280 -ResY=720 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9"
 
 # To reduce render load further (tradeoff: blurrier video), keep the same preset but lower the stream resolution:
