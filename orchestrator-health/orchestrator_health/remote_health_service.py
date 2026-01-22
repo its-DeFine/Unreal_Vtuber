@@ -125,6 +125,10 @@ class OpsRolloutRequest(BaseModel):
     no_verify: bool = Field(default=False, description="Skip post-rollout health verification.")
 
 
+class OpsPullImageRequest(BaseModel):
+    image: str = Field(min_length=1, description="Docker image ref to pull (ex: ghcr.io/...:tag).")
+
+
 def _env_truthy(key: str, default: bool = False) -> bool:
     raw = os.environ.get(key)
     if raw is None:
@@ -1034,6 +1038,24 @@ def ops_rollout(payload: OpsRolloutRequest, request: Request) -> dict[str, Any]:
         token_path,
     ]
     out = _cluster_executor_exec(executor, cmd)
+    out["stdout"] = _tail(out.get("stdout", ""))
+    out["stderr"] = _tail(out.get("stderr", ""))
+    out["ok"] = out.get("exit_code") == 0
+    return out
+
+
+@app.post("/ops/pull-image")
+def ops_pull_image(payload: OpsPullImageRequest, request: Request) -> dict[str, Any]:
+    """EXPERIMENTAL: docker pull an image ref (useful for unencrypted game updates)."""
+    _require_remote_ops_enabled()
+    _require_auth_strict(request)
+
+    image = payload.image.strip()
+    if not image or "\x00" in image or "\n" in image or "\r" in image or " " in image:
+        raise HTTPException(status_code=400, detail="invalid image ref")
+
+    executor = _cluster_executor_container()
+    out = _cluster_executor_exec(executor, ["docker", "pull", image])
     out["stdout"] = _tail(out.get("stdout", ""))
     out["stderr"] = _tail(out.get("stderr", ""))
     out["ok"] = out.get("exit_code") == 0

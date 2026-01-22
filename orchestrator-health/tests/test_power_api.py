@@ -206,6 +206,9 @@ def test_ops_endpoints_disabled_by_default(power_app):
     resp = client.post("/ops/rollout", json={})
     assert resp.status_code == 404
 
+    resp = client.post("/ops/pull-image", json={"image": "ghcr.io/example/image:latest"})
+    assert resp.status_code == 404
+
 
 def test_ops_endpoints_require_allowlist(monkeypatch, tmp_path):
     monkeypatch.delenv("POWER_ALLOWED_IPS", raising=False)
@@ -277,6 +280,28 @@ def test_ops_rollout_execs_script(ops_app, monkeypatch):
     monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
 
     resp = client.post("/ops/rollout", json={"no_verify": True, "payments_api_url": "http://payments:8081"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_ops_pull_image_execs_docker_pull(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+
+    class DummyResult:
+        exit_code = 0
+        output = (b"pulled\n", b"")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            assert cmd == ["docker", "pull", "ghcr.io/example/image:latest"]
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+
+    resp = client.post("/ops/pull-image", json={"image": "ghcr.io/example/image:latest"})
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
 
