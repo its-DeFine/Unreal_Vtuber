@@ -110,8 +110,15 @@ Remote metadata + ops (experimental):
 - `GET http://<host>:9090/meta` (git head + container image refs/ids).
 - Enable: set `EXPERIMENTAL_REMOTE_OPS=1` (requires POWER_ALLOWED_IPS / VTUBER_ALLOWED_ADDRESSES allowlisting).
 - `POST http://<host>:9090/ops/upgrade` with JSON `{ "apply": true }` (git ff-only update; optionally pull/recreate host-level containers).
-- `POST http://<host>:9090/ops/rollout` with JSON `{ "payments_api_url": "http://<payments>:8081" }` (loads the encrypted game image via a Payments lease; requires all `unreal-game` containers stopped).
+- `POST http://<host>:9090/ops/rollout` with JSON `{ "payments_api_url": "http://<payments>:8081", "image_ref": "ghcr.io/...:enc-v1", "recreate_stopped": true }` (loads the encrypted game image via a Payments lease; requires all `unreal-game` containers stopped; optionally force-recreates stopped game containers so the next wake uses the updated image).
 - `POST http://<host>:9090/ops/pull-image` with JSON `{ "image": "ghcr.io/<org>/<image>:<tag>" }` (unencrypted image pull; follow by redeploy/recreate).
+
+## Auto updates (watchtower)
+
+This stack includes `vtuber-auto-updater` (watchtower). It runs in label-enable mode and updates any container labeled:
+- `com.centurylinklabs.watchtower.enable=true`
+
+This includes both the single-instance stack and cluster-mode per-avatar containers, without touching unrelated containers on the host.
 
 ## Security / allowlists
 

@@ -9,6 +9,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/embody-signaling:latest
     container_name: vtuber-${VTUBER_AVATAR_SLUG:?VTUBER_AVATAR_SLUG is required}-unreal-signaling
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     env_file:
       - .env.turn
     ports:
@@ -45,6 +47,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest
     container_name: vtuber-${VTUBER_AVATAR_SLUG:?VTUBER_AVATAR_SLUG is required}-unreal-game
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     runtime: nvidia
     ulimits:
       nofile:
@@ -86,6 +90,8 @@ services:
   vtuber-script-runner:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-script-runner:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-${VTUBER_AVATAR_SLUG:?VTUBER_AVATAR_SLUG is required}-script-runner
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     network_mode: "service:unreal-game"
     environment:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
@@ -102,6 +108,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-watchdog:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-${VTUBER_AVATAR_SLUG:?VTUBER_AVATAR_SLUG is required}-watchdog
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       - unreal-game
     environment:
@@ -120,6 +128,8 @@ services:
   recorder-control:
     image: ghcr.io/its-define/unreal_vtuber/recorder-control:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-${VTUBER_AVATAR_SLUG:?VTUBER_AVATAR_SLUG is required}-recorder-control
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       - unreal-signaling
     env_file:

@@ -9,6 +9,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/embody-turn-server:latest
     container_name: vtuber-turn-server
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     env_file:
       - .env.turn
     entrypoint: ['/bin/sh', '-c']
@@ -39,6 +41,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/embody-signaling:latest
     container_name: vtuber-unreal-signaling
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       - turn-server
     env_file:
@@ -74,6 +78,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest
     container_name: vtuber-unreal-game
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     runtime: nvidia
     ulimits:
       nofile:
@@ -116,6 +122,8 @@ services:
   vtuber-script-runner:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-script-runner:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-script-runner
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     network_mode: "service:unreal-game"
     environment:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
@@ -132,6 +140,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-watchdog:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-watchdog
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       - unreal-game
     environment:
@@ -149,6 +159,8 @@ services:
   orchestrator-registration:
     image: ghcr.io/its-define/unreal_vtuber/orchestrator-registration:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-orchestrator-registration
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       - unreal-game
     env_file:
@@ -168,6 +180,8 @@ services:
   orchestrator-health:
     image: ghcr.io/its-define/unreal_vtuber/orchestrator-health:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-orchestrator-health
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     command: ["python", "-m", "orchestrator_health.remote_health_service"]
     env_file:
       - .env
@@ -201,6 +215,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/orchestrator-edge-rotator:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-orchestrator-edge-rotator
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     network_mode: host
     cap_add:
       - NET_ADMIN
@@ -244,18 +260,14 @@ services:
         "${WATCHTOWER_INTERVAL:-900}",
         "--cleanup",
         "--include-restarting",
-        "vtuber-turn-server",
-        "vtuber-unreal-signaling",
-        "vtuber-script-runner",
-        "vtuber-recorder-control",
-        "vtuber-orchestrator-edge-rotator",
-        "vtuber-orchestrator-health",
-        "vtuber-watchdog",
+        "--label-enable",
       ]
 
   recorder-control:
     image: ghcr.io/its-define/unreal_vtuber/recorder-control:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-recorder-control
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       - unreal-signaling
     env_file:
