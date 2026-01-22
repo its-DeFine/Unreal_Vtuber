@@ -90,6 +90,18 @@ class ClusterDeployRequest(BaseModel):
     slot: int = Field(ge=0, le=255, description="Port slot (ports are base+slot, subnet is 172.30.<slot>.0/24).")
     gpu: Optional[str] = Field(default=None, description="NVIDIA_VISIBLE_DEVICES value (ex: 0,1,all).")
     recreate: bool = Field(default=False, description="Pass --force-recreate to docker compose up.")
+    console_variables_file: Optional[str] = Field(
+        default=None,
+        description="Optional override for VTUBER_CONSOLE_VARIABLES_FILE (relative path under the project dir).",
+    )
+    game_user_settings_file: Optional[str] = Field(
+        default=None,
+        description="Optional override for VTUBER_GAME_USER_SETTINGS_FILE (relative path under the project dir).",
+    )
+    embody_extra_args: Optional[str] = Field(
+        default=None,
+        description="Optional override for EMBODY_EXTRA_ARGS (Unreal cmdline; ex: -ResX=1280 -ResY=720).",
+    )
 
 
 class ClusterDownRequest(BaseModel):
@@ -220,6 +232,23 @@ def _slugify_avatar_id(raw: str) -> str:
     s = re.sub(r"[^a-z0-9_.-]+", "-", s)
     s = s.strip("-_.")
     return s
+
+
+def _validate_compose_project_relpath(path: str, *, field: str) -> str:
+    raw = (path or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail=f"{field} is empty")
+    if "\x00" in raw or "\n" in raw or "\r" in raw:
+        raise HTTPException(status_code=400, detail=f"{field} contains invalid characters")
+    if raw.startswith("/"):
+        raise HTTPException(status_code=400, detail=f"{field} must be a relative path")
+
+    parts = Path(raw).parts
+    if any(part in ("..",) for part in parts):
+        raise HTTPException(status_code=400, detail=f"{field} must not contain ..")
+    if not raw.startswith("./pixel-streaming/config/"):
+        raise HTTPException(status_code=400, detail=f"{field} must start with ./pixel-streaming/config/")
+    return raw
 
 
 def _cluster_ports(slot: int) -> dict[str, int]:
@@ -913,6 +942,19 @@ def cluster_deploy_instance(payload: ClusterDeployRequest, request: Request) -> 
         "VTUBER_DOCKER_SUBNET": subnet,
         "VTUBER_ALLOWED_ADDRESSES": allow_csv,
     }
+    if payload.console_variables_file:
+        env["VTUBER_CONSOLE_VARIABLES_FILE"] = _validate_compose_project_relpath(
+            payload.console_variables_file, field="console_variables_file"
+        )
+    if payload.game_user_settings_file:
+        env["VTUBER_GAME_USER_SETTINGS_FILE"] = _validate_compose_project_relpath(
+            payload.game_user_settings_file, field="game_user_settings_file"
+        )
+    if payload.embody_extra_args:
+        extra_args = payload.embody_extra_args.strip()
+        if "\x00" in extra_args or "\n" in extra_args or "\r" in extra_args:
+            raise HTTPException(status_code=400, detail="embody_extra_args contains invalid characters")
+        env["EMBODY_EXTRA_ARGS"] = extra_args
     if payload.gpu:
         env["NVIDIA_VISIBLE_DEVICES"] = payload.gpu.strip() or "all"
 
@@ -932,6 +974,11 @@ def cluster_deploy_instance(payload: ClusterDeployRequest, request: Request) -> 
         "avatar_id": avatar_id,
         "slot": payload.slot,
         "gpu": (payload.gpu or "").strip() or None,
+        "overrides": {
+            "console_variables_file": (payload.console_variables_file or "").strip() or None,
+            "game_user_settings_file": (payload.game_user_settings_file or "").strip() or None,
+            "embody_extra_args": (payload.embody_extra_args or "").strip() or None,
+        },
         "ports": ports,
         "subnet": subnet,
         "gateway": gateway,

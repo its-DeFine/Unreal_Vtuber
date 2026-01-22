@@ -256,6 +256,60 @@ def test_cluster_deploy_force_recreate(cluster_app, monkeypatch):
     assert called["args"] == ["up", "--force-recreate", "-d"]
 
 
+def test_cluster_deploy_accepts_config_overrides(cluster_app, monkeypatch):
+    app, svc = cluster_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports, **_kwargs: {})
+
+    called: dict[str, object] = {}
+
+    def fake_compose_instance(*, project: str, args: list[str], env: dict[str, str]):
+        called["project"] = project
+        called["args"] = args
+        called["env"] = env
+        return {"exit_code": 0, "stdout": "", "stderr": "", "cmd": []}
+
+    monkeypatch.setattr(svc, "_cluster_compose_instance", fake_compose_instance)
+
+    resp = client.post(
+        "/cluster/deploy",
+        json={
+            "avatar_id": "embody-0",
+            "slot": 0,
+            "console_variables_file": "./pixel-streaming/config/ConsoleVariables.lowload.30fps.720p.ini",
+            "game_user_settings_file": "./pixel-streaming/config/GameUserSettings.lowload.30fps.720p.ini",
+            "embody_extra_args": "-ForceRes -ResX=1280 -ResY=720",
+        },
+    )
+    assert resp.status_code == 200
+
+    env = called["env"]
+    assert env["VTUBER_CONSOLE_VARIABLES_FILE"].endswith("ConsoleVariables.lowload.30fps.720p.ini")
+    assert env["VTUBER_GAME_USER_SETTINGS_FILE"].endswith("GameUserSettings.lowload.30fps.720p.ini")
+    assert env["EMBODY_EXTRA_ARGS"] == "-ForceRes -ResX=1280 -ResY=720"
+
+
+def test_cluster_deploy_rejects_invalid_override_paths(cluster_app):
+    app, _svc = cluster_app
+    client = TestClient(app)
+
+    resp = client.post("/cluster/deploy", json={"avatar_id": "embody-0", "slot": 0, "console_variables_file": "/etc/passwd"})
+    assert resp.status_code == 400
+
+    resp = client.post(
+        "/cluster/deploy",
+        json={"avatar_id": "embody-0", "slot": 0, "console_variables_file": "./pixel-streaming/config/../secrets.ini"},
+    )
+    assert resp.status_code == 400
+
+    resp = client.post(
+        "/cluster/deploy",
+        json={"avatar_id": "embody-0", "slot": 0, "console_variables_file": "./somewhere/else.ini"},
+    )
+    assert resp.status_code == 400
+
+
 def test_cluster_down_requires_target(cluster_app):
     app, _svc = cluster_app
     client = TestClient(app)
