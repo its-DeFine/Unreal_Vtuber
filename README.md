@@ -106,6 +106,12 @@ Experimental remote spawn/delete (cluster instances):
 - `POST http://<host>:9090/cluster/deploy` with JSON `{ "avatar_id": "embody-0", "slot": 0, "gpu": "0" }`
 - `POST http://<host>:9090/cluster/down` with JSON `{ "avatar_id": "embody-0" }` (or `{ "project": "vtuber-embody-0" }`)
 
+Remote metadata + ops (experimental):
+- `GET http://<host>:9090/meta` (git head + container image refs/ids).
+- Enable: set `EXPERIMENTAL_REMOTE_OPS=1` (requires POWER_ALLOWED_IPS / VTUBER_ALLOWED_ADDRESSES allowlisting).
+- `POST http://<host>:9090/ops/upgrade` with JSON `{ "apply": true }` (git ff-only update + pull/recreate containers).
+- `POST http://<host>:9090/ops/rollout` with JSON `{ "no_verify": true }` (encrypted game image rollout via Payments lease).
+
 ## Security / allowlists
 
 This stack protects control endpoints (runner, recorder-control, power) with strict allowlists.
