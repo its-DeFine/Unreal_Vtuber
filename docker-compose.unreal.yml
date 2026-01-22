@@ -181,6 +181,11 @@ services:
       - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-}
       - POWER_KEEP_RUNNING_SERVICES=${POWER_KEEP_RUNNING_SERVICES-orchestrator-edge-rotator}
       - POWER_ALLOWED_IPS_FILE=${EDGE_POWER_ALLOWED_IPS_FILE-/var/lib/vtuber/power-state/power_allowed_ips.txt}
+      # Experimental: allow remote cluster instance deploy/down via :9090/cluster/*
+      - EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=${EXPERIMENTAL_REMOTE_CLUSTER_CONTROL:-0}
+      - ORCHESTRATOR_PROJECT_DIR=${EDGE_PROJECT_DIR:-/home/ubuntu/Unreal_Vtuber}
+      - CLUSTER_EXECUTOR_CONTAINER=${CLUSTER_EXECUTOR_CONTAINER:-vtuber-orchestrator-edge-rotator}
+      - CLUSTER_INSTANCE_COMPOSE_FILE=${CLUSTER_INSTANCE_COMPOSE_FILE:-docker-compose.unreal.instance.yml}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state

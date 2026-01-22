@@ -163,3 +163,79 @@ def test_project_power_rejects_non_vtuber_projects(power_app):
     client = TestClient(app)
     resp = client.get("/power/projects/docker-default")
     assert resp.status_code == 403
+
+
+@pytest.fixture
+def cluster_app(monkeypatch, tmp_path):
+    monkeypatch.delenv("POWER_ALLOWED_IPS", raising=False)
+    monkeypatch.delenv("VTUBER_ALLOWED_ADDRESSES", raising=False)
+    monkeypatch.delenv("POWER_ALLOWED_PROJECT_PREFIXES", raising=False)
+    monkeypatch.setenv("DOCKER_API_VERSION", "1.41")
+    monkeypatch.setenv("POWER_STATE_FILE", str(tmp_path / "power_state.json"))
+    monkeypatch.setenv("EXPERIMENTAL_REMOTE_CLUSTER_CONTROL", "1")
+    import orchestrator_health.remote_health_service as svc
+
+    importlib.reload(svc)
+    app = svc.app
+    return app, svc
+
+
+def test_cluster_deploy_disabled_by_default(power_app):
+    app, _svc = power_app
+    client = TestClient(app)
+    resp = client.post("/cluster/deploy", json={"avatar_id": "embody-0", "slot": 0})
+    assert resp.status_code == 404
+
+
+def test_cluster_deploy_calls_compose(cluster_app, monkeypatch):
+    app, svc = cluster_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports: {})
+
+    called: dict[str, object] = {}
+
+    def fake_compose_instance(*, project: str, args: list[str], env: dict[str, str]):
+        called["project"] = project
+        called["args"] = args
+        called["env"] = env
+        return {"exit_code": 0, "stdout": "", "stderr": "", "cmd": []}
+
+    monkeypatch.setattr(svc, "_cluster_compose_instance", fake_compose_instance)
+
+    resp = client.post("/cluster/deploy", json={"avatar_id": "Arthur-0", "slot": 1, "gpu": "0"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["project"] == "vtuber-arthur-0"
+    assert called["project"] == "vtuber-arthur-0"
+
+    env = called["env"]
+    assert env["VTUBER_SIGNALING_PUBLIC_PORT"] == "8081"
+    assert env["VTUBER_RUNNER_PORT"] == "9878"
+    assert env["VTUBER_RECORDER_PORT"] == "8890"
+    assert env["VTUBER_GAME_TCP_PORT"] == "7778"
+    assert env["NVIDIA_VISIBLE_DEVICES"] == "0"
+
+
+def test_cluster_down_requires_target(cluster_app):
+    app, _svc = cluster_app
+    client = TestClient(app)
+    resp = client.post("/cluster/down", json={})
+    assert resp.status_code == 422
+
+
+def test_cluster_down_calls_compose(cluster_app, monkeypatch):
+    app, svc = cluster_app
+    client = TestClient(app)
+
+    def fake_compose_instance(*, project: str, args: list[str], env: dict[str, str]):
+        assert project == "vtuber-embody-0"
+        assert args == ["down"]
+        assert env == {}
+        return {"exit_code": 0, "stdout": "", "stderr": "", "cmd": []}
+
+    monkeypatch.setattr(svc, "_cluster_compose_instance", fake_compose_instance)
+
+    resp = client.post("/cluster/down", json={"project": "vtuber-embody-0"})
+    assert resp.status_code == 200
+    assert resp.json()["project"] == "vtuber-embody-0"

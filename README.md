@@ -100,6 +100,11 @@ In cluster mode, each avatar is its own compose project (example: `vtuber-embody
 Remote automation (ex: Payments) can call:
 - `POST http://<host>:9090/power/projects/<compose_project>`
 
+Experimental remote spawn/delete (cluster instances):
+- Enable: set `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1` (then recreate `orchestrator-health`, or run a cluster deploy with the prompt enabled).
+- `POST http://<host>:9090/cluster/deploy` with JSON `{ "avatar_id": "embody-0", "slot": 0, "gpu": "0" }`
+- `POST http://<host>:9090/cluster/down` with JSON `{ "avatar_id": "embody-0" }` (or `{ "project": "vtuber-embody-0" }`)
+
 ## Security / allowlists
 
 This stack protects control endpoints (runner, recorder-control, power) with strict allowlists.

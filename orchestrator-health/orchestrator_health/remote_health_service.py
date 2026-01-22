@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .service_monitor import ServiceMonitor
 
@@ -84,6 +84,35 @@ class PowerRequest(BaseModel):
         le=60 * 60 * 24,
         description="If provided on wake, auto-sleep the stack after this many seconds.",
     )
+
+class ClusterDeployRequest(BaseModel):
+    avatar_id: str = Field(min_length=1, description="Matchmaker streamer id for this instance (ex: arthur-0).")
+    slot: int = Field(ge=0, le=255, description="Port slot (ports are base+slot, subnet is 172.30.<slot>.0/24).")
+    gpu: Optional[str] = Field(default=None, description="NVIDIA_VISIBLE_DEVICES value (ex: 0,1,all).")
+    recreate: bool = Field(default=False, description="Pass --force-recreate to docker compose up.")
+
+
+class ClusterDownRequest(BaseModel):
+    avatar_id: Optional[str] = Field(default=None, description="Matchmaker streamer id (ex: arthur-0).")
+    project: Optional[str] = Field(default=None, description="Compose project name (ex: vtuber-arthur-0).")
+
+    @model_validator(mode="after")
+    def _validate_target(self) -> "ClusterDownRequest":
+        if not (self.avatar_id or self.project):
+            raise ValueError("avatar_id or project is required")
+        return self
+
+
+def _env_truthy(key: str, default: bool = False) -> bool:
+    raw = os.environ.get(key)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+def _require_cluster_control_enabled() -> None:
+    if not _env_truthy("EXPERIMENTAL_REMOTE_CLUSTER_CONTROL", default=False):
+        raise HTTPException(status_code=404, detail="cluster control not enabled")
 
 
 def _require_auth(request: Request) -> None:
@@ -184,6 +213,124 @@ def _validate_power_project(project: str) -> str:
     if POWER_ALLOWED_PROJECT_PREFIXES and not any(project.startswith(prefix) for prefix in POWER_ALLOWED_PROJECT_PREFIXES):
         raise HTTPException(status_code=403, detail="project not allowed")
     return project
+
+
+def _slugify_avatar_id(raw: str) -> str:
+    s = (raw or "").strip().lower()
+    s = re.sub(r"[^a-z0-9_.-]+", "-", s)
+    s = s.strip("-_.")
+    return s
+
+
+def _cluster_ports(slot: int) -> dict[str, int]:
+    return {
+        "signaling": 8080 + slot,
+        "runner": 9877 + slot,
+        "recorder": 8889 + slot,
+        "game_tcp": 7777 + slot,
+    }
+
+
+def _cluster_subnet(slot: int) -> str:
+    return f"172.30.{slot}.0/24"
+
+
+def _cluster_gateway(slot: int) -> str:
+    return f"172.30.{slot}.1"
+
+
+def _cluster_allowlist_csv(gateway: str) -> str:
+    allow_csv = (os.environ.get("VTUBER_ALLOWED_ADDRESSES") or "").strip()
+    edge_local = (os.environ.get("EDGE_LOCAL_ALLOWLIST") or "").strip()
+
+    local_allow = ["127.0.0.1", "::1", "172.17.0.1", "172.18.0.1"]
+
+    items: list[str] = []
+    if allow_csv:
+        items.extend([token.strip() for token in allow_csv.split(",") if token.strip()])
+    else:
+        items.extend(local_allow)
+
+    for token in local_allow:
+        if token not in items:
+            items.append(token)
+
+    if edge_local:
+        for token in [part.strip() for part in edge_local.split(",") if part.strip()]:
+            if token not in items:
+                items.append(token)
+
+    gateway = gateway.strip()
+    if gateway and gateway not in items:
+        items.append(gateway)
+
+    return ",".join(items)
+
+
+def _docker_port_conflicts(want_ports: set[int]) -> dict[int, str]:
+    conflicts: dict[int, str] = {}
+    for container in docker_client.containers.list(all=True):
+        try:
+            container.reload()
+            ports = (container.attrs or {}).get("NetworkSettings", {}).get("Ports") or {}
+        except Exception:  # noqa: BLE001
+            continue
+
+        for bindings in ports.values():
+            if not bindings:
+                continue
+            for binding in bindings:
+                host_port_raw = (binding or {}).get("HostPort")
+                try:
+                    host_port = int(host_port_raw)
+                except Exception:
+                    continue
+                if host_port in want_ports and host_port not in conflicts:
+                    conflicts[host_port] = getattr(container, "name", "<unknown>")
+    return conflicts
+
+
+def _cluster_executor_container() -> Any:
+    name = (os.environ.get("CLUSTER_EXECUTOR_CONTAINER") or "vtuber-orchestrator-edge-rotator").strip()
+    try:
+        return docker_client.containers.get(name)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Cluster executor container not found (%s): %s", name, exc)
+        raise HTTPException(status_code=503, detail=f"cluster executor not running: {name}") from exc
+
+
+def _cluster_compose_instance(*, project: str, args: list[str], env: dict[str, str]) -> dict[str, Any]:
+    project_dir = (os.environ.get("ORCHESTRATOR_PROJECT_DIR") or "/home/ubuntu/Unreal_Vtuber").strip()
+    instance_compose = (os.environ.get("CLUSTER_INSTANCE_COMPOSE_FILE") or "docker-compose.unreal.instance.yml").strip()
+    if not project_dir.startswith("/"):
+        raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR (must be absolute)")
+
+    cmd = [
+        "docker",
+        "compose",
+        "-p",
+        project,
+        "--project-directory",
+        project_dir,
+        "--env-file",
+        f"{project_dir}/.env",
+        "-f",
+        f"{project_dir}/{instance_compose}",
+        *args,
+    ]
+
+    executor = _cluster_executor_container()
+    try:
+        result = executor.exec_run(cmd, environment=env, demux=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Cluster compose exec failed (project=%s): %s", project, exc)
+        raise HTTPException(status_code=500, detail=f"cluster compose exec failed: {exc}") from exc
+
+    stdout_b, stderr_b = result.output or (b"", b"")
+    stdout = (stdout_b or b"").decode("utf-8", errors="replace")
+    stderr = (stderr_b or b"").decode("utf-8", errors="replace")
+    exit_code = getattr(result, "exit_code", 1)
+    return {"exit_code": exit_code, "stdout": stdout, "stderr": stderr, "cmd": cmd}
 
 
 def _find_container(
@@ -599,6 +746,96 @@ def change_project_power_state(project: str, payload: PowerRequest, request: Req
         _PROJECT_AWAKE_UNTIL[project] = awake_until
         _schedule_project_auto_sleep(payload.awake_seconds or 0, project=project, reason="auto-sleep after wake TTL")
     return _power_state_from_project(project)
+
+
+@app.post("/cluster/deploy")
+def cluster_deploy_instance(payload: ClusterDeployRequest, request: Request) -> dict[str, Any]:
+    """EXPERIMENTAL: create/start a cluster-mode avatar compose project (vtuber-<slug>)."""
+    _require_auth(request)
+    _require_cluster_control_enabled()
+
+    avatar_id = payload.avatar_id.strip()
+    slug = _slugify_avatar_id(avatar_id)
+    if not slug:
+        raise HTTPException(status_code=400, detail="avatar_id produces empty slug")
+    project = _validate_power_project(f"vtuber-{slug}")
+
+    ports = _cluster_ports(payload.slot)
+    want_ports = {ports["signaling"], ports["runner"], ports["recorder"], ports["game_tcp"]}
+    conflicts = _docker_port_conflicts(want_ports)
+    if conflicts:
+        items = ", ".join(f"{p}->{name}" for p, name in sorted(conflicts.items()))
+        raise HTTPException(status_code=409, detail=f"host port conflict: {items}")
+
+    subnet = _cluster_subnet(payload.slot)
+    gateway = _cluster_gateway(payload.slot)
+    allow_csv = _cluster_allowlist_csv(gateway)
+
+    session_base = (os.environ.get("VTUBER_SESSION_DIR") or "/home/ubuntu/vtuber_sessions").strip()
+    recordings_base = (os.environ.get("VTUBER_RECORDINGS_DIR") or "/home/ubuntu/recordings").strip()
+
+    env = {
+        "VTUBER_AVATAR_ID": avatar_id,
+        "VTUBER_AVATAR_SLUG": slug,
+        "VTUBER_INSTANCE_PROJECT_NAME": project,
+        "VTUBER_SIGNALING_PUBLIC_PORT": str(ports["signaling"]),
+        "VTUBER_RUNNER_PORT": str(ports["runner"]),
+        "VTUBER_RECORDER_PORT": str(ports["recorder"]),
+        "VTUBER_GAME_TCP_PORT": str(ports["game_tcp"]),
+        "VTUBER_SESSION_DIR": f"{session_base.rstrip('/')}/{slug}",
+        "VTUBER_RECORDINGS_DIR": f"{recordings_base.rstrip('/')}/{slug}",
+        "VTUBER_SIGNALING_INSTANCE_ARGS": f"--public_port {ports['signaling']} --matchmaker_streamer_id {avatar_id}",
+        "VTUBER_DOCKER_SUBNET": subnet,
+        "VTUBER_ALLOWED_ADDRESSES": allow_csv,
+    }
+    if payload.gpu:
+        env["NVIDIA_VISIBLE_DEVICES"] = payload.gpu.strip() or "all"
+
+    args = ["up", "-d"]
+    if payload.recreate:
+        args.insert(1, "--force-recreate")
+
+    out = _cluster_compose_instance(project=project, args=args, env=env)
+    if out["exit_code"] != 0:
+        detail = (out.get("stderr") or out.get("stdout") or "").strip()
+        if detail:
+            detail = "\n".join(detail.splitlines()[-10:]).strip()
+        raise HTTPException(status_code=500, detail=f"cluster deploy failed: {detail or 'unknown error'}")
+
+    return {
+        "project": project,
+        "avatar_id": avatar_id,
+        "slot": payload.slot,
+        "gpu": (payload.gpu or "").strip() or None,
+        "ports": ports,
+        "subnet": subnet,
+        "gateway": gateway,
+    }
+
+
+@app.post("/cluster/down")
+def cluster_down_instance(payload: ClusterDownRequest, request: Request) -> dict[str, Any]:
+    """EXPERIMENTAL: stop/remove a cluster-mode avatar compose project (vtuber-<slug>)."""
+    _require_auth(request)
+    _require_cluster_control_enabled()
+
+    project = payload.project
+    if not project:
+        avatar_id = (payload.avatar_id or "").strip()
+        slug = _slugify_avatar_id(avatar_id)
+        if not slug:
+            raise HTTPException(status_code=400, detail="avatar_id produces empty slug")
+        project = f"vtuber-{slug}"
+
+    project = _validate_power_project(project)
+    out = _cluster_compose_instance(project=project, args=["down"], env={})
+    if out["exit_code"] != 0:
+        detail = (out.get("stderr") or out.get("stdout") or "").strip()
+        if detail:
+            detail = "\n".join(detail.splitlines()[-10:]).strip()
+        raise HTTPException(status_code=500, detail=f"cluster down failed: {detail or 'unknown error'}")
+
+    return {"project": project, "state": "sleeping"}
 
 
 def main() -> None:
