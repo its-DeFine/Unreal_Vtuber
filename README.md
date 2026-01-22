@@ -74,7 +74,13 @@ sudo ./scripts/embody_cli.sh cluster deploy --no-update --auto --yes --max-insta
 Optional: lower per-instance GPU load (helps smaller GPUs run >1 instance):
 - Set these env vars (shell or `.env`), then recreate the game containers.
 ```bash
+# Balanced preset (720p @ 30fps):
 export VTUBER_CONSOLE_VARIABLES_FILE=./pixel-streaming/config/ConsoleVariables.lowload.30fps.720p.ini
+export EMBODY_EXTRA_ARGS="-ForceRes -ResX=1280 -ResY=720 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9"
+
+# Ultra preset (720p @ 20fps, aggressive scalability cuts):
+export VTUBER_CONSOLE_VARIABLES_FILE=./pixel-streaming/config/ConsoleVariables.lowload.20fps.720p.ini
+export VTUBER_GAME_USER_SETTINGS_FILE=./pixel-streaming/config/GameUserSettings.lowload.20fps.720p.ini
 export EMBODY_EXTRA_ARGS="-ForceRes -ResX=1280 -ResY=720 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9"
 ```
 
