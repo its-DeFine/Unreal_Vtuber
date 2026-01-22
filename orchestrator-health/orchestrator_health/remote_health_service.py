@@ -889,8 +889,8 @@ def read_meta(request: Request) -> dict[str, Any]:
 @app.post("/ops/upgrade")
 def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
     """EXPERIMENTAL: update the repo (ff-only) and optionally recreate containers."""
-    _require_auth_strict(request)
     _require_remote_ops_enabled()
+    _require_auth_strict(request)
     project_dir = _cluster_project_dir()
     if not project_dir:
         raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
@@ -908,8 +908,8 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
 @app.post("/ops/rollout")
 def ops_rollout(payload: OpsRolloutRequest, request: Request) -> dict[str, Any]:
     """EXPERIMENTAL: rollout a new encrypted game image via a Payments lease."""
-    _require_auth_strict(request)
     _require_remote_ops_enabled()
+    _require_auth_strict(request)
     project_dir = _cluster_project_dir()
     if not project_dir:
         raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")

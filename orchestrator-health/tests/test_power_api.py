@@ -225,6 +225,8 @@ def test_ops_upgrade_execs_script(ops_app, monkeypatch):
     app, svc = ops_app
     client = TestClient(app)
 
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+
     class DummyResult:
         exit_code = 0
         output = (b"ok\n", b"")
@@ -246,6 +248,8 @@ def test_ops_upgrade_execs_script(ops_app, monkeypatch):
 def test_ops_rollout_execs_script(ops_app, monkeypatch):
     app, svc = ops_app
     client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
 
     class DummyResult:
         exit_code = 0
