@@ -364,18 +364,32 @@ def _docker_port_conflicts(want_ports: set[int], *, ignore_project: str | None =
 def _cluster_executor_container() -> Any:
     name = (os.environ.get("CLUSTER_EXECUTOR_CONTAINER") or "vtuber-orchestrator-edge-rotator").strip()
     try:
-        return docker_client.containers.get(name)
+        executor = docker_client.containers.get(name)
     except Exception as exc:  # noqa: BLE001
         logger.error("Cluster executor container not found (%s): %s", name, exc)
         raise HTTPException(status_code=503, detail=f"cluster executor not running: {name}") from exc
+    try:
+        executor.reload()
+    except Exception:  # pragma: no cover - defensive
+        pass
+    if getattr(executor, "status", "") != "running":
+        raise HTTPException(status_code=503, detail=f"cluster executor not running: {name}")
+    return executor
 
 
 def _cluster_executor_try_container() -> Optional[Any]:
     name = (os.environ.get("CLUSTER_EXECUTOR_CONTAINER") or "vtuber-orchestrator-edge-rotator").strip()
     try:
-        return docker_client.containers.get(name)
+        executor = docker_client.containers.get(name)
     except Exception:
         return None
+    try:
+        executor.reload()
+    except Exception:
+        return None
+    if getattr(executor, "status", "") != "running":
+        return None
+    return executor
 
 
 def _cluster_executor_read_file(executor: Any, path: str) -> Optional[str]:
