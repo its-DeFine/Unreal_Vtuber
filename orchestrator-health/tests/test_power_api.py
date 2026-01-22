@@ -231,7 +231,7 @@ def test_cluster_down_calls_compose(cluster_app, monkeypatch):
     def fake_compose_instance(*, project: str, args: list[str], env: dict[str, str]):
         assert project == "vtuber-embody-0"
         assert args == ["down"]
-        assert env == {}
+        assert env == {"VTUBER_AVATAR_SLUG": "embody-0", "VTUBER_INSTANCE_PROJECT_NAME": "vtuber-embody-0"}
         return {"exit_code": 0, "stdout": "", "stderr": "", "cmd": []}
 
     monkeypatch.setattr(svc, "_cluster_compose_instance", fake_compose_instance)

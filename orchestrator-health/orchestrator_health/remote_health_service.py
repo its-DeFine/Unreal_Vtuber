@@ -820,6 +820,7 @@ def cluster_down_instance(payload: ClusterDownRequest, request: Request) -> dict
     _require_cluster_control_enabled()
 
     project = payload.project
+    slug: str | None = None
     if not project:
         avatar_id = (payload.avatar_id or "").strip()
         slug = _slugify_avatar_id(avatar_id)
@@ -828,7 +829,17 @@ def cluster_down_instance(payload: ClusterDownRequest, request: Request) -> dict
         project = f"vtuber-{slug}"
 
     project = _validate_power_project(project)
-    out = _cluster_compose_instance(project=project, args=["down"], env={})
+    if slug is None:
+        slug = project.removeprefix("vtuber-")
+    slug = slug.strip()
+    if not slug:
+        raise HTTPException(status_code=400, detail="project produces empty slug")
+
+    out = _cluster_compose_instance(
+        project=project,
+        args=["down"],
+        env={"VTUBER_AVATAR_SLUG": slug, "VTUBER_INSTANCE_PROJECT_NAME": project},
+    )
     if out["exit_code"] != 0:
         detail = (out.get("stderr") or out.get("stdout") or "").strip()
         if detail:
