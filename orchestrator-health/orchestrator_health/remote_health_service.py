@@ -267,11 +267,16 @@ def _cluster_allowlist_csv(gateway: str) -> str:
     return ",".join(items)
 
 
-def _docker_port_conflicts(want_ports: set[int]) -> dict[int, str]:
+def _docker_port_conflicts(want_ports: set[int], *, ignore_project: str | None = None) -> dict[int, str]:
     conflicts: dict[int, str] = {}
     for container in docker_client.containers.list(all=True):
         try:
             container.reload()
+            if ignore_project:
+                labels = (container.attrs or {}).get("Config", {}).get("Labels") or {}
+                project = (labels.get("com.docker.compose.project") or "").strip()
+                if project and project == ignore_project:
+                    continue
             ports = (container.attrs or {}).get("NetworkSettings", {}).get("Ports") or {}
         except Exception:  # noqa: BLE001
             continue
@@ -762,7 +767,7 @@ def cluster_deploy_instance(payload: ClusterDeployRequest, request: Request) -> 
 
     ports = _cluster_ports(payload.slot)
     want_ports = {ports["signaling"], ports["runner"], ports["recorder"], ports["game_tcp"]}
-    conflicts = _docker_port_conflicts(want_ports)
+    conflicts = _docker_port_conflicts(want_ports, ignore_project=project)
     if conflicts:
         items = ", ".join(f"{p}->{name}" for p, name in sorted(conflicts.items()))
         raise HTTPException(status_code=409, detail=f"host port conflict: {items}")

@@ -191,7 +191,7 @@ def test_cluster_deploy_calls_compose(cluster_app, monkeypatch):
     app, svc = cluster_app
     client = TestClient(app)
 
-    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports: {})
+    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports, **_kwargs: {})
 
     called: dict[str, object] = {}
 
@@ -228,7 +228,7 @@ def test_cluster_deploy_rejects_port_conflicts(cluster_app, monkeypatch):
     app, svc = cluster_app
     client = TestClient(app)
 
-    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports: {8081: "busy-container"})
+    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports, **_kwargs: {8081: "busy-container"})
     resp = client.post("/cluster/deploy", json={"avatar_id": "embody-0", "slot": 1})
     assert resp.status_code == 409
     assert "8081" in resp.json()["detail"]
@@ -238,7 +238,7 @@ def test_cluster_deploy_force_recreate(cluster_app, monkeypatch):
     app, svc = cluster_app
     client = TestClient(app)
 
-    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports: {})
+    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports, **_kwargs: {})
 
     called: dict[str, object] = {}
 
@@ -295,3 +295,42 @@ def test_cluster_down_with_avatar_id_calls_compose(cluster_app, monkeypatch):
     resp = client.post("/cluster/down", json={"avatar_id": "Embody-0"})
     assert resp.status_code == 200
     assert resp.json()["project"] == "vtuber-embody-0"
+
+
+def test_docker_port_conflicts_ignores_target_project(cluster_app, monkeypatch):
+    _app, svc = cluster_app
+
+    class DummyContainer:
+        def __init__(self, name: str, project: str, host_port: int):
+            self.name = name
+            self.attrs = {
+                "Config": {"Labels": {"com.docker.compose.project": project}},
+                "NetworkSettings": {"Ports": {"80/tcp": [{"HostPort": str(host_port)}]}},
+            }
+
+        def reload(self) -> None:  # pragma: no cover - exercised by service code
+            return None
+
+    class DummyDocker:
+        def __init__(self, containers):
+            self._containers = containers
+
+            class _Containers:
+                def __init__(self, parent):
+                    self._parent = parent
+
+                def list(self, all: bool = False, **_kwargs):  # noqa: A002 - match docker SDK signature
+                    return self._parent._containers
+
+            self.containers = _Containers(self)
+
+    want = {8081}
+    same_project = DummyContainer("same", "vtuber-embody-0", 8081)
+    other_project = DummyContainer("other", "vtuber-other", 8081)
+
+    monkeypatch.setattr(svc, "docker_client", DummyDocker([same_project]))
+    assert svc._docker_port_conflicts(want, ignore_project="vtuber-embody-0") == {}
+    assert svc._docker_port_conflicts(want, ignore_project=None) == {8081: "same"}
+
+    monkeypatch.setattr(svc, "docker_client", DummyDocker([same_project, other_project]))
+    assert svc._docker_port_conflicts(want, ignore_project="vtuber-embody-0") == {8081: "other"}
