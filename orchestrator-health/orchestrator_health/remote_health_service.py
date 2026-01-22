@@ -918,22 +918,24 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
         steps.append(out)
         return out
 
-    repo = run_step("git_is_repo", ["git", "-C", project_dir, "rev-parse", "--is-inside-work-tree"])
+    git_cmd = ["git", "-c", f"safe.directory={project_dir}", "-C", project_dir]
+
+    repo = run_step("git_is_repo", [*git_cmd, "rev-parse", "--is-inside-work-tree"])
     if repo["exit_code"] != 0:
         return {"ok": False, "exit_code": repo["exit_code"], "steps": steps}
 
-    dirty = run_step("git_status", ["git", "-C", project_dir, "status", "--porcelain"])
+    dirty = run_step("git_status", [*git_cmd, "status", "--porcelain"])
     if dirty["exit_code"] == 0 and (dirty.get("stdout") or "").strip():
         return {"ok": False, "exit_code": 409, "detail": "dirty working tree", "steps": steps}
 
-    before = run_step("git_head_before", ["git", "-C", project_dir, "rev-parse", "--short", "HEAD"])
-    fetch = run_step("git_fetch", ["git", "-C", project_dir, "fetch", "-q", "origin", "main"])
+    before = run_step("git_head_before", [*git_cmd, "rev-parse", "--short", "HEAD"])
+    fetch = run_step("git_fetch", [*git_cmd, "fetch", "-q", "origin", "main"])
     if fetch["exit_code"] != 0:
         return {"ok": False, "exit_code": fetch["exit_code"], "steps": steps}
-    pull = run_step("git_pull", ["git", "-C", project_dir, "pull", "-q", "--ff-only", "origin", "main"])
+    pull = run_step("git_pull", [*git_cmd, "pull", "-q", "--ff-only", "origin", "main"])
     if pull["exit_code"] != 0:
         return {"ok": False, "exit_code": pull["exit_code"], "steps": steps}
-    after = run_step("git_head_after", ["git", "-C", project_dir, "rev-parse", "--short", "HEAD"])
+    after = run_step("git_head_after", [*git_cmd, "rev-parse", "--short", "HEAD"])
 
     if payload.apply:
         _detect_compose_identity()
