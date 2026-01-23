@@ -237,19 +237,27 @@ def test_ops_upgrade_execs_script(ops_app, monkeypatch):
 
     class DummyExecutor:
         def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
-            if cmd[:3] == ["git", "-C", "/tmp/repo"]:
-                if cmd[3:6] == ["rev-parse", "--is-inside-work-tree"]:
+            git_prefix_a = ["git", "-C", "/tmp/repo"]
+            git_prefix_b = ["git", "-c", "safe.directory=/tmp/repo", "-C", "/tmp/repo"]
+
+            if cmd[: len(git_prefix_a)] == git_prefix_a:
+                git_cmd = cmd[len(git_prefix_a) :]
+            elif cmd[: len(git_prefix_b)] == git_prefix_b:
+                git_cmd = cmd[len(git_prefix_b) :]
+            else:
+                raise AssertionError(f"unexpected cmd: {cmd}")
+
+            if git_cmd[:3] == ["rev-parse", "--is-inside-work-tree"]:
                     return DummyResult(stdout="true\n")
-                if cmd[3:5] == ["status", "--porcelain"]:
+            if git_cmd[:2] == ["status", "--porcelain"]:
                     return DummyResult(stdout="")
-                if cmd[3:6] == ["rev-parse", "--short", "HEAD"]:
+            if git_cmd[:3] == ["rev-parse", "--short", "HEAD"]:
                     return DummyResult(stdout="abc123\n")
-                if cmd[3:5] == ["fetch", "-q"]:
+            if git_cmd[:2] == ["fetch", "-q"]:
                     return DummyResult(stdout="")
-                if cmd[3:6] == ["pull", "-q", "--ff-only"]:
+            if git_cmd[:3] == ["pull", "-q", "--ff-only"]:
                     return DummyResult(stdout="")
-                return DummyResult(stdout="")
-            raise AssertionError(f"unexpected cmd: {cmd}")
+            return DummyResult(stdout="")
 
     monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
     monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
@@ -525,6 +533,11 @@ def test_meta_endpoint_reports_git_and_containers(power_app, monkeypatch):
             self.output = (stdout.encode("utf-8"), b"")
 
     class DummyExecutor:
+        status = "running"
+
+        def reload(self) -> None:  # pragma: no cover - used by service code
+            return None
+
         def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002 - match docker SDK signature
             assert cmd[0] == "cat"
             path = cmd[1]
