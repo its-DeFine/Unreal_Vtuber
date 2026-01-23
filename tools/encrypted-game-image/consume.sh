@@ -934,10 +934,10 @@ identity_file="$(mktemp)"
 chmod 600 "$identity_file"
 
 # secret_b64 is expected to be base64(identity-file-bytes)
-if command -v base64 >/dev/null 2>&1 && base64 --help 2>&1 | grep -q -- ' -d'; then
-  printf '%s' "$secret_b64" | base64 -d >"$identity_file"
-elif command -v base64 >/dev/null 2>&1 && base64 --help 2>&1 | grep -q -- ' -D'; then
-  printf '%s' "$secret_b64" | base64 -D >"$identity_file"
+if command -v base64 >/dev/null 2>&1; then
+  if ! printf '%s' "$secret_b64" | base64 -d >"$identity_file" 2>/dev/null; then
+    printf '%s' "$secret_b64" | base64 -D >"$identity_file" 2>/dev/null || die "base64 decode not available"
+  fi
 else
   die "base64 decode not available"
 fi
