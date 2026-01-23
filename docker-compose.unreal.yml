@@ -9,6 +9,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/embody-turn-server:latest
     container_name: vtuber-turn-server
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     env_file:
       - .env.turn
     entrypoint: ['/bin/sh', '-c']
@@ -39,6 +41,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/embody-signaling:latest
     container_name: vtuber-unreal-signaling
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       - turn-server
     env_file:
@@ -74,6 +78,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest
     container_name: vtuber-unreal-game
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     runtime: nvidia
     ulimits:
       nofile:
@@ -90,7 +96,7 @@ services:
       - HOST_ULIMIT_NOFILE=1040
       - ULIMIT_NOFILE=1040
       - HOST_LIB_PATHS=/host-libs/usr/lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:/host-libs/lib64:/host-libs/usr/lib64:/host-libs/usr/lib/nvidia
-      - EMBODY_EXTRA_ARGS=-ForceRes -ResX=1920 -ResY=1080 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9
+      - EMBODY_EXTRA_ARGS=${EMBODY_EXTRA_ARGS:--ForceRes -ResX=1920 -ResY=1080 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9}
       - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
     volumes:
@@ -102,8 +108,8 @@ services:
       - /usr/share/vulkan:/host-libs/usr/share/vulkan:ro
       - /etc/vulkan:/host-libs/etc/vulkan:ro
       - /usr/share/glvnd:/host-libs/usr/share/glvnd:ro
-      - ./pixel-streaming/config/ConsoleVariables.ini:/opt/embody/Embody/Saved/Config/LinuxNoEditor/ConsoleVariables.ini:ro
-      - ./pixel-streaming/config/GameUserSettings.ini:/opt/embody/Embody/Saved/Config/LinuxNoEditor/GameUserSettings.ini:ro
+      - ${VTUBER_CONSOLE_VARIABLES_FILE:-./pixel-streaming/config/ConsoleVariables.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/ConsoleVariables.ini:ro
+      - ${VTUBER_GAME_USER_SETTINGS_FILE:-./pixel-streaming/config/GameUserSettings.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/GameUserSettings.ini:ro
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     networks:
       - vtuber_network
@@ -116,6 +122,8 @@ services:
   vtuber-script-runner:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-script-runner:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-script-runner
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     network_mode: "service:unreal-game"
     environment:
       - VTUBER_SESSION_ROOT=/opt/embody/sessions
@@ -132,6 +140,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-watchdog:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-watchdog
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       - unreal-game
     environment:
@@ -149,6 +159,8 @@ services:
   orchestrator-registration:
     image: ghcr.io/its-define/unreal_vtuber/orchestrator-registration:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-orchestrator-registration
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       - unreal-game
     env_file:
@@ -168,6 +180,8 @@ services:
   orchestrator-health:
     image: ghcr.io/its-define/unreal_vtuber/orchestrator-health:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-orchestrator-health
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     command: ["python", "-m", "orchestrator_health.remote_health_service"]
     env_file:
       - .env
@@ -181,6 +195,13 @@ services:
       - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-}
       - POWER_KEEP_RUNNING_SERVICES=${POWER_KEEP_RUNNING_SERVICES-orchestrator-edge-rotator}
       - POWER_ALLOWED_IPS_FILE=${EDGE_POWER_ALLOWED_IPS_FILE-/var/lib/vtuber/power-state/power_allowed_ips.txt}
+      # Experimental: allow remote cluster instance deploy/down via :9090/cluster/*
+      - EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=${EXPERIMENTAL_REMOTE_CLUSTER_CONTROL:-0}
+      # Experimental: allow remote ops endpoints via :9090/ops/*
+      - EXPERIMENTAL_REMOTE_OPS=${EXPERIMENTAL_REMOTE_OPS:-0}
+      - ORCHESTRATOR_PROJECT_DIR=${EDGE_PROJECT_DIR:-/home/ubuntu/Unreal_Vtuber}
+      - CLUSTER_EXECUTOR_CONTAINER=${CLUSTER_EXECUTOR_CONTAINER:-vtuber-orchestrator-edge-rotator}
+      - CLUSTER_INSTANCE_COMPOSE_FILE=${CLUSTER_INSTANCE_COMPOSE_FILE:-docker-compose.unreal.instance.yml}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state
@@ -194,6 +215,8 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/orchestrator-edge-rotator:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-orchestrator-edge-rotator
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     network_mode: host
     cap_add:
       - NET_ADMIN
@@ -216,6 +239,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state
+      # Needed for remote rollout via `tools/encrypted-game-image/*` (reads the license token from ~/.embody).
+      - ${ORCH_LICENSE_TOKEN_FILE:-/home/ubuntu/.embody/orch-license-token.txt}:/root/.embody/orch-license-token.txt:ro
       - ${EDGE_PROJECT_DIR:-/home/ubuntu/Unreal_Vtuber}:${EDGE_PROJECT_DIR:-/home/ubuntu/Unreal_Vtuber}
 
   vtuber-auto-updater:
@@ -235,18 +260,14 @@ services:
         "${WATCHTOWER_INTERVAL:-900}",
         "--cleanup",
         "--include-restarting",
-        "vtuber-turn-server",
-        "vtuber-unreal-signaling",
-        "vtuber-script-runner",
-        "vtuber-recorder-control",
-        "vtuber-orchestrator-edge-rotator",
-        "vtuber-orchestrator-health",
-        "vtuber-watchdog",
+        "--label-enable",
       ]
 
   recorder-control:
     image: ghcr.io/its-define/unreal_vtuber/recorder-control:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-recorder-control
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       - unreal-signaling
     env_file:

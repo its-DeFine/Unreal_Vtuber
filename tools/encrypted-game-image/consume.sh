@@ -721,7 +721,11 @@ if [[ -n "$invite_code_file" ]]; then
 fi
 
 # Determine the correct "home" to use for caching when running under sudo.
-target_user="${SUDO_USER:-$USER}"
+# Note: this script may run in minimal containers where $USER is unset.
+target_user="${SUDO_USER:-${USER:-}}"
+if [[ -z "$target_user" ]]; then
+  target_user="$(id -un 2>/dev/null || echo root)"
+fi
 target_home=""
 if command -v getent >/dev/null 2>&1; then
   target_home="$(getent passwd "$target_user" 2>/dev/null | cut -d: -f6 || true)"

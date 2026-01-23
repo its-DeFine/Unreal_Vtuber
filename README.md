@@ -71,6 +71,25 @@ Cap the number of instances:
 sudo ./scripts/embody_cli.sh cluster deploy --no-update --auto --yes --max-instances 12 --pull missing
 ```
 
+Optional: lower per-instance GPU load (helps smaller GPUs run >1 instance):
+- Set these env vars (shell or `.env`), then recreate the game containers.
+```bash
+# Balanced preset (720p @ 30fps):
+export VTUBER_CONSOLE_VARIABLES_FILE=./pixel-streaming/config/ConsoleVariables.lowload.30fps.720p.ini
+export VTUBER_GAME_USER_SETTINGS_FILE=./pixel-streaming/config/GameUserSettings.lowload.30fps.720p.ini
+export EMBODY_EXTRA_ARGS="-ForceRes -ResX=1280 -ResY=720 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9"
+
+# To reduce render load further (tradeoff: blurrier video), keep the same preset but lower the stream resolution:
+# - 480p:  -ResX=854  -ResY=480
+# - 360p:  -ResX=640  -ResY=360
+# - 240p:  -ResX=426  -ResY=240
+
+# Ultra preset (720p @ 20fps, aggressive scalability cuts):
+export VTUBER_CONSOLE_VARIABLES_FILE=./pixel-streaming/config/ConsoleVariables.lowload.20fps.720p.ini
+export VTUBER_GAME_USER_SETTINGS_FILE=./pixel-streaming/config/GameUserSettings.lowload.20fps.720p.ini
+export EMBODY_EXTRA_ARGS="-ForceRes -ResX=1280 -ResY=720 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9"
+```
+
 ## Per-avatar sleep/wake (cluster mode)
 
 In cluster mode, each avatar is its own compose project (example: `vtuber-embody-0`). You can sleep/wake a single avatar locally:
@@ -81,6 +100,25 @@ In cluster mode, each avatar is its own compose project (example: `vtuber-embody
 
 Remote automation (ex: Payments) can call:
 - `POST http://<host>:9090/power/projects/<compose_project>`
+
+Experimental remote spawn/delete (cluster instances):
+- Enable: set `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1` (then recreate `orchestrator-health`, or run a cluster deploy with the prompt enabled).
+- `POST http://<host>:9090/cluster/deploy` with JSON `{ "avatar_id": "embody-0", "slot": 0, "gpu": "0" }`
+- `POST http://<host>:9090/cluster/down` with JSON `{ "avatar_id": "embody-0" }` (or `{ "project": "vtuber-embody-0" }`)
+
+Remote metadata + ops (experimental):
+- `GET http://<host>:9090/meta` (git head + container image refs/ids).
+- Enable: set `EXPERIMENTAL_REMOTE_OPS=1` (requires POWER_ALLOWED_IPS / VTUBER_ALLOWED_ADDRESSES allowlisting).
+- `POST http://<host>:9090/ops/upgrade` with JSON `{ "apply": true }` (git ff-only update; optionally pull/recreate host-level containers).
+- `POST http://<host>:9090/ops/rollout` with JSON `{ "payments_api_url": "http://<payments>:8081", "image_ref": "ghcr.io/...:enc-v1", "recreate_stopped": true }` (loads the encrypted game image via a Payments lease; requires all `unreal-game` containers stopped; optionally force-recreates stopped game containers so the next wake uses the updated image).
+- `POST http://<host>:9090/ops/pull-image` with JSON `{ "image": "ghcr.io/<org>/<image>:<tag>" }` (unencrypted image pull; follow by redeploy/recreate).
+
+## Auto updates (watchtower)
+
+This stack includes `vtuber-auto-updater` (watchtower). It runs in label-enable mode and updates any container labeled:
+- `com.centurylinklabs.watchtower.enable=true`
+
+This includes both the single-instance stack and cluster-mode per-avatar containers, without touching unrelated containers on the host.
 
 ## Security / allowlists
 

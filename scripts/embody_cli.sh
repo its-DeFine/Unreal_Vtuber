@@ -1974,6 +1974,29 @@ cluster_max_slot() {
   printf '%s' "$max"
 }
 
+cluster_host_project_name() {
+  local container label
+  for container in vtuber-orchestrator-health vtuber-orchestrator-edge-rotator vtuber-turn-server vtuber-auto-updater; do
+    label="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$container" 2>/dev/null || true)"
+    label="$(trim_whitespace "${label:-}")"
+    if [[ -n "$label" ]]; then
+      printf '%s' "$label"
+      return 0
+    fi
+  done
+  printf '%s' "$CLUSTER_HOST_PROJECT_NAME"
+}
+
+cluster_detect_running_single_stack_containers() {
+  local container status
+  for container in vtuber-unreal-game vtuber-unreal-signaling vtuber-recorder-control vtuber-script-runner; do
+    status="$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null || true)"
+    if [[ "$status" == "running" ]]; then
+      echo "$container"
+    fi
+  done
+}
+
 cluster_edge_allow_ports() {
   local max_slot="$1"
   local sig_end run_end rec_end
@@ -2175,9 +2198,33 @@ cluster_up() {
     fi
     estimate="$(cluster_auto_estimate_instance_count "$raw" "$devices" "$per" "$effective_max")"
     if [[ ! "$estimate" =~ ^[0-9]+$ || "$estimate" -lt 1 ]]; then
-      echo "cluster: auto failed (nvidia-smi missing/unreadable, or insufficient VRAM for estimate)" >&2
-      echo "Next: ./scripts/embody_cli.sh cluster init" >&2
-      return 1
+      local estimate_ignore_util effective_max_ignore_util
+      effective_max_ignore_util="$auto_max_instances"
+      if [[ -z "${effective_max_ignore_util:-}" ]]; then
+        effective_max_ignore_util="$(EMBODY_AUTO_GPU_UTIL_MAX=100 cluster_count_available_gpus "$raw" "$devices" "$per")"
+      fi
+      estimate_ignore_util="$(EMBODY_AUTO_GPU_UTIL_MAX=100 cluster_auto_estimate_instance_count "$raw" "$devices" "$per" "$effective_max_ignore_util" || true)"
+
+      if [[ "$estimate_ignore_util" =~ ^[0-9]+$ ]] && [[ "$estimate_ignore_util" -ge 1 ]]; then
+        echo "cluster: auto found VRAM capacity, but excluded GPUs due to utilization >$(get_auto_gpu_util_max_percent)%." >&2
+        echo "cluster: to ignore utilization gating (EXPERIMENTAL), set EMBODY_AUTO_GPU_UTIL_MAX=100." >&2
+        if is_tty && [[ "$auto_yes" != "1" ]]; then
+          if prompt_yes_no "Proceed anyway and auto-generate ${estimate_ignore_util} instance(s)? (experimental)" "n"; then
+            effective_max="$effective_max_ignore_util"
+            estimate="$estimate_ignore_util"
+          else
+            echo "cluster: canceled" >&2
+            return 1
+          fi
+        else
+          echo "cluster: auto failed (GPU busy); re-run with EMBODY_AUTO_GPU_UTIL_MAX=100 or create cluster config manually." >&2
+          return 1
+        fi
+      else
+        echo "cluster: auto failed (nvidia-smi missing/unreadable, or insufficient VRAM for estimate)" >&2
+        echo "Next: ./scripts/embody_cli.sh cluster init" >&2
+        return 1
+      fi
     fi
 
     if is_tty && [[ "$auto_yes" != "1" ]]; then
@@ -2207,6 +2254,23 @@ cluster_up() {
     return 1
   fi
 
+  local single_running
+  single_running="$(cluster_detect_running_single_stack_containers || true)"
+  if [[ -n "$single_running" ]]; then
+    echo "cluster: detected a running single-instance stack (will conflict with cluster slot 0 ports + matchmaker IDs):" >&2
+    printf '%s\n' "$single_running" | sed 's/^/  - /' >&2
+    echo "cluster: recommended: ./scripts/embody_cli.sh stop (or ./scripts/embody_cli.sh down) then retry cluster deploy." >&2
+    if ! is_tty; then
+      echo "cluster: refusing to proceed in non-interactive mode." >&2
+      return 1
+    fi
+    if ! prompt_yes_no "Stop the single-instance stack now and continue with cluster deploy?" "n"; then
+      echo "cluster: canceled" >&2
+      return 1
+    fi
+    "$START_SCRIPT" stop || return 1
+  fi
+
   local max_slot
   max_slot="$(cluster_max_slot)"
   [[ "$max_slot" =~ ^[0-9]+$ ]] || { echo "cluster: invalid max slot" >&2; return 1; }
@@ -2234,8 +2298,11 @@ cluster_up() {
     instance_up_flags+=(--force-recreate)
   fi
 
+  local host_project
+  host_project="$(cluster_host_project_name)"
+
   EDGE_ALLOW_PORTS="$edge_ports" MONITORED_SERVICES="$monitored" EDGE_SKIP_COMPOSE_RECREATE="1" docker compose \
-    -p "$CLUSTER_HOST_PROJECT_NAME" -f "$COMPOSE_FILE" \
+    -p "$host_project" -f "$COMPOSE_FILE" \
     up "${host_up_flags[@]}" \
     turn-server orchestrator-health orchestrator-edge-rotator vtuber-auto-updater orchestrator-registration
 
@@ -2328,6 +2395,17 @@ cluster_deploy() {
     esac
   done
 
+  local remote_cluster
+  remote_cluster="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EXPERIMENTAL_REMOTE_CLUSTER_CONTROL" 2>/dev/null || true)")"
+  remote_cluster="$(trim_whitespace "${remote_cluster:-}")"
+  if [[ "$remote_cluster" != "1" ]] && is_tty; then
+    echo "cluster: experimental remote cluster spawn/delete endpoints (:9090/cluster/*) are disabled by default." >&2
+    if prompt_yes_no "Enable remote cluster control for this deploy? (experimental)" "n"; then
+      export EXPERIMENTAL_REMOTE_CLUSTER_CONTROL="1"
+      echo "cluster: enabled for this run (tip: add EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1 to .env to persist)." >&2
+    fi
+  fi
+
   if [[ "$do_update" == "1" ]]; then
     cmd_update || return 1
   fi
@@ -2372,7 +2450,7 @@ cluster_down() {
   done
 
   if [[ "${#only[@]}" -eq 0 ]]; then
-    docker compose -p "$CLUSTER_HOST_PROJECT_NAME" -f "$COMPOSE_FILE" down || true
+    docker compose -p "$(cluster_host_project_name)" -f "$COMPOSE_FILE" down || true
   fi
 }
 
@@ -2382,7 +2460,7 @@ cluster_status() {
   cluster_ensure_docker || return 1
 
   echo "Host:"
-  docker compose -p "$CLUSTER_HOST_PROJECT_NAME" -f "$COMPOSE_FILE" ps || true
+  docker compose -p "$(cluster_host_project_name)" -f "$COMPOSE_FILE" ps || true
   echo ""
 
   local only=()

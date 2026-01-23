@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .service_monitor import ServiceMonitor
 
@@ -85,11 +85,84 @@ class PowerRequest(BaseModel):
         description="If provided on wake, auto-sleep the stack after this many seconds.",
     )
 
+class ClusterDeployRequest(BaseModel):
+    avatar_id: str = Field(min_length=1, description="Matchmaker streamer id for this instance (ex: arthur-0).")
+    slot: int = Field(ge=0, le=255, description="Port slot (ports are base+slot, subnet is 172.30.<slot>.0/24).")
+    gpu: Optional[str] = Field(default=None, description="NVIDIA_VISIBLE_DEVICES value (ex: 0,1,all).")
+    recreate: bool = Field(default=False, description="Pass --force-recreate to docker compose up.")
+    console_variables_file: Optional[str] = Field(
+        default=None,
+        description="Optional override for VTUBER_CONSOLE_VARIABLES_FILE (relative path under the project dir).",
+    )
+    game_user_settings_file: Optional[str] = Field(
+        default=None,
+        description="Optional override for VTUBER_GAME_USER_SETTINGS_FILE (relative path under the project dir).",
+    )
+    embody_extra_args: Optional[str] = Field(
+        default=None,
+        description="Optional override for EMBODY_EXTRA_ARGS (Unreal cmdline; ex: -ResX=1280 -ResY=720).",
+    )
+
+
+class ClusterDownRequest(BaseModel):
+    avatar_id: Optional[str] = Field(default=None, description="Matchmaker streamer id (ex: arthur-0).")
+    project: Optional[str] = Field(default=None, description="Compose project name (ex: vtuber-arthur-0).")
+
+    @model_validator(mode="after")
+    def _validate_target(self) -> "ClusterDownRequest":
+        if not (self.avatar_id or self.project):
+            raise ValueError("avatar_id or project is required")
+        return self
+
+
+class OpsUpgradeRequest(BaseModel):
+    apply: bool = Field(default=False, description="If true, pull/recreate host-level containers after updating the repo.")
+
+
+class OpsRolloutRequest(BaseModel):
+    payments_api_url: Optional[str] = Field(default=None, description="Payments backend base URL override.")
+    image_ref: Optional[str] = Field(default=None, description="Payments license image_ref override (enc-v1, etc).")
+    no_verify: bool = Field(default=False, description="Skip post-rollout health verification.")
+    recreate_stopped: bool = Field(
+        default=False,
+        description="If true, force-recreate stopped game containers after the image is loaded (keeps them stopped).",
+    )
+
+
+class OpsPullImageRequest(BaseModel):
+    image: str = Field(min_length=1, description="Docker image ref to pull (ex: ghcr.io/...:tag).")
+
+
+def _env_truthy(key: str, default: bool = False) -> bool:
+    raw = os.environ.get(key)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+def _require_cluster_control_enabled() -> None:
+    if not _env_truthy("EXPERIMENTAL_REMOTE_CLUSTER_CONTROL", default=False):
+        raise HTTPException(status_code=404, detail="cluster control not enabled")
+
+
+def _require_remote_ops_enabled() -> None:
+    if not _env_truthy("EXPERIMENTAL_REMOTE_OPS", default=False):
+        raise HTTPException(status_code=404, detail="remote ops not enabled")
+
 
 def _require_auth(request: Request) -> None:
     allowed = _get_power_allowed_ips()
     if not allowed:
         return
+    client_ip = request.client.host if request.client else None
+    if (not client_ip) or (not _ip_in_allowlist(client_ip, allowed)):
+        raise HTTPException(status_code=403, detail="client address not allowed")
+
+
+def _require_auth_strict(request: Request) -> None:
+    allowed = _get_power_allowed_ips()
+    if not allowed:
+        raise HTTPException(status_code=403, detail="POWER_ALLOWED_IPS must be set for remote ops")
     client_ip = request.client.host if request.client else None
     if (not client_ip) or (not _ip_in_allowlist(client_ip, allowed)):
         raise HTTPException(status_code=403, detail="client address not allowed")
@@ -184,6 +257,546 @@ def _validate_power_project(project: str) -> str:
     if POWER_ALLOWED_PROJECT_PREFIXES and not any(project.startswith(prefix) for prefix in POWER_ALLOWED_PROJECT_PREFIXES):
         raise HTTPException(status_code=403, detail="project not allowed")
     return project
+
+
+def _validate_compose_project_name(project: str) -> str:
+    project = project.strip()
+    if not project:
+        raise HTTPException(status_code=400, detail="project is required")
+    if not _PROJECT_NAME_RE.match(project):
+        raise HTTPException(status_code=400, detail="invalid project name")
+    return project
+
+
+def _slugify_avatar_id(raw: str) -> str:
+    s = (raw or "").strip().lower()
+    s = re.sub(r"[^a-z0-9_.-]+", "-", s)
+    s = s.strip("-_.")
+    return s
+
+
+def _validate_compose_project_relpath(path: str, *, field: str) -> str:
+    raw = (path or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail=f"{field} is empty")
+    if "\x00" in raw or "\n" in raw or "\r" in raw:
+        raise HTTPException(status_code=400, detail=f"{field} contains invalid characters")
+    if raw.startswith("/"):
+        raise HTTPException(status_code=400, detail=f"{field} must be a relative path")
+
+    parts = Path(raw).parts
+    if any(part in ("..",) for part in parts):
+        raise HTTPException(status_code=400, detail=f"{field} must not contain ..")
+    if not raw.startswith("./pixel-streaming/config/"):
+        raise HTTPException(status_code=400, detail=f"{field} must start with ./pixel-streaming/config/")
+    return raw
+
+
+def _cluster_ports(slot: int) -> dict[str, int]:
+    return {
+        "signaling": 8080 + slot,
+        "runner": 9877 + slot,
+        "recorder": 8889 + slot,
+        "game_tcp": 7777 + slot,
+    }
+
+
+def _cluster_subnet(slot: int) -> str:
+    return f"172.30.{slot}.0/24"
+
+
+def _cluster_gateway(slot: int) -> str:
+    return f"172.30.{slot}.1"
+
+
+def _cluster_allowlist_csv(gateway: str) -> str:
+    allow_csv = (os.environ.get("VTUBER_ALLOWED_ADDRESSES") or "").strip()
+    edge_local = (os.environ.get("EDGE_LOCAL_ALLOWLIST") or "").strip()
+
+    local_allow = ["127.0.0.1", "::1", "172.17.0.1", "172.18.0.1"]
+
+    items: list[str] = []
+    if allow_csv:
+        items.extend([token.strip() for token in allow_csv.split(",") if token.strip()])
+    else:
+        items.extend(local_allow)
+
+    for token in local_allow:
+        if token not in items:
+            items.append(token)
+
+    if edge_local:
+        for token in [part.strip() for part in edge_local.split(",") if part.strip()]:
+            if token not in items:
+                items.append(token)
+
+    gateway = gateway.strip()
+    if gateway and gateway not in items:
+        items.append(gateway)
+
+    return ",".join(items)
+
+
+def _docker_port_conflicts(want_ports: set[int], *, ignore_project: str | None = None) -> dict[int, str]:
+    conflicts: dict[int, str] = {}
+    for container in docker_client.containers.list(all=True):
+        try:
+            container.reload()
+            if ignore_project:
+                labels = (container.attrs or {}).get("Config", {}).get("Labels") or {}
+                project = (labels.get("com.docker.compose.project") or "").strip()
+                if project and project == ignore_project:
+                    continue
+            ports = (container.attrs or {}).get("NetworkSettings", {}).get("Ports") or {}
+        except Exception:  # noqa: BLE001
+            continue
+
+        for bindings in ports.values():
+            if not bindings:
+                continue
+            for binding in bindings:
+                host_port_raw = (binding or {}).get("HostPort")
+                try:
+                    host_port = int(host_port_raw)
+                except Exception:
+                    continue
+                if host_port in want_ports and host_port not in conflicts:
+                    conflicts[host_port] = getattr(container, "name", "<unknown>")
+    return conflicts
+
+
+def _cluster_executor_container() -> Any:
+    name = (os.environ.get("CLUSTER_EXECUTOR_CONTAINER") or "vtuber-orchestrator-edge-rotator").strip()
+    try:
+        executor = docker_client.containers.get(name)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Cluster executor container not found (%s): %s", name, exc)
+        raise HTTPException(status_code=503, detail=f"cluster executor not running: {name}") from exc
+    try:
+        executor.reload()
+    except Exception:  # pragma: no cover - defensive
+        pass
+    if getattr(executor, "status", "") != "running":
+        raise HTTPException(status_code=503, detail=f"cluster executor not running: {name}")
+    return executor
+
+
+def _cluster_executor_try_container() -> Optional[Any]:
+    name = (os.environ.get("CLUSTER_EXECUTOR_CONTAINER") or "vtuber-orchestrator-edge-rotator").strip()
+    try:
+        executor = docker_client.containers.get(name)
+    except Exception:
+        return None
+    try:
+        executor.reload()
+    except Exception:
+        return None
+    if getattr(executor, "status", "") != "running":
+        return None
+    return executor
+
+
+def _cluster_executor_read_file(executor: Any, path: str) -> Optional[str]:
+    try:
+        result = executor.exec_run(["cat", path], demux=True)
+    except Exception:  # noqa: BLE001
+        return None
+    if getattr(result, "exit_code", 1) != 0:
+        return None
+    stdout_b, _stderr_b = result.output or (b"", b"")
+    return (stdout_b or b"").decode("utf-8", errors="replace").strip() or None
+
+
+def _cluster_executor_exec(executor: Any, cmd: list[str], *, env: Optional[dict[str, str]] = None) -> dict[str, Any]:
+    try:
+        result = executor.exec_run(cmd, environment=env, demux=True)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"exec failed: {exc}") from exc
+    stdout_b, stderr_b = result.output or (b"", b"")
+    return {
+        "exit_code": getattr(result, "exit_code", 1),
+        "stdout": (stdout_b or b"").decode("utf-8", errors="replace"),
+        "stderr": (stderr_b or b"").decode("utf-8", errors="replace"),
+        "cmd": cmd,
+    }
+
+
+def _tail(text: str, *, max_lines: int = 200, max_chars: int = 50_000) -> str:
+    if not text:
+        return ""
+    lines = text.splitlines()
+    if len(lines) > max_lines:
+        lines = lines[-max_lines:]
+    out = "\n".join(lines)
+    if len(out) > max_chars:
+        out = out[-max_chars:]
+    return out
+
+
+def _cluster_project_dir() -> str:
+    project_dir = (os.environ.get("ORCHESTRATOR_PROJECT_DIR") or "/home/ubuntu/Unreal_Vtuber").strip()
+    if not project_dir.startswith("/"):
+        return ""
+    return project_dir
+
+
+def _resolve_git_ref_from_packed_refs(packed: str, ref: str) -> Optional[str]:
+    ref = ref.strip()
+    if not ref:
+        return None
+    for line in packed.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("^"):
+            continue
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        sha, name = parts
+        if name == ref and sha:
+            return sha
+    return None
+
+
+def _git_head_info_from_executor(executor: Any, project_dir: str) -> Optional[dict[str, str]]:
+    if not project_dir:
+        return None
+    head_path = f"{project_dir}/.git/HEAD"
+    head = _cluster_executor_read_file(executor, head_path)
+    if not head:
+        return None
+    head = head.strip()
+
+    if head.startswith("ref:"):
+        ref = head.split(":", 1)[1].strip()
+        sha = _cluster_executor_read_file(executor, f"{project_dir}/.git/{ref}")
+        if not sha:
+            packed = _cluster_executor_read_file(executor, f"{project_dir}/.git/packed-refs")
+            if packed:
+                sha = _resolve_git_ref_from_packed_refs(packed, ref)
+        if not sha:
+            return {"mode": "ref", "ref": ref, "sha": ""}
+        return {"mode": "ref", "ref": ref, "sha": sha.strip()}
+
+    return {"mode": "detached", "ref": "", "sha": head}
+
+
+def _container_meta(container: Any) -> dict[str, Any]:
+    try:
+        container.reload()
+    except Exception:  # pragma: no cover - defensive
+        pass
+    labels = ((container.attrs or {}).get("Config", {}) or {}).get("Labels") or {}
+    project = (labels.get("com.docker.compose.project") or "").strip() or None
+    service = (labels.get("com.docker.compose.service") or "").strip() or None
+    image_ref = (((container.attrs or {}).get("Config", {}) or {}).get("Image") or "").strip() or None
+    image_id = None
+    try:
+        image_id = getattr(getattr(container, "image", None), "id", None)
+    except Exception:  # pragma: no cover - defensive
+        image_id = None
+    return {
+        "name": getattr(container, "name", ""),
+        "status": getattr(container, "status", ""),
+        "project": project,
+        "service": service,
+        "image": image_ref,
+        "image_id": image_id,
+    }
+
+
+def _cluster_compose_instance(*, project: str, args: list[str], env: dict[str, str]) -> dict[str, Any]:
+    project_dir = (os.environ.get("ORCHESTRATOR_PROJECT_DIR") or "/home/ubuntu/Unreal_Vtuber").strip()
+    instance_compose = (os.environ.get("CLUSTER_INSTANCE_COMPOSE_FILE") or "docker-compose.unreal.instance.yml").strip()
+    if not project_dir.startswith("/"):
+        raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR (must be absolute)")
+
+    cmd = [
+        "docker",
+        "compose",
+        "-p",
+        project,
+        "--project-directory",
+        project_dir,
+        "--env-file",
+        f"{project_dir}/.env",
+        "-f",
+        f"{project_dir}/{instance_compose}",
+        *args,
+    ]
+
+    executor = _cluster_executor_container()
+    try:
+        result = executor.exec_run(cmd, environment=env, demux=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Cluster compose exec failed (project=%s): %s", project, exc)
+        raise HTTPException(status_code=500, detail=f"cluster compose exec failed: {exc}") from exc
+
+    stdout_b, stderr_b = result.output or (b"", b"")
+    stdout = (stdout_b or b"").decode("utf-8", errors="replace")
+    stderr = (stderr_b or b"").decode("utf-8", errors="replace")
+    exit_code = getattr(result, "exit_code", 1)
+    return {"exit_code": exit_code, "stdout": stdout, "stderr": stderr, "cmd": cmd}
+
+
+def _host_compose_exec(*, project: str, args: list[str], env: Optional[dict[str, str]] = None) -> dict[str, Any]:
+    project_dir = _cluster_project_dir()
+    if not project_dir:
+        raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
+    host_compose = (os.environ.get("HOST_COMPOSE_FILE") or "docker-compose.unreal.yml").strip()
+
+    cmd = [
+        "docker",
+        "compose",
+        "-p",
+        project,
+        "--project-directory",
+        project_dir,
+        "--env-file",
+        f"{project_dir}/.env",
+        "-f",
+        f"{project_dir}/{host_compose}",
+        *args,
+    ]
+
+    executor = _cluster_executor_container()
+    try:
+        result = executor.exec_run(cmd, environment=env or {}, demux=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Host compose exec failed (project=%s): %s", project, exc)
+        raise HTTPException(status_code=500, detail=f"host compose exec failed: {exc}") from exc
+
+    stdout_b, stderr_b = result.output or (b"", b"")
+    stdout = (stdout_b or b"").decode("utf-8", errors="replace")
+    stderr = (stderr_b or b"").decode("utf-8", errors="replace")
+    exit_code = getattr(result, "exit_code", 1)
+    return {"exit_code": exit_code, "stdout": stdout, "stderr": stderr, "cmd": cmd}
+
+
+def _env_list_to_dict(items: Any) -> dict[str, str]:
+    if not isinstance(items, list):
+        return {}
+    out: dict[str, str] = {}
+    for entry in items:
+        raw = str(entry or "")
+        if not raw or "=" not in raw:
+            continue
+        key, value = raw.split("=", 1)
+        out[key] = value
+    return out
+
+
+def _container_env(container: Any) -> dict[str, str]:
+    try:
+        container.reload()
+    except Exception:  # pragma: no cover - defensive
+        pass
+    env_list = (((container.attrs or {}).get("Config") or {}).get("Env") or [])
+    return _env_list_to_dict(env_list)
+
+
+def _container_host_port(container: Any, container_port: str) -> Optional[int]:
+    try:
+        container.reload()
+    except Exception:  # pragma: no cover - defensive
+        pass
+    ports = ((container.attrs or {}).get("NetworkSettings") or {}).get("Ports") or {}
+    bindings = ports.get(container_port)
+    if not bindings:
+        return None
+    for binding in bindings:
+        host_port_raw = (binding or {}).get("HostPort")
+        try:
+            return int(host_port_raw)
+        except Exception:
+            continue
+    return None
+
+
+def _container_mount_source(container: Any, destination: str) -> Optional[str]:
+    try:
+        container.reload()
+    except Exception:  # pragma: no cover - defensive
+        pass
+    mounts = (container.attrs or {}).get("Mounts") or []
+    for mount in mounts:
+        if (mount or {}).get("Destination") == destination:
+            source = (mount or {}).get("Source")
+            return str(source) if source else None
+    return None
+
+
+def _relpath_under_project(source: Optional[str], project_dir: str) -> Optional[str]:
+    if not source:
+        return None
+    if not source.startswith("/"):
+        return None
+    try:
+        rel = Path(source).relative_to(Path(project_dir))
+    except Exception:
+        return None
+    return f"./{rel.as_posix()}"
+
+
+def _parse_matchmaker_streamer_id(extra_args: str) -> Optional[str]:
+    extra_args = (extra_args or "").strip()
+    if not extra_args:
+        return None
+    match = re.search(r"--matchmaker_streamer_id\s+([^\s]+)", extra_args)
+    return match.group(1) if match else None
+
+
+def _project_running_containers(project: str) -> list[str]:
+    running: list[str] = []
+    for container in docker_client.containers.list(all=True, filters={"label": [f"com.docker.compose.project={project}"]}):
+        try:
+            container.reload()
+        except Exception:  # pragma: no cover - defensive
+            continue
+        if getattr(container, "status", "") == "running":
+            running.append(getattr(container, "name", ""))
+    return running
+
+
+def _derive_cluster_recreate_env(*, project: str, project_dir: str) -> dict[str, str]:
+    slug = project.removeprefix("vtuber-").strip()
+    if not slug:
+        raise HTTPException(status_code=400, detail="project produces empty slug")
+
+    game = _find_container("unreal-game", project_name=project)
+    signaling = _find_container("unreal-signaling", project_name=project)
+    recorder = _find_container("recorder-control", project_name=project)
+    if game is None or signaling is None or recorder is None:
+        raise HTTPException(status_code=404, detail=f"compose project missing required services: {project}")
+
+    signaling_port = _container_host_port(signaling, "80/tcp")
+    game_tcp_port = _container_host_port(game, "7777/tcp")
+    runner_port = _container_host_port(game, "9877/tcp")
+    recorder_port = _container_host_port(recorder, "8889/tcp")
+    if not signaling_port or not game_tcp_port or not runner_port or not recorder_port:
+        raise HTTPException(status_code=500, detail=f"failed to read published ports for: {project}")
+
+    slot = signaling_port - 8080
+    if slot < 0 or slot > 255:
+        raise HTTPException(status_code=500, detail=f"invalid signaling port for slot calc: {signaling_port}")
+
+    subnet = _cluster_subnet(slot)
+    gateway = _cluster_gateway(slot)
+    allow_csv = _cluster_allowlist_csv(gateway)
+
+    session_dir = _container_mount_source(game, "/opt/embody/sessions")
+    recordings_dir = _container_mount_source(recorder, "/recordings")
+
+    session_base = (os.environ.get("VTUBER_SESSION_DIR") or "/home/ubuntu/vtuber_sessions").strip()
+    recordings_base = (os.environ.get("VTUBER_RECORDINGS_DIR") or "/home/ubuntu/recordings").strip()
+    if not session_dir:
+        session_dir = f"{session_base.rstrip('/')}/{slug}"
+    if not recordings_dir:
+        recordings_dir = f"{recordings_base.rstrip('/')}/{slug}"
+
+    signaling_env = _container_env(signaling)
+    avatar_id = _parse_matchmaker_streamer_id(signaling_env.get("SIGNALING_EXTRA_ARGS", "")) or slug
+    instance_args = f"--public_port {signaling_port} --matchmaker_streamer_id {avatar_id}"
+
+    env = _container_env(game)
+    gpu = (env.get("NVIDIA_VISIBLE_DEVICES") or "").strip()
+    extra_args = (env.get("EMBODY_EXTRA_ARGS") or "").strip()
+
+    out: dict[str, str] = {
+        "VTUBER_AVATAR_SLUG": slug,
+        "VTUBER_INSTANCE_PROJECT_NAME": project,
+        "VTUBER_SIGNALING_PUBLIC_PORT": str(signaling_port),
+        "VTUBER_RUNNER_PORT": str(runner_port),
+        "VTUBER_RECORDER_PORT": str(recorder_port),
+        "VTUBER_GAME_TCP_PORT": str(game_tcp_port),
+        "VTUBER_SESSION_DIR": session_dir,
+        "VTUBER_RECORDINGS_DIR": recordings_dir,
+        "VTUBER_SIGNALING_INSTANCE_ARGS": instance_args,
+        "VTUBER_DOCKER_SUBNET": subnet,
+        "VTUBER_ALLOWED_ADDRESSES": allow_csv,
+    }
+    if gpu:
+        out["NVIDIA_VISIBLE_DEVICES"] = gpu
+    if extra_args and "\x00" not in extra_args and "\n" not in extra_args and "\r" not in extra_args:
+        out["EMBODY_EXTRA_ARGS"] = extra_args
+
+    console_src = _container_mount_source(game, "/opt/embody/Embody/Saved/Config/LinuxNoEditor/ConsoleVariables.ini")
+    gus_src = _container_mount_source(game, "/opt/embody/Embody/Saved/Config/LinuxNoEditor/GameUserSettings.ini")
+
+    console_rel = _relpath_under_project(console_src, project_dir)
+    gus_rel = _relpath_under_project(gus_src, project_dir)
+    if console_rel and console_rel.startswith("./pixel-streaming/config/"):
+        out["VTUBER_CONSOLE_VARIABLES_FILE"] = console_rel
+    if gus_rel and gus_rel.startswith("./pixel-streaming/config/"):
+        out["VTUBER_GAME_USER_SETTINGS_FILE"] = gus_rel
+
+    return out
+
+
+def _recreate_stopped_game_projects(*, project_dir: str) -> list[dict[str, Any]]:
+    _detect_compose_identity()
+    host_project = (POWER_PROJECT_NAME or os.environ.get("COMPOSE_PROJECT_NAME") or "").strip()
+
+    projects: set[str] = set()
+    try:
+        for container in docker_client.containers.list(all=True, filters={"label": ["com.docker.compose.service=unreal-game"]}):
+            try:
+                container.reload()
+            except Exception:  # pragma: no cover - defensive
+                continue
+            if getattr(container, "status", "") == "running":
+                continue
+            labels = ((container.attrs or {}).get("Config") or {}).get("Labels") or {}
+            project = (labels.get("com.docker.compose.project") or "").strip()
+            if project:
+                projects.add(project)
+    except Exception:  # pragma: no cover - defensive
+        projects = set()
+
+    results: list[dict[str, Any]] = []
+
+    for project in sorted(projects):
+        if host_project and project == host_project:
+            out = _host_compose_exec(
+                project=project,
+                args=["up", "--no-start", "--force-recreate", "unreal-game", "vtuber-script-runner", "vtuber-watchdog"],
+            )
+            out["project"] = project
+            out["stdout"] = _tail(out.get("stdout", ""))
+            out["stderr"] = _tail(out.get("stderr", ""))
+            out["ok"] = out.get("exit_code") == 0
+            results.append(out)
+            continue
+
+        running = _project_running_containers(project)
+        if running:
+            results.append({"project": project, "ok": False, "skipped": True, "detail": "project has running containers"})
+            continue
+
+        try:
+            env = _derive_cluster_recreate_env(project=project, project_dir=project_dir)
+        except HTTPException as exc:
+            results.append({"project": project, "ok": False, "skipped": True, "detail": str(exc.detail)})
+            continue
+
+        out = _cluster_compose_instance(
+            project=project,
+            args=[
+                "up",
+                "--no-start",
+                "--force-recreate",
+                "unreal-game",
+                "vtuber-script-runner",
+                "vtuber-watchdog",
+            ],
+            env=env,
+        )
+        out["project"] = project
+        out["stdout"] = _tail(out.get("stdout", ""))
+        out["stderr"] = _tail(out.get("stderr", ""))
+        out["ok"] = out.get("exit_code") == 0
+        results.append(out)
+
+    return results
 
 
 def _find_container(
@@ -533,6 +1146,208 @@ def read_health() -> dict:
         logger.exception("Remote health check failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
+@app.get("/meta")
+def read_meta(request: Request) -> dict[str, Any]:
+    """Return best-effort deployment metadata (images + git head) for remote debugging."""
+    _require_auth(request)
+    project_dir = _cluster_project_dir()
+    instance_compose = (os.environ.get("CLUSTER_INSTANCE_COMPOSE_FILE") or "docker-compose.unreal.instance.yml").strip()
+
+    executor = _cluster_executor_try_container()
+    git_info: Optional[dict[str, str]] = None
+    if executor is not None:
+        git_info = _git_head_info_from_executor(executor, project_dir)
+
+    containers: list[dict[str, Any]] = []
+    try:
+        for container in docker_client.containers.list(all=True):
+            containers.append(_container_meta(container))
+    except Exception:  # pragma: no cover - defensive
+        containers = []
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "env": {
+            "EMBODY_SERVICE_IMAGE_TAG": (os.environ.get("EMBODY_SERVICE_IMAGE_TAG") or "").strip() or None,
+            "ORCHESTRATOR_PROJECT_DIR": project_dir or None,
+            "CLUSTER_INSTANCE_COMPOSE_FILE": instance_compose or None,
+        },
+        "git": git_info,
+        "containers": containers,
+    }
+
+
+@app.post("/ops/upgrade")
+def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
+    """EXPERIMENTAL: update the repo (ff-only) and optionally recreate host-level containers."""
+    _require_remote_ops_enabled()
+    _require_auth_strict(request)
+    project_dir = _cluster_project_dir()
+    if not project_dir:
+        raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
+
+    executor = _cluster_executor_container()
+    steps: list[dict[str, Any]] = []
+
+    def run_step(name: str, cmd: list[str]) -> dict[str, Any]:
+        out = _cluster_executor_exec(executor, cmd)
+        out["name"] = name
+        out["stdout"] = _tail(out.get("stdout", ""))
+        out["stderr"] = _tail(out.get("stderr", ""))
+        steps.append(out)
+        return out
+
+    git_cmd = ["git", "-c", f"safe.directory={project_dir}", "-C", project_dir]
+
+    repo = run_step("git_is_repo", [*git_cmd, "rev-parse", "--is-inside-work-tree"])
+    if repo["exit_code"] != 0:
+        return {"ok": False, "exit_code": repo["exit_code"], "steps": steps}
+
+    dirty = run_step("git_status", [*git_cmd, "status", "--porcelain"])
+    if dirty["exit_code"] == 0 and (dirty.get("stdout") or "").strip():
+        return {"ok": False, "exit_code": 409, "detail": "dirty working tree", "steps": steps}
+
+    before = run_step("git_head_before", [*git_cmd, "rev-parse", "--short", "HEAD"])
+    fetch = run_step("git_fetch", [*git_cmd, "fetch", "-q", "origin", "main"])
+    if fetch["exit_code"] != 0:
+        return {"ok": False, "exit_code": fetch["exit_code"], "steps": steps}
+    pull = run_step("git_pull", [*git_cmd, "pull", "-q", "--ff-only", "origin", "main"])
+    if pull["exit_code"] != 0:
+        return {"ok": False, "exit_code": pull["exit_code"], "steps": steps}
+    after = run_step("git_head_after", [*git_cmd, "rev-parse", "--short", "HEAD"])
+
+    if payload.apply:
+        _detect_compose_identity()
+        host_project = (POWER_PROJECT_NAME or os.environ.get("COMPOSE_PROJECT_NAME") or "unreal_vtuber").strip()
+        host_project = _validate_compose_project_name(host_project)
+        compose_file = f"{project_dir}/docker-compose.unreal.yml"
+        env_file = f"{project_dir}/.env"
+        services = ["turn-server", "orchestrator-edge-rotator", "vtuber-auto-updater", "orchestrator-registration"]
+
+        run_step(
+            "compose_pull",
+            [
+                "docker",
+                "compose",
+                "-p",
+                host_project,
+                "--project-directory",
+                project_dir,
+                "--env-file",
+                env_file,
+                "-f",
+                compose_file,
+                "pull",
+                *services,
+            ],
+        )
+        run_step(
+            "compose_recreate",
+            [
+                "docker",
+                "compose",
+                "-p",
+                host_project,
+                "--project-directory",
+                project_dir,
+                "--env-file",
+                env_file,
+                "-f",
+                compose_file,
+                "up",
+                "-d",
+                "--no-deps",
+                "--force-recreate",
+                *services,
+            ],
+        )
+
+    return {
+        "ok": True,
+        "exit_code": 0,
+        "before": (before.get("stdout") or "").strip() or None,
+        "after": (after.get("stdout") or "").strip() or None,
+        "steps": steps,
+    }
+
+
+@app.post("/ops/rollout")
+def ops_rollout(payload: OpsRolloutRequest, request: Request) -> dict[str, Any]:
+    """EXPERIMENTAL: load a new encrypted game image via a Payments lease.
+
+    By default this only loads the image (cluster-safe; no restarts). Optionally, it can force-recreate stopped
+    game containers so the next wake/start uses the updated image.
+    """
+    _require_remote_ops_enabled()
+    _require_auth_strict(request)
+    project_dir = _cluster_project_dir()
+    if not project_dir:
+        raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
+
+    payments_url = (payload.payments_api_url or os.environ.get("PAYMENTS_API_URL") or "").strip()
+    if not payments_url:
+        raise HTTPException(status_code=400, detail="payments_api_url is required (or set PAYMENTS_API_URL)")
+    if "\x00" in payments_url or "\n" in payments_url or "\r" in payments_url:
+        raise HTTPException(status_code=400, detail="payments_api_url contains invalid characters")
+
+    image_ref = (payload.image_ref or "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1").strip()
+    if "\x00" in image_ref or "\n" in image_ref or "\r" in image_ref:
+        raise HTTPException(status_code=400, detail="image_ref contains invalid characters")
+
+    running = []
+    try:
+        for container in docker_client.containers.list(
+            all=True, filters={"label": ["com.docker.compose.service=unreal-game"]}
+        ):
+            try:
+                container.reload()
+            except Exception:  # pragma: no cover - defensive
+                pass
+            if getattr(container, "status", "") == "running":
+                running.append(getattr(container, "name", ""))
+    except Exception:  # pragma: no cover - defensive
+        running = []
+    if running:
+        raise HTTPException(status_code=409, detail=f"refusing rollout while unreal-game is running: {', '.join(running)}")
+
+    executor = _cluster_executor_container()
+    token_path = "/root/.embody/orch-license-token.txt"
+    cmd = [
+        "bash",
+        f"{project_dir}/tools/encrypted-game-image/consume.sh",
+        "--payments-api-url",
+        payments_url,
+        "--image-ref",
+        image_ref,
+        "--orch-token-file",
+        token_path,
+    ]
+    out = _cluster_executor_exec(executor, cmd)
+    out["stdout"] = _tail(out.get("stdout", ""))
+    out["stderr"] = _tail(out.get("stderr", ""))
+    out["ok"] = out.get("exit_code") == 0
+    if out["ok"] and payload.recreate_stopped:
+        out["recreate"] = _recreate_stopped_game_projects(project_dir=project_dir)
+    return out
+
+
+@app.post("/ops/pull-image")
+def ops_pull_image(payload: OpsPullImageRequest, request: Request) -> dict[str, Any]:
+    """EXPERIMENTAL: docker pull an image ref (useful for unencrypted game updates)."""
+    _require_remote_ops_enabled()
+    _require_auth_strict(request)
+
+    image = payload.image.strip()
+    if not image or "\x00" in image or "\n" in image or "\r" in image or " " in image:
+        raise HTTPException(status_code=400, detail="invalid image ref")
+
+    executor = _cluster_executor_container()
+    out = _cluster_executor_exec(executor, ["docker", "pull", image])
+    out["stdout"] = _tail(out.get("stdout", ""))
+    out["stderr"] = _tail(out.get("stderr", ""))
+    out["ok"] = out.get("exit_code") == 0
+    return out
+
 
 @app.get("/power", response_model=PowerState)
 def read_power_state() -> PowerState:
@@ -599,6 +1414,125 @@ def change_project_power_state(project: str, payload: PowerRequest, request: Req
         _PROJECT_AWAKE_UNTIL[project] = awake_until
         _schedule_project_auto_sleep(payload.awake_seconds or 0, project=project, reason="auto-sleep after wake TTL")
     return _power_state_from_project(project)
+
+
+@app.post("/cluster/deploy")
+def cluster_deploy_instance(payload: ClusterDeployRequest, request: Request) -> dict[str, Any]:
+    """EXPERIMENTAL: create/start a cluster-mode avatar compose project (vtuber-<slug>)."""
+    _require_auth(request)
+    _require_cluster_control_enabled()
+
+    avatar_id = payload.avatar_id.strip()
+    slug = _slugify_avatar_id(avatar_id)
+    if not slug:
+        raise HTTPException(status_code=400, detail="avatar_id produces empty slug")
+    project = _validate_power_project(f"vtuber-{slug}")
+
+    ports = _cluster_ports(payload.slot)
+    want_ports = {ports["signaling"], ports["runner"], ports["recorder"], ports["game_tcp"]}
+    conflicts = _docker_port_conflicts(want_ports, ignore_project=project)
+    if conflicts:
+        items = ", ".join(f"{p}->{name}" for p, name in sorted(conflicts.items()))
+        raise HTTPException(status_code=409, detail=f"host port conflict: {items}")
+
+    subnet = _cluster_subnet(payload.slot)
+    gateway = _cluster_gateway(payload.slot)
+    allow_csv = _cluster_allowlist_csv(gateway)
+
+    session_base = (os.environ.get("VTUBER_SESSION_DIR") or "/home/ubuntu/vtuber_sessions").strip()
+    recordings_base = (os.environ.get("VTUBER_RECORDINGS_DIR") or "/home/ubuntu/recordings").strip()
+
+    env = {
+        "VTUBER_AVATAR_ID": avatar_id,
+        "VTUBER_AVATAR_SLUG": slug,
+        "VTUBER_INSTANCE_PROJECT_NAME": project,
+        "VTUBER_SIGNALING_PUBLIC_PORT": str(ports["signaling"]),
+        "VTUBER_RUNNER_PORT": str(ports["runner"]),
+        "VTUBER_RECORDER_PORT": str(ports["recorder"]),
+        "VTUBER_GAME_TCP_PORT": str(ports["game_tcp"]),
+        "VTUBER_SESSION_DIR": f"{session_base.rstrip('/')}/{slug}",
+        "VTUBER_RECORDINGS_DIR": f"{recordings_base.rstrip('/')}/{slug}",
+        "VTUBER_SIGNALING_INSTANCE_ARGS": f"--public_port {ports['signaling']} --matchmaker_streamer_id {avatar_id}",
+        "VTUBER_DOCKER_SUBNET": subnet,
+        "VTUBER_ALLOWED_ADDRESSES": allow_csv,
+    }
+    if payload.console_variables_file:
+        env["VTUBER_CONSOLE_VARIABLES_FILE"] = _validate_compose_project_relpath(
+            payload.console_variables_file, field="console_variables_file"
+        )
+    if payload.game_user_settings_file:
+        env["VTUBER_GAME_USER_SETTINGS_FILE"] = _validate_compose_project_relpath(
+            payload.game_user_settings_file, field="game_user_settings_file"
+        )
+    if payload.embody_extra_args:
+        extra_args = payload.embody_extra_args.strip()
+        if "\x00" in extra_args or "\n" in extra_args or "\r" in extra_args:
+            raise HTTPException(status_code=400, detail="embody_extra_args contains invalid characters")
+        env["EMBODY_EXTRA_ARGS"] = extra_args
+    if payload.gpu:
+        env["NVIDIA_VISIBLE_DEVICES"] = payload.gpu.strip() or "all"
+
+    args = ["up", "-d"]
+    if payload.recreate:
+        args.insert(1, "--force-recreate")
+
+    out = _cluster_compose_instance(project=project, args=args, env=env)
+    if out["exit_code"] != 0:
+        detail = (out.get("stderr") or out.get("stdout") or "").strip()
+        if detail:
+            detail = "\n".join(detail.splitlines()[-10:]).strip()
+        raise HTTPException(status_code=500, detail=f"cluster deploy failed: {detail or 'unknown error'}")
+
+    return {
+        "project": project,
+        "avatar_id": avatar_id,
+        "slot": payload.slot,
+        "gpu": (payload.gpu or "").strip() or None,
+        "overrides": {
+            "console_variables_file": (payload.console_variables_file or "").strip() or None,
+            "game_user_settings_file": (payload.game_user_settings_file or "").strip() or None,
+            "embody_extra_args": (payload.embody_extra_args or "").strip() or None,
+        },
+        "ports": ports,
+        "subnet": subnet,
+        "gateway": gateway,
+    }
+
+
+@app.post("/cluster/down")
+def cluster_down_instance(payload: ClusterDownRequest, request: Request) -> dict[str, Any]:
+    """EXPERIMENTAL: stop/remove a cluster-mode avatar compose project (vtuber-<slug>)."""
+    _require_auth(request)
+    _require_cluster_control_enabled()
+
+    project = payload.project
+    slug: str | None = None
+    if not project:
+        avatar_id = (payload.avatar_id or "").strip()
+        slug = _slugify_avatar_id(avatar_id)
+        if not slug:
+            raise HTTPException(status_code=400, detail="avatar_id produces empty slug")
+        project = f"vtuber-{slug}"
+
+    project = _validate_power_project(project)
+    if slug is None:
+        slug = project.removeprefix("vtuber-")
+    slug = slug.strip()
+    if not slug:
+        raise HTTPException(status_code=400, detail="project produces empty slug")
+
+    out = _cluster_compose_instance(
+        project=project,
+        args=["down"],
+        env={"VTUBER_AVATAR_SLUG": slug, "VTUBER_INSTANCE_PROJECT_NAME": project},
+    )
+    if out["exit_code"] != 0:
+        detail = (out.get("stderr") or out.get("stdout") or "").strip()
+        if detail:
+            detail = "\n".join(detail.splitlines()[-10:]).strip()
+        raise HTTPException(status_code=500, detail=f"cluster down failed: {detail or 'unknown error'}")
+
+    return {"project": project, "state": "sleeping"}
 
 
 def main() -> None:
