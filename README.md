@@ -22,6 +22,19 @@ Run:
 git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && sudo ./scripts/embody_cli.sh
 ```
 
+Non-interactive (no prompts; useful for automation). Provide **all** required values:
+```bash
+sudo ./scripts/embody_cli.sh setup --non-interactive \
+  --orchestrator-id "<orchestrator-id>" \
+  --orchestrator-address "0x1111111111111111111111111111111111111111" \
+  --invite-code "<ONE_TIME_INVITE_CODE>"
+```
+
+Tip: you can also omit `setup` — any `--flag` runs onboarding:
+```bash
+sudo ./scripts/embody_cli.sh --non-interactive --orchestrator-id "<id>" --orchestrator-address "0x..." --invite-code "<code>"
+```
+
 Recommended: pin to a release tag (avoids “main drift” and guarantees service images match the CLI version):
 ```bash
 git fetch --tags
