@@ -17,10 +17,24 @@ You’ll need:
 - From you: a **unique orchestrator ID** + a **payout wallet address** (`0x…`)
 - A GPU host with an NVIDIA GPU (**at least 16GB VRAM required**) (Ubuntu 22.04 recommended)
 
-Run:
+✅ **Step 1 — Run the onboarding wizard:**
 ```bash
 git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && sudo ./scripts/embody_cli.sh
 ```
+
+✅ **Step 2 — Verify everything works (recommended):**
+```bash
+./scripts/embody_cli.sh verify --fix
+```
+
+✅ **Step 3 — Save GPU when idle (recommended):**
+```bash
+./scripts/embody_cli.sh power sleep
+```
+
+Tip: running `sudo ./scripts/embody_cli.sh` with no args will:
+- run onboarding (`setup`) if you haven’t configured the host yet, otherwise
+- open the interactive dashboard menu (it does not auto-run tests or auto-sleep).
 
 Non-interactive (no prompts; useful for automation). Provide **all** required values:
 ```bash
