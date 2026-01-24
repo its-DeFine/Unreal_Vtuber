@@ -75,6 +75,8 @@ q) Quit
   - `start`, `stop`, `restart`, `status`, `logs [service]`, `health`
 - `upgrade` – pull/recreate service containers (safe to run while sleeping; won’t wake the game)
   - Repo auto-updates to latest `origin/main` on CLI launch (ff-only, best-effort; skipped when the checkout is dirty or detached HEAD)
+  - Opt-out of repo auto-update: `EMBODY_CLI_NO_AUTO_UPDATE=1 ./scripts/embody_cli.sh`
+  - Opt-out of auto-upgrade-when-sleeping: `EMBODY_CLI_AUTO_UPGRADE_WHEN_SLEEPING=0 ./scripts/embody_cli.sh`
 - `cluster` – multi-instance “cluster mode” (multiple concurrent avatars on one host)
   - Config: `~/.embody/cluster.json` (override with `EMBODY_CLUSTER_FILE=/path/to/cluster.json`)
   - Commands: `cluster plan`, `cluster list`, `cluster up`, `cluster deploy`, `cluster down`, `cluster status`, `cluster logs`
