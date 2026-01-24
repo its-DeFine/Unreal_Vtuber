@@ -197,17 +197,33 @@ def ops_app(monkeypatch, tmp_path):
     return app, svc
 
 
-def test_ops_endpoints_disabled_by_default(power_app):
+def test_ops_endpoints_require_allowlist_by_default(power_app):
     app, _svc = power_app
     client = TestClient(app)
 
     resp = client.post("/ops/upgrade", json={"apply": False})
-    assert resp.status_code == 404
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "POWER_ALLOWED_IPS must be set for remote ops"
 
     resp = client.post("/ops/rollout", json={})
-    assert resp.status_code == 404
+    assert resp.status_code == 403
 
     resp = client.post("/ops/pull-image", json={"image": "ghcr.io/example/image:latest"})
+    assert resp.status_code == 403
+
+
+def test_ops_endpoints_can_be_disabled(monkeypatch, tmp_path):
+    monkeypatch.delenv("POWER_ALLOWED_IPS", raising=False)
+    monkeypatch.delenv("VTUBER_ALLOWED_ADDRESSES", raising=False)
+    monkeypatch.delenv("POWER_ALLOWED_PROJECT_PREFIXES", raising=False)
+    monkeypatch.setenv("DOCKER_API_VERSION", "1.41")
+    monkeypatch.setenv("POWER_STATE_FILE", str(tmp_path / "power_state.json"))
+    monkeypatch.setenv("EXPERIMENTAL_REMOTE_OPS", "0")
+    import orchestrator_health.remote_health_service as svc
+
+    importlib.reload(svc)
+    client = TestClient(svc.app)
+    resp = client.post("/ops/upgrade", json={"apply": False})
     assert resp.status_code == 404
 
 

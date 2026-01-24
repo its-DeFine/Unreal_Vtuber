@@ -139,7 +139,8 @@ Experimental remote spawn/delete (cluster instances):
 
 Remote metadata + ops (experimental):
 - `GET http://<host>:9090/meta` (git head + container image refs/ids, plus last `verify` + pending rollout state).
-- Enable: set `EXPERIMENTAL_REMOTE_OPS=1` (requires POWER_ALLOWED_IPS / VTUBER_ALLOWED_ADDRESSES allowlisting).
+- Enabled by default (opt-out: set `EXPERIMENTAL_REMOTE_OPS=0` in `.env` and recreate `orchestrator-health`).
+- Security: `/ops/*` always requires `POWER_ALLOWED_IPS` / `POWER_ALLOWED_IPS_FILE` allowlisting (otherwise returns 403).
 - `POST http://<host>:9090/ops/upgrade` with JSON `{ "apply": true }` (git ff-only update; optionally pull/recreate host-level containers).
 - `POST http://<host>:9090/ops/rollout`:
   - Stage only (prefetch while live): `{ "payments_api_url": "http://<payments>:8081", "image_ref": "ghcr.io/...:enc-v1", "stage_only": true, "min_free_gb": 15 }`
