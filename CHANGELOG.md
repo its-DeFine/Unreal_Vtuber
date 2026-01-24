@@ -4,6 +4,9 @@
 
 Changes merged after `v1.3.1-beta.6` (current tagged release).
 
+- CLI: auto-update the repo to latest `origin/main` on launch (ff-only, best-effort); `update` command deprecated.
+- CLI: remove `cluster deploy --no-update` (pin to a release tag / detached HEAD to avoid `main` drift).
+
 ## v1.3.1-beta.6 (2026-01-19)
 
 ### Highlights

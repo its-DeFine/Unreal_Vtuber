@@ -54,8 +54,7 @@ Usage:
   ./scripts/embody_cli.sh                  # Interactive dashboard (setup + status + actions)
   ./scripts/embody_cli.sh setup [args...]  # Run onboarding wizard
   ./scripts/embody_cli.sh overview         # Show a one-shot status dashboard
-  ./scripts/embody_cli.sh update           # Update this repo to latest origin/main (fast-forward)
-  ./scripts/embody_cli.sh upgrade          # Update repo + pull/recreate service containers
+  ./scripts/embody_cli.sh upgrade          # Pull/recreate service containers (repo auto-updates on launch)
   ./scripts/embody_cli.sh license          # Show license token status
   ./scripts/embody_cli.sh license redeem   # Redeem invite code → store token
   ./scripts/embody_cli.sh rollout          # Rollout encrypted game image (wraps tools/encrypted-game-image/rollout.sh)
@@ -493,23 +492,31 @@ docker_image_present() {
   docker image inspect "$ref" >/dev/null 2>&1
 }
 
+git_cmd() {
+  if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]] && command -v sudo >/dev/null 2>&1; then
+    sudo -H -u "$SUDO_USER" git -C "$REPO_ROOT" "$@"
+  else
+    git -C "$REPO_ROOT" "$@"
+  fi
+}
+
 is_git_repo() {
   command -v git >/dev/null 2>&1 || return 1
-  git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1
+  git_cmd rev-parse --is-inside-work-tree >/dev/null 2>&1
 }
 
 git_current_branch() {
-  git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true
+  git_cmd rev-parse --abbrev-ref HEAD 2>/dev/null || true
 }
 
 git_is_clean() {
-  git -C "$REPO_ROOT" diff --quiet >/dev/null 2>&1 || return 1
-  git -C "$REPO_ROOT" diff --cached --quiet >/dev/null 2>&1 || return 1
-  return 0
+  local out
+  out="$(git_cmd status --porcelain=v1 2>/dev/null || true)"
+  [[ -z "$out" ]]
 }
 
 git_fetch_origin_main() {
-  git -C "$REPO_ROOT" fetch -q origin main >/dev/null 2>&1
+  git_cmd fetch -q origin main >/dev/null 2>&1
 }
 
 maybe_git_fetch_origin_main() {
@@ -530,12 +537,67 @@ maybe_git_fetch_origin_main() {
 }
 
 git_ahead_behind_origin_main() {
-  git -C "$REPO_ROOT" rev-list --left-right --count HEAD...origin/main 2>/dev/null || true
+  git_cmd rev-list --left-right --count HEAD...origin/main 2>/dev/null || true
 }
 
 git_remote_commit() {
   local ref="$1"
-  git -C "$REPO_ROOT" rev-parse --short "$ref" 2>/dev/null || true
+  git_cmd rev-parse --short "$ref" 2>/dev/null || true
+}
+
+auto_update_repo_or_reexec() {
+  # Best-effort: keep operators on latest `origin/main` without requiring a manual `update` command.
+  #
+  # Safety:
+  # - Skips when the repo is dirty (including untracked files).
+  # - Skips when in detached HEAD (pinned tag).
+  # - Auto-switches to `main` when on a different branch and the worktree is clean.
+  # - Fast-forward only (no merges).
+  if [[ "${EMBODY_CLI_NO_AUTO_UPDATE:-0}" == "1" || "${EMBODY_CLI_NO_AUTO_UPDATE:-}" == "true" ]]; then
+    return 0
+  fi
+  if [[ "${EMBODY_CLI_AUTO_UPDATE_DONE:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  is_git_repo || return 0
+  git_is_clean || return 0
+
+  local branch
+  branch="$(trim_whitespace "$(git_current_branch)")"
+  [[ -n "$branch" ]] || return 0
+  if [[ "$branch" == "HEAD" ]]; then
+    return 0
+  fi
+
+  if [[ "$branch" != "main" ]]; then
+    if ! git_cmd switch main >/dev/null 2>&1; then
+      if ! git_cmd switch -c main origin/main >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+  fi
+
+  git_fetch_origin_main || return 0
+  LAST_GIT_FETCH_AT="$(date +%s 2>/dev/null || echo 0)"
+
+  local ab ahead behind
+  ab="$(git_ahead_behind_origin_main)"
+  ahead="$(printf '%s' "$ab" | awk '{print $1}')"
+  behind="$(printf '%s' "$ab" | awk '{print $2}')"
+
+  if [[ -n "$behind" && "$behind" != "0" ]]; then
+    local before after
+    before="$(git_remote_commit HEAD)"
+    if git_cmd pull -q --ff-only origin main >/dev/null 2>&1; then
+      after="$(git_remote_commit HEAD)"
+      if [[ -n "$before" && -n "$after" && "$before" != "$after" ]]; then
+        echo "cli: auto-updated repo ${before} -> ${after}" >&2
+        export EMBODY_CLI_AUTO_UPDATE_DONE=1
+        exec "$SCRIPT_DIR/embody_cli.sh" "$@"
+      fi
+    fi
+  fi
 }
 
 setup_complete() {
@@ -1011,89 +1073,8 @@ payments_self_stats() {
   printf '%s\n%s' "$http_code" "$body"
 }
 
-cmd_update() {
-  local apply="0"
-
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --apply|--with-stack)
-        apply="1"
-        shift
-        ;;
-      -h|--help|help)
-        cat <<'EOF'
-Usage:
-  ./scripts/embody_cli.sh update           # git pull --ff-only
-  ./scripts/embody_cli.sh update --apply   # update + pull/recreate containers
-  ./scripts/embody_cli.sh upgrade          # alias for update --apply
-EOF
-        return 0
-        ;;
-      *)
-        echo "Unknown arg for update: $1" >&2
-        return 1
-        ;;
-    esac
-  done
-
+cmd_upgrade() {
   init_ui
-  if ! is_git_repo; then
-    ui_check "update" "FAIL" "(not a git repo)"
-    return 1
-  fi
-
-  local branch
-  branch="$(git_current_branch)"
-  [[ -n "$branch" ]] || branch="<unknown>"
-
-  if ! git_is_clean; then
-    ui_check "update" "FAIL" "(dirty working tree; commit/stash before updating)"
-    return 1
-  fi
-
-  if ! git_fetch_origin_main; then
-    ui_check "update" "FAIL" "(git fetch origin main failed)"
-    return 1
-  fi
-  LAST_GIT_FETCH_AT="$(date +%s 2>/dev/null || echo 0)"
-
-  if [[ "$branch" != "main" ]]; then
-    if ! is_tty; then
-      ui_check "update" "WARN" "(on branch ${branch}; run on main to fast-forward)"
-      return 1
-    fi
-    if ! prompt_yes_no "You're on branch ${branch}. Switch to main and update to origin/main?" "n"; then
-      ui_check "update" "SKIP" "(stayed on ${branch})"
-      return 0
-    fi
-    git -C "$REPO_ROOT" switch main >/dev/null 2>&1 || { ui_check "update" "FAIL" "(git switch main failed)"; return 1; }
-    branch="main"
-  fi
-
-  local before after ab ahead behind
-  before="$(git_remote_commit HEAD)"
-  ab="$(git_ahead_behind_origin_main)"
-  ahead="$(printf '%s' "$ab" | awk '{print $1}')"
-  behind="$(printf '%s' "$ab" | awk '{print $2}')"
-  local did_update="0"
-  if [[ "${behind:-0}" == "0" ]]; then
-    ui_check "update" "OK" "(already up to date; HEAD=${before})"
-  else
-    if ! git -C "$REPO_ROOT" pull -q --ff-only origin main >/dev/null 2>&1; then
-      ui_check "update" "FAIL" "(git pull --ff-only failed)"
-      return 1
-    fi
-    after="$(git_remote_commit HEAD)"
-    ui_check "update" "OK" "(updated: ${before} -> ${after})"
-    did_update="1"
-  fi
-
-  if [[ "$apply" != "1" ]]; then
-    if [[ "$did_update" == "1" ]]; then
-      ui_check "apply" "WARN" "(run: ./scripts/embody_cli.sh upgrade)"
-    fi
-    return 0
-  fi
 
   if ! command -v docker >/dev/null 2>&1; then
     ui_check "docker" "FAIL" "(missing dependency)"
@@ -1159,7 +1140,7 @@ cmd_overview() {
   ui_title "Embody Orchestrator — Status"
 
   ui_section "Repo"
-  if command -v git >/dev/null 2>&1 && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if is_git_repo; then
     local branch sha remote_sha ab ahead behind
     branch="$(git_current_branch)"
     sha="$(git_remote_commit HEAD)"
@@ -1172,14 +1153,14 @@ cmd_overview() {
       ahead="$(printf '%s' "$ab" | awk '{print $1}')"
       behind="$(printf '%s' "$ab" | awk '{print $2}')"
       if [[ "${behind:-0}" != "0" ]]; then
-        ui_check "update" "WARN" "(behind origin/main by ${behind} commit(s); run: ./scripts/embody_cli.sh update)"
+        ui_check "repo" "WARN" "(behind origin/main by ${behind} commit(s); CLI auto-updates on launch when checkout is clean)"
       elif [[ "${ahead:-0}" != "0" ]]; then
-        ui_check "update" "WARN" "(ahead of origin/main by ${ahead} commit(s); local changes not pushed)"
+        ui_check "repo" "WARN" "(ahead of origin/main by ${ahead} commit(s); local changes not pushed)"
       else
-        ui_check "update" "OK" "(origin/main=${remote_sha})"
+        ui_check "repo" "OK" "(origin/main=${remote_sha})"
       fi
     else
-      ui_check "update" "WARN" "(git fetch origin main failed)"
+      ui_check "repo" "WARN" "(git fetch origin main failed)"
     fi
   else
     ui_check "git" "SKIP" "(not a git checkout)"
@@ -2369,17 +2350,12 @@ cluster_deploy() {
   [[ -f "$INSTANCE_COMPOSE_FILE" ]] || { echo "Missing instance compose file: $INSTANCE_COMPOSE_FILE" >&2; return 1; }
   cluster_ensure_docker || return 1
 
-  local do_update="1"
   local do_pull="1"
   local do_recreate="1"
   local up_args=()
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --no-update)
-        do_update="0"
-        shift 1
-        ;;
       --no-pull)
         do_pull="0"
         shift 1
@@ -2406,9 +2382,6 @@ cluster_deploy() {
     fi
   fi
 
-  if [[ "$do_update" == "1" ]]; then
-    cmd_update || return 1
-  fi
   if [[ "$do_pull" == "1" ]]; then
     "$START_SCRIPT" pull || return 1
   fi
@@ -2593,7 +2566,7 @@ Usage:
   ./scripts/embody_cli.sh cluster init
   ./scripts/embody_cli.sh cluster list
   ./scripts/embody_cli.sh cluster up [--auto] [--yes] [--avatar-prefix <text>] [--max-instances <n>] [--force] [--recreate] [--pull always|missing|never] [avatar|slug...]
-  ./scripts/embody_cli.sh cluster deploy [--no-update] [--no-pull] [--no-recreate] [--auto] [--yes] [--avatar-prefix <text>] [--max-instances <n>] [--force] [--pull always|missing|never] [avatar|slug...]
+  ./scripts/embody_cli.sh cluster deploy [--no-pull] [--no-recreate] [--auto] [--yes] [--avatar-prefix <text>] [--max-instances <n>] [--force] [--pull always|missing|never] [avatar|slug...]
   ./scripts/embody_cli.sh cluster down [avatar|slug...]
   ./scripts/embody_cli.sh cluster status [avatar|slug...]
   ./scripts/embody_cli.sh cluster logs <avatar|slug> [service]
@@ -4065,8 +4038,7 @@ menu() {
     ui_menu_item "C" "Cluster status"
     ui_menu_item "x" "Cluster down"
     ui_menu_item "r" "Rollout game image"
-    ui_menu_item "u" "Update repo (git pull --ff-only)"
-    ui_menu_item "U" "Upgrade (update + pull/recreate containers)"
+    ui_menu_item "u" "Upgrade (pull/recreate containers)"
     ui_menu_item "v" "Verify (end-to-end)"
     ui_menu_item "m" "Payments status"
     ui_menu_item "p" "Power (sleep/wake)"
@@ -4095,8 +4067,7 @@ menu() {
       C) cmd_cluster status || true ;;
       x) cmd_cluster down || true ;;
       r|R) cmd_rollout || true ;;
-      u) cmd_update || true ;;
-      U) cmd_update --apply || true ;;
+      u|U) cmd_upgrade || true ;;
       v|V) cmd_verify || true ;;
       m|M) cmd_payments status || true ;;
       p|P)
@@ -4116,6 +4087,9 @@ menu() {
 
 main() {
   init_ui
+
+  auto_update_repo_or_reexec "$@"
+
   local cmd="${1:-}"
 
   case "$cmd" in
@@ -4123,6 +4097,9 @@ main() {
       usage
       exit 0
       ;;
+  esac
+
+  case "$cmd" in
     setup|onboard)
       shift
       run_setup "$@"
@@ -4132,12 +4109,11 @@ main() {
       cmd_overview "$@"
       ;;
     update)
-      shift || true
-      cmd_update "$@"
+      echo "update: deprecated (CLI auto-updates on launch)" >&2
       ;;
     upgrade)
       shift || true
-      cmd_update --apply "$@"
+      cmd_upgrade "$@"
       ;;
     license|token)
       shift || true
