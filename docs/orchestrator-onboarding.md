@@ -41,6 +41,19 @@ Non-interactive (for automation):
   --invite-code "ABCD-EFGH-IJKL-MNOP-QRST"
 ```
 
+Notes:
+- Non-interactive mode will **error** if any required value is missing (it will not prompt).
+- Passing an invite code on the command line may end up in shell history/process listings; prefer the interactive wizard, or redeem once and then use the stored token file for future runs.
+- You can omit `setup` entirely — any `--flag` runs onboarding (`./scripts/embody_cli.sh --non-interactive ...`).
+
+Non-interactive (returning orchestrators; use a stored token file):
+```bash
+./scripts/embody_cli.sh setup --non-interactive \
+  --orchestrator-id "<orchestrator-id>" \
+  --orchestrator-address "0x1111111111111111111111111111111111111111" \
+  --orch-token-file "$HOME/.embody/orch-license-token.txt"
+```
+
 ## Firewall / ingress checklist
 
 Ensure inbound allowlists / firewall rules are set:

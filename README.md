@@ -22,6 +22,19 @@ Run:
 git clone https://github.com/its-DeFine/Unreal_Vtuber.git && cd Unreal_Vtuber && sudo ./scripts/embody_cli.sh
 ```
 
+Non-interactive (no prompts; useful for automation). Provide **all** required values:
+```bash
+sudo ./scripts/embody_cli.sh setup --non-interactive \
+  --orchestrator-id "<orchestrator-id>" \
+  --orchestrator-address "0x1111111111111111111111111111111111111111" \
+  --invite-code "<ONE_TIME_INVITE_CODE>"
+```
+
+Tip: you can also omit `setup` — any `--flag` runs onboarding:
+```bash
+sudo ./scripts/embody_cli.sh --non-interactive --orchestrator-id "<id>" --orchestrator-address "0x..." --invite-code "<code>"
+```
+
 Recommended: pin to a release tag (avoids “main drift” and guarantees service images match the CLI version):
 ```bash
 git fetch --tags
@@ -33,11 +46,24 @@ Day-to-day operations are also done via the CLI (no file edits needed):
 - `./scripts/embody_cli.sh overview` – status dashboard (power, containers, registration)
 - `./scripts/embody_cli.sh verify --fix` – health + end-to-end checks (runner TCP + record/download)
 - `./scripts/embody_cli.sh power sleep|wake --ttl <seconds>` – stop/start the stack safely
+- `./scripts/embody_cli.sh rollout --stage` – prefetch the next encrypted game image **without** stopping a live stack (writes “pending rollout” state)
+- `./scripts/embody_cli.sh rollout --apply-staged` – apply a staged rollout during an idle window (after sleep, switches the next wake to the staged image)
 - `./scripts/embody_cli.sh upgrade` – pull/recreate service containers (repo auto-updates on launch; recommended after updates)
 
 Important: the Unreal game image is delivered **encrypted** (not anonymously pullable from GHCR).
 If you see `denied` pulling `ghcr.io/.../embody-ue-ps:*`, run:
 - `./scripts/embody_cli.sh rollout` (Payments lease → download/decrypt/load)
+
+To reduce downtime for game image updates:
+```bash
+# 1) While users are live (no restart):
+sudo ./scripts/embody_cli.sh rollout --stage
+
+# 2) During an idle window:
+sudo ./scripts/embody_cli.sh power sleep
+sudo ./scripts/embody_cli.sh rollout --apply-staged
+sudo ./scripts/embody_cli.sh power wake --ttl 3600
+```
 
 The wizard will:
 - Preflight your host (and can install missing deps on Ubuntu/Debian)
@@ -68,6 +94,12 @@ sudo ./scripts/embody_cli.sh cluster deploy --auto --yes --pull missing
 Cap the number of instances:
 ```bash
 sudo ./scripts/embody_cli.sh cluster deploy --auto --yes --max-instances 12 --pull missing
+```
+
+Garbage collect stopped cluster projects (ex: after experiments):
+```bash
+sudo ./scripts/embody_cli.sh cluster gc --dry-run
+sudo ./scripts/embody_cli.sh cluster gc --yes
 ```
 
 Optional: lower per-instance GPU load (helps smaller GPUs run >1 instance):
@@ -106,10 +138,12 @@ Experimental remote spawn/delete (cluster instances):
 - `POST http://<host>:9090/cluster/down` with JSON `{ "avatar_id": "embody-0" }` (or `{ "project": "vtuber-embody-0" }`)
 
 Remote metadata + ops (experimental):
-- `GET http://<host>:9090/meta` (git head + container image refs/ids).
+- `GET http://<host>:9090/meta` (git head + container image refs/ids, plus last `verify` + pending rollout state).
 - Enable: set `EXPERIMENTAL_REMOTE_OPS=1` (requires POWER_ALLOWED_IPS / VTUBER_ALLOWED_ADDRESSES allowlisting).
 - `POST http://<host>:9090/ops/upgrade` with JSON `{ "apply": true }` (git ff-only update; optionally pull/recreate host-level containers).
-- `POST http://<host>:9090/ops/rollout` with JSON `{ "payments_api_url": "http://<payments>:8081", "image_ref": "ghcr.io/...:enc-v1", "recreate_stopped": true }` (loads the encrypted game image via a Payments lease; requires all `unreal-game` containers stopped; optionally force-recreates stopped game containers so the next wake uses the updated image).
+- `POST http://<host>:9090/ops/rollout`:
+  - Stage only (prefetch while live): `{ "payments_api_url": "http://<payments>:8081", "image_ref": "ghcr.io/...:enc-v1", "stage_only": true, "min_free_gb": 15 }`
+  - Apply staged (idle window): `{ "image_ref": "ghcr.io/...:enc-v1", "skip_download": true, "recreate_stopped": true }`
 - `POST http://<host>:9090/ops/pull-image` with JSON `{ "image": "ghcr.io/<org>/<image>:<tag>" }` (unencrypted image pull; follow by redeploy/recreate).
 
 ## Auto updates (watchtower)

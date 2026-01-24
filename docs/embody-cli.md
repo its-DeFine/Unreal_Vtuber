@@ -10,6 +10,33 @@ This repo ships a single entrypoint for onboarding and day-to-day operations: `.
 ./scripts/embody_cli.sh
 ```
 
+## What you’ll see (interactive)
+
+The CLI prints an overview dashboard, then prompts with a menu like:
+
+```text
+1) Start stack
+2) Stop stack
+3) Restart stack
+4) Status
+5) Logs
+6) Health (quick)
+7) TCP test (runner → game)
+8) Config summary
+9) GPU capacity
+c) Cluster deploy (auto)
+C) Cluster status
+x) Cluster down
+r) Rollout game image
+u) Upgrade (pull/recreate containers)
+v) Verify (end-to-end)
+m) Payments status
+p) Power (sleep/wake)
+s) Setup / reconfigure
+q) Quit
+>
+```
+
 2. If you want a one-shot status view:
 
 ```bash
