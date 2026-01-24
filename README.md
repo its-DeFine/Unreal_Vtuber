@@ -35,12 +35,14 @@ Tip: you can also omit `setup` — any `--flag` runs onboarding:
 sudo ./scripts/embody_cli.sh --non-interactive --orchestrator-id "<id>" --orchestrator-address "0x..." --invite-code "<code>"
 ```
 
-Recommended: pin to a release tag (avoids “main drift” and guarantees service images match the CLI version):
+Recommended: pin to a release tag (avoids “main drift”; CLI auto-update is skipped when pinned to a tag):
 ```bash
 git fetch --tags
 git checkout v1.3.1-beta.4
 sudo ./scripts/embody_cli.sh
 ```
+
+If you also want the **service containers** pinned to the same release, set `EMBODY_SERVICE_IMAGE_TAG=v1.3.1-beta.4` in `.env` and run `sudo ./scripts/embody_cli.sh upgrade` once to pull/recreate services.
 
 Day-to-day operations are also done via the CLI (no file edits needed):
 - `./scripts/embody_cli.sh overview` – status dashboard (power, containers, registration)
