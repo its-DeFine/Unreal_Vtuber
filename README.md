@@ -46,24 +46,21 @@ Day-to-day operations are also done via the CLI (no file edits needed):
 - `./scripts/embody_cli.sh overview` – status dashboard (power, containers, registration)
 - `./scripts/embody_cli.sh verify --fix` – health + end-to-end checks (runner TCP + record/download)
 - `./scripts/embody_cli.sh power sleep|wake --ttl <seconds>` – stop/start the stack safely
-- `./scripts/embody_cli.sh rollout --stage` – prefetch the next encrypted game image **without** stopping a live stack (writes “pending rollout” state)
-- `./scripts/embody_cli.sh rollout --apply-staged` – apply a staged rollout during an idle window (after sleep, switches the next wake to the staged image)
+- `./scripts/embody_cli.sh rollout` – update the encrypted game image (supports low-downtime stage/apply; see `docs/game-image-updates.md`)
 - `./scripts/embody_cli.sh upgrade` – pull/recreate service containers (repo auto-updates on launch; recommended after updates)
 
 Important: the Unreal game image is delivered **encrypted** (not anonymously pullable from GHCR).
 If you see `denied` pulling `ghcr.io/.../embody-ue-ps:*`, run:
 - `./scripts/embody_cli.sh rollout` (Payments lease → download/decrypt/load)
 
-To reduce downtime for game image updates:
-```bash
-# 1) While users are live (no restart):
-sudo ./scripts/embody_cli.sh rollout --stage
+## Updates (what auto-updates, what doesn’t)
 
-# 2) During an idle window:
-sudo ./scripts/embody_cli.sh power sleep
-sudo ./scripts/embody_cli.sh rollout --apply-staged
-sudo ./scripts/embody_cli.sh power wake --ttl 3600
-```
+There are three separate “update” paths:
+
+- **Repo (CLI scripts)**: the CLI best-effort fast-forwards to `origin/main` on launch (skipped when the repo is dirty or pinned to a tag). Opt-out: `EMBODY_CLI_NO_AUTO_UPDATE=1 ./scripts/embody_cli.sh`
+- **Service containers**: `vtuber-auto-updater` (watchtower) periodically updates labeled containers (TURN/signaling/runner/recorder/health, etc.). This updates container images, not the git repo.
+- **Encrypted game image**: the Unreal game image is updated via `rollout` (Payments lease → download/decrypt/load). Low-downtime stage/apply is documented in `docs/game-image-updates.md`.
+- **Remote automation (no SSH)**: the `orchestrator-health` service exposes control endpoints on `:9090` (`/power`, `/meta`, `/ops/*`). Details: `docs/embody-cli.md`.
 
 The wizard will:
 - Preflight your host (and can install missing deps on Ubuntu/Debian)
@@ -76,15 +73,12 @@ The wizard will:
 
 Full guide: `docs/orchestrator-onboarding.md`
 
-Multi-edge deployments:
-- Manual mode: the edge/gateway IP you provide is used for allowlists and TURN DNAT (`TURN_EXTERNAL_IP`).
-- Verify the orchestrator registers on the intended edge matchmaker after onboarding (see `docs/orchestrator-onboarding.md`).
-- If needed, set `SIGNALING_MATCHMAKER_ARGS` in `.env` (example: `--use_matchmaker --matchmaker_address <EDGE_IP> --matchmaker_port 8889`).
-- To rotate edges without SSH (recommended), enable control-plane mode (`EDGE_CONFIG_URL`) so the included `orchestrator-edge-rotator` sidecar can manage edge assignment (`docs/orchestrator-onboarding.md`).
+Edge assignment (advanced): the recommended/default setup uses control-plane mode (`EDGE_CONFIG_URL`) so the `orchestrator-edge-rotator` sidecar can manage edge assignment + allowlists. See `docs/orchestrator-onboarding.md`.
 
 ## Cluster mode (multiple avatars on one GPU host)
 
 Cluster mode runs multiple isolated Pixel Streaming stacks on one host (one compose project per avatar) so an edge can allocate multiple concurrent sessions.
+It is **optional** and is only enabled when you explicitly run `cluster ...` commands (it does not auto-start/stop on CLI launch).
 
 One-command deploy (auto-configures based on GPU VRAM, then launches all instances):
 ```bash
@@ -121,38 +115,14 @@ export VTUBER_GAME_USER_SETTINGS_FILE=./pixel-streaming/config/GameUserSettings.
 export EMBODY_EXTRA_ARGS="-ForceRes -ResX=1280 -ResY=720 -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9"
 ```
 
-## Per-avatar sleep/wake (cluster mode)
-
-In cluster mode, each avatar is its own compose project (example: `vtuber-embody-0`). You can sleep/wake a single avatar locally:
-```bash
-./scripts/embody_cli.sh power sleep --project vtuber-embody-0
-./scripts/embody_cli.sh power wake --ttl 3600 --project vtuber-embody-0
-```
-
-Remote automation (ex: Payments) can call:
-- `POST http://<host>:9090/power/projects/<compose_project>`
-
-Experimental remote spawn/delete (cluster instances):
-- Enable: set `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1` (then recreate `orchestrator-health`, or run a cluster deploy with the prompt enabled).
-- `POST http://<host>:9090/cluster/deploy` with JSON `{ "avatar_id": "embody-0", "slot": 0, "gpu": "0" }`
-- `POST http://<host>:9090/cluster/down` with JSON `{ "avatar_id": "embody-0" }` (or `{ "project": "vtuber-embody-0" }`)
-
-Remote metadata + ops (experimental):
-- `GET http://<host>:9090/meta` (git head + container image refs/ids, plus last `verify` + pending rollout state).
-- Enabled by default (opt-out: set `EXPERIMENTAL_REMOTE_OPS=0` in `.env` and recreate `orchestrator-health`).
-- Security: `/ops/*` always requires `POWER_ALLOWED_IPS` / `POWER_ALLOWED_IPS_FILE` allowlisting (otherwise returns 403).
-- `POST http://<host>:9090/ops/upgrade` with JSON `{ "apply": true }` (git ff-only update; optionally pull/recreate host-level containers).
-- `POST http://<host>:9090/ops/rollout`:
-  - Stage only (prefetch while live): `{ "payments_api_url": "http://<payments>:8081", "image_ref": "ghcr.io/...:enc-v1", "stage_only": true, "min_free_gb": 15 }`
-  - Apply staged (idle window): `{ "image_ref": "ghcr.io/...:enc-v1", "skip_download": true, "recreate_stopped": true }`
-- `POST http://<host>:9090/ops/pull-image` with JSON `{ "image": "ghcr.io/<org>/<image>:<tag>" }` (unencrypted image pull; follow by redeploy/recreate).
-
 ## Auto updates (watchtower)
 
 This stack includes `vtuber-auto-updater` (watchtower). It runs in label-enable mode and updates any container labeled:
 - `com.centurylinklabs.watchtower.enable=true`
 
 This includes both the single-instance stack and cluster-mode per-avatar containers, without touching unrelated containers on the host.
+
+Note: this does not replace the encrypted game-image `rollout` flow; the Unreal game image is updated via `rollout` (see `docs/game-image-updates.md`).
 
 ## Security / allowlists
 
@@ -187,6 +157,7 @@ Program terms, eligibility, and payout rules are governed by the legal docs belo
 
 - Orchestrator onboarding: `docs/orchestrator-onboarding.md`
 - CLI reference: `docs/embody-cli.md`
+- Game image updates (encrypted): `docs/game-image-updates.md`
 - Architecture: `docs/pixel-streaming-architecture.md`
 - Recorder control: `docs/recorder-control.md`
 - Staging environment: `docs/staging.md`

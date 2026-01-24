@@ -149,6 +149,8 @@ To load a new encrypted artifact and restart the stack:
   --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1
 ```
 
+For low-downtime updates (stage while live, apply during an idle window), see: `docs/game-image-updates.md`.
+
 If the license token is missing, redeem your invite code once:
 ```bash
 ./scripts/embody_cli.sh license redeem
