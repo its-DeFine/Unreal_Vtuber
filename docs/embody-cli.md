@@ -141,7 +141,14 @@ The `orchestrator-health` service exposes remote metadata and a small remote-con
 Recreate `orchestrator-health` (from the repo root):
 
 ```bash
-docker compose -f docker-compose.unreal.yml --env-file .env up -d --force-recreate orchestrator-health
+# Default host project name used by the CLI is `vtuber-host`:
+docker compose -p vtuber-host -f docker-compose.unreal.yml --env-file .env up -d --force-recreate orchestrator-health
+```
+
+If your host stack uses a different compose project name, replace `vtuber-host`. You can discover it from the running container:
+
+```bash
+docker inspect vtuber-orchestrator-health --format '{{ index .Config.Labels "com.docker.compose.project" }}'
 ```
 
 Note: if you only changed allowlist file contents at `/var/lib/vtuber/power-state/power_allowed_ips.txt`, no recreate is needed (it’s read on each request).
