@@ -46,13 +46,13 @@ This repo ships a single entrypoint for onboarding and day-to-day operations: `.
   - `power wake --ttl <seconds>` sets an auto-sleep TTL on wake
 - Day-to-day stack control:
   - `start`, `stop`, `restart`, `status`, `logs [service]`, `health`
-- `update` – fast-forward this repo to `origin/main` (no merges)
-- `upgrade` – `update` plus pull/recreate service containers (safe to run while sleeping; won’t wake the game)
+- `upgrade` – pull/recreate service containers (safe to run while sleeping; won’t wake the game)
+  - Repo auto-updates to latest `origin/main` on CLI launch (ff-only, best-effort; skipped when the checkout is dirty or detached HEAD)
 - `cluster` – multi-instance “cluster mode” (multiple concurrent avatars on one host)
   - Config: `~/.embody/cluster.json` (override with `EMBODY_CLUSTER_FILE=/path/to/cluster.json`)
   - Commands: `cluster plan`, `cluster list`, `cluster up`, `cluster deploy`, `cluster down`, `cluster status`, `cluster logs`
-    - `cluster deploy` is a convenience wrapper: `update` + `pull` + `cluster up --recreate` (disable pieces with `--no-update`, `--no-pull`, `--no-recreate`)
-    - If you’re pinned to a release tag, use `cluster deploy --no-update ...` to avoid switching to `main`
+    - `cluster deploy` is a convenience wrapper: `pull` + `cluster up --recreate` (disable pieces with `--no-pull`, `--no-recreate`)
+    - If you’re pinned to a release tag (detached HEAD), auto-update is skipped and `cluster deploy` won’t switch branches.
   - Port map (slot-based, deterministic):
     - Signaling public port: `8080 + slot`
     - Runner port: `9877 + slot`
