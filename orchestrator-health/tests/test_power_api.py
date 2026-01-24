@@ -1,3 +1,4 @@
+import json
 import importlib
 import os
 
@@ -272,6 +273,7 @@ def test_ops_rollout_execs_script(ops_app, monkeypatch):
     client = TestClient(app)
 
     monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
     monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
 
     class DummyResult:
@@ -290,6 +292,21 @@ def test_ops_rollout_execs_script(ops_app, monkeypatch):
     resp = client.post("/ops/rollout", json={"no_verify": True, "payments_api_url": "http://payments:8081"})
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
+
+    state_path = svc.ROLLOUT_STATE_FILE
+    assert state_path.exists()
+    state = json.loads(state_path.read_text())
+    assert state["status"] in ("staged", "applied")
+
+
+def test_meta_includes_rollout_and_verify(power_app):
+    app, _svc = power_app
+    client = TestClient(app)
+    resp = client.get("/meta")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "rollout" in data
+    assert "verify_last" in data
 
 
 def test_ops_pull_image_execs_docker_pull(ops_app, monkeypatch):
@@ -423,9 +440,11 @@ def test_cluster_deploy_accepts_config_overrides(cluster_app, monkeypatch):
     assert env["EMBODY_EXTRA_ARGS"] == "-ForceRes -ResX=1280 -ResY=720"
 
 
-def test_cluster_deploy_rejects_invalid_override_paths(cluster_app):
-    app, _svc = cluster_app
+def test_cluster_deploy_rejects_invalid_override_paths(cluster_app, monkeypatch):
+    app, svc = cluster_app
     client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports, **_kwargs: {})
 
     resp = client.post("/cluster/deploy", json={"avatar_id": "embody-0", "slot": 0, "console_variables_file": "/etc/passwd"})
     assert resp.status_code == 400

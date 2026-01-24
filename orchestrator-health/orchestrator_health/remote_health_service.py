@@ -1,6 +1,7 @@
 """Expose local Docker service health over HTTP for remote monitoring and power control."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import ipaddress
@@ -22,6 +23,27 @@ monitor = ServiceMonitor()
 docker_client = monitor.docker_client
 
 POWER_STATE_FILE = Path(os.environ.get("POWER_STATE_FILE", "/var/lib/vtuber/power-state/power_state.json"))
+ROLLOUT_STATE_FILE = Path(os.environ.get("ROLLOUT_STATE_FILE", str(POWER_STATE_FILE.parent / "rollout_state.json")))
+VERIFY_LAST_FILE = Path(os.environ.get("VERIFY_LAST_FILE", str(POWER_STATE_FILE.parent / "verify_last.json")))
+
+
+def _read_json_file(path: Path) -> Optional[dict[str, Any]]:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except Exception:  # pragma: no cover - best-effort
+        return None
+    try:
+        data = json.loads(raw)
+    except Exception:  # pragma: no cover - best-effort
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_json_file_atomic(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def _parse_ip_list(primary_env: str, fallback_env: str | None = None, default: str = "") -> list[str]:
@@ -123,6 +145,20 @@ class OpsRolloutRequest(BaseModel):
     payments_api_url: Optional[str] = Field(default=None, description="Payments backend base URL override.")
     image_ref: Optional[str] = Field(default=None, description="Payments license image_ref override (enc-v1, etc).")
     no_verify: bool = Field(default=False, description="Skip post-rollout health verification.")
+    stage_only: bool = Field(
+        default=False,
+        description="If true, allow downloading+loading the encrypted image while unreal-game is running. Does not restart containers.",
+    )
+    skip_download: bool = Field(
+        default=False,
+        description="If true, do not download/load; only apply an already-staged image (requires recreate_stopped).",
+    )
+    min_free_gb: int = Field(
+        default=15,
+        ge=0,
+        le=1024,
+        description="Require at least this many GiB free on the project filesystem before downloading/loading.",
+    )
     recreate_stopped: bool = Field(
         default=False,
         description="If true, force-recreate stopped game containers after the image is loaded (keeps them stopped).",
@@ -438,6 +474,44 @@ def _cluster_project_dir() -> str:
     if not project_dir.startswith("/"):
         return ""
     return project_dir
+
+
+def _detect_game_image_ref() -> str:
+    """Best-effort: return the unreal-game image ref from any local container (single-stack or cluster)."""
+    try:
+        for container in docker_client.containers.list(all=True, filters={"label": ["com.docker.compose.service=unreal-game"]}):
+            image_ref = (((container.attrs or {}).get("Config") or {}).get("Image") or "").strip()
+            if image_ref:
+                return image_ref
+    except Exception:  # pragma: no cover - best-effort
+        pass
+    return "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest"
+
+
+def _docker_image_id(image_ref: str) -> Optional[str]:
+    try:
+        return getattr(docker_client.images.get(image_ref), "id", None)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _executor_disk_free_bytes(executor: Any, path: str) -> Optional[int]:
+    out = _cluster_executor_exec(executor, ["df", "-Pk", path])
+    if out.get("exit_code") != 0:
+        return None
+    lines = (out.get("stdout") or "").splitlines()
+    if len(lines) < 2:
+        return None
+    parts = lines[-1].split()
+    if len(parts) < 4:
+        return None
+    try:
+        available_k = int(parts[3])
+    except Exception:
+        return None
+    if available_k < 0:
+        return None
+    return available_k * 1024
 
 
 def _resolve_git_ref_from_packed_refs(packed: str, ref: str) -> Optional[str]:
@@ -1174,6 +1248,8 @@ def read_meta(request: Request) -> dict[str, Any]:
         },
         "git": git_info,
         "containers": containers,
+        "rollout": _read_json_file(ROLLOUT_STATE_FILE),
+        "verify_last": _read_json_file(VERIFY_LAST_FILE),
     }
 
 
@@ -1284,6 +1360,13 @@ def ops_rollout(payload: OpsRolloutRequest, request: Request) -> dict[str, Any]:
     if not project_dir:
         raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
 
+    if payload.stage_only and payload.recreate_stopped:
+        raise HTTPException(status_code=400, detail="stage_only cannot be combined with recreate_stopped")
+    if payload.skip_download and payload.stage_only:
+        raise HTTPException(status_code=400, detail="skip_download and stage_only are mutually exclusive")
+    if payload.skip_download and not payload.recreate_stopped:
+        raise HTTPException(status_code=400, detail="skip_download requires recreate_stopped=true")
+
     payments_url = (payload.payments_api_url or os.environ.get("PAYMENTS_API_URL") or "").strip()
     if not payments_url:
         raise HTTPException(status_code=400, detail="payments_api_url is required (or set PAYMENTS_API_URL)")
@@ -1307,27 +1390,89 @@ def ops_rollout(payload: OpsRolloutRequest, request: Request) -> dict[str, Any]:
                 running.append(getattr(container, "name", ""))
     except Exception:  # pragma: no cover - defensive
         running = []
-    if running:
+    if running and (not payload.stage_only):
         raise HTTPException(status_code=409, detail=f"refusing rollout while unreal-game is running: {', '.join(running)}")
 
     executor = _cluster_executor_container()
-    token_path = "/root/.embody/orch-license-token.txt"
-    cmd = [
-        "bash",
-        f"{project_dir}/tools/encrypted-game-image/consume.sh",
-        "--payments-api-url",
-        payments_url,
-        "--image-ref",
-        image_ref,
-        "--orch-token-file",
-        token_path,
-    ]
-    out = _cluster_executor_exec(executor, cmd)
-    out["stdout"] = _tail(out.get("stdout", ""))
-    out["stderr"] = _tail(out.get("stderr", ""))
-    out["ok"] = out.get("exit_code") == 0
-    if out["ok"] and payload.recreate_stopped:
-        out["recreate"] = _recreate_stopped_game_projects(project_dir=project_dir)
+    game_image = _detect_game_image_ref()
+
+    free_bytes = None
+    if (not payload.skip_download) and payload.min_free_gb > 0:
+        free_bytes = _executor_disk_free_bytes(executor, project_dir)
+        if free_bytes is not None:
+            want = payload.min_free_gb * 1024 * 1024 * 1024
+            if free_bytes < want:
+                raise HTTPException(
+                    status_code=507,
+                    detail=(
+                        f"insufficient disk space on project filesystem: free={free_bytes}B want>={want}B "
+                        f"(min_free_gb={payload.min_free_gb})"
+                    ),
+                )
+
+    out: dict[str, Any] = {
+        "ok": True,
+        "mode": "stage" if payload.stage_only else ("apply" if payload.recreate_stopped else "load"),
+        "disk_free_bytes": free_bytes,
+        "game_image": game_image,
+    }
+
+    state: dict[str, Any] = {
+        "status": "unknown",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "image_ref": image_ref,
+        "payments_api_url": payments_url,
+        "game_image": game_image,
+    }
+
+    if payload.skip_download:
+        existing = _read_json_file(ROLLOUT_STATE_FILE)
+        if not existing or existing.get("status") not in ("staged", "applied"):
+            raise HTTPException(status_code=409, detail="no staged rollout found (run /ops/rollout with stage_only first)")
+        if (existing.get("image_ref") or "").strip() and (existing.get("image_ref") or "").strip() != image_ref:
+            raise HTTPException(status_code=409, detail="staged rollout image_ref does not match request image_ref")
+        state = existing
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        state["loaded_image_id"] = _docker_image_id(game_image)
+        _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
+    else:
+        token_path = "/root/.embody/orch-license-token.txt"
+        cmd = [
+            "bash",
+            f"{project_dir}/tools/encrypted-game-image/consume.sh",
+            "--payments-api-url",
+            payments_url,
+            "--image-ref",
+            image_ref,
+            "--orch-token-file",
+            token_path,
+        ]
+        download = _cluster_executor_exec(executor, cmd)
+        download["stdout"] = _tail(download.get("stdout", ""))
+        download["stderr"] = _tail(download.get("stderr", ""))
+        download["ok"] = download.get("exit_code") == 0
+        out["download"] = download
+        if not download["ok"]:
+            out["ok"] = False
+            state["status"] = "error"
+            state["detail"] = "download/load failed"
+            _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
+            return out
+
+        state["status"] = "staged"
+        state["loaded_image_id"] = _docker_image_id(game_image)
+        _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
+
+    if payload.recreate_stopped:
+        state = _read_json_file(ROLLOUT_STATE_FILE) or state
+        state["apply_requested_at"] = datetime.now(timezone.utc).isoformat()
+        recreate = _recreate_stopped_game_projects(project_dir=project_dir)
+        out["recreate"] = recreate
+        state["status"] = "applied"
+        state["applied_at"] = datetime.now(timezone.utc).isoformat()
+        state["loaded_image_id"] = _docker_image_id(game_image)
+        _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
+
     return out
 
 

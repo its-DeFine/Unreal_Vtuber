@@ -23,6 +23,10 @@ fi
 TOKEN_FILE_DEFAULT="${TARGET_HOME}/.embody/orch-license-token.txt"
 PAYMENTS_VIEWER_TOKEN_FILE_DEFAULT="${TARGET_HOME}/.embody/payments-viewer-token.txt"
 REGISTRATION_STATE_FILE_DEFAULT="${TARGET_HOME}/.embody/orchestrator-registration.json"
+VERIFY_LAST_FILE_DEFAULT="/var/lib/vtuber/power-state/verify_last.json"
+VERIFY_LAST_FILE_FALLBACK="${TARGET_HOME}/.embody/verify_last.json"
+ROLLOUT_STATE_FILE_DEFAULT="/var/lib/vtuber/power-state/rollout_state.json"
+ROLLOUT_STATE_FILE_FALLBACK="${TARGET_HOME}/.embody/rollout_state.json"
 CLUSTER_CONFIG_FILE_DEFAULT="${TARGET_HOME}/.embody/cluster.json"
 DEFAULT_PAYMENTS_API_URL="http://3.141.111.200:8081"
 DEFAULT_LICENSE_IMAGE_REF="ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1"
@@ -400,6 +404,44 @@ read_file_trim() {
   printf '%s' "$value"
 }
 
+first_existing_path() {
+  local primary="$1" fallback="$2"
+  if [[ -f "$primary" ]]; then
+    printf '%s' "$primary"
+    return 0
+  fi
+  if [[ -f "$fallback" ]]; then
+    printf '%s' "$fallback"
+    return 0
+  fi
+  printf '%s' "$primary"
+  return 0
+}
+
+write_json_file_atomic() {
+  local path="$1" json="$2"
+  mkdir -p "$(dirname "$path")" 2>/dev/null || return 1
+  local tmp
+  tmp="$(mktemp "$(dirname "$path")/.tmp.XXXXXX" 2>/dev/null || true)"
+  [[ -n "$tmp" ]] || return 1
+  printf '%s\n' "$json" >"$tmp" || { rm -f "$tmp" >/dev/null 2>&1 || true; return 1; }
+  mv "$tmp" "$path" || { rm -f "$tmp" >/dev/null 2>&1 || true; return 1; }
+  return 0
+}
+
+write_state_json_best_effort() {
+  local primary="$1" fallback="$2" json="$3"
+  if write_json_file_atomic "$primary" "$json"; then
+    echo "$primary"
+    return 0
+  fi
+  if write_json_file_atomic "$fallback" "$json"; then
+    echo "$fallback"
+    return 0
+  fi
+  return 1
+}
+
 read_payments_viewer_token() {
   local token=""
   if [[ -n "${PAYMENTS_VIEWER_TOKEN:-}" ]]; then
@@ -490,6 +532,58 @@ docker_image_present() {
   local ref="$1"
   command -v docker >/dev/null 2>&1 || return 1
   docker image inspect "$ref" >/dev/null 2>&1
+}
+
+df_available_bytes() {
+  local path="$1"
+  command -v df >/dev/null 2>&1 || return 1
+  local out line avail_k
+  out="$(df -Pk "$path" 2>/dev/null || true)"
+  line="$(printf '%s\n' "$out" | tail -n 1 || true)"
+  avail_k="$(printf '%s\n' "$line" | awk '{print $4}' 2>/dev/null || true)"
+  if [[ ! "$avail_k" =~ ^[0-9]+$ ]]; then
+    return 1
+  fi
+  printf '%s' $(( avail_k * 1024 ))
+}
+
+docker_root_dir() {
+  command -v docker >/dev/null 2>&1 || return 1
+  docker info --format '{{.DockerRootDir}}' 2>/dev/null || true
+}
+
+docker_disk_free_bytes() {
+  local root
+  root="$(trim_whitespace "$(docker_root_dir 2>/dev/null || true)")"
+  if [[ -n "$root" && -d "$root" ]]; then
+    df_available_bytes "$root" || return 1
+    return 0
+  fi
+  df_available_bytes "$REPO_ROOT" || return 1
+}
+
+require_min_free_gb() {
+  local min_gb="$1" context="${2:-operation}"
+  [[ -n "$min_gb" ]] || return 0
+  if [[ ! "$min_gb" =~ ^[0-9]+$ ]]; then
+    echo "${context}: invalid min_free_gb (expected integer GiB): ${min_gb}" >&2
+    return 1
+  fi
+  if [[ "$min_gb" -le 0 ]]; then
+    return 0
+  fi
+  local free
+  free="$(docker_disk_free_bytes 2>/dev/null || true)"
+  if [[ ! "$free" =~ ^[0-9]+$ ]]; then
+    echo "${context}: warning: could not determine free disk; continuing." >&2
+    return 0
+  fi
+  local want=$(( min_gb * 1024 * 1024 * 1024 ))
+  if [[ "$free" -lt "$want" ]]; then
+    echo "${context}: insufficient disk space: free=${free}B want>=${want}B (min_free_gb=${min_gb})" >&2
+    return 1
+  fi
+  return 0
 }
 
 git_cmd() {
@@ -863,15 +957,29 @@ PY
 }
 
 cmd_rollout() {
-  local payments_url image_ref token_file
+  local payments_url image_ref token_file mode min_free_gb
   local passthrough=()
 
   payments_url=""
   image_ref="$DEFAULT_LICENSE_IMAGE_REF"
   token_file="$TOKEN_FILE_DEFAULT"
+  mode="rollout"
+  min_free_gb="15"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --stage|--stage-only)
+        mode="stage"
+        shift 1
+        ;;
+      --apply-staged|--apply)
+        mode="apply_staged"
+        shift 1
+        ;;
+      --min-free-gb)
+        min_free_gb="${2:-}"
+        shift 2
+        ;;
       --payments-api-url)
         payments_url="${2:-}"
         shift 2
@@ -893,11 +1001,16 @@ cmd_rollout() {
 Usage:
   ./scripts/embody_cli.sh rollout [options]
 
-This wraps `tools/encrypted-game-image/rollout.sh` and uses your stored license token.
+Modes:
+  --stage            Stage the encrypted image (download+decrypt+docker load) without restarting containers.
+  --apply-staged      Apply the staged image while sleeping (force-recreate stopped game containers; next wake uses it).
+
+Default behavior (no mode flags) runs a full rollout (stops stack, reloads image, restarts) via `tools/encrypted-game-image/rollout.sh`.
 
 Options:
   --payments-api-url <url>   Payments backend (default: PAYMENTS_API_URL from .env)
   --image-ref <ref>          Image ref registered in Payments (default: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1)
+  --min-free-gb <n>          Require at least N GiB free disk before downloading/loading (default: 15)
   --no-verify                Skip health checks after restart
 EOF
         return 0
@@ -924,16 +1037,97 @@ EOF
     fi
   fi
 
-  if [[ ! -x "$REPO_ROOT/tools/encrypted-game-image/rollout.sh" ]]; then
-    echo "Missing rollout script: $REPO_ROOT/tools/encrypted-game-image/rollout.sh" >&2
-    return 1
-  fi
+  case "$mode" in
+    stage)
+      require_min_free_gb "$min_free_gb" "rollout stage" || return 1
+      [[ -x "$REPO_ROOT/tools/encrypted-game-image/consume.sh" ]] || { echo "Missing consume script: $REPO_ROOT/tools/encrypted-game-image/consume.sh" >&2; return 1; }
 
-  "$REPO_ROOT/tools/encrypted-game-image/rollout.sh" \
-    --payments-api-url "$payments_url" \
-    --orch-token-file "$token_file" \
-    --image-ref "$image_ref" \
-    "${passthrough[@]}"
+      "$REPO_ROOT/tools/encrypted-game-image/consume.sh" \
+        --payments-api-url "$payments_url" \
+        --orch-token-file "$token_file" \
+        --image-ref "$image_ref"
+
+      local game_image image_id json out_path
+      game_image="$(detect_game_image_from_compose "$COMPOSE_FILE" 2>/dev/null || true)"
+      image_id=""
+      if [[ -n "$game_image" ]] && command -v docker >/dev/null 2>&1; then
+        image_id="$(docker image inspect -f '{{.Id}}' "$game_image" 2>/dev/null || true)"
+        image_id="$(trim_whitespace "${image_id:-}")"
+      fi
+
+      json="$(STATUS="staged" IMAGE_REF="$image_ref" PAYMENTS_URL="$payments_url" GAME_IMAGE="$game_image" IMAGE_ID="$image_id" python3 - <<'PY'
+import json
+import os
+from datetime import datetime, timezone
+
+def clean(s: str) -> str:
+    return (s or "").strip()
+
+data = {
+    "status": clean(os.environ.get("STATUS")),
+    "updated_at": datetime.now(timezone.utc).isoformat(),
+    "image_ref": clean(os.environ.get("IMAGE_REF")),
+    "payments_api_url": clean(os.environ.get("PAYMENTS_URL")),
+    "game_image": clean(os.environ.get("GAME_IMAGE")),
+    "loaded_image_id": clean(os.environ.get("IMAGE_ID")) or None,
+}
+print(json.dumps(data, sort_keys=True))
+PY
+      )"
+
+      out_path="$(write_state_json_best_effort "$ROLLOUT_STATE_FILE_DEFAULT" "$ROLLOUT_STATE_FILE_FALLBACK" "$json" || true)"
+      if [[ -n "$out_path" ]]; then
+        echo "rollout: staged (state: ${out_path})" >&2
+      fi
+      ;;
+    apply_staged)
+      command -v curl >/dev/null 2>&1 || { echo "Missing dependency: curl" >&2; return 1; }
+      command -v python3 >/dev/null 2>&1 || { echo "Missing dependency: python3" >&2; return 1; }
+
+      local payload out http_code body
+      payload="$(PAYMENTS_URL="$payments_url" IMAGE_REF="$image_ref" python3 - <<'PY'
+import json
+import os
+
+print(json.dumps({
+  "payments_api_url": os.environ.get("PAYMENTS_URL") or "",
+  "image_ref": os.environ.get("IMAGE_REF") or "",
+  "skip_download": True,
+  "recreate_stopped": True,
+  "min_free_gb": 0,
+}))
+PY
+      )"
+      out="$(curl -sS --max-time 60 -X POST -H "Content-Type: application/json" -d "$payload" -w $'\n%{http_code}' http://127.0.0.1:9090/ops/rollout 2>/dev/null || true)"
+      http_code="${out##*$'\n'}"
+      body="${out%$'\n'*}"
+      if [[ "$http_code" != "200" ]]; then
+        echo "rollout: apply-staged failed (HTTP ${http_code})" >&2
+        if [[ -n "$body" ]]; then
+          echo "$body" >&2
+        fi
+        echo "Hint: ensure the stack is sleeping (power sleep) and EXPERIMENTAL_REMOTE_OPS=1 is enabled on orchestrator-health." >&2
+        return 1
+      fi
+      echo "$body"
+      ;;
+    rollout)
+      require_min_free_gb "$min_free_gb" "rollout" || return 1
+      if [[ ! -x "$REPO_ROOT/tools/encrypted-game-image/rollout.sh" ]]; then
+        echo "Missing rollout script: $REPO_ROOT/tools/encrypted-game-image/rollout.sh" >&2
+        return 1
+      fi
+      "$REPO_ROOT/tools/encrypted-game-image/rollout.sh" \
+        --payments-api-url "$payments_url" \
+        --orch-token-file "$token_file" \
+        --image-ref "$image_ref" \
+        "${passthrough[@]}"
+      ;;
+    *)
+      echo "Unknown rollout mode: $mode" >&2
+      return 1
+      ;;
+  esac
 }
 
 cmd_config() {
@@ -1075,6 +1269,30 @@ payments_self_stats() {
 
 cmd_upgrade() {
   init_ui
+  local yes="0"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --yes|-y)
+        yes="1"
+        shift 1
+        ;;
+      -h|--help)
+        cat <<'EOF'
+Usage:
+  ./scripts/embody_cli.sh upgrade [--yes]
+
+Options:
+  --yes   Do not prompt before recreating containers
+EOF
+        return 0
+        ;;
+      *)
+        echo "Unknown arg for upgrade: $1" >&2
+        return 1
+        ;;
+    esac
+  done
 
   if ! command -v docker >/dev/null 2>&1; then
     ui_check "docker" "FAIL" "(missing dependency)"
@@ -1086,7 +1304,7 @@ cmd_upgrade() {
   fi
   command -v python3 >/dev/null 2>&1 || { ui_check "python3" "FAIL" "(missing dependency)"; return 1; }
 
-  if is_tty; then
+  if is_tty && [[ "$yes" != "1" ]]; then
     if ! prompt_yes_no "Pull latest service images and recreate containers now? This may disconnect active sessions." "y"; then
       ui_check "apply" "SKIP"
       return 0
@@ -1331,6 +1549,92 @@ PY
     fi
   else
     ui_check "registration" "SKIP" "(setup not complete)"
+  fi
+
+  ui_section "Rollout"
+  local rollout_path
+  rollout_path="$(first_existing_path "$ROLLOUT_STATE_FILE_DEFAULT" "$ROLLOUT_STATE_FILE_FALLBACK")"
+  if [[ -f "$rollout_path" ]] && command -v python3 >/dev/null 2>&1; then
+    local rollout_summary
+    rollout_summary="$(PATH="$rollout_path" python3 - <<'PY' || true
+import json
+import os
+
+path = os.environ.get("PATH") or ""
+try:
+    data = json.load(open(path, "r"))
+except Exception:
+    data = {}
+
+status = (data.get("status") or "").strip() or "unknown"
+image_ref = (data.get("image_ref") or "").strip() or ""
+updated_at = (data.get("updated_at") or "").strip() or ""
+loaded_id = (data.get("loaded_image_id") or "").strip() or ""
+if loaded_id.startswith("sha256:"):
+    loaded_id = loaded_id.split(":", 1)[1]
+loaded_id_short = loaded_id[:12] if loaded_id else ""
+
+parts = [f"status={status}"]
+if image_ref:
+    parts.append(f"image_ref={image_ref}")
+if loaded_id_short:
+    parts.append(f"image_id={loaded_id_short}")
+if updated_at:
+    parts.append(f"updated_at={updated_at}")
+print(", ".join(parts))
+PY
+    )"
+    if [[ -n "$rollout_summary" ]]; then
+      ui_check "pending rollout" "OK" "(${rollout_summary}; state=${rollout_path})"
+    else
+      ui_check "pending rollout" "WARN" "(${rollout_path} unreadable)"
+    fi
+  elif [[ -f "$rollout_path" ]]; then
+    ui_check "pending rollout" "OK" "(${rollout_path})"
+  else
+    ui_check "pending rollout" "OK" "(none)"
+  fi
+
+  ui_section "Verify (last)"
+  local verify_path
+  verify_path="$(first_existing_path "$VERIFY_LAST_FILE_DEFAULT" "$VERIFY_LAST_FILE_FALLBACK")"
+  if [[ -f "$verify_path" ]] && command -v python3 >/dev/null 2>&1; then
+    local verify_summary
+    verify_summary="$(PATH="$verify_path" python3 - <<'PY' || true
+import json
+import os
+
+path = os.environ.get("PATH") or ""
+try:
+    data = json.load(open(path, "r"))
+except Exception:
+    data = {}
+
+ran_at = (data.get("ran_at") or "").strip() or ""
+ok = data.get("ok")
+git_sha = ((data.get("git") or {}).get("sha") or "").strip()
+
+parts = []
+if ran_at:
+    parts.append(f"ran_at={ran_at}")
+if ok is True:
+    parts.append("ok=true")
+elif ok is False:
+    parts.append("ok=false")
+if git_sha:
+    parts.append(f"sha={git_sha}")
+print(", ".join(parts))
+PY
+    )"
+    if [[ -n "$verify_summary" ]]; then
+      ui_check "last verify" "OK" "(${verify_summary}; state=${verify_path})"
+    else
+      ui_check "last verify" "WARN" "(${verify_path} unreadable)"
+    fi
+  elif [[ -f "$verify_path" ]]; then
+    ui_check "last verify" "OK" "(${verify_path})"
+  else
+    ui_check "last verify" "WARN" "(no verify history; run: ./scripts/embody_cli.sh verify --fix)"
   fi
 }
 
@@ -2427,6 +2731,99 @@ cluster_down() {
   fi
 }
 
+cluster_gc() {
+  cd "$REPO_ROOT"
+  cluster_ensure_docker || return 1
+
+  local yes="0"
+  local dry_run="0"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --yes|-y)
+        yes="1"
+        shift 1
+        ;;
+      --dry-run)
+        dry_run="1"
+        shift 1
+        ;;
+      -h|--help|help)
+        cat <<'EOF'
+Usage:
+  ./scripts/embody_cli.sh cluster gc [--dry-run] [--yes]
+
+Removes stopped cluster compose projects (prefix: vtuber-*) that have no running containers.
+This does not touch the host-level project.
+EOF
+        return 0
+        ;;
+      *)
+        echo "Unknown arg for cluster gc: $1" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  local host_project ids inspect_out
+  host_project="$(cluster_host_project_name)"
+  ids="$(docker ps -aq 2>/dev/null || true)"
+  [[ -n "$ids" ]] || { echo "cluster gc: no containers found." >&2; return 0; }
+
+  inspect_out="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}\t{{.State.Status}}' $ids 2>/dev/null || true)"
+  declare -A seen running
+  local project status
+  while IFS=$'\t' read -r project status; do
+    project="$(trim_whitespace "${project:-}")"
+    status="$(trim_whitespace "${status:-}")"
+    [[ -n "$project" ]] || continue
+    [[ "$project" == vtuber-* ]] || continue
+    [[ "$project" != "$host_project" ]] || continue
+    seen["$project"]="1"
+    if [[ "$status" == "running" ]]; then
+      running["$project"]="1"
+    fi
+  done <<<"$inspect_out"
+
+  local candidates=() slug
+  for project in "${!seen[@]}"; do
+    [[ -z "${running[$project]:-}" ]] || continue
+    slug="${project#vtuber-}"
+    [[ -n "$slug" ]] || continue
+    candidates+=("${project}:${slug}")
+  done
+
+  if [[ "${#candidates[@]}" -eq 0 ]]; then
+    echo "cluster gc: nothing to clean." >&2
+    return 0
+  fi
+
+  echo "cluster gc: stopped projects:"
+  local entry
+  for entry in "${candidates[@]}"; do
+    echo "  - ${entry%%:*}"
+  done
+
+  if [[ "$dry_run" == "1" ]]; then
+    return 0
+  fi
+
+  if is_tty && [[ "$yes" != "1" ]]; then
+    if ! prompt_yes_no "Remove these stopped projects (docker compose down)?" "n"; then
+      echo "cluster gc: skipped." >&2
+      return 0
+    fi
+  elif [[ "$yes" != "1" ]]; then
+    echo "cluster gc: refusing to run non-interactively without --yes" >&2
+    return 1
+  fi
+
+  for entry in "${candidates[@]}"; do
+    project="${entry%%:*}"
+    slug="${entry#*:}"
+    cluster_compose_instance "$project" "$slug" down || true
+  done
+}
+
 cluster_status() {
   cd "$REPO_ROOT"
   cluster_read_config || return 1
@@ -2547,6 +2944,9 @@ EOF
     down|stop)
       cluster_down "$@"
       ;;
+    gc)
+      cluster_gc "$@"
+      ;;
     deploy)
       cluster_deploy "$@"
       ;;
@@ -2568,6 +2968,7 @@ Usage:
   ./scripts/embody_cli.sh cluster up [--auto] [--yes] [--avatar-prefix <text>] [--max-instances <n>] [--force] [--recreate] [--pull always|missing|never] [avatar|slug...]
   ./scripts/embody_cli.sh cluster deploy [--no-pull] [--no-recreate] [--auto] [--yes] [--avatar-prefix <text>] [--max-instances <n>] [--force] [--pull always|missing|never] [avatar|slug...]
   ./scripts/embody_cli.sh cluster down [avatar|slug...]
+  ./scripts/embody_cli.sh cluster gc [--dry-run] [--yes]
   ./scripts/embody_cli.sh cluster status [avatar|slug...]
   ./scripts/embody_cli.sh cluster logs <avatar|slug> [service]
 
@@ -3489,7 +3890,8 @@ PY
   fi
 
   ui_section "Payments"
-  local payments_url token me_out me_code
+  local payments_url token me_out me_code payments_ok
+  payments_ok="0"
   payments_url="$(get_payments_api_url)"
   payments_url="$(trim_whitespace "${payments_url:-}")"
   [[ -n "$payments_url" ]] || payments_url="${PAYMENTS_API_URL:-$DEFAULT_PAYMENTS_API_URL}"
@@ -3501,6 +3903,9 @@ PY
     me_out="$(payments_self_me "$payments_url" 4 || true)"
     me_code="$(printf '%s\n' "$me_out" | head -n 1 || true)"
     cmd_payments self || true
+    if [[ "$me_code" == "200" ]]; then
+      payments_ok="1"
+    fi
     if [[ "$me_code" == "404" ]]; then
       ok="0"
     elif [[ "$me_code" == "401" ]]; then
@@ -3511,6 +3916,102 @@ PY
     echo ""
     ui_section "Payments (Admin)"
     cmd_payments admin || true
+  fi
+
+  local container_lines="" c status image_ref image_id
+  local containers_to_capture=(
+    vtuber-orchestrator-health
+    vtuber-orchestrator-edge-rotator
+    vtuber-turn-server
+    vtuber-auto-updater
+    vtuber-watchdog
+    vtuber-orchestrator-registration
+    vtuber-unreal-signaling
+    vtuber-unreal-game
+    vtuber-script-runner
+    vtuber-recorder-control
+  )
+  for c in "${containers_to_capture[@]}"; do
+    if ! docker inspect "$c" >/dev/null 2>&1; then
+      container_lines+="${c}\tmissing\t\t\n"
+      continue
+    fi
+    status="$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null || true)"
+    image_ref="$(docker inspect -f '{{.Config.Image}}' "$c" 2>/dev/null || true)"
+    image_id="$(docker inspect -f '{{.Image}}' "$c" 2>/dev/null || true)"
+    container_lines+="${c}\t${status}\t${image_ref}\t${image_id}\n"
+  done
+
+  local branch sha ran_at verify_json verify_out_path
+  branch=""
+  sha=""
+  if is_git_repo; then
+    branch="$(trim_whitespace "$(git_current_branch)")"
+    sha="$(trim_whitespace "$(git_remote_commit HEAD)")"
+  fi
+  ran_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u)"
+
+  verify_json="$(RAN_AT="$ran_at" OK="$ok" ALLOWLIST_OK="$allowlist_ok" POWER_STATE="$power_state" AWAKE="$awake" \
+    PAYMENTS_OK="$payments_ok" PAYMENTS_URL="$payments_url" PAYMENTS_HTTP_CODE="$me_code" \
+    GIT_BRANCH="$branch" GIT_SHA="$sha" CONTAINERS="$container_lines" python3 - <<'PY' || true
+import json
+import os
+
+def clean(s: str) -> str:
+    return (s or "").strip()
+
+def as_bool01(s: str) -> bool:
+    return clean(s) == "1"
+
+def as_int(s: str):
+    s = clean(s)
+    try:
+        return int(s)
+    except Exception:
+        return None
+
+containers_raw = os.environ.get("CONTAINERS") or ""
+containers = []
+for line in containers_raw.splitlines():
+    parts = line.split("\\t")
+    name = parts[0] if len(parts) > 0 else ""
+    status = parts[1] if len(parts) > 1 else ""
+    image = parts[2] if len(parts) > 2 else ""
+    image_id = parts[3] if len(parts) > 3 else ""
+    containers.append(
+        {
+            "name": clean(name),
+            "status": clean(status),
+            "image": clean(image) or None,
+            "image_id": clean(image_id) or None,
+        }
+    )
+
+data = {
+    "ran_at": clean(os.environ.get("RAN_AT")),
+    "ok": as_bool01(os.environ.get("OK")),
+    "allowlist_ok": as_bool01(os.environ.get("ALLOWLIST_OK")),
+    "power_state": clean(os.environ.get("POWER_STATE")) or None,
+    "awake": True if clean(os.environ.get("AWAKE")) == "1" else (False if clean(os.environ.get("AWAKE")) == "0" else None),
+    "payments": {
+        "ok": as_bool01(os.environ.get("PAYMENTS_OK")),
+        "url": clean(os.environ.get("PAYMENTS_URL")) or None,
+        "http_code": as_int(os.environ.get("PAYMENTS_HTTP_CODE")),
+    },
+    "git": {
+        "branch": clean(os.environ.get("GIT_BRANCH")) or None,
+        "sha": clean(os.environ.get("GIT_SHA")) or None,
+    },
+    "containers": containers,
+}
+
+print(json.dumps(data, sort_keys=True))
+PY
+  )"
+
+  if [[ -n "$verify_json" ]]; then
+    verify_out_path="$(write_state_json_best_effort "$VERIFY_LAST_FILE_DEFAULT" "$VERIFY_LAST_FILE_FALLBACK" "$verify_json" || true)"
+    [[ -n "$verify_out_path" ]] && ui_check "verify state" "OK" "(${verify_out_path})"
   fi
 
   [[ "$ok" == "1" && "$allowlist_ok" == "1" ]]
@@ -4085,12 +4586,73 @@ menu() {
   done
 }
 
+local_power_state() {
+  command -v curl >/dev/null 2>&1 || return 1
+  local body state
+  body="$(curl -sS --max-time 2 http://127.0.0.1:9090/power 2>/dev/null || true)"
+  [[ -n "$body" ]] || return 1
+  state=""
+  if command -v python3 >/dev/null 2>&1; then
+    state="$(BODY="$body" python3 - <<'PY' || true
+import json
+import os
+raw = os.environ.get("BODY") or ""
+try:
+    data = json.loads(raw)
+except Exception:
+    data = {}
+print((data.get("state") or "").strip())
+PY
+    )"
+  else
+    case "$body" in
+      *\"state\":\"sleeping\"*) state="sleeping" ;;
+      *\"state\":\"awake\"*) state="awake" ;;
+      *) state="" ;;
+    esac
+  fi
+  state="$(trim_whitespace "${state:-}")"
+  [[ -n "$state" ]] || return 1
+  printf '%s' "$state"
+}
+
+maybe_auto_upgrade_when_sleeping() {
+  local cmd="$1"
+  if [[ -n "$cmd" ]]; then
+    return 0
+  fi
+  if [[ "${EMBODY_CLI_AUTO_UPGRADE_WHEN_SLEEPING:-1}" == "0" || "${EMBODY_CLI_AUTO_UPGRADE_WHEN_SLEEPING:-}" == "false" ]]; then
+    return 0
+  fi
+  if [[ "${EMBODY_CLI_AUTO_UPGRADE_DONE:-0}" == "1" ]]; then
+    return 0
+  fi
+  if [[ "${EMBODY_CLI_AUTO_UPDATE_DONE:-0}" != "1" ]]; then
+    return 0
+  fi
+  [[ -f "$ENV_FILE" ]] || return 0
+  command -v docker >/dev/null 2>&1 || return 0
+  docker info >/dev/null 2>&1 || return 0
+
+  local pstate
+  pstate="$(local_power_state 2>/dev/null || true)"
+  if [[ "$pstate" != "sleeping" ]]; then
+    return 0
+  fi
+
+  echo "cli: repo auto-updated and stack is sleeping; auto-upgrading containers (non-disruptive)..." >&2
+  export EMBODY_CLI_AUTO_UPGRADE_DONE=1
+  cmd_upgrade --yes || true
+}
+
 main() {
   init_ui
 
   auto_update_repo_or_reexec "$@"
 
   local cmd="${1:-}"
+
+  maybe_auto_upgrade_when_sleeping "$cmd"
 
   case "$cmd" in
     -h|--help|help)
