@@ -75,6 +75,8 @@ q) Quit
   - `start`, `stop`, `restart`, `status`, `logs [service]`, `health`
 - `upgrade` – pull/recreate service containers (safe to run while sleeping; won’t wake the game)
   - Repo auto-updates to latest `origin/main` on CLI launch (ff-only, best-effort; skipped when the checkout is dirty or detached HEAD)
+  - Opt-out of repo auto-update: `EMBODY_CLI_NO_AUTO_UPDATE=1 ./scripts/embody_cli.sh`
+  - Opt-out of auto-upgrade-when-sleeping: `EMBODY_CLI_AUTO_UPGRADE_WHEN_SLEEPING=0 ./scripts/embody_cli.sh`
 - `cluster` – multi-instance “cluster mode” (multiple concurrent avatars on one host)
   - Config: `~/.embody/cluster.json` (override with `EMBODY_CLUSTER_FILE=/path/to/cluster.json`)
   - Commands: `cluster plan`, `cluster list`, `cluster up`, `cluster deploy`, `cluster down`, `cluster status`, `cluster logs`
@@ -120,3 +122,26 @@ If you use Payments-driven recording jobs:
 See also:
 - Recorder control docs: `docs/recorder-control.md`
 - Onboarding guide: `docs/orchestrator-onboarding.md`
+
+## Remote metadata + ops (experimental)
+
+The `orchestrator-health` service exposes remote metadata and a small remote-control API on `:9090`:
+
+- `GET http://<host>:9090/meta` – git head + service images/ids + last `verify` + rollout state
+- `POST http://<host>:9090/ops/upgrade` – ff-only git update; optional pull/recreate host services
+- `POST http://<host>:9090/ops/rollout` – stage/apply encrypted game image via a Payments lease
+- `POST http://<host>:9090/ops/pull-image` – `docker pull` for unencrypted images
+
+### Defaults and what changes require
+
+- Enabled by default. To disable: set `EXPERIMENTAL_REMOTE_OPS=0` in `.env` and recreate `orchestrator-health`.
+- Always protected by the Power allowlist. If `POWER_ALLOWED_IPS` / `POWER_ALLOWED_IPS_FILE` is not configured, `/ops/*` returns `403`.
+- Most `orchestrator-health` env vars (including `EXPERIMENTAL_REMOTE_OPS` and `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL`) are read at process startup, so changes require a recreate/restart.
+
+Recreate `orchestrator-health` (from the repo root):
+
+```bash
+docker compose -f docker-compose.unreal.yml --env-file .env up -d --force-recreate orchestrator-health
+```
+
+Note: if you only changed allowlist file contents at `/var/lib/vtuber/power-state/power_allowed_ips.txt`, no recreate is needed (it’s read on each request).

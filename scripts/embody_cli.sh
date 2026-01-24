@@ -1106,7 +1106,8 @@ PY
         if [[ -n "$body" ]]; then
           echo "$body" >&2
         fi
-        echo "Hint: ensure the stack is sleeping (power sleep) and EXPERIMENTAL_REMOTE_OPS=1 is enabled on orchestrator-health." >&2
+        echo "Hint: ensure the stack is sleeping (power sleep) and POWER_ALLOWED_IPS allowlisting includes 127.0.0.1 (remote /ops is strict)." >&2
+        echo "If you opted out of remote ops (EXPERIMENTAL_REMOTE_OPS=0), set it back to 1 and recreate orchestrator-health." >&2
         return 1
       fi
       echo "$body"
