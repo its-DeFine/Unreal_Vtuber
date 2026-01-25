@@ -12,9 +12,31 @@ Changes merged after `v1.3.1` (current tagged release).
 
 - Remote ops parity: richer `/meta`, config push, and `upgrade/rollout` support.
 - Encrypted game image: staged rollout (prefetch) + pending rollout state; persist last verify in `/meta`.
-- CLI: auto-update repo on launch (ff-only, best-effort); remove `cluster deploy --no-update`.
+- CLI: repo auto-update on launch (ff-only, best-effort; opt-out via `EMBODY_CLI_NO_AUTO_UPDATE=1`); remove `cluster deploy --no-update`.
 - Remote ops: pin orchestrator to `{ref, service_image_tag}` and apply safely during sleep (`--no-start`).
 - consume.sh: more robust base64 decode detection.
+
+### What this enables
+
+- Multi-avatar capacity on a single GPU host (“cluster mode”): run multiple independent avatar *slots* on one machine, each with its own signaling + runner + recorder stack.
+- A real path to “autoscale”: capacity becomes “how many slots are registered + healthy”, so you can scale **up** (more slots per host) and scale **out** (more hosts) using the same allocation primitives.
+- Remote ops (“orchestrator-health” API): when enabled + allowlisted, remote operators can inspect `/meta`, run `/ops/upgrade` (ff-only update + optional pull/recreate), stage/apply encrypted game images via `/ops/rollout`, and pull images via `/ops/pull-image` — without SSH.
+- Safer rollouts: staged encrypted image delivery + pinning to `{ref, service_image_tag}` makes it practical to keep hosts on known-good versions and update them while sleeping.
+
+### Developer notes (how to think about capacity)
+
+- The unit of allocatable capacity is a **signaling server registration**. Each cluster slot contributes one.
+- Cluster mode is intentionally deterministic:
+  - Signaling port: `8080 + slot`
+  - Runner port: `9877 + slot`
+  - Recorder-control port: `8889 + slot`
+- Per-slot sleep/wake is supported via `/power/projects/{project}` (and CLI wrappers), so you can scale down unused slots without powering off the whole host.
+- Defaults & knobs:
+  - CLI repo auto-update is on by default; disable with `EMBODY_CLI_NO_AUTO_UPDATE=1` (auto-update is skipped automatically when the repo is dirty or on detached HEAD).
+  - CLI auto-upgrade-when-sleeping is on by default; disable with `EMBODY_CLI_AUTO_UPGRADE_WHEN_SLEEPING=0`.
+  - Service containers (runner/health/rotator/etc) can be pinned to a release tag via `EMBODY_SERVICE_IMAGE_TAG=v1.3.1` in `.env` (remote ops can also set `service_image_tag` via `/ops/upgrade`).
+  - Remote ops endpoints are enabled by default (`EXPERIMENTAL_REMOTE_OPS=1`); opt out with `EXPERIMENTAL_REMOTE_OPS=0` and recreate `orchestrator-health`.
+  - Remote cluster control (`/cluster/*`) is opt-in: set `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1` and recreate `orchestrator-health`.
 
 ### Included PRs
 
