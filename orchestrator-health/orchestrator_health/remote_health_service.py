@@ -87,6 +87,8 @@ _PROJECT_AWAKE_UNTIL: dict[str, datetime] = {}
 _PROJECT_LAST_REASON: dict[str, str] = {}
 
 _PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_DOCKER_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
+_GIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 
 
 class PowerState(BaseModel):
@@ -138,7 +140,41 @@ class ClusterDownRequest(BaseModel):
 
 
 class OpsUpgradeRequest(BaseModel):
+    ref: Optional[str] = Field(default=None, description="Optional git ref (tag/branch/sha) to checkout after fetching.")
+    service_image_tag: Optional[str] = Field(
+        default=None,
+        description="Optional EMBODY_SERVICE_IMAGE_TAG to write into the host .env (used for service images).",
+    )
     apply: bool = Field(default=False, description="If true, pull/recreate host-level containers after updating the repo.")
+
+    @model_validator(mode="after")
+    def _validate_upgrade_args(self) -> "OpsUpgradeRequest":
+        if self.ref is not None:
+            self.ref = self.ref.strip()
+            if not self.ref:
+                self.ref = None
+            elif "\x00" in self.ref or "\n" in self.ref or "\r" in self.ref or any(ch.isspace() for ch in self.ref):
+                raise ValueError("ref contains invalid whitespace/control characters")
+            elif self.ref.startswith("-"):
+                raise ValueError("ref must not start with '-'")
+            elif len(self.ref) > 200:
+                raise ValueError("ref is too long")
+
+        if self.service_image_tag is not None:
+            self.service_image_tag = self.service_image_tag.strip()
+            if not self.service_image_tag:
+                self.service_image_tag = None
+            elif (
+                "\x00" in self.service_image_tag
+                or "\n" in self.service_image_tag
+                or "\r" in self.service_image_tag
+                or any(ch.isspace() for ch in self.service_image_tag)
+            ):
+                raise ValueError("service_image_tag contains invalid whitespace/control characters")
+            elif not _DOCKER_TAG_RE.match(self.service_image_tag):
+                raise ValueError("service_image_tag must be a docker tag (letters/digits/._-; max 128 chars)")
+
+        return self
 
 
 class OpsRolloutRequest(BaseModel):
@@ -1274,6 +1310,7 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
         return out
 
     git_cmd = ["git", "-c", f"safe.directory={project_dir}", "-C", project_dir]
+    env_file = f"{project_dir}/.env"
 
     repo = run_step("git_is_repo", [*git_cmd, "rev-parse", "--is-inside-work-tree"])
     if repo["exit_code"] != 0:
@@ -1284,42 +1321,123 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
         return {"ok": False, "exit_code": 409, "detail": "dirty working tree", "steps": steps}
 
     before = run_step("git_head_before", [*git_cmd, "rev-parse", "--short", "HEAD"])
-    fetch = run_step("git_fetch", [*git_cmd, "fetch", "-q", "origin", "main"])
-    if fetch["exit_code"] != 0:
-        return {"ok": False, "exit_code": fetch["exit_code"], "steps": steps}
-    pull = run_step("git_pull", [*git_cmd, "pull", "-q", "--ff-only", "origin", "main"])
-    if pull["exit_code"] != 0:
-        return {"ok": False, "exit_code": pull["exit_code"], "steps": steps}
-    after = run_step("git_head_after", [*git_cmd, "rev-parse", "--short", "HEAD"])
+
+    if payload.ref:
+        fetch = run_step("git_fetch", [*git_cmd, "fetch", "-q", "--tags", "origin"])
+        if fetch["exit_code"] != 0:
+            return {"ok": False, "exit_code": fetch["exit_code"], "steps": steps}
+
+        requested_ref = payload.ref
+        resolved_ref = requested_ref
+        if not _GIT_SHA_RE.match(requested_ref) and not requested_ref.startswith("refs/") and "/" not in requested_ref:
+            has_tag = run_step(
+                "git_has_tag",
+                [*git_cmd, "show-ref", "--quiet", "--verify", f"refs/tags/{requested_ref}"],
+            )
+            if has_tag["exit_code"] != 0:
+                has_origin_branch = run_step(
+                    "git_has_origin_branch",
+                    [*git_cmd, "show-ref", "--quiet", "--verify", f"refs/remotes/origin/{requested_ref}"],
+                )
+                if has_origin_branch["exit_code"] == 0:
+                    resolved_ref = f"origin/{requested_ref}"
+
+        checkout = run_step("git_checkout", [*git_cmd, "checkout", "-q", "--detach", resolved_ref])
+        if checkout["exit_code"] != 0 and resolved_ref != requested_ref:
+            checkout = run_step("git_checkout_fallback", [*git_cmd, "checkout", "-q", "--detach", requested_ref])
+        if checkout["exit_code"] != 0:
+            return {"ok": False, "exit_code": checkout["exit_code"], "steps": steps}
+
+        after = run_step("git_head_after", [*git_cmd, "rev-parse", "--short", "HEAD"])
+    else:
+        fetch = run_step("git_fetch", [*git_cmd, "fetch", "-q", "origin", "main"])
+        if fetch["exit_code"] != 0:
+            return {"ok": False, "exit_code": fetch["exit_code"], "steps": steps}
+        pull = run_step("git_pull", [*git_cmd, "pull", "-q", "--ff-only", "origin", "main"])
+        if pull["exit_code"] != 0:
+            return {"ok": False, "exit_code": pull["exit_code"], "steps": steps}
+        after = run_step("git_head_after", [*git_cmd, "rev-parse", "--short", "HEAD"])
+
+    if payload.service_image_tag:
+        code = (
+            "import pathlib,sys\n"
+            "path=pathlib.Path(sys.argv[1])\n"
+            "tag=sys.argv[2]\n"
+            "key='EMBODY_SERVICE_IMAGE_TAG'\n"
+            "lines=path.read_text(encoding='utf-8').splitlines(True) if path.exists() else []\n"
+            "out=[]\n"
+            "found=False\n"
+            "for line in lines:\n"
+            "    if line.startswith(f'{key}='):\n"
+            "        out.append(f'{key}={tag}\\n')\n"
+            "        found=True\n"
+            "    else:\n"
+            "        out.append(line)\n"
+            "if not found:\n"
+            "    if out and not out[-1].endswith('\\n'):\n"
+            "        out[-1]=out[-1]+'\\n'\n"
+            "    out.append(f'{key}={tag}\\n')\n"
+            "path.parent.mkdir(parents=True, exist_ok=True)\n"
+            "path.write_text(''.join(out), encoding='utf-8')\n"
+        )
+        set_tag = run_step("set_service_image_tag", ["python3", "-c", code, env_file, payload.service_image_tag])
+        if set_tag["exit_code"] != 0:
+            return {"ok": False, "exit_code": set_tag["exit_code"], "steps": steps}
 
     if payload.apply:
         _detect_compose_identity()
         host_project = (POWER_PROJECT_NAME or os.environ.get("COMPOSE_PROJECT_NAME") or "unreal_vtuber").strip()
         host_project = _validate_compose_project_name(host_project)
         compose_file = f"{project_dir}/docker-compose.unreal.yml"
-        env_file = f"{project_dir}/.env"
-        services = ["turn-server", "orchestrator-edge-rotator", "vtuber-auto-updater", "orchestrator-registration"]
+        power_state = _read_power_state()
 
-        run_step(
-            "compose_pull",
-            [
-                "docker",
-                "compose",
-                "-p",
-                host_project,
-                "--project-directory",
-                project_dir,
-                "--env-file",
-                env_file,
-                "-f",
-                compose_file,
-                "pull",
-                *services,
-            ],
-        )
-        run_step(
-            "compose_recreate",
-            [
+        containers = []
+        try:
+            containers = _list_project_containers(host_project)
+        except Exception:  # pragma: no cover - defensive
+            containers = []
+
+        existing_services: set[str] = set()
+        for container in containers:
+            labels = getattr(container, "labels", {}) or {}
+            service = (labels.get("com.docker.compose.service") or "").strip()
+            if service:
+                existing_services.add(service)
+
+        excluded = {POWER_SELF_SERVICE, "orchestrator-edge-rotator", "unreal-game"}
+        ordered = [
+            "turn-server",
+            "unreal-signaling",
+            "vtuber-script-runner",
+            "recorder-control",
+            "vtuber-watchdog",
+            "vtuber-auto-updater",
+            "orchestrator-registration",
+        ]
+        if existing_services:
+            services = [svc for svc in ordered if svc in existing_services and svc not in excluded]
+        else:
+            services = [svc for svc in ("turn-server", "vtuber-auto-updater", "orchestrator-registration") if svc not in excluded]
+
+        if services:
+            run_step(
+                "compose_pull",
+                [
+                    "docker",
+                    "compose",
+                    "-p",
+                    host_project,
+                    "--project-directory",
+                    project_dir,
+                    "--env-file",
+                    env_file,
+                    "-f",
+                    compose_file,
+                    "pull",
+                    *services,
+                ],
+            )
+            recreate_args = [
                 "docker",
                 "compose",
                 "-p",
@@ -1331,12 +1449,13 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
                 "-f",
                 compose_file,
                 "up",
-                "-d",
-                "--no-deps",
-                "--force-recreate",
-                *services,
-            ],
-        )
+            ]
+            if power_state.state == "sleeping":
+                recreate_args.append("--no-start")
+            else:
+                recreate_args.append("-d")
+            recreate_args.extend(["--no-deps", "--force-recreate", *services])
+            run_step("compose_recreate", recreate_args)
 
     return {
         "ok": True,
