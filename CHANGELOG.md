@@ -12,7 +12,7 @@ Changes merged after `v1.3.1` (current tagged release).
 
 - Remote ops parity: richer `/meta`, config push, and `upgrade/rollout` support.
 - Encrypted game image: staged rollout (prefetch) + pending rollout state; persist last verify in `/meta`.
-- CLI: repo auto-update on launch (ff-only, best-effort; opt-out via `EMBODY_CLI_NO_AUTO_UPDATE=1`).
+- CLI: repo auto-update on launch (ff-only, best-effort; opt-out via `EMBODY_CLI_NO_AUTO_UPDATE=1`); remove `cluster deploy --no-update`.
 - Remote ops: pin orchestrator to `{ref, service_image_tag}` and apply safely during sleep (`--no-start`).
 - consume.sh: more robust base64 decode detection.
 
