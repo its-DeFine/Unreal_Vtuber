@@ -2,10 +2,29 @@
 
 ## Unreleased
 
-Changes merged after `v1.3.1-beta.6` (current tagged release).
+Changes merged after `v1.3.1` (current tagged release).
 
-- CLI: auto-update the repo to latest `origin/main` on launch (ff-only, best-effort); `update` command deprecated.
-- CLI: remove `cluster deploy --no-update` (pin to a release tag / detached HEAD to avoid `main` drift).
+- (none yet)
+
+## v1.3.1 (2026-01-25)
+
+### Highlights
+
+- Remote ops parity: richer `/meta`, config push, and `upgrade/rollout` support.
+- Encrypted game image: staged rollout (prefetch) + pending rollout state; persist last verify in `/meta`.
+- CLI: auto-update repo on launch (ff-only, best-effort); remove `cluster deploy --no-update`.
+- Remote ops: pin orchestrator to `{ref, service_image_tag}` and apply safely during sleep (`--no-start`).
+- consume.sh: more robust base64 decode detection.
+
+### Included PRs
+
+- [#161](https://github.com/its-DeFine/Unreal_Vtuber/pull/161) Issue #160: remote ops parity (meta/version + remote config + upgrade/rollout)
+- [#162](https://github.com/its-DeFine/Unreal_Vtuber/pull/162) consume.sh: fix base64 decode detection
+- [#164](https://github.com/its-DeFine/Unreal_Vtuber/pull/164) Issue #163: auto-update repo on CLI launch
+- [#168](https://github.com/its-DeFine/Unreal_Vtuber/pull/168) Issue #167: staged encrypted rollouts + persist verify/meta
+- [#170](https://github.com/its-DeFine/Unreal_Vtuber/pull/170) Issue #169: enable remote ops by default
+- [#172](https://github.com/its-DeFine/Unreal_Vtuber/pull/172) Issue #171: fix docs for orchestrator-health recreate
+- [#176](https://github.com/its-DeFine/Unreal_Vtuber/pull/176) Remote ops: pin git ref + service image tag
 
 ## v1.3.1-beta.6 (2026-01-19)
 
