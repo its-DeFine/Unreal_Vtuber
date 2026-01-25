@@ -34,6 +34,7 @@ Changes merged after `v1.3.1` (current tagged release).
 - Defaults & knobs:
   - CLI repo auto-update is on by default; disable with `EMBODY_CLI_NO_AUTO_UPDATE=1` (auto-update is skipped automatically when the repo is dirty or on detached HEAD).
   - CLI auto-upgrade-when-sleeping is on by default; disable with `EMBODY_CLI_AUTO_UPGRADE_WHEN_SLEEPING=0`.
+  - Service containers (runner/health/rotator/etc) can be pinned to a release tag via `EMBODY_SERVICE_IMAGE_TAG=v1.3.1` in `.env` (remote ops can also set `service_image_tag` via `/ops/upgrade`).
   - Remote ops endpoints are enabled by default (`EXPERIMENTAL_REMOTE_OPS=1`); opt out with `EXPERIMENTAL_REMOTE_OPS=0` and recreate `orchestrator-health`.
   - Remote cluster control (`/cluster/*`) is opt-in: set `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1` and recreate `orchestrator-health`.
 
