@@ -12,7 +12,7 @@ Changes merged after `v1.3.1` (current tagged release).
 
 - Remote ops parity: richer `/meta`, config push, and `upgrade/rollout` support.
 - Encrypted game image: staged rollout (prefetch) + pending rollout state; persist last verify in `/meta`.
-- CLI: auto-update repo on launch (ff-only, best-effort); remove `cluster deploy --no-update`.
+- CLI: repo auto-update on launch (ff-only, best-effort; opt-out via `EMBODY_CLI_NO_AUTO_UPDATE=1`).
 - Remote ops: pin orchestrator to `{ref, service_image_tag}` and apply safely during sleep (`--no-start`).
 - consume.sh: more robust base64 decode detection.
 
@@ -31,6 +31,11 @@ Changes merged after `v1.3.1` (current tagged release).
   - Runner port: `9877 + slot`
   - Recorder-control port: `8889 + slot`
 - Per-slot sleep/wake is supported via `/power/projects/{project}` (and CLI wrappers), so you can scale down unused slots without powering off the whole host.
+- Defaults & knobs:
+  - CLI repo auto-update is on by default; disable with `EMBODY_CLI_NO_AUTO_UPDATE=1` (auto-update is skipped automatically when the repo is dirty or on detached HEAD).
+  - CLI auto-upgrade-when-sleeping is on by default; disable with `EMBODY_CLI_AUTO_UPGRADE_WHEN_SLEEPING=0`.
+  - Remote ops endpoints are enabled by default (`EXPERIMENTAL_REMOTE_OPS=1`); opt out with `EXPERIMENTAL_REMOTE_OPS=0` and recreate `orchestrator-health`.
+  - Remote cluster control (`/cluster/*`) is opt-in: set `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1` and recreate `orchestrator-health`.
 
 ### Included PRs
 
