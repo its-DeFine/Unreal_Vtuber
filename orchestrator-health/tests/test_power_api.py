@@ -383,8 +383,25 @@ def test_ops_upgrade_sleeping_apply_uses_no_start(ops_app, monkeypatch):
             git_prefix_a = ["git", "-C", "/tmp/repo"]
             git_prefix_b = ["git", "-c", "safe.directory=/tmp/repo", "-C", "/tmp/repo"]
 
-            if cmd[: len(git_prefix_a)] == git_prefix_a or cmd[: len(git_prefix_b)] == git_prefix_b:
-                return DummyResult(stdout="ok\n")
+            if cmd[: len(git_prefix_a)] == git_prefix_a:
+                git_cmd = cmd[len(git_prefix_a) :]
+            elif cmd[: len(git_prefix_b)] == git_prefix_b:
+                git_cmd = cmd[len(git_prefix_b) :]
+            else:
+                git_cmd = None
+
+            if git_cmd is not None:
+                if git_cmd[:3] == ["rev-parse", "--is-inside-work-tree"]:
+                    return DummyResult(stdout="true\n")
+                if git_cmd[:2] == ["status", "--porcelain"]:
+                    return DummyResult(stdout="")
+                if git_cmd[:3] == ["rev-parse", "--short", "HEAD"]:
+                    return DummyResult(stdout="abc123\n")
+                if git_cmd[:2] == ["fetch", "-q"]:
+                    return DummyResult(stdout="")
+                if git_cmd[:3] == ["pull", "-q", "--ff-only"]:
+                    return DummyResult(stdout="")
+                return DummyResult(stdout="")
 
             if cmd[:2] == ["docker", "compose"]:
                 if "up" in cmd:
