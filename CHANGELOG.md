@@ -16,6 +16,22 @@ Changes merged after `v1.3.1` (current tagged release).
 - Remote ops: pin orchestrator to `{ref, service_image_tag}` and apply safely during sleep (`--no-start`).
 - consume.sh: more robust base64 decode detection.
 
+### What this enables
+
+- Multi-avatar capacity on a single GPU host (“cluster mode”): run multiple independent avatar *slots* on one machine, each with its own signaling + runner + recorder stack.
+- A real path to “autoscale”: capacity becomes “how many slots are registered + healthy”, so you can scale **up** (more slots per host) and scale **out** (more hosts) using the same allocation primitives.
+- No-SSH fleet operations: remote metadata + remote upgrade/rollout endpoints are stable enough to drive from a control plane (or simple scripts) instead of manually logging into boxes.
+- Safer rollouts: staged encrypted image delivery + pinning to `{ref, service_image_tag}` makes it practical to keep hosts on known-good versions and update them while sleeping.
+
+### Developer notes (how to think about capacity)
+
+- The unit of allocatable capacity is a **signaling server registration**. Each cluster slot contributes one.
+- Cluster mode is intentionally deterministic:
+  - Signaling port: `8080 + slot`
+  - Runner port: `9877 + slot`
+  - Recorder-control port: `8889 + slot`
+- Per-slot sleep/wake is supported via `/power/projects/{project}` (and CLI wrappers), so you can scale down unused slots without powering off the whole host.
+
 ### Included PRs
 
 - [#161](https://github.com/its-DeFine/Unreal_Vtuber/pull/161) Issue #160: remote ops parity (meta/version + remote config + upgrade/rollout)
