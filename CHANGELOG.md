@@ -20,7 +20,7 @@ Changes merged after `v1.3.1` (current tagged release).
 
 - Multi-avatar capacity on a single GPU host (“cluster mode”): run multiple independent avatar *slots* on one machine, each with its own signaling + runner + recorder stack.
 - A real path to “autoscale”: capacity becomes “how many slots are registered + healthy”, so you can scale **up** (more slots per host) and scale **out** (more hosts) using the same allocation primitives.
-- No-SSH fleet operations: remote metadata + remote upgrade/rollout endpoints are stable enough to drive from a control plane (or simple scripts) instead of manually logging into boxes.
+- Remote ops (“orchestrator-health” API): when enabled + allowlisted, remote operators can inspect `/meta`, run `/ops/upgrade` (ff-only update + optional pull/recreate), stage/apply encrypted game images via `/ops/rollout`, and pull images via `/ops/pull-image` — without SSH.
 - Safer rollouts: staged encrypted image delivery + pinning to `{ref, service_image_tag}` makes it practical to keep hosts on known-good versions and update them while sleeping.
 
 ### Developer notes (how to think about capacity)
