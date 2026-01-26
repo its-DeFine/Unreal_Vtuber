@@ -279,6 +279,10 @@ get_signaling_public_port() {
   get_env_or_file_value "VTUBER_SIGNALING_PUBLIC_PORT" "8080"
 }
 
+get_signaling_streamer_port() {
+  get_env_or_file_value "VTUBER_SIGNALING_STREAMER_PORT" "8888"
+}
+
 get_vtuber_runner_port() {
   get_env_or_file_value "VTUBER_RUNNER_PORT" "9877"
 }
@@ -1165,17 +1169,24 @@ cmd_config() {
     return 1
   fi
   local orch_id orch_addr payments_url allowlist turn_external gpu_devices
+  local signaling_port streamer_port runner_port recorder_port orch_port
   orch_id="$(get_orchestrator_id)"
   orch_addr="$(get_orchestrator_address)"
   payments_url="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "PAYMENTS_API_URL" 2>/dev/null || true)")"
   allowlist="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)")"
   turn_external="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "TURN_EXTERNAL_IP" 2>/dev/null || true)")"
   gpu_devices="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "NVIDIA_VISIBLE_DEVICES" 2>/dev/null || true)")"
+  signaling_port="$(get_signaling_public_port)"
+  streamer_port="$(get_signaling_streamer_port)"
+  runner_port="$(get_vtuber_runner_port)"
+  recorder_port="$(get_vtuber_recorder_port)"
+  orch_port="$(get_orchestrator_health_port)"
 
   echo "Orchestrator ID:        ${orch_id:-<unset>}"
   echo "Payout wallet:          ${orch_addr:-<unset>}"
   echo "Payments API:           ${payments_url:-<unset>}"
   echo "Allowed caller IPs:     ${allowlist:-<unset>}"
+  echo "Ports (host):           signaling=${signaling_port} streamer=${streamer_port} runner=${runner_port} recorder=${recorder_port} health=${orch_port}"
   echo "TURN external IP:       ${turn_external:-<unset>}"
   echo "GPU devices:            ${gpu_devices:-all}"
   if [[ -s "$TOKEN_FILE_DEFAULT" ]]; then

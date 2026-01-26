@@ -49,6 +49,11 @@ Common options:
   --public-ip <ip|auto>       (default: auto; tries EC2 IMDSv2 then ipify)
   --gpu-devices <value>       Set NVIDIA_VISIBLE_DEVICES (default: all; e.g. 0 or 0,1)
   --invite-code <code>        One-time invite code (mints + stores a license token)
+  --signaling-port <port>     Set VTUBER_SIGNALING_PUBLIC_PORT (default: 8080)
+  --streamer-port <port>      Set VTUBER_SIGNALING_STREAMER_PORT (default: 8888)
+  --runner-port <port>        Set VTUBER_RUNNER_PORT (default: 9877)
+  --recorder-port <port>      Set VTUBER_RECORDER_PORT (default: 8889)
+  --health-port <port>        Set ORCHESTRATOR_HEALTH_PORT (default: 9090)
 
 Host paths (written into .env):
   --session-dir <path>        (default: <target-home>/vtuber_sessions)
@@ -400,6 +405,14 @@ is_safe_allowlist_token() {
   [[ "$token" =~ ^[0-9A-Za-z:._/-]+$ ]]
 }
 
+is_valid_port() {
+  local raw="$1"
+  raw="$(trim_whitespace "$raw")"
+  raw="$(strip_inline_comment "$raw")"
+  [[ "$raw" =~ ^[0-9]+$ ]] || return 1
+  (( raw >= 1 && raw <= 65535 ))
+}
+
 is_valid_nvidia_visible_devices() {
   local value="$1"
   [[ -n "$value" ]] || return 1
@@ -441,6 +454,11 @@ INVITE_CODE=""
 SESSION_DIR=""
 RECORDINGS_DIR=""
 NVIDIA_VISIBLE_DEVICES="${NVIDIA_VISIBLE_DEVICES:-}"
+VTUBER_SIGNALING_PUBLIC_PORT="${VTUBER_SIGNALING_PUBLIC_PORT:-}"
+VTUBER_SIGNALING_STREAMER_PORT="${VTUBER_SIGNALING_STREAMER_PORT:-}"
+VTUBER_RUNNER_PORT="${VTUBER_RUNNER_PORT:-}"
+VTUBER_RECORDER_PORT="${VTUBER_RECORDER_PORT:-}"
+ORCHESTRATOR_HEALTH_PORT="${ORCHESTRATOR_HEALTH_PORT:-}"
 
 CONTROL_IPS=()
 
@@ -463,6 +481,17 @@ ADVANCED="0"
 
 SESSION_DIR_SET="0"
 RECORDINGS_DIR_SET="0"
+SIGNALING_PUBLIC_PORT_SET="0"
+SIGNALING_STREAMER_PORT_SET="0"
+RUNNER_PORT_SET="0"
+RECORDER_PORT_SET="0"
+ORCH_HEALTH_PORT_SET="0"
+
+if [[ -n "${VTUBER_SIGNALING_PUBLIC_PORT:-}" ]]; then SIGNALING_PUBLIC_PORT_SET="1"; fi
+if [[ -n "${VTUBER_SIGNALING_STREAMER_PORT:-}" ]]; then SIGNALING_STREAMER_PORT_SET="1"; fi
+if [[ -n "${VTUBER_RUNNER_PORT:-}" ]]; then RUNNER_PORT_SET="1"; fi
+if [[ -n "${VTUBER_RECORDER_PORT:-}" ]]; then RECORDER_PORT_SET="1"; fi
+if [[ -n "${ORCHESTRATOR_HEALTH_PORT:-}" ]]; then ORCH_HEALTH_PORT_SET="1"; fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -567,6 +596,46 @@ while [[ $# -gt 0 ]]; do
       ;;
     --invite-code)
       INVITE_CODE="${2:-}"
+      shift 2
+      ;;
+    --signaling-port|--signaling-public-port|--vtuber-signaling-public-port)
+      if [[ -z "${2:-}" ]]; then
+        die "$1 requires a value"
+      fi
+      VTUBER_SIGNALING_PUBLIC_PORT="${2:-}"
+      SIGNALING_PUBLIC_PORT_SET="1"
+      shift 2
+      ;;
+    --streamer-port|--signaling-streamer-port|--vtuber-signaling-streamer-port)
+      if [[ -z "${2:-}" ]]; then
+        die "$1 requires a value"
+      fi
+      VTUBER_SIGNALING_STREAMER_PORT="${2:-}"
+      SIGNALING_STREAMER_PORT_SET="1"
+      shift 2
+      ;;
+    --runner-port|--vtuber-runner-port)
+      if [[ -z "${2:-}" ]]; then
+        die "$1 requires a value"
+      fi
+      VTUBER_RUNNER_PORT="${2:-}"
+      RUNNER_PORT_SET="1"
+      shift 2
+      ;;
+    --recorder-port|--vtuber-recorder-port)
+      if [[ -z "${2:-}" ]]; then
+        die "$1 requires a value"
+      fi
+      VTUBER_RECORDER_PORT="${2:-}"
+      RECORDER_PORT_SET="1"
+      shift 2
+      ;;
+    --health-port|--orch-health-port|--orchestrator-health-port)
+      if [[ -z "${2:-}" ]]; then
+        die "$1 requires a value"
+      fi
+      ORCHESTRATOR_HEALTH_PORT="${2:-}"
+      ORCH_HEALTH_PORT_SET="1"
       shift 2
       ;;
     --session-dir)
@@ -1839,6 +1908,96 @@ maybe_run_wizard() {
     done
   fi
 
+  section "Ports"
+  if [[ "$ADVANCED" == "1" ]]; then
+    local customize_ports="0"
+    if [[ "$SIGNALING_PUBLIC_PORT_SET" == "1" || "$SIGNALING_STREAMER_PORT_SET" == "1" || "$RUNNER_PORT_SET" == "1" || "$RECORDER_PORT_SET" == "1" || "$ORCH_HEALTH_PORT_SET" == "1" ]]; then
+      customize_ports="1"
+    elif prompt_yes_no "Customize exposed ports? (optional)" "n"; then
+      customize_ports="1"
+    fi
+
+    if [[ "$customize_ports" == "1" ]]; then
+      local default_signaling_port default_streamer_port default_runner_port default_recorder_port default_health_port
+      default_signaling_port="$(get_env_or_file_value "VTUBER_SIGNALING_PUBLIC_PORT" "8080")"
+      default_streamer_port="$(get_env_or_file_value "VTUBER_SIGNALING_STREAMER_PORT" "8888")"
+      default_runner_port="$(get_env_or_file_value "VTUBER_RUNNER_PORT" "9877")"
+      default_recorder_port="$(get_env_or_file_value "VTUBER_RECORDER_PORT" "8889")"
+      default_health_port="$(get_env_or_file_value "ORCHESTRATOR_HEALTH_PORT" "9090")"
+
+      if ! is_valid_port "$default_signaling_port"; then default_signaling_port="8080"; fi
+      if ! is_valid_port "$default_streamer_port"; then default_streamer_port="8888"; fi
+      if ! is_valid_port "$default_runner_port"; then default_runner_port="9877"; fi
+      if ! is_valid_port "$default_recorder_port"; then default_recorder_port="8889"; fi
+      if ! is_valid_port "$default_health_port"; then default_health_port="9090"; fi
+
+      if [[ "$SIGNALING_PUBLIC_PORT_SET" != "1" ]]; then
+        while true; do
+          VTUBER_SIGNALING_PUBLIC_PORT="$(prompt_default "Signaling HTTP port (public)" "$default_signaling_port")"
+          VTUBER_SIGNALING_PUBLIC_PORT="$(trim_whitespace "$VTUBER_SIGNALING_PUBLIC_PORT")"
+          VTUBER_SIGNALING_PUBLIC_PORT="$(strip_inline_comment "$VTUBER_SIGNALING_PUBLIC_PORT")"
+          if is_valid_port "$VTUBER_SIGNALING_PUBLIC_PORT"; then
+            SIGNALING_PUBLIC_PORT_SET="1"
+            break
+          fi
+          note "Invalid port. Use an integer 1-65535."
+        done
+      fi
+
+      if [[ "$SIGNALING_STREAMER_PORT_SET" != "1" ]]; then
+        while true; do
+          VTUBER_SIGNALING_STREAMER_PORT="$(prompt_default "Signaling streamer port" "$default_streamer_port")"
+          VTUBER_SIGNALING_STREAMER_PORT="$(trim_whitespace "$VTUBER_SIGNALING_STREAMER_PORT")"
+          VTUBER_SIGNALING_STREAMER_PORT="$(strip_inline_comment "$VTUBER_SIGNALING_STREAMER_PORT")"
+          if is_valid_port "$VTUBER_SIGNALING_STREAMER_PORT"; then
+            SIGNALING_STREAMER_PORT_SET="1"
+            break
+          fi
+          note "Invalid port. Use an integer 1-65535."
+        done
+      fi
+
+      if [[ "$RUNNER_PORT_SET" != "1" ]]; then
+        while true; do
+          VTUBER_RUNNER_PORT="$(prompt_default "Runner API port" "$default_runner_port")"
+          VTUBER_RUNNER_PORT="$(trim_whitespace "$VTUBER_RUNNER_PORT")"
+          VTUBER_RUNNER_PORT="$(strip_inline_comment "$VTUBER_RUNNER_PORT")"
+          if is_valid_port "$VTUBER_RUNNER_PORT"; then
+            RUNNER_PORT_SET="1"
+            break
+          fi
+          note "Invalid port. Use an integer 1-65535."
+        done
+      fi
+
+      if [[ "$RECORDER_PORT_SET" != "1" ]]; then
+        while true; do
+          VTUBER_RECORDER_PORT="$(prompt_default "Recorder-control API port" "$default_recorder_port")"
+          VTUBER_RECORDER_PORT="$(trim_whitespace "$VTUBER_RECORDER_PORT")"
+          VTUBER_RECORDER_PORT="$(strip_inline_comment "$VTUBER_RECORDER_PORT")"
+          if is_valid_port "$VTUBER_RECORDER_PORT"; then
+            RECORDER_PORT_SET="1"
+            break
+          fi
+          note "Invalid port. Use an integer 1-65535."
+        done
+      fi
+
+      if [[ "$ORCH_HEALTH_PORT_SET" != "1" ]]; then
+        while true; do
+          ORCHESTRATOR_HEALTH_PORT="$(prompt_default "Orchestrator health/power port" "$default_health_port")"
+          ORCHESTRATOR_HEALTH_PORT="$(trim_whitespace "$ORCHESTRATOR_HEALTH_PORT")"
+          ORCHESTRATOR_HEALTH_PORT="$(strip_inline_comment "$ORCHESTRATOR_HEALTH_PORT")"
+          if is_valid_port "$ORCHESTRATOR_HEALTH_PORT"; then
+            ORCH_HEALTH_PORT_SET="1"
+            break
+          fi
+          note "Invalid port. Use an integer 1-65535."
+        done
+      fi
+    fi
+  fi
+
   section "Summary"
   divider
   echo "Orchestrator ID:     $ORCH_ID" >&2
@@ -1858,6 +2017,13 @@ maybe_run_wizard() {
   fi
   echo "Session dir:         $SESSION_DIR" >&2
   echo "Recordings dir:      $RECORDINGS_DIR" >&2
+  local summary_signaling_port summary_streamer_port summary_runner_port summary_recorder_port summary_health_port
+  summary_signaling_port="$(get_env_or_file_value "VTUBER_SIGNALING_PUBLIC_PORT" "8080")"
+  summary_streamer_port="$(get_env_or_file_value "VTUBER_SIGNALING_STREAMER_PORT" "8888")"
+  summary_runner_port="$(get_env_or_file_value "VTUBER_RUNNER_PORT" "9877")"
+  summary_recorder_port="$(get_env_or_file_value "VTUBER_RECORDER_PORT" "8889")"
+  summary_health_port="$(get_env_or_file_value "ORCHESTRATOR_HEALTH_PORT" "9090")"
+  echo "Ports (host):        signaling=${summary_signaling_port} streamer=${summary_streamer_port} runner=${summary_runner_port} recorder=${summary_recorder_port} health=${summary_health_port}" >&2
   if [[ -n "$ORCH_TOKEN_FILE" ]]; then
     echo "License token:       file $(strip_inline_comment "$ORCH_TOKEN_FILE")" >&2
   elif [[ -n "$ORCH_TOKEN_ENV" ]]; then
@@ -2025,6 +2191,51 @@ if [[ -n "$ORCH_CONTACT_EMAIL" ]]; then
 fi
 upsert_env_kv "$ENV_FILE" "PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HOST_PUBLIC_IP" "$PUBLIC_IP"
+if [[ "$ORCH_HEALTH_PORT_SET" == "1" ]]; then
+  ORCHESTRATOR_HEALTH_PORT="$(trim_whitespace "${ORCHESTRATOR_HEALTH_PORT:-}")"
+  ORCHESTRATOR_HEALTH_PORT="$(strip_inline_comment "$ORCHESTRATOR_HEALTH_PORT")"
+  [[ -n "$ORCHESTRATOR_HEALTH_PORT" ]] || die "empty ORCHESTRATOR_HEALTH_PORT (expected integer 1-65535)"
+  if ! is_valid_port "$ORCHESTRATOR_HEALTH_PORT"; then
+    die "invalid ORCHESTRATOR_HEALTH_PORT: $ORCHESTRATOR_HEALTH_PORT (expected integer 1-65535)"
+  fi
+  upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_PORT" "$ORCHESTRATOR_HEALTH_PORT"
+fi
+if [[ "$SIGNALING_PUBLIC_PORT_SET" == "1" ]]; then
+  VTUBER_SIGNALING_PUBLIC_PORT="$(trim_whitespace "${VTUBER_SIGNALING_PUBLIC_PORT:-}")"
+  VTUBER_SIGNALING_PUBLIC_PORT="$(strip_inline_comment "$VTUBER_SIGNALING_PUBLIC_PORT")"
+  [[ -n "$VTUBER_SIGNALING_PUBLIC_PORT" ]] || die "empty VTUBER_SIGNALING_PUBLIC_PORT (expected integer 1-65535)"
+  if ! is_valid_port "$VTUBER_SIGNALING_PUBLIC_PORT"; then
+    die "invalid VTUBER_SIGNALING_PUBLIC_PORT: $VTUBER_SIGNALING_PUBLIC_PORT (expected integer 1-65535)"
+  fi
+  upsert_env_kv "$ENV_FILE" "VTUBER_SIGNALING_PUBLIC_PORT" "$VTUBER_SIGNALING_PUBLIC_PORT"
+fi
+if [[ "$SIGNALING_STREAMER_PORT_SET" == "1" ]]; then
+  VTUBER_SIGNALING_STREAMER_PORT="$(trim_whitespace "${VTUBER_SIGNALING_STREAMER_PORT:-}")"
+  VTUBER_SIGNALING_STREAMER_PORT="$(strip_inline_comment "$VTUBER_SIGNALING_STREAMER_PORT")"
+  [[ -n "$VTUBER_SIGNALING_STREAMER_PORT" ]] || die "empty VTUBER_SIGNALING_STREAMER_PORT (expected integer 1-65535)"
+  if ! is_valid_port "$VTUBER_SIGNALING_STREAMER_PORT"; then
+    die "invalid VTUBER_SIGNALING_STREAMER_PORT: $VTUBER_SIGNALING_STREAMER_PORT (expected integer 1-65535)"
+  fi
+  upsert_env_kv "$ENV_FILE" "VTUBER_SIGNALING_STREAMER_PORT" "$VTUBER_SIGNALING_STREAMER_PORT"
+fi
+if [[ "$RUNNER_PORT_SET" == "1" ]]; then
+  VTUBER_RUNNER_PORT="$(trim_whitespace "${VTUBER_RUNNER_PORT:-}")"
+  VTUBER_RUNNER_PORT="$(strip_inline_comment "$VTUBER_RUNNER_PORT")"
+  [[ -n "$VTUBER_RUNNER_PORT" ]] || die "empty VTUBER_RUNNER_PORT (expected integer 1-65535)"
+  if ! is_valid_port "$VTUBER_RUNNER_PORT"; then
+    die "invalid VTUBER_RUNNER_PORT: $VTUBER_RUNNER_PORT (expected integer 1-65535)"
+  fi
+  upsert_env_kv "$ENV_FILE" "VTUBER_RUNNER_PORT" "$VTUBER_RUNNER_PORT"
+fi
+if [[ "$RECORDER_PORT_SET" == "1" ]]; then
+  VTUBER_RECORDER_PORT="$(trim_whitespace "${VTUBER_RECORDER_PORT:-}")"
+  VTUBER_RECORDER_PORT="$(strip_inline_comment "$VTUBER_RECORDER_PORT")"
+  [[ -n "$VTUBER_RECORDER_PORT" ]] || die "empty VTUBER_RECORDER_PORT (expected integer 1-65535)"
+  if ! is_valid_port "$VTUBER_RECORDER_PORT"; then
+    die "invalid VTUBER_RECORDER_PORT: $VTUBER_RECORDER_PORT (expected integer 1-65535)"
+  fi
+  upsert_env_kv "$ENV_FILE" "VTUBER_RECORDER_PORT" "$VTUBER_RECORDER_PORT"
+fi
 orch_health_port="$(get_env_or_file_value "ORCHESTRATOR_HEALTH_PORT" "9090")"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" "http://$PUBLIC_IP:${orch_health_port}/health"
 upsert_env_kv "$ENV_FILE" "EDGE_PROJECT_DIR" "$REPO_ROOT"

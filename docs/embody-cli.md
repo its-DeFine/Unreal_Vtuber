@@ -93,6 +93,27 @@ q) Quit
     - Deterministic per-slot Docker subnet: `172.30.<slot>.0/24` (gateway `172.30.<slot>.1` is auto-added to `VTUBER_ALLOWED_ADDRESSES` so host → runner/recorder calls work)
   - Note: `cluster up` enforces a conservative VRAM estimate (8GiB/instance); pass `--force` to bypass.
 
+## Port overrides
+
+Override the host-exposed ports by setting these in `.env` (or passing flags to `setup`):
+
+- `VTUBER_SIGNALING_PUBLIC_PORT` (default `8080`)
+- `VTUBER_SIGNALING_STREAMER_PORT` (default `8888`)
+- `VTUBER_RUNNER_PORT` (default `9877`)
+- `VTUBER_RECORDER_PORT` (default `8889`)
+- `ORCHESTRATOR_HEALTH_PORT` (default `9090`)
+
+Example:
+
+```bash
+./scripts/embody_cli.sh setup --advanced \
+  --signaling-port 18080 \
+  --streamer-port 18888 \
+  --runner-port 19877 \
+  --recorder-port 18889 \
+  --health-port 19090
+```
+
 ## Network / allowlists
 
 The orchestrator uses allowlists to protect control endpoints:
