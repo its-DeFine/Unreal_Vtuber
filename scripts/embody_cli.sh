@@ -260,6 +260,33 @@ strip_inline_comment() {
   trim_whitespace "$s"
 }
 
+get_env_or_file_value() {
+  local key="$1" default="${2:-}" val=""
+
+  val="$(trim_whitespace "${!key:-}")"
+  if [[ -z "$val" ]]; then
+    val="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "$key" 2>/dev/null || true)")"
+    val="$(trim_whitespace "${val:-}")"
+  fi
+  printf '%s' "${val:-$default}"
+}
+
+get_orchestrator_health_port() {
+  get_env_or_file_value "ORCHESTRATOR_HEALTH_PORT" "9090"
+}
+
+get_signaling_public_port() {
+  get_env_or_file_value "VTUBER_SIGNALING_PUBLIC_PORT" "8080"
+}
+
+get_vtuber_runner_port() {
+  get_env_or_file_value "VTUBER_RUNNER_PORT" "9877"
+}
+
+get_vtuber_recorder_port() {
+  get_env_or_file_value "VTUBER_RECORDER_PORT" "8889"
+}
+
 normalize_gpu_devices_csv() {
   local raw="${1:-}"
   raw="$(trim_whitespace "$raw")"
@@ -1084,7 +1111,7 @@ PY
       command -v curl >/dev/null 2>&1 || { echo "Missing dependency: curl" >&2; return 1; }
       command -v python3 >/dev/null 2>&1 || { echo "Missing dependency: python3" >&2; return 1; }
 
-      local payload out http_code body
+      local payload out http_code body orch_port
       payload="$(PAYMENTS_URL="$payments_url" IMAGE_REF="$image_ref" python3 - <<'PY'
 import json
 import os
@@ -1098,7 +1125,8 @@ print(json.dumps({
 }))
 PY
       )"
-      out="$(curl -sS --max-time 60 -X POST -H "Content-Type: application/json" -d "$payload" -w $'\n%{http_code}' http://127.0.0.1:9090/ops/rollout 2>/dev/null || true)"
+      orch_port="$(get_orchestrator_health_port)"
+      out="$(curl -sS --max-time 60 -X POST -H "Content-Type: application/json" -d "$payload" -w $'\n%{http_code}' "http://127.0.0.1:${orch_port}/ops/rollout" 2>/dev/null || true)"
       http_code="${out##*$'\n'}"
       body="${out%$'\n'*}"
       if [[ "$http_code" != "200" ]]; then
@@ -1165,9 +1193,14 @@ cmd_config() {
 cmd_health() {
   command -v curl >/dev/null 2>&1 || { ui_check "curl" "FAIL" "(missing dependency)"; return 1; }
 
-  curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1 && ui_check "signaling" "OK" || ui_check "signaling" "FAIL"
-  curl -fsS --max-time 2 http://127.0.0.1:9877/health >/dev/null 2>&1 && ui_check "runner" "OK" || ui_check "runner" "FAIL"
-  curl -fsS --max-time 2 http://127.0.0.1:9090/health >/dev/null 2>&1 && ui_check "orch health" "OK" || ui_check "orch health" "FAIL"
+  local signaling_port runner_port orch_port
+  signaling_port="$(get_signaling_public_port)"
+  runner_port="$(get_vtuber_runner_port)"
+  orch_port="$(get_orchestrator_health_port)"
+
+  curl -fsS --max-time 2 "http://127.0.0.1:${signaling_port}/healthz" >/dev/null 2>&1 && ui_check "signaling" "OK" || ui_check "signaling" "FAIL"
+  curl -fsS --max-time 2 "http://127.0.0.1:${runner_port}/health" >/dev/null 2>&1 && ui_check "runner" "OK" || ui_check "runner" "FAIL"
+  curl -fsS --max-time 2 "http://127.0.0.1:${orch_port}/health" >/dev/null 2>&1 && ui_check "orch health" "OK" || ui_check "orch health" "FAIL"
 
   if [[ -f "$ENV_FILE" ]]; then
     local edge_config_url allowlist nonlocal turn_external
@@ -2285,11 +2318,12 @@ cluster_detect_running_single_stack_containers() {
 
 cluster_edge_allow_ports() {
   local max_slot="$1"
-  local sig_end run_end rec_end
+  local sig_end run_end rec_end health_port
   sig_end=$(( CLUSTER_SIGNALING_PORT_BASE + max_slot ))
   run_end=$(( CLUSTER_RUNNER_PORT_BASE + max_slot ))
   rec_end=$(( CLUSTER_RECORDER_PORT_BASE + max_slot ))
-  printf '%s' "80/tcp,${CLUSTER_SIGNALING_PORT_BASE}-${sig_end}/tcp,${CLUSTER_RUNNER_PORT_BASE}-${run_end}/tcp,${CLUSTER_RECORDER_PORT_BASE}-${rec_end}/tcp,9090/tcp,3478/tcp,3478/udp,49160-49200/udp"
+  health_port="$(get_orchestrator_health_port)"
+  printf '%s' "80/tcp,${CLUSTER_SIGNALING_PORT_BASE}-${sig_end}/tcp,${CLUSTER_RUNNER_PORT_BASE}-${run_end}/tcp,${CLUSTER_RECORDER_PORT_BASE}-${rec_end}/tcp,${health_port}/tcp,3478/tcp,3478/udp,49160-49200/udp"
 }
 
 cluster_monitored_services() {
@@ -2680,7 +2714,9 @@ cluster_deploy() {
   remote_cluster="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EXPERIMENTAL_REMOTE_CLUSTER_CONTROL" 2>/dev/null || true)")"
   remote_cluster="$(trim_whitespace "${remote_cluster:-}")"
   if [[ "$remote_cluster" != "1" ]] && is_tty; then
-    echo "cluster: experimental remote cluster spawn/delete endpoints (:9090/cluster/*) are disabled by default." >&2
+    local orch_port
+    orch_port="$(get_orchestrator_health_port)"
+    echo "cluster: experimental remote cluster spawn/delete endpoints (:${orch_port}/cluster/*) are disabled by default." >&2
     if prompt_yes_no "Enable remote cluster control for this deploy? (experimental)" "n"; then
       export EXPERIMENTAL_REMOTE_CLUSTER_CONTROL="1"
       echo "cluster: enabled for this run (tip: add EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1 to .env to persist)." >&2
@@ -3079,6 +3115,9 @@ cmd_power() {
 
   command -v curl >/dev/null 2>&1 || { echo "Missing dependency: curl" >&2; return 1; }
 
+  local orch_port
+  orch_port="$(get_orchestrator_health_port)"
+
   case "$sub" in
     -h|--help|help)
       cat <<'EOF'
@@ -3108,9 +3147,9 @@ EOF
             ;;
         esac
       done
-      local endpoint="http://127.0.0.1:9090/power"
+      local endpoint="http://127.0.0.1:${orch_port}/power"
       if [[ -n "$project" ]]; then
-        endpoint="http://127.0.0.1:9090/power/projects/${project}"
+        endpoint="http://127.0.0.1:${orch_port}/power/projects/${project}"
       fi
       curl -fsS --max-time 2 "$endpoint"
       echo ""
@@ -3132,9 +3171,9 @@ EOF
             ;;
         esac
       done
-      local endpoint="http://127.0.0.1:9090/power"
+      local endpoint="http://127.0.0.1:${orch_port}/power"
       if [[ -n "$project" ]]; then
-        endpoint="http://127.0.0.1:9090/power/projects/${project}"
+        endpoint="http://127.0.0.1:${orch_port}/power/projects/${project}"
       fi
       curl -fsS --max-time 5 -X POST "$endpoint" \
         -H "Content-Type: application/json" \
@@ -3177,9 +3216,9 @@ print(json.dumps({"action": "wake", "reason": "cli", "awake_seconds": sec}))
 PY
         )" || { echo "Invalid --ttl value (expected integer seconds)" >&2; return 1; }
       fi
-      local endpoint="http://127.0.0.1:9090/power"
+      local endpoint="http://127.0.0.1:${orch_port}/power"
       if [[ -n "$project" ]]; then
-        endpoint="http://127.0.0.1:9090/power/projects/${project}"
+        endpoint="http://127.0.0.1:${orch_port}/power/projects/${project}"
       fi
       curl -fsS --max-time 10 -X POST "$endpoint" \
         -H "Content-Type: application/json" \
@@ -3376,11 +3415,16 @@ EOF
   ui_title "Embody Orchestrator — Verify"
 
   ui_section "Power"
-  local power_out power_state
+  local power_out power_state orch_port signaling_port runner_port recorder_port
   power_state="unknown"
-  power_out="$(curl -sS --max-time 3 http://127.0.0.1:9090/power 2>/dev/null || true)"
+  orch_port="$(get_orchestrator_health_port)"
+  signaling_port="$(get_signaling_public_port)"
+  runner_port="$(get_vtuber_runner_port)"
+  recorder_port="$(get_vtuber_recorder_port)"
+
+  power_out="$(curl -sS --max-time 3 "http://127.0.0.1:${orch_port}/power" 2>/dev/null || true)"
   if [[ -z "$power_out" ]]; then
-    ui_check "power api" "FAIL" "(http://127.0.0.1:9090/power unreachable)"
+    ui_check "power api" "FAIL" "(http://127.0.0.1:${orch_port}/power unreachable)"
     ok="0"
   else
     power_state="$(BODY="$power_out" python3 - <<'PY' || true
@@ -3435,19 +3479,19 @@ PY
   done
 
   ui_section "Endpoints"
-  curl -fsS --max-time 2 http://127.0.0.1:9090/health >/dev/null 2>&1 && ui_check "orch health" "OK" || { ui_check "orch health" "FAIL"; ok="0"; }
+  curl -fsS --max-time 2 "http://127.0.0.1:${orch_port}/health" >/dev/null 2>&1 && ui_check "orch health" "OK" || { ui_check "orch health" "FAIL"; ok="0"; }
   if [[ "${awake:-}" == "1" ]]; then
-    curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1 && ui_check "signaling" "OK" || { ui_check "signaling" "FAIL"; ok="0"; }
-    curl -fsS --max-time 2 http://127.0.0.1:9877/health >/dev/null 2>&1 && ui_check "runner" "OK" || { ui_check "runner" "FAIL"; ok="0"; }
+    curl -fsS --max-time 2 "http://127.0.0.1:${signaling_port}/healthz" >/dev/null 2>&1 && ui_check "signaling" "OK" || { ui_check "signaling" "FAIL"; ok="0"; }
+    curl -fsS --max-time 2 "http://127.0.0.1:${runner_port}/health" >/dev/null 2>&1 && ui_check "runner" "OK" || { ui_check "runner" "FAIL"; ok="0"; }
     local rec_api_token
     rec_api_token="$(container_env_value vtuber-recorder-control RECORDINGS_API_TOKEN 2>/dev/null || true)"
     rec_api_token="$(trim_whitespace "${rec_api_token:-}")"
     if [[ -n "$rec_api_token" ]]; then
-      curl -fsS --max-time 2 -H "Authorization: Bearer ${rec_api_token}" http://127.0.0.1:8889/recordings/status >/dev/null 2>&1 \
+      curl -fsS --max-time 2 -H "Authorization: Bearer ${rec_api_token}" "http://127.0.0.1:${recorder_port}/recordings/status" >/dev/null 2>&1 \
         && ui_check "recorder" "OK" \
         || { ui_check "recorder" "FAIL"; ok="0"; }
     else
-      curl -fsS --max-time 2 http://127.0.0.1:8889/recordings/status >/dev/null 2>&1 \
+      curl -fsS --max-time 2 "http://127.0.0.1:${recorder_port}/recordings/status" >/dev/null 2>&1 \
         && ui_check "recorder" "OK" \
         || { ui_check "recorder" "FAIL"; ok="0"; }
     fi
@@ -3578,10 +3622,13 @@ PY
 
     if [[ -n "$edge_ports" ]]; then
       local ports_rc="0"
-      EDGE_PORTS="$edge_ports" python3 - <<'PY' >/dev/null 2>&1 || ports_rc="$?"
+      EDGE_PORTS="$edge_ports" REQ_RECORDER="$recorder_port" REQ_RUNNER="$runner_port" REQ_ORCH="$orch_port" python3 - <<'PY' >/dev/null 2>&1 || ports_rc="$?"
 import os
 raw = os.environ.get("EDGE_PORTS") or ""
-needed = [("tcp", 8889), ("tcp", 9877), ("tcp", 9090)]
+recorder = int(os.environ.get("REQ_RECORDER") or "8889")
+runner = int(os.environ.get("REQ_RUNNER") or "9877")
+orch = int(os.environ.get("REQ_ORCH") or "9090")
+needed = [("tcp", recorder), ("tcp", runner), ("tcp", orch)]
 parsed = []
 for token in raw.split(","):
     token = token.strip()
@@ -3612,11 +3659,11 @@ if missing:
     raise SystemExit(1)
 PY
       if [[ "$ports_rc" == "0" ]]; then
-        ui_check "edge ports" "OK" "(EDGE_ALLOW_PORTS includes 8889/9877/9090)"
+        ui_check "edge ports" "OK" "(EDGE_ALLOW_PORTS includes ${recorder_port}/${runner_port}/${orch_port})"
       elif [[ "$ports_rc" == "2" ]]; then
         ui_check "edge ports" "WARN" "(invalid EDGE_ALLOW_PORTS)"
       else
-        ui_check "edge ports" "WARN" "(EDGE_ALLOW_PORTS missing 8889/9877/9090; fix: clear it or include required ports)"
+        ui_check "edge ports" "WARN" "(EDGE_ALLOW_PORTS missing ${recorder_port}/${runner_port}/${orch_port}; fix: clear it or include required ports)"
       fi
     else
       ui_check "edge ports" "OK" "(default ports)"
@@ -3738,8 +3785,8 @@ print(json.dumps({
 }))
 PY
     )"
-    resp="$(curl -sS --max-time 5 -H "Content-Type: application/json" -d "$payload" http://127.0.0.1:9877/scripts/execute 2>/dev/null || true)"
-    status_url="http://127.0.0.1:9877/scripts/${session_id}"
+    resp="$(curl -sS --max-time 5 -H "Content-Type: application/json" -d "$payload" "http://127.0.0.1:${runner_port}/scripts/execute" 2>/dev/null || true)"
+    status_url="http://127.0.0.1:${runner_port}/scripts/${session_id}"
     state=""
     for _ in {1..15}; do
       status_body="$(curl -sS --max-time 3 "$status_url" 2>/dev/null || true)"
@@ -3781,7 +3828,7 @@ PY
         rec_auth_headers=(-H "Authorization: Bearer ${rec_token}")
       fi
 
-      rec_status="$(curl -sS --max-time 3 "${rec_auth_headers[@]}" http://127.0.0.1:8889/recordings/status 2>/dev/null || true)"
+      rec_status="$(curl -sS --max-time 3 "${rec_auth_headers[@]}" "http://127.0.0.1:${recorder_port}/recordings/status" 2>/dev/null || true)"
       rec_active="$(BODY="$rec_status" python3 - <<'PY' || true
 import json, os
 raw = os.environ.get("BODY") or ""
@@ -3814,7 +3861,7 @@ print(json.dumps({"label": label, "duration": max(2, min(sec, 20))}))
 PY
         )"
 
-        start_out="$(curl -sS --max-time 12 -X POST "${rec_start_headers[@]}" -d "$rec_resp" -w $'\n%{http_code}' http://127.0.0.1:8889/recordings/start 2>/dev/null || true)"
+        start_out="$(curl -sS --max-time 12 -X POST "${rec_start_headers[@]}" -d "$rec_resp" -w $'\n%{http_code}' "http://127.0.0.1:${recorder_port}/recordings/start" 2>/dev/null || true)"
         start_code="${start_out##*$'\n'}"
         start_body="${start_out%$'\n'*}"
         if [[ "$start_code" != "200" && "$start_code" != "201" ]]; then
@@ -3843,7 +3890,7 @@ PY
           fi
 
           if [[ -z "$rec_file" && -n "$predicted" ]]; then
-            if curl -fsS --max-time 2 -I "${rec_auth_headers[@]}" "http://127.0.0.1:8889/recordings/${predicted}" >/dev/null 2>&1; then
+            if curl -fsS --max-time 2 -I "${rec_auth_headers[@]}" "http://127.0.0.1:${recorder_port}/recordings/${predicted}" >/dev/null 2>&1; then
               rec_file="$predicted"
             fi
           fi
@@ -3854,7 +3901,7 @@ PY
             found=""
             for ((delta=-10; delta<=120; delta++)); do
               cand="${prefix}_$((base_num + delta)).mkv"
-              if curl -fsS --max-time 2 -I "${rec_auth_headers[@]}" "http://127.0.0.1:8889/recordings/${cand}" >/dev/null 2>&1; then
+              if curl -fsS --max-time 2 -I "${rec_auth_headers[@]}" "http://127.0.0.1:${recorder_port}/recordings/${cand}" >/dev/null 2>&1; then
                 found="$cand"
                 break
               fi
@@ -3870,7 +3917,7 @@ PY
           else
             tmpfile="/tmp/${rec_file}"
             rm -f "$tmpfile" >/dev/null 2>&1 || true
-            if curl -fsS --max-time 15 "${rec_auth_headers[@]}" "http://127.0.0.1:8889/recordings/${rec_file}" -o "$tmpfile" >/dev/null 2>&1; then
+            if curl -fsS --max-time 15 "${rec_auth_headers[@]}" "http://127.0.0.1:${recorder_port}/recordings/${rec_file}" -o "$tmpfile" >/dev/null 2>&1; then
               bytes="$(wc -c < "$tmpfile" 2>/dev/null || echo 0)"
               if [[ "$bytes" =~ ^[0-9]+$ && "$bytes" -gt 0 ]]; then
                 ui_check "record/download" "OK" "(${bytes} bytes)"
@@ -3882,7 +3929,7 @@ PY
               ui_check "record/download" "FAIL" "(download failed)"
               ok="0"
             fi
-            curl -fsS --max-time 5 -X DELETE "${rec_auth_headers[@]}" "http://127.0.0.1:8889/recordings/${rec_file}" >/dev/null 2>&1 || true
+            curl -fsS --max-time 5 -X DELETE "${rec_auth_headers[@]}" "http://127.0.0.1:${recorder_port}/recordings/${rec_file}" >/dev/null 2>&1 || true
             rm -f "$tmpfile" >/dev/null 2>&1 || true
           fi
         fi
@@ -4590,7 +4637,7 @@ menu() {
 local_power_state() {
   command -v curl >/dev/null 2>&1 || return 1
   local body state
-  body="$(curl -sS --max-time 2 http://127.0.0.1:9090/power 2>/dev/null || true)"
+  body="$(curl -sS --max-time 2 "http://127.0.0.1:$(get_orchestrator_health_port)/power" 2>/dev/null || true)"
   [[ -n "$body" ]] || return 1
   state=""
   if command -v python3 >/dev/null 2>&1; then

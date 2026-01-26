@@ -15,6 +15,30 @@ TURN_ENV_FILE="${REPO_ROOT}/.env.turn"
 
 cd "${REPO_ROOT}"
 
+read_env_value() {
+    local key="$1"
+    [ -f "${ENV_FILE}" ] || return 1
+    awk -v k="$key" -F= '
+        $1 == k {
+            sub(k "=", "", $0)
+            print $0
+            exit
+        }
+    ' "${ENV_FILE}" 2>/dev/null
+}
+
+get_env_or_file_value() {
+    local key="$1"
+    local default="$2"
+    local val="${!key:-}"
+    if [ -z "$val" ]; then
+        val="$(read_env_value "$key" 2>/dev/null || true)"
+    fi
+    val="${val%%#*}"
+    val="$(echo "$val" | xargs)"
+    echo "${val:-$default}"
+}
+
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}     VTuber + Unreal Engine Pixel Streaming Launcher${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
@@ -189,11 +213,14 @@ case "$COMMAND" in
             echo -e "\n${GREEN}Services started in background!${NC}"
             sleep 5
             check_health
+            SIGNALING_PORT="$(get_env_or_file_value "VTUBER_SIGNALING_PUBLIC_PORT" "8080")"
+            RUNNER_PORT="$(get_env_or_file_value "VTUBER_RUNNER_PORT" "9877")"
+            HEALTH_PORT="$(get_env_or_file_value "ORCHESTRATOR_HEALTH_PORT" "9090")"
 
             echo -e "\n${GREEN}Access points:${NC}"
-            echo -e "  Signaling health: ${YELLOW}http://localhost:8080/healthz${NC}"
-            echo -e "  Runner health: ${YELLOW}http://localhost:9877/health${NC}"
-            echo -e "  Orchestrator health: ${YELLOW}http://localhost:9090/health${NC}"
+            echo -e "  Signaling health: ${YELLOW}http://localhost:${SIGNALING_PORT}/healthz${NC}"
+            echo -e "  Runner health: ${YELLOW}http://localhost:${RUNNER_PORT}/health${NC}"
+            echo -e "  Orchestrator health: ${YELLOW}http://localhost:${HEALTH_PORT}/health${NC}"
             echo -e "  Unreal TCP (in-container): ${YELLOW}vtuber-unreal-game:7777${NC}"
             echo -e "  Sample TTS trigger:${YELLOW} $0 test${NC}"
             echo -e "\n${GREEN}View logs with:${NC} $0 logs [service-name]"

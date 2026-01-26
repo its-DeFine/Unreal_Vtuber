@@ -11,7 +11,7 @@ This document summarizes how the Unreal VTuber repository packages the Pixel Str
 | Image: ghcr.io/.../embody-ue-ps  |  --->  | Image: embody-signaling:latest
 | Runs: Embody build + Pixel       |  WebRTC| Runs: Epic start.sh (Wilbur) with
 | Streaming streamer, Xvfb         | stream | bundled node/npm dependencies
-| ulimit: 1040 (nofile)            |        | Exposes 8080/8888/8889
+| ulimit: 1040 (nofile)            |        | Exposes ${VTUBER_SIGNALING_PUBLIC_PORT:-8080}/${VTUBER_SIGNALING_STREAMER_PORT:-8888}/${VTUBER_RECORDER_PORT:-8889}
 +----------------------------------+        +----------------------------------+
                   |                                    |
                   |                                    v
@@ -61,7 +61,7 @@ All services share the external Docker network `vtuber_network`, so the streamer
 4. `docker compose -f docker-compose.unreal.yml build unreal-signaling`
 5. (Ensure `.env` includes `VTUBER_ALLOWED_ADDRESSES=<edge-ip>` (example: `3.150.172.153`), then) `docker compose -f docker-compose.unreal.yml up -d unreal-signaling unreal-game turn-server`
 6. Verify logs and ulimit: `docker logs vtuber-unreal-signaling --tail 20`, `docker exec vtuber-unreal-game bash -lc 'ulimit -n'`
-7. Connect via browser on the orchestrator (`http://127.0.0.1:8080`, or tunnel the port over SSH if you need to view it remotely)
+7. Connect via browser on the orchestrator (`http://127.0.0.1:${VTUBER_SIGNALING_PUBLIC_PORT:-8080}`, or tunnel the port over SSH if you need to view it remotely)
 
 Keep `.env.turn` secure—the credentials are shared between coturn and Wilbur. Regenerate the file whenever redeploying to rotate secrets.
 

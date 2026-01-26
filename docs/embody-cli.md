@@ -68,7 +68,7 @@ q) Quit
 - `register` – register orchestrator in Payments (cached; skips when already registered)
 - `license` / `license redeem` – view or redeem license token (invite code → token)
 - `rollout` – load encrypted game image (wrapper for `tools/encrypted-game-image/rollout.sh`)
-- `power` – sleep/wake the stack via `http://127.0.0.1:9090/power` (or a single compose project via `/power/projects/<project>`)
+- `power` – sleep/wake the stack via `http://127.0.0.1:${ORCHESTRATOR_HEALTH_PORT:-9090}/power` (or a single compose project via `/power/projects/<project>`)
   - `power sleep|wake --project <compose_project>` targets one cluster instance (example: `vtuber-embody-0`)
   - `power wake --ttl <seconds>` sets an auto-sleep TTL on wake
 - Day-to-day stack control:
@@ -82,7 +82,7 @@ q) Quit
   - Commands: `cluster plan`, `cluster list`, `cluster up`, `cluster deploy`, `cluster down`, `cluster status`, `cluster logs`
     - `cluster deploy` is a convenience wrapper: `pull` + `cluster up --recreate` (disable pieces with `--no-pull`, `--no-recreate`)
     - If you’re pinned to a release tag (detached HEAD), auto-update is skipped and `cluster deploy` won’t switch branches.
-  - Port map (slot-based, deterministic):
+  - Port map (slot-based, deterministic; base ports override via `CLUSTER_SIGNALING_PORT_BASE`, `CLUSTER_RUNNER_PORT_BASE`, `CLUSTER_RECORDER_PORT_BASE`):
     - Signaling public port: `8080 + slot`
     - Runner port: `9877 + slot`
     - Recorder-control port: `8889 + slot`
@@ -97,9 +97,9 @@ q) Quit
 
 The orchestrator uses allowlists to protect control endpoints:
 
-- Script runner (9877): strict IP string match via `VTUBER_ALLOWED_ADDRESSES`
-- Recorder control (8889): strict IP string match via `VTUBER_ALLOWED_ADDRESSES` (and optional `RECORDINGS_API_TOKEN`)
-- Power API (9090): CIDR-aware allowlist via `POWER_ALLOWED_IPS` or `POWER_ALLOWED_IPS_FILE`
+- Script runner (${VTUBER_RUNNER_PORT:-9877}): strict IP string match via `VTUBER_ALLOWED_ADDRESSES`
+- Recorder control (${VTUBER_RECORDER_PORT:-8889}): strict IP string match via `VTUBER_ALLOWED_ADDRESSES` (and optional `RECORDINGS_API_TOKEN`)
+- Power API (${ORCHESTRATOR_HEALTH_PORT:-9090}): CIDR-aware allowlist via `POWER_ALLOWED_IPS` or `POWER_ALLOWED_IPS_FILE`
 
 If `EDGE_CONFIG_URL` is configured, the `orchestrator-edge-rotator` sidecar manages allowlists automatically and can also add extra “always allowed” CIDRs/IPs:
 
@@ -125,12 +125,12 @@ See also:
 
 ## Remote metadata + ops (experimental)
 
-The `orchestrator-health` service exposes remote metadata and a small remote-control API on `:9090`:
+The `orchestrator-health` service exposes remote metadata and a small remote-control API on `:${ORCHESTRATOR_HEALTH_PORT:-9090}`:
 
-- `GET http://<host>:9090/meta` – git head + service images/ids + last `verify` + rollout state
-- `POST http://<host>:9090/ops/upgrade` – ff-only git update; optional pull/recreate host services
-- `POST http://<host>:9090/ops/rollout` – stage/apply encrypted game image via a Payments lease
-- `POST http://<host>:9090/ops/pull-image` – `docker pull` for unencrypted images
+- `GET http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/meta` – git head + service images/ids + last `verify` + rollout state
+- `POST http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/ops/upgrade` – ff-only git update; optional pull/recreate host services
+- `POST http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/ops/rollout` – stage/apply encrypted game image via a Payments lease
+- `POST http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/ops/pull-image` – `docker pull` for unencrypted images
 
 ### Defaults and what changes require
 

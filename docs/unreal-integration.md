@@ -37,9 +37,9 @@ The helper script will:
 
 After the services come up in detached mode you should see:
 
-* Signaling health – `curl http://localhost:8080/healthz`
+* Signaling health – `curl http://localhost:${VTUBER_SIGNALING_PUBLIC_PORT:-8080}/healthz`
 * Unreal TCP loopback interface – reachable **inside** `vtuber-unreal-game` on `127.0.0.1:7777`
-* Orchestrator health endpoint – `http://localhost:9090/health` (surface status for the payments backend)
+* Orchestrator health endpoint – `http://localhost:${ORCHESTRATOR_HEALTH_PORT:-9090}/health` (surface status for the payments backend)
 
 Use `./scripts/start_vtuber_unreal.sh ps` to confirm container status or `./scripts/start_vtuber_unreal.sh logs unreal-game` for tailing output.
 
@@ -68,7 +68,7 @@ A carriage-return/line-feed terminator (`\r\n`) is required. Replace the path wi
 | --- | --- |
 | No audio despite command | Exec **inside** `vtuber-unreal-game`; host-level `nc` will be ignored.
 | Command hangs | Ensure `nc` is available in the container (`sudo docker exec vtuber-unreal-game which nc`).
-| Pixel Streaming page offline | Confirm `vtuber-unreal-signaling` is healthy (`docker ps`) and ports 8080/8888/8889 are not blocked.
+| Pixel Streaming page offline | Confirm `vtuber-unreal-signaling` is healthy (`docker ps`) and ports ${VTUBER_SIGNALING_PUBLIC_PORT:-8080}/${VTUBER_SIGNALING_STREAMER_PORT:-8888}/${VTUBER_RECORDER_PORT:-8889} are not blocked.
 | TURN handshakes failing | Validate TURN credentials in `.env.turn` and that `vtuber-turn-server` is running.
 
 ## Legacy components

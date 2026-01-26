@@ -2,7 +2,7 @@
 
 This sidecar runs alongside the Pixel Streaming stack to control the GStreamer copy-recorder without touching the signaling container entrypoint.
 
-## Endpoints (port 8889 inside the stack)
+## Endpoints (port 8889 inside the stack; host port `${VTUBER_RECORDER_PORT:-8889}`)
 - `POST /recordings/start` – body: `{ label?, duration?, streamer_id?, streamer_wait_seconds?, streamer_poll_seconds?, av_wait_seconds? }`
   - `streamer_id` optional; defaults to first streamer if omitted.
   - Spawns `gs_webrtc_recorder.py` in the sidecar with no re-encode; output lands in `/recordings/<label>_<epoch>.mkv`.
@@ -19,7 +19,7 @@ This sidecar runs alongside the Pixel Streaming stack to control the GStreamer c
 - Optional token: set `RECORDINGS_API_TOKEN` to require Bearer auth; leave unset to rely on IP allowlist only.
 
 ## Compose (already wired)
-`docker-compose.unreal.yml` already exposes the sidecar on port `8889` and mounts a host recordings directory to `/recordings`:
+`docker-compose.unreal.yml` already exposes the sidecar on port `${VTUBER_RECORDER_PORT:-8889}` and mounts a host recordings directory to `/recordings`:
 ```yaml
   recorder-control:
     image: ghcr.io/its-define/unreal_vtuber/recorder-control:${EMBODY_SERVICE_IMAGE_TAG:-latest}
@@ -37,7 +37,7 @@ This sidecar runs alongside the Pixel Streaming stack to control the GStreamer c
       - ${VTUBER_RECORDINGS_DIR:-/recordings}:/recordings
     command: ["python3", "/opt/embody/recorder/control_server.py"]
     ports:
-      - "8889:8889"
+      - "${VTUBER_RECORDER_PORT:-8889}:8889"
     networks: [vtuber_network]
 ```
 Set `VTUBER_RECORDINGS_DIR` in `.env` to control where recordings are stored on the host (defaults to `/recordings`).
@@ -45,15 +45,15 @@ Set `VTUBER_RECORDINGS_DIR` in `.env` to control where recordings are stored on 
 ## Usage
 ```
 # start a 25s recording with label "sync_test"
-curl -X POST http://<host>:8889/recordings/start \
+curl -X POST http://<host>:${VTUBER_RECORDER_PORT:-8889}/recordings/start \
   -H 'Content-Type: application/json' \
   -d '{"label":"sync_test","duration":25}'
 
 # check status
-curl http://<host>:8889/recordings/status
+curl http://<host>:${VTUBER_RECORDER_PORT:-8889}/recordings/status
 
 # stop early if needed
-curl -X POST http://<host>:8889/recordings/stop
+curl -X POST http://<host>:${VTUBER_RECORDER_PORT:-8889}/recordings/stop
 ```
 
 ## Notes

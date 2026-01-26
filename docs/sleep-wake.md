@@ -1,6 +1,6 @@
 # Sleep / Wake Control (Power API)
 
-The orchestrator health service (port **9090**) exposes a power API to deliberately
+The orchestrator health service (port **${ORCHESTRATOR_HEALTH_PORT:-9090}**) exposes a power API to deliberately
 stop/start the Pixel Streaming stack for power conservation. State is persisted in
 `/var/lib/vtuber/power-state/power_state.json` and shared with the watchdog so it
 skips recovery while sleeping.
@@ -51,30 +51,30 @@ vtuber-watchdog:
 ## Usage examples
 ```
 # check state
-curl http://<host>:9090/power
+curl http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/power
 
 # sleep
 curl -X POST -H "Content-Type: application/json" \
   -d '{"action":"sleep","reason":"maintenance"}' \
-  http://<host>:9090/power
+  http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/power
 
 # wake (until manually slept)
 curl -X POST -H "Content-Type: application/json" \
   -d '{"action":"wake"}' \
-  http://<host>:9090/power
+  http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/power
 
 # wake for 1 hour, then auto-sleep
 curl -X POST -H "Content-Type: application/json" \
   -d '{"action":"wake","awake_seconds":3600,"reason":"session TTL"}' \
-  http://<host>:9090/power
+  http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/power
 
 # sleep a single cluster instance project
 curl -X POST -H "Content-Type: application/json" \
   -d '{"action":"sleep","reason":"maintenance"}' \
-  http://<host>:9090/power/projects/vtuber-embody-0
+  http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/power/projects/vtuber-embody-0
 
 # wake a single cluster instance project for 1 hour
 curl -X POST -H "Content-Type: application/json" \
   -d '{"action":"wake","awake_seconds":3600,"reason":"session TTL"}' \
-  http://<host>:9090/power/projects/vtuber-embody-0
+  http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/power/projects/vtuber-embody-0
 ```

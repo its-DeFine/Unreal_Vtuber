@@ -48,17 +48,21 @@ services:
     env_file:
       - .env.turn
     ports:
-      - "8080:80"       # HTTP web interface
-      - "8888:8888"     # Streamer port
+      - "${VTUBER_SIGNALING_PUBLIC_PORT:-8080}:80" # HTTP web interface
+      - "${VTUBER_SIGNALING_STREAMER_PORT:-8888}:8888" # Streamer port
     environment:
       PUBLIC_IP: ${PUBLIC_IP:-auto}
-      HTTP_PORT: "8080"
-      STREAMER_PORT: "8888"
-      SFU_PORT: "8889"
       STUN_SERVER: ${STUN_SERVER:-stun.l.google.com:19302}
       # Optional additional Wilbur/start.sh CLI flags (example: matchmaker registration).
       SIGNALING_EXTRA_ARGS: "${SIGNALING_EXTRA_ARGS:-} ${SIGNALING_MATCHMAKER_ARGS:-}"
       ENABLE_REST_API: ${ENABLE_REST_API:-0}
+      # Some images/scripts key off these env names.
+      HTTP_PORT: "80"
+      STREAMER_PORT: "8888"
+      SFU_PORT: "8889"
+      SIGNALING_HTTP_PORT: "80"
+      SIGNALING_STREAMER_PORT: "8888"
+      SIGNALING_SFU_PORT: "8889"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]
       interval: 30s
@@ -87,7 +91,7 @@ services:
         hard: ${HOST_ULIMIT_NOFILE:-1040}
     ports:
       - "7777:7777"
-      - "9877:9877"
+      - "${VTUBER_RUNNER_PORT:-9877}:9877"
     depends_on:
       unreal-signaling:
         condition: service_healthy
@@ -191,7 +195,7 @@ services:
       # Payments uses ORCHESTRATOR_HEALTH_URL from `.env`; the orchestrator-health container should always
       # inspect local docker state instead.
       - ORCHESTRATOR_HEALTH_URL=
-      - ORCHESTRATOR_HEALTH_PORT=9090
+      - ORCHESTRATOR_HEALTH_PORT=${ORCHESTRATOR_HEALTH_PORT:-9090}
       - POWER_ALLOWED_IPS=${POWER_ALLOWED_IPS:-}
       - POWER_KEEP_RUNNING_SERVICES=${POWER_KEEP_RUNNING_SERVICES-orchestrator-edge-rotator}
       - POWER_ALLOWED_IPS_FILE=${EDGE_POWER_ALLOWED_IPS_FILE-/var/lib/vtuber/power-state/power_allowed_ips.txt}
@@ -206,7 +210,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/vtuber/power-state:/var/lib/vtuber/power-state
     ports:
-      - "9090:9090"
+      - "${ORCHESTRATOR_HEALTH_PORT:-9090}:${ORCHESTRATOR_HEALTH_PORT:-9090}"
     restart: unless-stopped
     networks:
       - vtuber_network
@@ -291,7 +295,7 @@ services:
     networks:
       - vtuber_network
     ports:
-      - "8889:8889"
+      - "${VTUBER_RECORDER_PORT:-8889}:8889"
 
 networks:
   vtuber_network:

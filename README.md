@@ -130,22 +130,22 @@ In cluster mode, each avatar is its own compose project (example: `vtuber-embody
 ```
 
 Remote automation (ex: Payments) can call:
-- `POST http://<host>:9090/power/projects/<compose_project>`
+- `POST http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/power/projects/<compose_project>`
 
 Experimental remote spawn/delete (cluster instances):
 - Enable: set `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1` (then recreate `orchestrator-health`, or run a cluster deploy with the prompt enabled).
-- `POST http://<host>:9090/cluster/deploy` with JSON `{ "avatar_id": "embody-0", "slot": 0, "gpu": "0" }`
-- `POST http://<host>:9090/cluster/down` with JSON `{ "avatar_id": "embody-0" }` (or `{ "project": "vtuber-embody-0" }`)
+- `POST http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/cluster/deploy` with JSON `{ "avatar_id": "embody-0", "slot": 0, "gpu": "0" }`
+- `POST http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/cluster/down` with JSON `{ "avatar_id": "embody-0" }` (or `{ "project": "vtuber-embody-0" }`)
 
 Remote metadata + ops (experimental):
-- `GET http://<host>:9090/meta` (git head + container image refs/ids, plus last `verify` + pending rollout state).
+- `GET http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/meta` (git head + container image refs/ids, plus last `verify` + pending rollout state).
 - Enabled by default (opt-out: set `EXPERIMENTAL_REMOTE_OPS=0` in `.env` and recreate `orchestrator-health`).
 - Security: `/ops/*` always requires `POWER_ALLOWED_IPS` / `POWER_ALLOWED_IPS_FILE` allowlisting (otherwise returns 403).
-- `POST http://<host>:9090/ops/upgrade` with JSON `{ "apply": true }` (git ff-only update; optionally pull/recreate host-level containers).
-- `POST http://<host>:9090/ops/rollout`:
+- `POST http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/ops/upgrade` with JSON `{ "apply": true }` (git ff-only update; optionally pull/recreate host-level containers).
+- `POST http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/ops/rollout`:
   - Stage only (prefetch while live): `{ "payments_api_url": "http://<payments>:8081", "image_ref": "ghcr.io/...:enc-v1", "stage_only": true, "min_free_gb": 15 }`
   - Apply staged (idle window): `{ "image_ref": "ghcr.io/...:enc-v1", "skip_download": true, "recreate_stopped": true }`
-- `POST http://<host>:9090/ops/pull-image` with JSON `{ "image": "ghcr.io/<org>/<image>:<tag>" }` (unencrypted image pull; follow by redeploy/recreate).
+- `POST http://<host>:${ORCHESTRATOR_HEALTH_PORT:-9090}/ops/pull-image` with JSON `{ "image": "ghcr.io/<org>/<image>:<tag>" }` (unencrypted image pull; follow by redeploy/recreate).
 
 ## Auto updates (watchtower)
 
@@ -174,7 +174,7 @@ Default allowlisted IPs depend on setup mode:
 - `scripts/embody_cli.sh` – onboarding + day-to-day CLI entrypoint
 - `scripts/onboard_orchestrator.sh` – deprecated alias for onboarding (calls `embody_cli.sh setup`)
 - `tools/encrypted-game-image/` – encrypted artifact consume/rollout helpers
-- `orchestrator-health/` – host-visible health endpoint (`http://<host>:9090/health`)
+- `orchestrator-health/` – host-visible health endpoint (`http://<host>:9090/health` by default; override with `ORCHESTRATOR_HEALTH_PORT`)
 - `docs/` – architecture + operational guides
 
 ## Orchestrator incentives program

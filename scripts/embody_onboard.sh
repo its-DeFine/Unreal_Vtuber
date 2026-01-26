@@ -325,6 +325,17 @@ read_env_value() {
   ' "$file"
 }
 
+get_env_or_file_value() {
+  local key="$1" default="${2:-}" val=""
+
+  val="$(trim_whitespace "${!key:-}")"
+  if [[ -z "$val" ]]; then
+    val="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "$key" 2>/dev/null || true)")"
+    val="$(trim_whitespace "${val:-}")"
+  fi
+  printf '%s' "${val:-$default}"
+}
+
 seed_power_allowlist_file_best_effort() {
   local path="$1" wanted="$2"
   [[ -n "$path" ]] || return 0
@@ -952,6 +963,13 @@ ensure_ufw_rules_best_effort() {
 
   note "UFW detected (active); applying inbound allowlist rules"
 
+  local signaling_port streamer_port recorder_port runner_port orch_port
+  signaling_port="$(get_env_or_file_value "VTUBER_SIGNALING_PUBLIC_PORT" "8080")"
+  streamer_port="$(get_env_or_file_value "VTUBER_SIGNALING_STREAMER_PORT" "8888")"
+  recorder_port="$(get_env_or_file_value "VTUBER_RECORDER_PORT" "8889")"
+  runner_port="$(get_env_or_file_value "VTUBER_RUNNER_PORT" "9877")"
+  orch_port="$(get_env_or_file_value "ORCHESTRATOR_HEALTH_PORT" "9090")"
+
   local ip cidr
   for ip in "${CONTROL_IPS[@]}"; do
     if ! is_ipv4 "$ip"; then
@@ -959,16 +977,16 @@ ensure_ufw_rules_best_effort() {
       continue
     fi
     cidr="${ip}/32"
-    "${ufw_cmd[@]}" allow from "$cidr" to any port 8080 proto tcp >/dev/null 2>&1 || true
-    "${ufw_cmd[@]}" allow from "$cidr" to any port 8888 proto tcp >/dev/null 2>&1 || true
-    "${ufw_cmd[@]}" allow from "$cidr" to any port 8889 proto tcp >/dev/null 2>&1 || true
-    "${ufw_cmd[@]}" allow from "$cidr" to any port 9877 proto tcp >/dev/null 2>&1 || true
+    "${ufw_cmd[@]}" allow from "$cidr" to any port "$signaling_port" proto tcp >/dev/null 2>&1 || true
+    "${ufw_cmd[@]}" allow from "$cidr" to any port "$streamer_port" proto tcp >/dev/null 2>&1 || true
+    "${ufw_cmd[@]}" allow from "$cidr" to any port "$recorder_port" proto tcp >/dev/null 2>&1 || true
+    "${ufw_cmd[@]}" allow from "$cidr" to any port "$runner_port" proto tcp >/dev/null 2>&1 || true
     "${ufw_cmd[@]}" allow from "$cidr" to any port 3478 proto udp >/dev/null 2>&1 || true
     "${ufw_cmd[@]}" allow from "$cidr" to any port 49160:49200 proto udp >/dev/null 2>&1 || true
   done
 
   if [[ -n "$payments_ip" ]]; then
-    "${ufw_cmd[@]}" allow from "${payments_ip}/32" to any port 9090 proto tcp >/dev/null 2>&1 || true
+    "${ufw_cmd[@]}" allow from "${payments_ip}/32" to any port "$orch_port" proto tcp >/dev/null 2>&1 || true
   fi
 
   "${ufw_cmd[@]}" reload >/dev/null 2>&1 || true
@@ -1076,6 +1094,13 @@ ensure_ec2_sg_rules_best_effort() {
     return 0
   }
 
+  local signaling_port streamer_port recorder_port runner_port orch_port
+  signaling_port="$(get_env_or_file_value "VTUBER_SIGNALING_PUBLIC_PORT" "8080")"
+  streamer_port="$(get_env_or_file_value "VTUBER_SIGNALING_STREAMER_PORT" "8888")"
+  recorder_port="$(get_env_or_file_value "VTUBER_RECORDER_PORT" "8889")"
+  runner_port="$(get_env_or_file_value "VTUBER_RUNNER_PORT" "9877")"
+  orch_port="$(get_env_or_file_value "ORCHESTRATOR_HEALTH_PORT" "9090")"
+
   local ip cidr
   for ip in "${CONTROL_IPS[@]}"; do
     if ! is_ipv4 "$ip"; then
@@ -1083,18 +1108,18 @@ ensure_ec2_sg_rules_best_effort() {
       continue
     fi
     cidr="${ip}/32"
-    aws_authorize_ingress tcp 8080 "$cidr"
-    aws_authorize_ingress tcp 8888 "$cidr"
-    aws_authorize_ingress tcp 8889 "$cidr"
-    aws_authorize_ingress tcp 9877 "$cidr"
+    aws_authorize_ingress tcp "$signaling_port" "$cidr"
+    aws_authorize_ingress tcp "$streamer_port" "$cidr"
+    aws_authorize_ingress tcp "$recorder_port" "$cidr"
+    aws_authorize_ingress tcp "$runner_port" "$cidr"
     aws_authorize_ingress udp 3478 "$cidr"
     aws_authorize_ingress udp 49160-49200 "$cidr"
   done
 
   if [[ -n "$payments_ip" ]]; then
-    aws_authorize_ingress tcp 9090 "${payments_ip}/32"
+    aws_authorize_ingress tcp "$orch_port" "${payments_ip}/32"
   else
-    warn "Payments API host is not an IPv4; skipping SG rule for TCP 9090 (health monitoring)."
+    warn "Payments API host is not an IPv4; skipping SG rule for TCP ${orch_port} (health monitoring)."
   fi
 }
 
@@ -2000,7 +2025,8 @@ if [[ -n "$ORCH_CONTACT_EMAIL" ]]; then
 fi
 upsert_env_kv "$ENV_FILE" "PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HOST_PUBLIC_IP" "$PUBLIC_IP"
-upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" "http://$PUBLIC_IP:9090/health"
+orch_health_port="$(get_env_or_file_value "ORCHESTRATOR_HEALTH_PORT" "9090")"
+upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" "http://$PUBLIC_IP:${orch_health_port}/health"
 upsert_env_kv "$ENV_FILE" "EDGE_PROJECT_DIR" "$REPO_ROOT"
 
 EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
@@ -2023,7 +2049,7 @@ fi
   # rewrites TURN to advertise the selected edge/gateway.
   upsert_env_kv "$ENV_FILE" "EDGE_UPDATE_TURN" "1"
 
-  # Allow Payments to reach /health on 9090 even when the rotator enforces an exclusive allowlist.
+  # Allow Payments to reach /health on ${orch_health_port} even when the rotator enforces an exclusive allowlist.
   payments_host="$(extract_host_from_url "$PAYMENTS_API_URL")"
   if is_ipv4 "$payments_host"; then
     payments_ip="$payments_host"
@@ -2283,7 +2309,7 @@ if [[ "$SKIP_REGISTRATION" != "1" ]]; then
   if [[ -n "$ORCH_CONTACT_EMAIL" ]]; then
     reg_args+=(--contact-email "$ORCH_CONTACT_EMAIL")
   fi
-  reg_args+=(--host-public-ip "$PUBLIC_IP" --health-url "http://$PUBLIC_IP:9090/health")
+  reg_args+=(--host-public-ip "$PUBLIC_IP" --health-url "http://$PUBLIC_IP:${orch_health_port}/health")
   reg_cmd=(python3 "$REPO_ROOT/scripts/register_orchestrator.py" "${reg_args[@]}" --state-file "$registration_state_file" --skip-if-state-matches)
   if [[ "$FORCE_REGISTRATION" == "1" ]]; then
     reg_cmd+=(--force)
@@ -2300,9 +2326,13 @@ if [[ "$SKIP_REGISTRATION" != "1" ]]; then
 fi
 
 note "Health checks (best-effort)"
-curl -fsS --max-time 2 http://127.0.0.1:9877/health >/dev/null 2>&1 || true
-curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1 || true
-curl -fsS --max-time 2 http://127.0.0.1:9090/health >/dev/null 2>&1 || true
+signaling_port="$(get_env_or_file_value "VTUBER_SIGNALING_PUBLIC_PORT" "8080")"
+streamer_port="$(get_env_or_file_value "VTUBER_SIGNALING_STREAMER_PORT" "8888")"
+recorder_port="$(get_env_or_file_value "VTUBER_RECORDER_PORT" "8889")"
+runner_port="$(get_env_or_file_value "VTUBER_RUNNER_PORT" "9877")"
+curl -fsS --max-time 2 "http://127.0.0.1:${runner_port}/health" >/dev/null 2>&1 || true
+curl -fsS --max-time 2 "http://127.0.0.1:${signaling_port}/healthz" >/dev/null 2>&1 || true
+curl -fsS --max-time 2 "http://127.0.0.1:${orch_health_port}/health" >/dev/null 2>&1 || true
 
 show_reg_help="0"
 reg_help_label="If registration didn’t show up yet"
@@ -2326,15 +2356,15 @@ EOF
   if [[ "${plane_enabled:-0}" == "1" ]]; then
     cat >&2 <<EOF
      - Edge assignment is managed by the control plane: ${EDGE_CONFIG_URL}
-     - Ensure your EC2 security group allows inbound from the edge(s) on: TCP 8080,8888,8889,9877,9090 and UDP 3478,49160-49200
+     - Ensure your EC2 security group allows inbound from the edge(s) on: TCP ${signaling_port},${streamer_port},${recorder_port},${runner_port},${orch_health_port} and UDP 3478,49160-49200
 EOF
   else
     cat >&2 <<EOF
-     - Allowlisted edge/gateway IPs ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
+     - Allowlisted edge/gateway IPs ${CONTROL_IPS_CSV} -> TCP ${signaling_port},${streamer_port},${recorder_port},${runner_port} and UDP 3478,49160-49200
 EOF
   fi
   cat >&2 <<EOF
-     - Payments backend -> TCP 9090 (health monitoring)
+     - Payments backend -> TCP ${orch_health_port} (health monitoring)
      - ${STYLE_DIM}Auto-apply notes:${STYLE_RESET} UFW only (if active). EC2 security groups only with ${STYLE_BOLD}--apply-aws-sg${STYLE_RESET}.
 EOF
   if [[ "${plane_enabled:-0}" != "1" ]]; then
@@ -2345,9 +2375,9 @@ EOF
   cat >&2 <<EOF
 
   ${STYLE_DIM}2) Local health:${STYLE_RESET}
-     - Signaling:    curl http://127.0.0.1:8080/healthz
-     - Runner:       curl http://127.0.0.1:9877/health
-     - Orchestrator: curl http://127.0.0.1:9090/health
+     - Signaling:    curl http://127.0.0.1:${signaling_port}/healthz
+     - Runner:       curl http://127.0.0.1:${runner_port}/health
+     - Orchestrator: curl http://127.0.0.1:${orch_health_port}/health
 EOF
   if [[ "$show_reg_help" == "1" ]]; then
     cat >&2 <<EOF
@@ -2368,15 +2398,15 @@ EOF
   if [[ "${plane_enabled:-0}" == "1" ]]; then
     cat >&2 <<EOF
      - Edge assignment is managed by the control plane: ${EDGE_CONFIG_URL}
-     - Ensure your EC2 security group allows inbound from the edge(s) on: TCP 8080,8888,8889,9877,9090 and UDP 3478,49160-49200
+     - Ensure your EC2 security group allows inbound from the edge(s) on: TCP ${signaling_port},${streamer_port},${recorder_port},${runner_port},${orch_health_port} and UDP 3478,49160-49200
 EOF
   else
     cat >&2 <<EOF
-     - Allowlisted edge/gateway IPs ${CONTROL_IPS_CSV} -> TCP 8080,8888,8889,9877 and UDP 3478,49160-49200
+     - Allowlisted edge/gateway IPs ${CONTROL_IPS_CSV} -> TCP ${signaling_port},${streamer_port},${recorder_port},${runner_port} and UDP 3478,49160-49200
 EOF
   fi
   cat >&2 <<EOF
-     - Payments backend -> TCP 9090 (health monitoring)
+     - Payments backend -> TCP ${orch_health_port} (health monitoring)
      - Auto-apply notes: UFW only (if active). EC2 security groups only with --apply-aws-sg.
 EOF
   if [[ "${plane_enabled:-0}" != "1" ]]; then
@@ -2387,9 +2417,9 @@ EOF
   cat >&2 <<EOF
 
   2) Verify locally:
-     - Signaling health:    curl http://127.0.0.1:8080/healthz
-     - Runner health:       curl http://127.0.0.1:9877/health
-     - Orchestrator health: curl http://127.0.0.1:9090/health
+     - Signaling health:    curl http://127.0.0.1:${signaling_port}/healthz
+     - Runner health:       curl http://127.0.0.1:${runner_port}/health
+     - Orchestrator health: curl http://127.0.0.1:${orch_health_port}/health
 EOF
   if [[ "$show_reg_help" == "1" ]]; then
     cat >&2 <<EOF

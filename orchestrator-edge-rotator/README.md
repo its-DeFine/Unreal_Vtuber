@@ -45,10 +45,10 @@ Optional:
 - `EDGE_POLL_INTERVAL_SECONDS` (default `15`)
 - `EDGE_PROJECT_DIR` (default `/home/ubuntu/Unreal_Vtuber`) – must match the host path (see compose wiring).
 - `EDGE_STATE_FILE` (default `/var/lib/vtuber/power-state/edge_rotator_state.json`) – persisted state to avoid unnecessary service recreates on rotator restarts.
-- `EDGE_ALLOW_PORTS` (default `8080/tcp,8888/tcp,8889/tcp,9090/tcp,9877/tcp,3478/tcp,3478/udp,49160-49200/udp`)
-  - Note: the stack exposes signaling as `8080:80`; the rotator also enforces `80/tcp` so the `8080` allowlist actually applies.
+- `EDGE_ALLOW_PORTS` (default `${VTUBER_SIGNALING_PUBLIC_PORT:-8080}/tcp,${VTUBER_SIGNALING_STREAMER_PORT:-8888}/tcp,${VTUBER_RECORDER_PORT:-8889}/tcp,${ORCHESTRATOR_HEALTH_PORT:-9090}/tcp,${VTUBER_RUNNER_PORT:-9877}/tcp,3478/tcp,3478/udp,49160-49200/udp`)
+  - Note: signaling is exposed as `${VTUBER_SIGNALING_PUBLIC_PORT:-8080}:80`; the rotator also enforces `80/tcp` (and other container ports) so the host allowlist applies post-DNAT.
 - `EDGE_ENFORCE_EXCLUSIVE` (default `true`) – add DROP rules for the managed ports so only edge CIDRs can reach them.
-- `EDGE_SIGNALING_PUBLIC_PORT` (default `8080`) – used when generating matchmaker args (`--public_port`).
+- `EDGE_SIGNALING_PUBLIC_PORT` (default `${VTUBER_SIGNALING_PUBLIC_PORT:-8080}`) – used when generating matchmaker args (`--public_port`).
 - `EDGE_MATCHMAKER_DEFAULT_PORT` (default `8889`)
 - `EDGE_UPDATE_TURN` (default `false`) – if enabled and control plane returns `turn_external_ip`, rewrite `.env.turn` and recreate `turn-server`.
 - `EDGE_WAKE_SETTLE_SECONDS` (default `60`) – after a wake transition, avoid restarts during this window.

@@ -57,8 +57,8 @@ Non-interactive (returning orchestrators; use a stored token file):
 ## Firewall / ingress checklist
 
 Ensure inbound allowlists / firewall rules are set:
-- Your edge/gateway IP -> TCP `8080,8888,8889,9877` and UDP `3478,49160-49200`
-- Payments backend -> TCP `9090` (health monitoring)
+- Your edge/gateway IP -> TCP `${VTUBER_SIGNALING_PUBLIC_PORT:-8080},${VTUBER_SIGNALING_STREAMER_PORT:-8888},${VTUBER_RECORDER_PORT:-8889},${VTUBER_RUNNER_PORT:-9877}` and UDP `3478,49160-49200`
+- Payments backend -> TCP `${ORCHESTRATOR_HEALTH_PORT:-9090}` (health monitoring)
 
 The onboarding wizard will apply these rules to UFW (best-effort) if UFW is active on the host. Disable with `--no-apply-firewall`.
 
@@ -74,7 +74,7 @@ If `EDGE_CONFIG_URL` is set (recommended), the `orchestrator-edge-rotator` sidec
 
 Minimum `.env`:
 - `EDGE_CONFIG_URL=https://<control-plane>/orchestrator-edge`
-- `EDGE_FIREWALL_EXTRA_CIDRS=<payments-ip>/32` (so Payments can still reach `:9090/health`)
+- `EDGE_FIREWALL_EXTRA_CIDRS=<payments-ip>/32` (so Payments can still reach `:${ORCHESTRATOR_HEALTH_PORT:-9090}/health`)
 
 ## Verify
 
@@ -85,9 +85,9 @@ Preferred (includes edge connectivity + runner TCP + record/download + power API
 ```
 
 Manual (local endpoints only):
-- Signaling health: `curl http://127.0.0.1:8080/healthz`
-- Runner health: `curl http://127.0.0.1:9877/health`
-- Orchestrator health: `curl http://127.0.0.1:9090/health`
+- Signaling health: `curl http://127.0.0.1:${VTUBER_SIGNALING_PUBLIC_PORT:-8080}/healthz`
+- Runner health: `curl http://127.0.0.1:${VTUBER_RUNNER_PORT:-9877}/health`
+- Orchestrator health: `curl http://127.0.0.1:${ORCHESTRATOR_HEALTH_PORT:-9090}/health`
 
 If the orchestrator doesn’t appear in Payments yet, rerun:
 ```bash

@@ -30,6 +30,22 @@ def _env_bool(key: str, default: bool) -> bool:
     return str(raw).strip().lower() in ("1", "true", "yes", "y", "on")
 
 
+def _env_int(key: str, default: int) -> int:
+    raw = os.environ.get(key)
+    if raw is None:
+        return default
+    s = str(raw).strip()
+    if not s:
+        return default
+    try:
+        value = int(s)
+    except ValueError:
+        return default
+    if 1 <= value <= 65535:
+        return value
+    return default
+
+
 @dataclass(frozen=True)
 class PortRule:
     proto: str  # tcp|udp
@@ -64,12 +80,17 @@ def _parse_ports(raw: str) -> list[PortRule]:
             raise ValueError(f"invalid port range in EDGE_ALLOW_PORTS entry: {token!r}")
         out.append(PortRule(proto=proto, start=start, end=end))
     if not out:
+        signaling_public = _env_int("VTUBER_SIGNALING_PUBLIC_PORT", 8080)
+        streamer_port = _env_int("VTUBER_SIGNALING_STREAMER_PORT", 8888)
+        recorder_port = _env_int("VTUBER_RECORDER_PORT", 8889)
+        health_port = _env_int("ORCHESTRATOR_HEALTH_PORT", 9090)
+        runner_port = _env_int("VTUBER_RUNNER_PORT", 9877)
         out = [
-            PortRule(proto="tcp", start=8080, end=8080),
-            PortRule(proto="tcp", start=8888, end=8888),
-            PortRule(proto="tcp", start=8889, end=8889),
-            PortRule(proto="tcp", start=9090, end=9090),
-            PortRule(proto="tcp", start=9877, end=9877),
+            PortRule(proto="tcp", start=signaling_public, end=signaling_public),
+            PortRule(proto="tcp", start=streamer_port, end=streamer_port),
+            PortRule(proto="tcp", start=recorder_port, end=recorder_port),
+            PortRule(proto="tcp", start=health_port, end=health_port),
+            PortRule(proto="tcp", start=runner_port, end=runner_port),
             PortRule(proto="tcp", start=3478, end=3478),
             PortRule(proto="udp", start=3478, end=3478),
             PortRule(proto="udp", start=49160, end=49200),
@@ -152,11 +173,29 @@ def _ensure_iptables_chain(chain: str) -> None:
 
 def _translate_docker_ports(ports: list[PortRule]) -> list[PortRule]:
     translated: list[PortRule] = []
+    signaling_public = _env_int("VTUBER_SIGNALING_PUBLIC_PORT", 8080)
+    streamer_host = _env_int("VTUBER_SIGNALING_STREAMER_PORT", 8888)
+    recorder_host = _env_int("VTUBER_RECORDER_PORT", 8889)
+    runner_host = _env_int("VTUBER_RUNNER_PORT", 9877)
+
+    # Map host-exposed ports to post-DNAT container ports for docker-mapped services.
+    # docker-compose uses host:container bindings (examples):
+    # - ${VTUBER_SIGNALING_PUBLIC_PORT}:80
+    # - ${VTUBER_SIGNALING_STREAMER_PORT}:8888
+    # - ${VTUBER_RECORDER_PORT}:8889
+    # - ${VTUBER_RUNNER_PORT}:9877
+    translate_tcp: dict[int, int] = {
+        signaling_public: 80,
+        streamer_host: 8888,
+        recorder_host: 8889,
+        runner_host: 9877,
+    }
     for rule in ports:
         translated.append(rule)
-        # docker-compose exposes "8080:80" for signaling; once DNAT'd, the dport is 80.
-        if rule.proto == "tcp" and rule.start == 8080 and rule.end == 8080:
-            translated.append(PortRule(proto="tcp", start=80, end=80))
+        if rule.proto == "tcp" and rule.start == rule.end:
+            mapped = translate_tcp.get(rule.start)
+            if mapped is not None:
+                translated.append(PortRule(proto="tcp", start=mapped, end=mapped))
 
     # de-dupe (preserve order)
     seen: set[tuple[str, int, int]] = set()
@@ -538,7 +577,7 @@ def main() -> int:
     power_allowed_file = Path(power_allowed_file_raw) if power_allowed_file_raw else None
     local_allowlist = (os.environ.get("EDGE_LOCAL_ALLOWLIST") or "127.0.0.1,::1,172.17.0.1,172.18.0.1").strip()
 
-    public_port = int(os.environ.get("EDGE_SIGNALING_PUBLIC_PORT", "8080"))
+    public_port = _env_int("EDGE_SIGNALING_PUBLIC_PORT", _env_int("VTUBER_SIGNALING_PUBLIC_PORT", 8080))
     default_mm_port = int(os.environ.get("EDGE_MATCHMAKER_DEFAULT_PORT", "8889"))
 
     state_file_raw = (os.environ.get("EDGE_STATE_FILE") or "").strip()
