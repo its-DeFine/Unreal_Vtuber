@@ -8,6 +8,28 @@ This container runs on the **orchestrator GPU host** and automates the key piece
 
 It is designed to work even when the stack is “sleeping” (only `orchestrator-health` is up) by recreating containers with `docker compose up --no-start ...`.
 
+## Does this “open ports”?
+
+Not by itself.
+
+Think of inbound access as **three separate gates**:
+
+1) **A service must be listening** (a container/process is running).
+2) **The port must be published/reachable on the host** (Docker/Compose `ports:` mapping, if needed).
+3) **Network + host firewalls must allow the traffic**:
+   - **EC2 Security Groups** decide what can reach the instance at all.
+   - This rotator programs **host `iptables`** rules to restrict *who* can reach a configured set of ports (CIDR allowlist).
+
+CIDRs + `iptables` don’t “create” new ports; they only allow or deny traffic to ports that already exist.
+
+### Checklist: expose a new service port safely
+
+If you add a new container/service that must be reachable from the edge/gateway (or another remote system):
+
+1) Publish the port in compose (`ports:`) so it exists on the host.
+2) Allow that host port in the EC2 Security Group, restricted to the edge/gateway CIDR(s) (or your admin IPs for operator-only ports).
+3) Add the port to `EDGE_ALLOW_PORTS` so the rotator doesn’t drop it, then recreate `orchestrator-edge-rotator`.
+
 ## Control plane contract
 
 The rotator polls a URL (API Gateway / control plane) for desired configuration.

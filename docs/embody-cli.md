@@ -86,6 +86,9 @@ q) Quit
     - Signaling public port: `8080 + slot`
     - Runner port: `9877 + slot`
     - Recorder-control port: `8889 + slot`
+  - Networking note:
+    - Docker/Compose publishes the ports; your cloud firewall / Security Group decides whether they are reachable.
+    - If you use `orchestrator-edge-rotator`, it restricts access via host `iptables` allowlists, but it does not modify Security Groups (see `orchestrator-edge-rotator/README.md`).
   - Per-instance isolation:
     - Docker compose projects + per-instance networks
     - Sessions: `${VTUBER_SESSION_DIR}/<avatar>`
