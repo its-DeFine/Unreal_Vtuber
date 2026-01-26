@@ -433,6 +433,19 @@ TURN_ENV_FILE="$REPO_ROOT/.env.turn"
 COMPOSE_FILE="$REPO_ROOT/docker-compose.unreal.yml"
 ENV_TEMPLATE="$REPO_ROOT/orchestrator.env.example"
 
+ENV_FILE_EXISTS="0"
+if [[ -f "$ENV_FILE" ]]; then
+  ENV_FILE_EXISTS="1"
+fi
+
+PREV_VTUBER_SIGNALING_PUBLIC_PORT="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_SIGNALING_PUBLIC_PORT" 2>/dev/null || true)")"
+PREV_VTUBER_SIGNALING_STREAMER_PORT="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_SIGNALING_STREAMER_PORT" 2>/dev/null || true)")"
+PREV_VTUBER_RUNNER_PORT="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_RUNNER_PORT" 2>/dev/null || true)")"
+PREV_VTUBER_RECORDER_PORT="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_RECORDER_PORT" 2>/dev/null || true)")"
+PREV_ORCHESTRATOR_HEALTH_PORT="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "ORCHESTRATOR_HEALTH_PORT" 2>/dev/null || true)")"
+
+CLEANUP_FIREWALL_PORTS="0"
+
 PAYMENTS_API_URL="http://3.141.111.200:8081"
 IMAGE_REF="ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1"
 EDGE_IP=""
@@ -1039,6 +1052,18 @@ ensure_ufw_rules_best_effort() {
   runner_port="$(get_env_or_file_value "VTUBER_RUNNER_PORT" "9877")"
   orch_port="$(get_env_or_file_value "ORCHESTRATOR_HEALTH_PORT" "9090")"
 
+  local prev_signaling_port prev_streamer_port prev_recorder_port prev_runner_port prev_orch_port
+  prev_signaling_port="$(trim_whitespace "${PREV_VTUBER_SIGNALING_PUBLIC_PORT:-}")"
+  prev_streamer_port="$(trim_whitespace "${PREV_VTUBER_SIGNALING_STREAMER_PORT:-}")"
+  prev_recorder_port="$(trim_whitespace "${PREV_VTUBER_RECORDER_PORT:-}")"
+  prev_runner_port="$(trim_whitespace "${PREV_VTUBER_RUNNER_PORT:-}")"
+  prev_orch_port="$(trim_whitespace "${PREV_ORCHESTRATOR_HEALTH_PORT:-}")"
+  if ! is_valid_port "$prev_signaling_port"; then prev_signaling_port="8080"; fi
+  if ! is_valid_port "$prev_streamer_port"; then prev_streamer_port="8888"; fi
+  if ! is_valid_port "$prev_recorder_port"; then prev_recorder_port="8889"; fi
+  if ! is_valid_port "$prev_runner_port"; then prev_runner_port="9877"; fi
+  if ! is_valid_port "$prev_orch_port"; then prev_orch_port="9090"; fi
+
   local ip cidr
   for ip in "${CONTROL_IPS[@]}"; do
     if ! is_ipv4 "$ip"; then
@@ -1056,6 +1081,44 @@ ensure_ufw_rules_best_effort() {
 
   if [[ -n "$payments_ip" ]]; then
     "${ufw_cmd[@]}" allow from "${payments_ip}/32" to any port "$orch_port" proto tcp >/dev/null 2>&1 || true
+  fi
+
+  if [[ "$CLEANUP_FIREWALL_PORTS" == "1" ]]; then
+    port_in_list() {
+      local needle="$1" item
+      shift || true
+      for item in "$@"; do
+        [[ "$needle" == "$item" ]] && return 0
+      done
+      return 1
+    }
+
+    local desired_ports=() old_ports=() old_port unique_old_ports=()
+    desired_ports=("$signaling_port" "$streamer_port" "$recorder_port" "$runner_port")
+    old_ports=("$prev_signaling_port" "$prev_streamer_port" "$prev_recorder_port" "$prev_runner_port")
+    while IFS= read -r old_port; do
+      unique_old_ports+=("$old_port")
+    done < <(dedupe_list "${old_ports[@]}")
+
+    if [[ ${#unique_old_ports[@]} -gt 0 ]]; then
+      note "Detected port changes; removing old UFW allow rules (best-effort)"
+      for ip in "${CONTROL_IPS[@]}"; do
+        if ! is_ipv4 "$ip"; then
+          continue
+        fi
+        cidr="${ip}/32"
+        for old_port in "${unique_old_ports[@]}"; do
+          if port_in_list "$old_port" "${desired_ports[@]}"; then
+            continue
+          fi
+          "${ufw_cmd[@]}" --force delete allow from "$cidr" to any port "$old_port" proto tcp >/dev/null 2>&1 || true
+        done
+      done
+    fi
+
+    if [[ -n "$payments_ip" && "$prev_orch_port" != "$orch_port" ]]; then
+      "${ufw_cmd[@]}" --force delete allow from "${payments_ip}/32" to any port "$prev_orch_port" proto tcp >/dev/null 2>&1 || true
+    fi
   fi
 
   "${ufw_cmd[@]}" reload >/dev/null 2>&1 || true
@@ -1163,6 +1226,32 @@ ensure_ec2_sg_rules_best_effort() {
     return 0
   }
 
+  aws_revoke_ingress() {
+    local proto="$1" port="$2" cidr="$3" out
+    out="$(run_as_target_user aws ec2 revoke-security-group-ingress --region "$region" \
+      --group-id "$sg_id" --protocol "$proto" --port "$port" --cidr "$cidr" 2>&1)" || true
+    if [[ -z "$out" ]]; then
+      ok "SG rule removed: $proto $port from $cidr"
+      return 0
+    fi
+    if echo "$out" | grep -q "InvalidPermission.NotFound"; then
+      ok "SG rule not present: $proto $port from $cidr"
+      return 0
+    fi
+    if echo "$out" | grep -qi "UnauthorizedOperation\\|AccessDenied"; then
+      warn "AWS denied updating SG rules: $proto $port from $cidr"
+      warn "  $out"
+      return 0
+    fi
+    if echo "$out" | grep -q "\"Return\"[[:space:]]*:[[:space:]]*true"; then
+      ok "SG rule removed: $proto $port from $cidr"
+      return 0
+    fi
+    warn "Failed to revoke SG rule: $proto $port from $cidr"
+    warn "  $out"
+    return 0
+  }
+
   local signaling_port streamer_port recorder_port runner_port orch_port
   signaling_port="$(get_env_or_file_value "VTUBER_SIGNALING_PUBLIC_PORT" "8080")"
   streamer_port="$(get_env_or_file_value "VTUBER_SIGNALING_STREAMER_PORT" "8888")"
@@ -1190,6 +1279,56 @@ ensure_ec2_sg_rules_best_effort() {
   else
     warn "Payments API host is not an IPv4; skipping SG rule for TCP ${orch_port} (health monitoring)."
   fi
+
+  if [[ "$CLEANUP_FIREWALL_PORTS" == "1" ]]; then
+    port_in_list() {
+      local needle="$1" item
+      shift || true
+      for item in "$@"; do
+        [[ "$needle" == "$item" ]] && return 0
+      done
+      return 1
+    }
+
+    local prev_signaling_port prev_streamer_port prev_recorder_port prev_runner_port prev_orch_port
+    prev_signaling_port="$(trim_whitespace "${PREV_VTUBER_SIGNALING_PUBLIC_PORT:-}")"
+    prev_streamer_port="$(trim_whitespace "${PREV_VTUBER_SIGNALING_STREAMER_PORT:-}")"
+    prev_recorder_port="$(trim_whitespace "${PREV_VTUBER_RECORDER_PORT:-}")"
+    prev_runner_port="$(trim_whitespace "${PREV_VTUBER_RUNNER_PORT:-}")"
+    prev_orch_port="$(trim_whitespace "${PREV_ORCHESTRATOR_HEALTH_PORT:-}")"
+    if ! is_valid_port "$prev_signaling_port"; then prev_signaling_port="8080"; fi
+    if ! is_valid_port "$prev_streamer_port"; then prev_streamer_port="8888"; fi
+    if ! is_valid_port "$prev_recorder_port"; then prev_recorder_port="8889"; fi
+    if ! is_valid_port "$prev_runner_port"; then prev_runner_port="9877"; fi
+    if ! is_valid_port "$prev_orch_port"; then prev_orch_port="9090"; fi
+
+    local desired_ports=() old_ports=() old_port unique_old_ports=()
+    desired_ports=("$signaling_port" "$streamer_port" "$recorder_port" "$runner_port")
+    old_ports=("$prev_signaling_port" "$prev_streamer_port" "$prev_recorder_port" "$prev_runner_port")
+    while IFS= read -r old_port; do
+      unique_old_ports+=("$old_port")
+    done < <(dedupe_list "${old_ports[@]}")
+
+    if [[ ${#unique_old_ports[@]} -gt 0 ]]; then
+      note "Detected port changes; revoking old EC2 security group rules (best-effort)"
+      for ip in "${CONTROL_IPS[@]}"; do
+        if ! is_ipv4 "$ip"; then
+          continue
+        fi
+        cidr="${ip}/32"
+        for old_port in "${unique_old_ports[@]}"; do
+          if port_in_list "$old_port" "${desired_ports[@]}"; then
+            continue
+          fi
+          aws_revoke_ingress tcp "$old_port" "$cidr"
+        done
+      done
+    fi
+
+    if [[ -n "$payments_ip" && "$prev_orch_port" != "$orch_port" ]]; then
+      aws_revoke_ingress tcp "$prev_orch_port" "${payments_ip}/32"
+    fi
+  fi
 }
 
 ensure_inbound_rules_best_effort() {
@@ -1197,6 +1336,42 @@ ensure_inbound_rules_best_effort() {
     return 0
   fi
   note "Checking/applying inbound allowlist rules (best-effort)"
+
+  CLEANUP_FIREWALL_PORTS="0"
+  if [[ "$ENV_FILE_EXISTS" == "1" ]]; then
+    local prev_signaling_port prev_streamer_port prev_recorder_port prev_runner_port prev_orch_port
+    local desired_signaling_port desired_streamer_port desired_recorder_port desired_runner_port desired_orch_port
+
+    prev_signaling_port="$(trim_whitespace "${PREV_VTUBER_SIGNALING_PUBLIC_PORT:-}")"
+    prev_streamer_port="$(trim_whitespace "${PREV_VTUBER_SIGNALING_STREAMER_PORT:-}")"
+    prev_recorder_port="$(trim_whitespace "${PREV_VTUBER_RECORDER_PORT:-}")"
+    prev_runner_port="$(trim_whitespace "${PREV_VTUBER_RUNNER_PORT:-}")"
+    prev_orch_port="$(trim_whitespace "${PREV_ORCHESTRATOR_HEALTH_PORT:-}")"
+    if ! is_valid_port "$prev_signaling_port"; then prev_signaling_port="8080"; fi
+    if ! is_valid_port "$prev_streamer_port"; then prev_streamer_port="8888"; fi
+    if ! is_valid_port "$prev_recorder_port"; then prev_recorder_port="8889"; fi
+    if ! is_valid_port "$prev_runner_port"; then prev_runner_port="9877"; fi
+    if ! is_valid_port "$prev_orch_port"; then prev_orch_port="9090"; fi
+
+    desired_signaling_port="$(get_env_or_file_value "VTUBER_SIGNALING_PUBLIC_PORT" "8080")"
+    desired_streamer_port="$(get_env_or_file_value "VTUBER_SIGNALING_STREAMER_PORT" "8888")"
+    desired_recorder_port="$(get_env_or_file_value "VTUBER_RECORDER_PORT" "8889")"
+    desired_runner_port="$(get_env_or_file_value "VTUBER_RUNNER_PORT" "9877")"
+    desired_orch_port="$(get_env_or_file_value "ORCHESTRATOR_HEALTH_PORT" "9090")"
+    if ! is_valid_port "$desired_signaling_port"; then desired_signaling_port="8080"; fi
+    if ! is_valid_port "$desired_streamer_port"; then desired_streamer_port="8888"; fi
+    if ! is_valid_port "$desired_recorder_port"; then desired_recorder_port="8889"; fi
+    if ! is_valid_port "$desired_runner_port"; then desired_runner_port="9877"; fi
+    if ! is_valid_port "$desired_orch_port"; then desired_orch_port="9090"; fi
+
+    if [[ "$prev_signaling_port" != "$desired_signaling_port" || \
+      "$prev_streamer_port" != "$desired_streamer_port" || \
+      "$prev_recorder_port" != "$desired_recorder_port" || \
+      "$prev_runner_port" != "$desired_runner_port" || \
+      "$prev_orch_port" != "$desired_orch_port" ]]; then
+      CLEANUP_FIREWALL_PORTS="1"
+    fi
+  fi
 
   # Host-level firewall first (if present). EC2 SG rules are opt-in via --apply-aws-sg.
   if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "Status: active"; then
