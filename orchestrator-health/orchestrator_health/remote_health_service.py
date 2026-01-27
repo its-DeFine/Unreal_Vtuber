@@ -90,6 +90,12 @@ _PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _DOCKER_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 
+_NVIDIA_SMI_QUERY = [
+    "nvidia-smi",
+    "--query-gpu=index,uuid,name,memory.total,driver_version",
+    "--format=csv,noheader,nounits",
+]
+
 
 class PowerState(BaseModel):
     state: Literal["awake", "sleeping"] = Field(default="awake")
@@ -611,6 +617,87 @@ def _container_meta(container: Any) -> dict[str, Any]:
         "service": service,
         "image": image_ref,
         "image_id": image_id,
+    }
+
+
+def _self_image_id() -> str:
+    try:
+        container = docker_client.containers.get(POWER_SELF_CONTAINER)
+    except Exception:  # pragma: no cover - defensive
+        container = None
+        try:
+            for candidate in docker_client.containers.list(all=True):
+                if _is_self_container(candidate):
+                    container = candidate
+                    break
+        except Exception:
+            container = None
+    if container is None:
+        return ""
+    try:
+        image_id = getattr(getattr(container, "image", None), "id", None)
+    except Exception:
+        image_id = None
+    return str(image_id or "").strip()
+
+
+def _parse_nvidia_smi_csv(stdout: str) -> tuple[list[dict[str, Any]], Optional[str]]:
+    gpus: list[dict[str, Any]] = []
+    driver_version: Optional[str] = None
+    for raw in (stdout or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 5:
+            continue
+        raw_index, uuid, name, raw_mem, raw_driver = parts[:5]
+        try:
+            index = int(raw_index)
+        except Exception:
+            continue
+        try:
+            memory_total_mib = int(float(raw_mem))
+        except Exception:
+            memory_total_mib = None
+        driver = raw_driver.strip() or None
+        if driver and not driver_version:
+            driver_version = driver
+        gpus.append(
+            {
+                "index": index,
+                "uuid": uuid.strip() or None,
+                "name": name.strip() or None,
+                "memory_total_mib": memory_total_mib,
+                "driver_version": driver,
+            }
+        )
+    return gpus, driver_version
+
+
+def _gpu_inventory_from_executor(*, executor: Any, image_id: str) -> dict[str, Any]:
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "--gpus",
+        "all",
+        image_id,
+        *_NVIDIA_SMI_QUERY,
+    ]
+    out = _cluster_executor_exec(executor, cmd)
+    out["stdout"] = _tail(out.get("stdout", ""))
+    out["stderr"] = _tail(out.get("stderr", ""))
+    if out["exit_code"] != 0:
+        return {"ok": False, "error": "nvidia-smi failed", **out}
+    gpus, driver_version = _parse_nvidia_smi_csv(out.get("stdout", ""))
+    if not gpus:
+        return {"ok": False, "error": "no GPUs detected", **out}
+    return {
+        "ok": True,
+        "gpus": gpus,
+        "driver_version": driver_version,
+        **out,
     }
 
 
@@ -1287,6 +1374,32 @@ def read_meta(request: Request) -> dict[str, Any]:
         "rollout": _read_json_file(ROLLOUT_STATE_FILE),
         "verify_last": _read_json_file(VERIFY_LAST_FILE),
     }
+
+
+@app.get("/meta/gpu")
+def read_meta_gpu(request: Request) -> dict[str, Any]:
+    """Return NVIDIA GPU inventory (best-effort) via nvidia-smi inside a GPU-enabled container."""
+    _require_auth_strict(request)
+
+    image_id = _self_image_id()
+    if not image_id:
+        return {
+            "ok": False,
+            "error": "self image not found",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    executor = _cluster_executor_try_container()
+    if executor is None:
+        return {
+            "ok": False,
+            "error": "cluster executor not running",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    payload = _gpu_inventory_from_executor(executor=executor, image_id=image_id)
+    payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+    return payload
 
 
 @app.post("/ops/upgrade")
