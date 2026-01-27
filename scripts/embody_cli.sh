@@ -2680,7 +2680,7 @@ cluster_deploy() {
   remote_cluster="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EXPERIMENTAL_REMOTE_CLUSTER_CONTROL" 2>/dev/null || true)")"
   remote_cluster="$(trim_whitespace "${remote_cluster:-}")"
   if [[ "$remote_cluster" != "1" ]] && is_tty; then
-    echo "cluster: experimental remote cluster spawn/delete endpoints (:9090/cluster/*) are disabled by default." >&2
+    echo "cluster: experimental remote cluster spawn/delete endpoints (:9090/cluster/*) are disabled (set EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1 to enable)." >&2
     if prompt_yes_no "Enable remote cluster control for this deploy? (experimental)" "n"; then
       export EXPERIMENTAL_REMOTE_CLUSTER_CONTROL="1"
       echo "cluster: enabled for this run (tip: add EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1 to .env to persist)." >&2

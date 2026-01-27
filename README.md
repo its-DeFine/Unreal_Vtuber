@@ -133,7 +133,7 @@ Remote automation (ex: Payments) can call:
 - `POST http://<host>:9090/power/projects/<compose_project>`
 
 Experimental remote spawn/delete (cluster instances):
-- Enable: set `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1` (then recreate `orchestrator-health`, or run a cluster deploy with the prompt enabled).
+- Enabled by default for new installs (in `orchestrator.env.example`). To disable: set `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=0` in `.env` and recreate `orchestrator-health`.
 - `POST http://<host>:9090/cluster/deploy` with JSON `{ "avatar_id": "embody-0", "slot": 0, "gpu": "0" }`
 - `POST http://<host>:9090/cluster/down` with JSON `{ "avatar_id": "embody-0" }` (or `{ "project": "vtuber-embody-0" }`)
 
