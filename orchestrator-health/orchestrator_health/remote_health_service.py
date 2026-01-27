@@ -219,7 +219,7 @@ def _env_truthy(key: str, default: bool = False) -> bool:
 
 
 def _require_cluster_control_enabled() -> None:
-    if not _env_truthy("EXPERIMENTAL_REMOTE_CLUSTER_CONTROL", default=False):
+    if not _env_truthy("EXPERIMENTAL_REMOTE_CLUSTER_CONTROL", default=True):
         raise HTTPException(status_code=404, detail="cluster control not enabled")
 
 
