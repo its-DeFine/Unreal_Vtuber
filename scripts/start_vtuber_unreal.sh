@@ -119,6 +119,110 @@ ensure_env() {
     fi
 }
 
+trim_whitespace() {
+    local s="$1"
+    s="${s#"${s%%[![:space:]]*}"}"
+    s="${s%"${s##*[![:space:]]}"}"
+    printf '%s' "$s"
+}
+
+strip_wrapping_quotes() {
+    local s="$1"
+    if [[ "$s" == \"*\" && "$s" == *\" ]]; then
+        s="${s#\"}"
+        s="${s%\"}"
+    fi
+    if [[ "$s" == \'*\' && "$s" == *\' ]]; then
+        s="${s#\'}"
+        s="${s%\'}"
+    fi
+    printf '%s' "$s"
+}
+
+read_env_value() {
+    local key="$1"
+    local line value
+    line="$(grep -E "^[[:space:]]*${key}=" "$ENV_FILE" 2>/dev/null | tail -n 1 || true)"
+    if [ -z "$line" ]; then
+        printf ''
+        return 0
+    fi
+    value="${line#*=}"
+    value="${value%%#*}"
+    value="$(trim_whitespace "$value")"
+    value="$(strip_wrapping_quotes "$value")"
+    printf '%s' "$value"
+}
+
+extract_host_from_url() {
+    local url="$1"
+    url="${url#*://}"
+    url="${url%%/*}"
+    url="${url##*@}"
+    url="${url%%:*}"
+    printf '%s' "$url"
+}
+
+is_ipv4() {
+    local ip="$1"
+    [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+csv_has_token() {
+    local csv="$1"
+    local token="$2"
+    csv="${csv//[[:space:]]/}"
+    case ",${csv}," in
+        *",${token},"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+check_payments_allowlist() {
+    local payments_url payments_host payments_ip want_cidr allow_file power_allow
+    payments_url="$(read_env_value "PAYMENTS_API_URL")"
+    if [ -z "$payments_url" ]; then
+        payments_url="http://3.141.111.200:8081"
+    fi
+    payments_host="$(extract_host_from_url "$payments_url")"
+    if ! is_ipv4 "$payments_host"; then
+        echo -e "${YELLOW}WARN: cannot parse IPv4 from PAYMENTS_API_URL (${payments_url}); skipping allowlist test.${NC}"
+        return 2
+    fi
+    payments_ip="$payments_host"
+    want_cidr="${payments_ip}/32"
+
+    allow_file="$(read_env_value "EDGE_POWER_ALLOWED_IPS_FILE")"
+    if [ -z "$allow_file" ]; then
+        allow_file="/var/lib/vtuber/power-state/power_allowed_ips.txt"
+    fi
+
+    if [ -f "$allow_file" ]; then
+        if grep -qF "$want_cidr" "$allow_file" 2>/dev/null || grep -qF "$payments_ip" "$allow_file" 2>/dev/null; then
+            echo -e "${GREEN}Payments allowlist: OK (${payments_ip})${NC}"
+            return 0
+        fi
+        echo -e "${YELLOW}Payments allowlist: WARN (missing ${want_cidr} in ${allow_file})${NC}"
+        echo -e "${YELLOW}Fix: ./scripts/embody_cli.sh allowlists fix${NC}"
+        return 1
+    fi
+
+    power_allow="$(read_env_value "POWER_ALLOWED_IPS")"
+    power_allow="$(trim_whitespace "${power_allow:-}")"
+    if [ -z "$power_allow" ]; then
+        echo -e "${YELLOW}Payments allowlist: WARN (missing allowlist file ${allow_file} and POWER_ALLOWED_IPS is unset)${NC}"
+        echo -e "${YELLOW}Fix: ./scripts/embody_cli.sh allowlists fix${NC}"
+        return 1
+    fi
+    if csv_has_token "$power_allow" "$want_cidr" || csv_has_token "$power_allow" "$payments_ip"; then
+        echo -e "${GREEN}Payments allowlist: OK (${payments_ip})${NC}"
+        return 0
+    fi
+    echo -e "${YELLOW}Payments allowlist: WARN (missing ${want_cidr} in POWER_ALLOWED_IPS)${NC}"
+    echo -e "${YELLOW}Fix: ./scripts/embody_cli.sh allowlists fix${NC}"
+    return 1
+}
+
 detect_game_image_from_compose() {
     awk '
         /^[[:space:]]*unreal-game:[[:space:]]*$/ { in_game=1; next }
@@ -253,10 +357,22 @@ case "$COMMAND" in
         ;;
 
     test)
+        ensure_env
+        allowlist_rc="0"
+        check_payments_allowlist || allowlist_rc="$?"
+
         echo -e "${YELLOW}Sending sample BYOB TTS command...${NC}"
-        docker exec vtuber-unreal-game bash -lc 'printf "TTS_BYOB_/opt/embody/sample-15s.mp3\r\n" | nc -q 1 127.0.0.1 7777' \
-          && echo -e "${GREEN}Sample command sent. Listen for playback in the stream.${NC}" \
-          || echo -e "${RED}Failed to reach Unreal TCP endpoint${NC}"
+        if docker exec vtuber-unreal-game bash -lc 'printf "TTS_BYOB_/opt/embody/sample-15s.mp3\r\n" | nc -q 1 127.0.0.1 7777'; then
+            echo -e "${GREEN}Sample command sent. Listen for playback in the stream.${NC}"
+            tts_rc="0"
+        else
+            echo -e "${RED}Failed to reach Unreal TCP endpoint${NC}"
+            tts_rc="1"
+        fi
+
+        if [ "$tts_rc" != "0" ] || [ "$allowlist_rc" = "1" ]; then
+            exit 1
+        fi
         ;;
 
     help|--help|-h)
