@@ -461,6 +461,83 @@ def test_meta_includes_rollout_and_verify(power_app):
     assert "verify_last" in data
 
 
+def test_meta_gpu_requires_allowlist(power_app):
+    app, _svc = power_app
+    client = TestClient(app)
+    resp = client.get("/meta/gpu")
+    assert resp.status_code == 403
+
+
+def test_meta_gpu_returns_inventory(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    class DummyImage:
+        id = "sha256:deadbeef"
+
+    class DummyContainer:
+        image = DummyImage()
+
+    class DummyContainers:
+        def get(self, name):  # noqa: ARG002
+            return DummyContainer()
+
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": DummyContainers()})())
+
+    class DummyResult:
+        exit_code = 0
+        output = (b"0, GPU-123, NVIDIA RTX 4090, 24576, 535.104.12\n", b"")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            assert cmd[:6] == ["docker", "run", "--rm", "--gpus", "all", "sha256:deadbeef"]
+            assert "nvidia-smi" in cmd
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_try_container", lambda: DummyExecutor())
+
+    resp = client.get("/meta/gpu")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["gpus"][0]["name"] == "NVIDIA RTX 4090"
+    assert data["gpus"][0]["memory_total_mib"] == 24576
+
+
+def test_meta_gpu_returns_error_on_nvidia_smi_failure(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    class DummyImage:
+        id = "sha256:deadbeef"
+
+    class DummyContainer:
+        image = DummyImage()
+
+    class DummyContainers:
+        def get(self, name):  # noqa: ARG002
+            return DummyContainer()
+
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": DummyContainers()})())
+
+    class DummyResult:
+        exit_code = 1
+        output = (b"", b"nvidia-smi: command not found\n")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            assert cmd[:6] == ["docker", "run", "--rm", "--gpus", "all", "sha256:deadbeef"]
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_try_container", lambda: DummyExecutor())
+
+    resp = client.get("/meta/gpu")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is False
+    assert data["error"] == "nvidia-smi failed"
+
+
 def test_ops_pull_image_execs_docker_pull(ops_app, monkeypatch):
     app, svc = ops_app
     client = TestClient(app)
