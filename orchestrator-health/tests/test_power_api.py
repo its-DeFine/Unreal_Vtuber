@@ -197,19 +197,19 @@ def ops_app(monkeypatch, tmp_path):
     return app, svc
 
 
-def test_ops_endpoints_require_allowlist_by_default(power_app):
+def test_ops_endpoints_disabled_by_default(power_app):
     app, _svc = power_app
     client = TestClient(app)
 
     resp = client.post("/ops/upgrade", json={"apply": False})
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "POWER_ALLOWED_IPS must be set for remote ops"
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "remote ops not enabled"
 
     resp = client.post("/ops/rollout", json={})
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
     resp = client.post("/ops/pull-image", json={"image": "ghcr.io/example/image:latest"})
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 def test_ops_endpoints_can_be_disabled(monkeypatch, tmp_path):

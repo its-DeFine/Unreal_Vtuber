@@ -71,6 +71,7 @@ q) Quit
 - `power` – sleep/wake the stack via `http://127.0.0.1:9090/power` (or a single compose project via `/power/projects/<project>`)
   - `power sleep|wake --project <compose_project>` targets one cluster instance (example: `vtuber-embody-0`)
   - `power wake --ttl <seconds>` sets an auto-sleep TTL on wake
+- `remote-updates` – enable/disable remote ops endpoints (`/ops/*`) after verifying allowlists
 - Day-to-day stack control:
   - `start`, `stop`, `restart`, `status`, `logs [service]`, `health`
 - `upgrade` – pull/recreate service containers (safe to run while sleeping; won’t wake the game)
@@ -134,7 +135,7 @@ The `orchestrator-health` service exposes remote metadata and a small remote-con
 
 ### Defaults and what changes require
 
-- Enabled by default. To disable: set `EXPERIMENTAL_REMOTE_OPS=0` in `.env` and recreate `orchestrator-health`.
+- Disabled by default. Enable via `./scripts/embody_cli.sh remote-updates enable` (or set `EXPERIMENTAL_REMOTE_OPS=1` in `.env`) and recreate `orchestrator-health`.
 - Always protected by the Power allowlist. If `POWER_ALLOWED_IPS` / `POWER_ALLOWED_IPS_FILE` is not configured, `/ops/*` returns `403`.
 - Most `orchestrator-health` env vars (including `EXPERIMENTAL_REMOTE_OPS` and `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL`) are read at process startup, so changes require a recreate/restart.
 

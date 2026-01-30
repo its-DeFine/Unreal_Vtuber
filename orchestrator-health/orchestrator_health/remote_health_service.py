@@ -224,7 +224,7 @@ def _require_cluster_control_enabled() -> None:
 
 
 def _require_remote_ops_enabled() -> None:
-    if not _env_truthy("EXPERIMENTAL_REMOTE_OPS", default=True):
+    if not _env_truthy("EXPERIMENTAL_REMOTE_OPS", default=False):
         raise HTTPException(status_code=404, detail="remote ops not enabled")
 
 

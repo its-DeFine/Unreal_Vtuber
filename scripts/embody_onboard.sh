@@ -58,6 +58,8 @@ Behavior flags:
   --interactive               Force the CLI wizard (even if flags are provided)
   --non-interactive           Never prompt; error if required values are missing
   --advanced                  Prompt for optional settings (Payments URL, extra edge IPs, host paths)
+  --enable-remote-updates     Enable remote updates (/ops/*) during setup
+  --disable-remote-updates    Disable remote updates (/ops/*) during setup
   --no-color                  Disable ANSI colors
   --no-fx                     Disable transition effects
   --install-deps              Attempt apt-get install of curl/jq/zstd/age/python3 (Ubuntu/Debian only)
@@ -325,6 +327,21 @@ read_env_value() {
   ' "$file"
 }
 
+read_existing_remote_ops() {
+  local raw
+  raw="$(read_env_value "$ENV_FILE" "EXPERIMENTAL_REMOTE_OPS" 2>/dev/null || true)"
+  if [[ -z "$raw" ]]; then
+    raw="$(read_env_value "$ENV_TEMPLATE" "EXPERIMENTAL_REMOTE_OPS" 2>/dev/null || true)"
+  fi
+  raw="$(trim_whitespace "${raw:-}")"
+  raw="$(strip_inline_comment "$raw")"
+  if [[ "$raw" == "1" ]]; then
+    echo "1"
+  else
+    echo "0"
+  fi
+}
+
 seed_power_allowlist_file_best_effort() {
   local path="$1" wanted="$2"
   [[ -n "$path" ]] || return 0
@@ -433,6 +450,8 @@ NVIDIA_VISIBLE_DEVICES="${NVIDIA_VISIBLE_DEVICES:-}"
 
 CONTROL_IPS=()
 
+REMOTE_OPS_ENABLED=""
+
 INSTALL_DEPS="0"
 INSTALL_DOCKER="0"
 INSTALL_NVIDIA_DRIVER="0"
@@ -469,6 +488,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --advanced)
       ADVANCED="1"
+      shift 1
+      ;;
+    --enable-remote-updates|--enable-remote-ops)
+      REMOTE_OPS_ENABLED="1"
+      shift 1
+      ;;
+    --disable-remote-updates|--disable-remote-ops)
+      REMOTE_OPS_ENABLED="0"
       shift 1
       ;;
     --no-color)
@@ -1749,6 +1776,24 @@ maybe_run_wizard() {
     fi
   fi
 
+  section "Remote Updates (optional)"
+  local existing_remote_ops default_remote_ops
+  existing_remote_ops="$(read_existing_remote_ops)"
+  if [[ -z "$REMOTE_OPS_ENABLED" ]]; then
+    default_remote_ops="n"
+    if [[ "$existing_remote_ops" == "1" ]]; then
+      default_remote_ops="y"
+    fi
+    if prompt_yes_no "Enable remote updates (remote /ops/*)?" "$default_remote_ops"; then
+      REMOTE_OPS_ENABLED="1"
+    else
+      REMOTE_OPS_ENABLED="0"
+    fi
+  fi
+  if [[ "$REMOTE_OPS_ENABLED" == "1" ]]; then
+    note "Remote updates are allowlist-protected (POWER_ALLOWED_IPS / POWER_ALLOWED_IPS_FILE)."
+  fi
+
   if [[ "$PUBLIC_IP" == "auto" ]]; then
     fx_dots "Detecting public IP"
     local detected
@@ -1823,6 +1868,11 @@ maybe_run_wizard() {
   fi
   echo "Public IP:           $PUBLIC_IP" >&2
   echo "GPU devices:         ${NVIDIA_VISIBLE_DEVICES:-all}" >&2
+  if [[ "$REMOTE_OPS_ENABLED" == "1" ]]; then
+    echo "Remote updates:      enabled" >&2
+  else
+    echo "Remote updates:      disabled" >&2
+  fi
   if [[ -n "$EDGE_CONFIG_URL" ]]; then
     echo "Edge config plane:   $EDGE_CONFIG_URL" >&2
   else
@@ -1913,6 +1963,10 @@ maybe_run_wizard() {
 
 maybe_run_wizard
 
+if [[ -z "$REMOTE_OPS_ENABLED" ]]; then
+  REMOTE_OPS_ENABLED="$(read_existing_remote_ops)"
+fi
+
 if [[ -z "$ORCH_ID" ]]; then
   die "--orchestrator-id is required (or run without --non-interactive to use the wizard)"
 fi
@@ -2002,6 +2056,7 @@ upsert_env_kv "$ENV_FILE" "PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HOST_PUBLIC_IP" "$PUBLIC_IP"
 upsert_env_kv "$ENV_FILE" "ORCHESTRATOR_HEALTH_URL" "http://$PUBLIC_IP:9090/health"
 upsert_env_kv "$ENV_FILE" "EDGE_PROJECT_DIR" "$REPO_ROOT"
+upsert_env_kv "$ENV_FILE" "EXPERIMENTAL_REMOTE_OPS" "$REMOTE_OPS_ENABLED"
 
 EDGE_CONFIG_URL="$(trim_whitespace "$EDGE_CONFIG_URL")"
 EDGE_CONFIG_URL="$(strip_inline_comment "$EDGE_CONFIG_URL")"

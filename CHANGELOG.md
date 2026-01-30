@@ -4,7 +4,7 @@
 
 Changes merged after `v1.3.1` (current tagged release).
 
-- (none yet)
+- Remote ops (`/ops/*`) are now opt-in (disabled by default); enable via `./scripts/embody_cli.sh remote-updates enable` or `EXPERIMENTAL_REMOTE_OPS=1`.
 
 ## v1.3.1 (2026-01-25)
 

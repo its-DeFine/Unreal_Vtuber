@@ -65,6 +65,7 @@ Usage:
   ./scripts/embody_cli.sh register         # Register orchestrator in Payments (cached; skip when already registered)
   ./scripts/embody_cli.sh verify           # Full health/consistency checks (optionally auto-fix)
   ./scripts/embody_cli.sh power            # Sleep/wake via orchestrator-health /power
+  ./scripts/embody_cli.sh remote-updates   # Toggle remote ops (/ops/*) allowlist-gated
   ./scripts/embody_cli.sh cluster <cmd>    # Multi-instance cluster mode (plan/list/up/down/status/logs)
 
 Day-to-day commands:
@@ -1107,7 +1108,7 @@ PY
           echo "$body" >&2
         fi
         echo "Hint: ensure the stack is sleeping (power sleep) and POWER_ALLOWED_IPS allowlisting includes 127.0.0.1 (remote /ops is strict)." >&2
-        echo "If you opted out of remote ops (EXPERIMENTAL_REMOTE_OPS=0), set it back to 1 and recreate orchestrator-health." >&2
+        echo "If remote updates are disabled (EXPERIMENTAL_REMOTE_OPS=0), enable with ./scripts/embody_cli.sh remote-updates enable and recreate orchestrator-health." >&2
         return 1
       fi
       echo "$body"
@@ -1143,10 +1144,20 @@ cmd_config() {
   allowlist="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)")"
   turn_external="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "TURN_EXTERNAL_IP" 2>/dev/null || true)")"
   gpu_devices="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "NVIDIA_VISIBLE_DEVICES" 2>/dev/null || true)")"
+  local remote_ops remote_ops_state
+  remote_ops="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EXPERIMENTAL_REMOTE_OPS" 2>/dev/null || true)")"
+  remote_ops="$(trim_whitespace "${remote_ops:-}")"
+  if [[ "$remote_ops" == "1" ]]; then
+    remote_ops_state="enabled"
+  else
+    remote_ops_state="disabled"
+    remote_ops="${remote_ops:-0}"
+  fi
 
   echo "Orchestrator ID:        ${orch_id:-<unset>}"
   echo "Payout wallet:          ${orch_addr:-<unset>}"
   echo "Payments API:           ${payments_url:-<unset>}"
+  echo "Remote updates:         ${remote_ops_state} (EXPERIMENTAL_REMOTE_OPS=${remote_ops})"
   echo "Allowed caller IPs:     ${allowlist:-<unset>}"
   echo "TURN external IP:       ${turn_external:-<unset>}"
   echo "GPU devices:            ${gpu_devices:-all}"
@@ -1159,6 +1170,115 @@ cmd_config() {
     echo "TURN env:               present (${TURN_ENV_FILE})"
   else
     echo "TURN env:               missing (${TURN_ENV_FILE})"
+  fi
+}
+
+cmd_remote_updates() {
+  local sub="${1:-status}"
+  shift || true
+  local apply="auto"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help|help)
+        cat <<'EOF'
+Usage:
+  ./scripts/embody_cli.sh remote-updates [status]
+  ./scripts/embody_cli.sh remote-updates enable [--apply]
+  ./scripts/embody_cli.sh remote-updates disable [--apply]
+
+Notes:
+  - Remote updates expose /ops/* endpoints on orchestrator-health.
+  - Access is still gated by POWER_ALLOWED_IPS / POWER_ALLOWED_IPS_FILE.
+  - Use --apply to recreate orchestrator-health immediately.
+EOF
+        return 0
+        ;;
+      --apply|--recreate)
+        apply="1"
+        shift 1
+        ;;
+      --no-recreate)
+        apply="0"
+        shift 1
+        ;;
+      *)
+        echo "Unknown arg: $1" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  if [[ ! -f "$ENV_FILE" ]]; then
+    echo "Missing .env (run: ./scripts/embody_cli.sh setup)" >&2
+    return 1
+  fi
+
+  local current state
+  current="$(strip_inline_comment "$(read_env_value "$ENV_FILE" "EXPERIMENTAL_REMOTE_OPS" 2>/dev/null || true)")"
+  current="$(trim_whitespace "${current:-}")"
+  if [[ "$current" == "1" ]]; then
+    state="enabled"
+  else
+    state="disabled"
+    current="${current:-0}"
+  fi
+
+  if [[ -z "$sub" || "$sub" == "status" ]]; then
+    echo "Remote updates: ${state} (EXPERIMENTAL_REMOTE_OPS=${current})"
+    if [[ "$state" == "enabled" ]]; then
+      echo "Allowlist: POWER_ALLOWED_IPS / POWER_ALLOWED_IPS_FILE must include trusted IPs."
+    fi
+    return 0
+  fi
+
+  local next=""
+  case "$sub" in
+    enable|on)
+      next="1"
+      ;;
+    disable|off)
+      next="0"
+      ;;
+    *)
+      echo "Unknown subcommand: $sub (use: status|enable|disable)" >&2
+      return 1
+      ;;
+  esac
+
+  if ! upsert_env_kv "$ENV_FILE" "EXPERIMENTAL_REMOTE_OPS" "$next"; then
+    echo "Failed to update ${ENV_FILE}" >&2
+    return 1
+  fi
+
+  if [[ "$next" == "1" ]]; then
+    echo "Remote updates enabled (EXPERIMENTAL_REMOTE_OPS=1)."
+  else
+    echo "Remote updates disabled (EXPERIMENTAL_REMOTE_OPS=0)."
+  fi
+
+  local apply_now="$apply"
+  if [[ "$apply_now" == "auto" ]]; then
+    if is_tty && prompt_yes_no "Recreate orchestrator-health now to apply?" "y"; then
+      apply_now="1"
+    else
+      apply_now="0"
+    fi
+  fi
+
+  if [[ "$apply_now" == "1" ]]; then
+    if ! docker compose --project-directory "$REPO_ROOT" --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+      up -d --force-recreate orchestrator-health >/dev/null 2>&1; then
+      echo "Failed to recreate orchestrator-health" >&2
+      return 1
+    fi
+    echo "orchestrator-health recreated."
+  else
+    echo "Run to apply: docker compose --project-directory \"$REPO_ROOT\" --env-file \"$ENV_FILE\" -f \"$COMPOSE_FILE\" up -d --force-recreate orchestrator-health"
+  fi
+
+  if [[ "$next" == "1" ]]; then
+    echo "Reminder: /ops/* is allowlist-protected (POWER_ALLOWED_IPS / POWER_ALLOWED_IPS_FILE)."
   fi
 }
 
@@ -4544,6 +4664,7 @@ menu() {
     ui_menu_item "v" "Verify (end-to-end)"
     ui_menu_item "m" "Payments status"
     ui_menu_item "p" "Power (sleep/wake)"
+    ui_menu_item "o" "Remote updates (ops)"
     ui_menu_item "s" "Setup / reconfigure"
     ui_menu_item "q" "Quit"
     printf '> '
@@ -4579,6 +4700,14 @@ menu() {
         act="$(trim_whitespace "${act:-}")"
         [[ -n "$act" ]] || act="status"
         cmd_power "$act" || true
+        ;;
+      o|O)
+        echo -n "Remote updates (status|enable|disable): "
+        local act
+        read -r act || true
+        act="$(trim_whitespace "${act:-}")"
+        [[ -n "$act" ]] || act="status"
+        cmd_remote_updates "$act" || true
         ;;
       s|S) "$ONBOARD_SCRIPT" ;;
       q|Q) exit 0 ;;
@@ -4722,6 +4851,10 @@ main() {
     payments)
       shift || true
       cmd_payments "$@"
+      ;;
+    remote-updates|remote-ops)
+      shift || true
+      cmd_remote_updates "$@"
       ;;
     allowlists|allowlist)
       shift || true

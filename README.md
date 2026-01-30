@@ -139,7 +139,7 @@ Experimental remote spawn/delete (cluster instances):
 
 Remote metadata + ops (experimental):
 - `GET http://<host>:9090/meta` (git head + container image refs/ids, plus last `verify` + pending rollout state).
-- Enabled by default (opt-out: set `EXPERIMENTAL_REMOTE_OPS=0` in `.env` and recreate `orchestrator-health`).
+- Disabled by default. Enable with `./scripts/embody_cli.sh remote-updates enable` (or set `EXPERIMENTAL_REMOTE_OPS=1` in `.env`) and recreate `orchestrator-health`.
 - Security: `/ops/*` always requires `POWER_ALLOWED_IPS` / `POWER_ALLOWED_IPS_FILE` allowlisting (otherwise returns 403).
 - `POST http://<host>:9090/ops/upgrade` with JSON `{ "apply": true }` (git ff-only update; optionally pull/recreate host-level containers).
 - `POST http://<host>:9090/ops/rollout`:

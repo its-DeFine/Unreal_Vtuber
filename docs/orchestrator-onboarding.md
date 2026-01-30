@@ -32,6 +32,7 @@ Notes:
 - To override storage paths: `--session-dir ...` and `--recordings-dir ...`.
 - For plain output: set `NO_COLOR=1` or pass `--no-color` (and `--no-fx` to disable transitions).
 - If you don’t have an invite code yet, abort and request one from your admin.
+- Remote updates (`/ops/*`) are disabled by default; enable during setup with `--enable-remote-updates` or later via `./scripts/embody_cli.sh remote-updates enable` (allowlist still required).
 
 Non-interactive (for automation):
 ```bash
