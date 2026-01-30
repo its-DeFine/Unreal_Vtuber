@@ -70,8 +70,8 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "${VTUBER_SIGNALING_LOG_MAX_SIZE:-10m}"
+        max-file: "${VTUBER_SIGNALING_LOG_MAX_FILE:-3}"
 
   # Embody Game - Headless Unreal Engine with Pixel Streaming
   unreal-game:
@@ -116,8 +116,8 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "50m"
-        max-file: "5"
+        max-size: "${VTUBER_GAME_LOG_MAX_SIZE:-50m}"
+        max-file: "${VTUBER_GAME_LOG_MAX_FILE:-5}"
 
   vtuber-script-runner:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-script-runner:${EMBODY_SERVICE_IMAGE_TAG:-latest}

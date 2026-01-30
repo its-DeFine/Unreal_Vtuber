@@ -94,6 +94,25 @@ If the orchestrator doesn’t appear in Payments yet, rerun:
 docker compose -f docker-compose.unreal.yml run --rm orchestrator-registration
 ```
 
+## Portainer logs (retain more history)
+
+The default Docker log rotation for the largest containers is conservative to protect disk space:
+- Signaling: `10m x 3 files`
+- Unreal game: `50m x 5 files`
+
+If you need **more history** in Portainer, increase these in `.env`:
+```
+VTUBER_SIGNALING_LOG_MAX_SIZE=200m
+VTUBER_SIGNALING_LOG_MAX_FILE=10
+VTUBER_GAME_LOG_MAX_SIZE=1g
+VTUBER_GAME_LOG_MAX_FILE=10
+```
+
+Then recreate the services:
+```bash
+docker compose -f docker-compose.unreal.yml up -d --force-recreate unreal-signaling unreal-game
+```
+
 ## Post-onboarding verification (multi-edge)
 
 In the current multi-edge setup, user traffic hits a regional **edge** (running `ps-gateway` + matchmaker + TURN DNAT),
