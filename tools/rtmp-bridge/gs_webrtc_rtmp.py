@@ -412,10 +412,11 @@ class GstRTMPBridge:
 
         elements = [depay]
 
-        # If the incoming stream is already H.264, passthrough is the safest and
-        # lowest-latency option (avoids decode→colorspace→encode quirks).
-        # We still support transcoding for VP8/VP9 inputs.
-        if enc == "H264":
+        # If the incoming stream is already H.264, passthrough is the lowest
+        # latency option. However, Twitch ingest can be picky about H.264
+        # profiles/levels; enable --transcode-video to re-encode to a known-good
+        # NVENC H.264 stream.
+        if enc == "H264" and not self.transcode_video:
             # ── H.264 passthrough: zero latency, zero GPU cost ──
             parse = Gst.ElementFactory.make("h264parse")
             parse.set_property("config-interval", -1)
@@ -423,7 +424,12 @@ class GstRTMPBridge:
             self.log("Video: H.264 passthrough")
         else:
             # ── Transcode: decode → encode ──
-            if enc == "VP9":
+            if enc == "H264":
+                parse = Gst.ElementFactory.make("h264parse")
+                parse.set_property("config-interval", -1)
+                dec = Gst.ElementFactory.make("nvh264dec") or Gst.ElementFactory.make("avdec_h264")
+                elements += [parse, dec]
+            elif enc == "VP9":
                 parse = Gst.ElementFactory.make("vp9parse")
                 dec = Gst.ElementFactory.make("nvvp9dec") or Gst.ElementFactory.make("avdec_vp9")
                 if dec and dec.get_factory().get_name() == "nvvp9dec":
@@ -438,7 +444,7 @@ class GstRTMPBridge:
             # Explicit colorimetry prevents "invalid colorimetry" warnings
             colorcaps = Gst.ElementFactory.make("capsfilter")
             colorcaps.set_property("caps", Gst.Caps.from_string(
-                "video/x-raw,format=I420,colorimetry=bt709"
+                "video/x-raw,format=NV12,colorimetry=bt709"
             ))
             elements.append(colorcaps)
             encoder = self._make_h264_encoder()
