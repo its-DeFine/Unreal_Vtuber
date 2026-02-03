@@ -43,6 +43,10 @@ All settings are via env vars (see `orchestrator.env.example`):
 - `RTMP_FPS` (default `30`)
 - `RTMP_WEBRTC_LATENCY_MS` (default `200`)
 
+Behavior:
+- If the incoming Pixel Streaming video track is already `H264`, the bridge will passthrough (no decode/encode) for stability and minimal latency.
+- If the incoming track is `VP8/VP9`, the bridge will decode+encode to `H264` (RTMP/FLV requirement).
+
 ## Notes
 
 - **Secrets:** never commit Twitch/YouTube RTMP keys; keep them in `.env` or your
@@ -50,4 +54,3 @@ All settings are via env vars (see `orchestrator.env.example`):
 - **Codec stability:** for long-running RTMP streams, prefer Unreal outputting H.264
   directly (PixelStreaming2 `Codec=H264`) so the bridge can avoid VP9 decode → H.264
   re-encode.
-
