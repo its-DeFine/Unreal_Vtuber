@@ -35,5 +35,5 @@ for url in ${OUTS}; do
   args+=( "--rtmp-out" "${url}" )
 done
 
-exec python3 /opt/embody/rtmp-bridge/gs_webrtc_rtmp.py "${args[@]}"
-
+# Use Debian's system python so apt-installed GI bindings (python3-gi) are on sys.path.
+exec /usr/bin/python3 /opt/embody/rtmp-bridge/gs_webrtc_rtmp.py "${args[@]}"
