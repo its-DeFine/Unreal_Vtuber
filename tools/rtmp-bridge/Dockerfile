@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+# Debian (trixie) ships PyGObject (python3-gi) built for the system Python
+# (currently CPython 3.13). Use a matching Python base to avoid ABI mismatch.
+FROM python:3.13-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
