@@ -120,6 +120,37 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # Broadcast-only bridge: Pixel Streaming (WebRTC) → RTMP (Twitch/YouTube)
+  #
+  # Disabled by default; enable with:
+  #   docker compose --profile broadcast up -d rtmp-bridge
+  rtmp-bridge:
+    build:
+      context: ./tools/rtmp-bridge
+    container_name: vtuber-rtmp-bridge
+    restart: unless-stopped
+    profiles: ["broadcast"]
+    depends_on:
+      unreal-signaling:
+        condition: service_healthy
+    env_file:
+      - .env.turn
+    environment:
+      - RTMP_SIGNALING_URL=${RTMP_SIGNALING_URL:-ws://unreal-signaling:80}
+      - RTMP_OUTS=${RTMP_OUTS:-}
+      - RTMP_STREAMER_ID=${RTMP_STREAMER_ID:-}
+      - RTMP_TRANSCODE_VIDEO=${RTMP_TRANSCODE_VIDEO:-1}
+      - RTMP_VIDEO_BITRATE_KBPS=${RTMP_VIDEO_BITRATE_KBPS:-6000}
+      - RTMP_AUDIO_BITRATE_KBPS=${RTMP_AUDIO_BITRATE_KBPS:-160}
+      - RTMP_FPS=${RTMP_FPS:-30}
+      - RTMP_WEBRTC_LATENCY_MS=${RTMP_WEBRTC_LATENCY_MS:-200}
+      - RTMP_FORCE_H264=${RTMP_FORCE_H264:-0}
+      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+    runtime: nvidia
+    networks:
+      - vtuber_network
+
   vtuber-script-runner:
     image: ghcr.io/its-define/unreal_vtuber/vtuber-script-runner:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-script-runner

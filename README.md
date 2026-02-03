@@ -147,6 +147,13 @@ Remote metadata + ops (experimental):
   - Apply staged (idle window): `{ "image_ref": "ghcr.io/...:enc-v1", "skip_download": true, "recreate_stopped": true }`
 - `POST http://<host>:9090/ops/pull-image` with JSON `{ "image": "ghcr.io/<org>/<image>:<tag>" }` (unencrypted image pull; follow by redeploy/recreate).
 
+## Broadcast (RTMP)
+
+This stack can optionally publish Pixel Streaming output to Twitch/YouTube via a
+containerized RTMP bridge (disabled by default).
+
+Docs: `docs/rtmp-bridge.md`
+
 ## Auto updates (watchtower)
 
 This stack includes `vtuber-auto-updater` (watchtower). It runs in label-enable mode and updates any container labeled:
