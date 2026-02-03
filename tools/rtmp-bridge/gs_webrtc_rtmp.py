@@ -28,6 +28,7 @@ Usage:
 import asyncio
 import os
 import signal
+import subprocess
 import uuid
 import threading
 
@@ -127,6 +128,8 @@ class GstRTMPBridge:
         self.audio_probe = None
         self.flow_timeout_id = None
         self._stopping = False
+        self._ffmpeg_procs: list[subprocess.Popen] = []
+        self._pipe_write_fds: list[int] = []
 
     def log(self, msg):
         print(f"[rtmp-bridge] {msg}", flush=True)
@@ -226,6 +229,45 @@ class GstRTMPBridge:
             pad = self.mux.get_request_pad(name)
         return pad
 
+    def _spawn_ffmpeg(self, read_fd: int, out_url: str) -> subprocess.Popen:
+        """
+        Publish FLV to RTMP via ffmpeg.
+
+        Twitch's RTMP ingest can behave poorly with GStreamer's rtmpsink (socket
+        RX buffer grows; never goes live). ffmpeg's RTMP stack is more robust.
+        """
+        cmd = [
+            "ffmpeg",
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-fflags",
+            "+nobuffer+flush_packets",
+            "-f",
+            "flv",
+            "-i",
+            f"pipe:{read_fd}",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "copy",
+            "-f",
+            "flv",
+            "-flvflags",
+            "no_duration_filesize",
+            "-rtmp_live",
+            "live",
+            out_url,
+        ]
+        return subprocess.Popen(
+            cmd,
+            pass_fds=(read_fd,),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
     def create_pipeline(self):
         self.pipeline = Gst.Pipeline.new("rtmp-bridge")
 
@@ -246,35 +288,50 @@ class GstRTMPBridge:
         self.webrtcbin.connect("on-ice-candidate", self.on_ice_candidate)
         self.webrtcbin.connect("pad-added", self.on_pad_added)
 
-        # -- FLV mux + RTMP output --
+        # -- FLV mux + ffmpeg RTMP output --
         #
-        # With PixelStreaming2 configured to output H.264, the most reliable and
-        # lowest-latency path for Twitch ingest is:
-        #   WebRTC (H.264 + Opus) → flvmux (H.264 + AAC) → rtmpsink
+        # With PixelStreaming2 configured to output H.264, the lowest-latency
+        # path is H.264 passthrough + Opus→AAC. We still publish via ffmpeg
+        # because Twitch ingest has been unreliable with GStreamer's rtmpsink.
         self.mux = Gst.ElementFactory.make("flvmux", "mux")
         self.mux.set_property("streamable", True)
 
         self.pipeline.add(self.webrtcbin)
         self.pipeline.add(self.mux)
 
+        self.log("Delivery: flvmux → fdsink → ffmpeg → RTMP")
         if len(self.rtmp_urls) == 1:
-            sink = Gst.ElementFactory.make("rtmpsink", "rtmpsink0")
-            sink.set_property("location", self.rtmp_urls[0])
-            self.pipeline.add(sink)
-            self.mux.link(sink)
+            read_fd, write_fd = os.pipe()
+            self._pipe_write_fds.append(write_fd)
+
+            fdsink = Gst.ElementFactory.make("fdsink", "fdsink0")
+            fdsink.set_property("fd", write_fd)
+            fdsink.set_property("sync", False)
+            self.pipeline.add(fdsink)
+            self.mux.link(fdsink)
+
+            self._ffmpeg_procs.append(self._spawn_ffmpeg(read_fd, self.rtmp_urls[0]))
+            os.close(read_fd)
             self.log(f"Output: {self._safe_url(self.rtmp_urls[0])}")
         else:
-            tee = Gst.ElementFactory.make("tee", "tee")
+            tee = Gst.ElementFactory.make("tee", "rtmptee")
             self.pipeline.add(tee)
             self.mux.link(tee)
             for i, url in enumerate(self.rtmp_urls):
+                read_fd, write_fd = os.pipe()
+                self._pipe_write_fds.append(write_fd)
+
                 q = Gst.ElementFactory.make("queue", f"rtmpq{i}")
-                s = Gst.ElementFactory.make("rtmpsink", f"rtmpsink{i}")
-                s.set_property("location", url)
+                fdsink = Gst.ElementFactory.make("fdsink", f"fdsink{i}")
+                fdsink.set_property("fd", write_fd)
+                fdsink.set_property("sync", False)
                 self.pipeline.add(q)
-                self.pipeline.add(s)
+                self.pipeline.add(fdsink)
                 tee.link(q)
-                q.link(s)
+                q.link(fdsink)
+
+                self._ffmpeg_procs.append(self._spawn_ffmpeg(read_fd, url))
+                os.close(read_fd)
                 self.log(f"Output [{i}]: {self._safe_url(url)}")
 
         bus = self.pipeline.get_bus()
@@ -626,6 +683,25 @@ class GstRTMPBridge:
         self._stopping = True
         self.log("Stop requested")
 
+    def _cleanup_ffmpeg(self):
+        # Close write ends first so ffmpeg can exit cleanly when it hits EOF.
+        for fd in self._pipe_write_fds:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        self._pipe_write_fds.clear()
+
+        for p in self._ffmpeg_procs:
+            try:
+                p.wait(timeout=5)
+            except Exception:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+        self._ffmpeg_procs.clear()
+
     def run(self, duration=None):
         self.create_pipeline()
         glib_loop = GLib.MainLoop()
@@ -653,6 +729,7 @@ class GstRTMPBridge:
                 if bus:
                     bus.timed_pop_filtered(5 * Gst.SECOND, Gst.MessageType.EOS)
                 self.pipeline.set_state(Gst.State.NULL)
+            self._cleanup_ffmpeg()
             self.log("Stream ended")
 
 

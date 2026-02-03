@@ -11,6 +11,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       python3-gi \
       python3-gi-cairo \
+      ffmpeg \
       gstreamer1.0-tools \
       gstreamer1.0-plugins-base \
       gstreamer1.0-plugins-good \
