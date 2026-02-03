@@ -35,5 +35,6 @@ for url in ${OUTS}; do
   args+=( "--rtmp-out" "${url}" )
 done
 
-# Use Debian's system python so apt-installed GI bindings (python3-gi) are on sys.path.
-exec /usr/bin/python3 /opt/embody/rtmp-bridge/gs_webrtc_rtmp.py "${args[@]}"
+# PYTHONPATH is set in the Dockerfile so apt-installed GI bindings (python3-gi)
+# are importable from the Python.org runtime (/usr/local/bin/python3).
+exec python3 /opt/embody/rtmp-bridge/gs_webrtc_rtmp.py "${args[@]}"

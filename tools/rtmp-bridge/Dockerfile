@@ -3,6 +3,8 @@
 FROM python:3.13-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
+# Make apt-installed modules (python3-gi) importable from the Python.org runtime (/usr/local).
+ENV PYTHONPATH=/usr/lib/python3/dist-packages
 
 # Keep parity with the recorder image dependencies (webrtcbin, rtmpsink, AAC encoders).
 RUN apt-get update && \
