@@ -5,6 +5,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Keep parity with the recorder image dependencies (webrtcbin, rtmpsink, AAC encoders).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+      python3-gi \
+      python3-gi-cairo \
       gstreamer1.0-tools \
       gstreamer1.0-plugins-base \
       gstreamer1.0-plugins-good \
@@ -15,6 +17,7 @@ RUN apt-get update && \
       gir1.2-gst-1.0 \
       gir1.2-gst-plugins-bad-1.0 \
       gir1.2-glib-2.0 \
+      gobject-introspection \
       libgirepository1.0-dev \
       libcairo2-dev \
       libgdk-pixbuf-2.0-dev \
@@ -30,4 +33,3 @@ RUN chmod +x /opt/embody/rtmp-bridge/entrypoint.sh && \
     pip install --no-cache-dir -r /opt/embody/rtmp-bridge/requirements.txt
 
 CMD ["/opt/embody/rtmp-bridge/entrypoint.sh"]
-
