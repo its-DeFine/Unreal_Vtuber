@@ -13,7 +13,11 @@ Pipeline:
 3. GStreamer receives audio+video:
    - Video: WebRTC H.264 (prefer passthrough) or NVENC transcode
    - Audio: WebRTC Opus → AAC (required for RTMP/FLV)
-4. `rtmpsink` publishes to `RTMP_OUTS` (Twitch/YouTube RTMP URLs)
+4. Publish to RTMP endpoints (`RTMP_OUTS`) via:
+   - `flvmux → fdsink → ffmpeg → RTMP`
+
+We publish via `ffmpeg` (instead of GStreamer's `rtmpsink`) because Twitch ingest
+has proven unreliable with `rtmpsink` in long-running streams.
 
 ## Enable / Run
 
@@ -44,8 +48,13 @@ All settings are via env vars (see `orchestrator.env.example`):
 - `RTMP_WEBRTC_LATENCY_MS` (default `200`)
 
 Behavior:
-- If the incoming Pixel Streaming video track is already `H264`, the bridge will passthrough (no decode/encode) for stability and minimal latency.
-- If the incoming track is `VP8/VP9`, the bridge will decode+encode to `H264` (RTMP/FLV requirement).
+- By default, the bridge **transcodes video** (`RTMP_TRANSCODE_VIDEO=1`) to a
+  known-good Twitch-friendly H.264 stream (NVENC when available).
+- If you disable transcoding (`RTMP_TRANSCODE_VIDEO=0`) and the incoming Pixel
+  Streaming video track is already `H264`, the bridge will attempt passthrough
+  (no decode/encode) for minimal latency.
+- If the incoming track is `VP8/VP9`, the bridge will decode+encode to `H264`
+  (RTMP/FLV requirement).
 
 ## Notes
 
