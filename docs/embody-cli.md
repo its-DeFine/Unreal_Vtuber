@@ -24,6 +24,8 @@ The CLI prints an overview dashboard, then prompts with a menu like:
 7) TCP test (runner → game)
 8) Config summary
 9) GPU capacity
+g) GPU limit (NVIDIA_VISIBLE_DEVICES)
+t) TUI dashboard
 c) Cluster deploy (auto)
 C) Cluster status
 x) Cluster down
@@ -63,6 +65,7 @@ q) Quit
 - `verify` – health + consistency checks (runner TCP + record/download smoke tests when awake)
   - `--fix` recreates runner/recorder if allowlist env drift is detected and auto-fixes common Payments allowlist gaps
   - Also checks outbound HTTPS (needed for presigned uploads) and warns if allowlists look misconfigured
+- `tui` – live terminal dashboard (local status + Payments stats when tokens are available)
 - `payments` – Payments connectivity checks + viewer token helper (when a viewer token is available)
 - `allowlists` – check/fix allowlists needed for Payments-driven workloads (`/power`, runner, recorder)
 - `register` – register orchestrator in Payments (cached; skips when already registered)
@@ -92,6 +95,12 @@ q) Quit
     - Recordings: `${VTUBER_RECORDINGS_DIR}/<avatar>`
     - Deterministic per-slot Docker subnet: `172.30.<slot>.0/24` (gateway `172.30.<slot>.1` is auto-added to `VTUBER_ALLOWED_ADDRESSES` so host → runner/recorder calls work)
   - Note: `cluster up` enforces a conservative VRAM estimate (8GiB/instance); pass `--force` to bypass.
+- `gpu limit <all|none|0,1>` – update `NVIDIA_VISIBLE_DEVICES` in `.env` for GPU availability control
+
+## Lockdown mode (no state changes)
+
+Set `EMBODY_CLI_LOCKDOWN=1` in `.env` to disable state-changing commands (start/stop/restart/power/cluster/rollout/upgrade).
+The CLI still allows status checks, `tui`, `payments`, and `gpu limit`.
 
 ## Network / allowlists
 

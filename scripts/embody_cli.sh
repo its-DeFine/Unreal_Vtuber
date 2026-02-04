@@ -10,6 +10,7 @@ COMPOSE_FILE="${REPO_ROOT}/docker-compose.unreal.yml"
 INSTANCE_COMPOSE_FILE="${REPO_ROOT}/docker-compose.unreal.instance.yml"
 START_SCRIPT="${REPO_ROOT}/scripts/start_vtuber_unreal.sh"
 ONBOARD_SCRIPT="${REPO_ROOT}/scripts/embody_onboard.sh"
+TUI_SCRIPT="${REPO_ROOT}/tools/embody_tui.py"
 
 TARGET_HOME="${HOME}"
 if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
@@ -58,6 +59,7 @@ Usage:
   ./scripts/embody_cli.sh                  # Interactive dashboard (setup + status + actions)
   ./scripts/embody_cli.sh setup [args...]  # Run onboarding wizard
   ./scripts/embody_cli.sh overview         # Show a one-shot status dashboard
+  ./scripts/embody_cli.sh tui              # TUI dashboard (payments + local status + cosmo graph)
   ./scripts/embody_cli.sh upgrade          # Pull/recreate service containers (repo auto-updates on launch)
   ./scripts/embody_cli.sh license          # Show license token status
   ./scripts/embody_cli.sh license redeem   # Redeem invite code → store token
@@ -66,6 +68,7 @@ Usage:
   ./scripts/embody_cli.sh verify           # Full health/consistency checks (optionally auto-fix)
   ./scripts/embody_cli.sh power            # Sleep/wake via orchestrator-health /power
   ./scripts/embody_cli.sh cluster <cmd>    # Multi-instance cluster mode (plan/list/up/down/status/logs)
+  ./scripts/embody_cli.sh gpu limit <v>    # Update NVIDIA_VISIBLE_DEVICES in .env
 
 Day-to-day commands:
   ./scripts/embody_cli.sh start [--gpu <id|all|none>]   # Start stack (defaults to detached)
@@ -83,6 +86,7 @@ Day-to-day commands:
 Notes:
   - Onboarding is stored in `scripts/embody_onboard.sh` (called by `setup`).
   - License token default path: `~/.embody/orch-license-token.txt`
+  - Lockdown mode disables state-changing commands (set `EMBODY_CLI_LOCKDOWN=1` in .env)
 EOF
 }
 
@@ -245,6 +249,26 @@ read_env_value() {
       exit
     }
   ' "$file"
+}
+
+cli_lockdown_enabled() {
+  local raw="${EMBODY_CLI_LOCKDOWN:-}"
+  if [[ -z "$raw" && -f "$ENV_FILE" ]]; then
+    raw="$(read_env_value "$ENV_FILE" "EMBODY_CLI_LOCKDOWN" 2>/dev/null || true)"
+  fi
+  raw="$(trim_whitespace "${raw:-}")"
+  case "${raw,,}" in
+    1|true|yes|on) return 0 ;;
+  esac
+  return 1
+}
+
+lockdown_guard() {
+  if cli_lockdown_enabled; then
+    echo "CLI lockdown enabled: this command is disabled." >&2
+    return 1
+  fi
+  return 0
 }
 
 trim_whitespace() {
@@ -1702,6 +1726,43 @@ cmd_capacity() {
   fi
   echo "Total: ~${total} instance(s) across ${seen} GPU(s) (NVIDIA_VISIBLE_DEVICES=${devices})"
   echo "Auto-available: ~${auto_total} instance(s) across ${auto_seen} GPU(s) (util<=${util_max}%)"
+}
+
+cmd_gpu_limit() {
+  local value="${1:-}"
+  if [[ -z "$value" ]]; then
+    echo "Usage: ./scripts/embody_cli.sh gpu limit <all|none|0,1>" >&2
+    return 1
+  fi
+  if [[ ! -f "$ENV_FILE" ]]; then
+    echo "Missing .env at $ENV_FILE (run: ./scripts/embody_cli.sh setup)" >&2
+    return 1
+  fi
+  value="$(normalize_gpu_devices_csv "$value")"
+  if ! upsert_env_kv "$ENV_FILE" "NVIDIA_VISIBLE_DEVICES" "$value"; then
+    echo "Failed to update NVIDIA_VISIBLE_DEVICES in $ENV_FILE" >&2
+    return 1
+  fi
+  echo "Updated NVIDIA_VISIBLE_DEVICES=$value in $ENV_FILE"
+}
+
+cmd_tui() {
+  if [[ ! -f "$TUI_SCRIPT" ]]; then
+    echo "TUI script not found: $TUI_SCRIPT" >&2
+    return 1
+  fi
+  command -v python3 >/dev/null 2>&1 || { echo "python3 is required for TUI." >&2; return 1; }
+  local payments_url viewer_token orch_token orch_id
+  payments_url="$(get_payments_api_url)"
+  [[ -n "$payments_url" ]] || payments_url="${PAYMENTS_API_URL:-$DEFAULT_PAYMENTS_API_URL}"
+  viewer_token="$(read_payments_viewer_token)"
+  orch_token="$(read_orchestrator_token)"
+  orch_id="$(get_orchestrator_id 2>/dev/null || true)"
+  PAYMENTS_API_URL="$payments_url" \
+    PAYMENTS_VIEWER_TOKEN="$viewer_token" \
+    ORCHESTRATOR_TOKEN="$orch_token" \
+    ORCHESTRATOR_ID="$orch_id" \
+    python3 "$TUI_SCRIPT" "$@"
 }
 
 cluster_config_path() {
@@ -4527,33 +4588,44 @@ menu() {
   while true; do
     cmd_overview || true
     echo ""
-    ui_menu_item "1" "Start stack"
-    ui_menu_item "2" "Stop stack"
-    ui_menu_item "3" "Restart stack"
-    ui_menu_item "4" "Status"
-    ui_menu_item "5" "Logs"
-    ui_menu_item "6" "Health (quick)"
-    ui_menu_item "7" "TCP test (runner → game)"
-    ui_menu_item "8" "Config summary"
-    ui_menu_item "9" "GPU capacity"
-    ui_menu_item "c" "Cluster deploy (auto)"
-    ui_menu_item "C" "Cluster status"
-    ui_menu_item "x" "Cluster down"
-    ui_menu_item "r" "Rollout game image"
-    ui_menu_item "u" "Upgrade (pull/recreate containers)"
-    ui_menu_item "v" "Verify (end-to-end)"
-    ui_menu_item "m" "Payments status"
-    ui_menu_item "p" "Power (sleep/wake)"
-    ui_menu_item "s" "Setup / reconfigure"
-    ui_menu_item "q" "Quit"
+    if cli_lockdown_enabled; then
+      ui_menu_item "8" "Config summary"
+      ui_menu_item "9" "GPU capacity"
+      ui_menu_item "g" "GPU limit (NVIDIA_VISIBLE_DEVICES)"
+      ui_menu_item "t" "TUI dashboard"
+      ui_menu_item "m" "Payments status"
+      ui_menu_item "q" "Quit"
+    else
+      ui_menu_item "1" "Start stack"
+      ui_menu_item "2" "Stop stack"
+      ui_menu_item "3" "Restart stack"
+      ui_menu_item "4" "Status"
+      ui_menu_item "5" "Logs"
+      ui_menu_item "6" "Health (quick)"
+      ui_menu_item "7" "TCP test (runner → game)"
+      ui_menu_item "8" "Config summary"
+      ui_menu_item "9" "GPU capacity"
+      ui_menu_item "g" "GPU limit (NVIDIA_VISIBLE_DEVICES)"
+      ui_menu_item "t" "TUI dashboard"
+      ui_menu_item "c" "Cluster deploy (auto)"
+      ui_menu_item "C" "Cluster status"
+      ui_menu_item "x" "Cluster down"
+      ui_menu_item "r" "Rollout game image"
+      ui_menu_item "u" "Upgrade (pull/recreate containers)"
+      ui_menu_item "v" "Verify (end-to-end)"
+      ui_menu_item "m" "Payments status"
+      ui_menu_item "p" "Power (sleep/wake)"
+      ui_menu_item "s" "Setup / reconfigure"
+      ui_menu_item "q" "Quit"
+    fi
     printf '> '
 
     local choice
     read -r choice || exit 0
     case "$choice" in
-      1) menu_start_stack ;;
-      2) "$START_SCRIPT" stop ;;
-      3) "$START_SCRIPT" restart ;;
+      1) lockdown_guard && menu_start_stack ;;
+      2) lockdown_guard && "$START_SCRIPT" stop ;;
+      3) lockdown_guard && "$START_SCRIPT" restart ;;
       4) "$START_SCRIPT" status ;;
       5)
         echo -n "Service (blank for all): "
@@ -4565,11 +4637,18 @@ menu() {
       7) "$START_SCRIPT" test || true ;;
       8) cmd_config ;;
       9) cmd_capacity ;;
-      c) cmd_cluster deploy --auto || true ;;
-      C) cmd_cluster status || true ;;
-      x) cmd_cluster down || true ;;
-      r|R) cmd_rollout || true ;;
-      u|U) cmd_upgrade || true ;;
+      g)
+        echo -n "GPU limit (all|none|0,1): "
+        local gpu_val
+        read -r gpu_val || true
+        cmd_gpu_limit "$gpu_val" || true
+        ;;
+      t|T) cmd_tui || true ;;
+      c) lockdown_guard && cmd_cluster deploy --auto || true ;;
+      C) lockdown_guard && cmd_cluster status || true ;;
+      x) lockdown_guard && cmd_cluster down || true ;;
+      r|R) lockdown_guard && cmd_rollout || true ;;
+      u|U) lockdown_guard && cmd_upgrade || true ;;
       v|V) cmd_verify || true ;;
       m|M) cmd_payments status || true ;;
       p|P)
@@ -4578,7 +4657,7 @@ menu() {
         read -r act || true
         act="$(trim_whitespace "${act:-}")"
         [[ -n "$act" ]] || act="status"
-        cmd_power "$act" || true
+        lockdown_guard && cmd_power "$act" || true
         ;;
       s|S) "$ONBOARD_SCRIPT" ;;
       q|Q) exit 0 ;;
@@ -4676,7 +4755,7 @@ main() {
       ;;
     upgrade)
       shift || true
-      cmd_upgrade "$@"
+      lockdown_guard && cmd_upgrade "$@"
       ;;
     license|token)
       shift || true
@@ -4684,7 +4763,7 @@ main() {
       ;;
     rollout|update-image)
       shift || true
-      cmd_rollout "$@"
+      lockdown_guard && cmd_rollout "$@"
       ;;
     register)
       shift || true
@@ -4696,13 +4775,21 @@ main() {
       ;;
     power)
       shift || true
-      cmd_power "$@"
+      lockdown_guard && cmd_power "$@"
       ;;
     sleep|wake)
       shift || true
-      cmd_power "$cmd" "$@"
+      lockdown_guard && cmd_power "$cmd" "$@"
       ;;
-    start|up|stop|down|restart|logs|ps|status|pull|build|test)
+    start|up|stop|down|restart)
+      shift
+      lockdown_guard && run_stack "$cmd" "$@"
+      ;;
+    pull|build)
+      shift
+      lockdown_guard && run_stack "$cmd" "$@"
+      ;;
+    logs|ps|status|test)
       shift
       run_stack "$cmd" "$@"
       ;;
@@ -4714,10 +4801,27 @@ main() {
       ;;
     cluster)
       shift || true
-      cmd_cluster "$@"
+      lockdown_guard && cmd_cluster "$@"
       ;;
     capacity)
       cmd_capacity
+      ;;
+    tui)
+      shift || true
+      cmd_tui "$@"
+      ;;
+    gpu)
+      shift || true
+      case "${1:-}" in
+        limit)
+          shift || true
+          cmd_gpu_limit "$@"
+          ;;
+        *)
+          echo "Usage: ./scripts/embody_cli.sh gpu limit <all|none|0,1>" >&2
+          exit 1
+          ;;
+      esac
       ;;
     payments)
       shift || true
