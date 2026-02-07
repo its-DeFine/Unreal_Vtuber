@@ -32,6 +32,7 @@ All services share the external Docker network `vtuber_network`, so the streamer
    - Dockerfile: `docker/pixel-streaming/game/Dockerfile`.
    - The CI workflow copies the packaged Pixel Streaming build into `linux-pixel-streaming/` before running `docker build`.
    - The container entrypoint (`/usr/local/bin/start-embody.sh`) launches Xvfb (optional), applies `ulimit`, then runs `./Embody.sh` with `-RenderOffScreen` and `-PixelStreamingURL=...`.
+   - Note: packaged builds only emit useful runtime logs when launched with `-log` (aka `-Log`). Our entrypoint includes `-Log` so `docker logs vtuber-unreal-game` is actionable.
    - Note: use `COPY --chown=...` and avoid `chown -R` or broad `chmod` steps over the whole build tree; those create large duplicate layers and bloat the image.
 
 2. **Signaling Image (`embody-signaling:latest`)**
@@ -50,6 +51,7 @@ All services share the external Docker network `vtuber_network`, so the streamer
 - **CA certificates are required**: `setup.sh` and `start.sh` use `curl https://api.ipify.org` and other TLS endpoints. Installing `ca-certificates` inside the container prevents `curl: (77)` errors.
 - **File descriptor limits**: The game crashes or loses websocket connections if `nofile` is too low. We set `HOST_ULIMIT_NOFILE=1040` and pass `ULIMIT_NOFILE=1040` into the game container so `/usr/local/bin/start-embody.sh` applies the correct limit.
 - **TURN reachability is optional**: The recorder runs on the orchestrator and connects over the Docker network, so no additional ports need to be exposed publicly. Enable TURN only when remote viewers must reach the stream across restrictive networks.
+- **PixelStreaming2 codec control lives in `Engine.ini`**: UE5.4+/UE5.5+ PixelStreaming2 can ignore legacy codec CLI flags (for example `-PixelStreamingDisableVP9`) and silently default to VP9. Use `pixel-streaming/config/Engine.ini` (mounted into `Saved/Config/.../Engine.ini`) to force `Codec=H264` for downstream broadcast stability.
 - **Compose vs. manual scripts**: Running Epic’s `start.sh` on the host helped identify missing dependencies, but ultimately the goal is a self-contained container. The current Dockerfile mirrors those host steps so compose deployments are turnkey.
 - **Recorder runs on demand**: The headless recorder is now a manual step (either on the orchestrator or from a whitelisted workstation). Use the CLI flags/`RECORDER_*` environment variables to tune bitrate/quality per capture.
 
