@@ -66,10 +66,11 @@ A carriage-return/line-feed terminator (`\r\n`) is required. Replace the path wi
 
 | Symptom | Check |
 | --- | --- |
-| No audio despite command | Exec **inside** `vtuber-unreal-game`; host-level `nc` will be ignored.
-| Command hangs | Ensure `nc` is available in the container (`sudo docker exec vtuber-unreal-game which nc`).
-| Pixel Streaming page offline | Confirm `vtuber-unreal-signaling` is healthy (`docker ps`) and ports 8080/8888/8889 are not blocked.
-| TURN handshakes failing | Validate TURN credentials in `.env.turn` and that `vtuber-turn-server` is running.
+| No audio despite command | Exec **inside** `vtuber-unreal-game`; host-level `nc` will be ignored. |
+| Command hangs | Ensure `nc` is available in the container (`sudo docker exec vtuber-unreal-game which nc`). |
+| WebRTC/Twitch audio is silent | UE may be using SDL's dummy audio driver. See [`docs/audio-output-docker.md`](audio-output-docker.md) for the PulseAudio forwarding fix. |
+| Pixel Streaming page offline | Confirm `vtuber-unreal-signaling` is healthy (`docker ps`) and ports 8080/8888/8889 are not blocked. |
+| TURN handshakes failing | Validate TURN credentials in `.env.turn` and that `vtuber-turn-server` is running. |
 
 ## Legacy components
 

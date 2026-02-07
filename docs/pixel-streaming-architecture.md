@@ -52,6 +52,7 @@ All services share the external Docker network `vtuber_network`, so the streamer
 - **TURN reachability is optional**: The recorder runs on the orchestrator and connects over the Docker network, so no additional ports need to be exposed publicly. Enable TURN only when remote viewers must reach the stream across restrictive networks.
 - **Compose vs. manual scripts**: Running Epic’s `start.sh` on the host helped identify missing dependencies, but ultimately the goal is a self-contained container. The current Dockerfile mirrors those host steps so compose deployments are turnkey.
 - **Recorder runs on demand**: The headless recorder is now a manual step (either on the orchestrator or from a whitelisted workstation). Use the CLI flags/`RECORDER_*` environment variables to tune bitrate/quality per capture.
+- **Audio requires PulseAudio on headless hosts**: EC2 and other cloud VMs have no audio hardware, causing SDL to use its `dummy` driver. PixelStreaming2 captures silence from the submix buffers in that mode. Forward the host's PulseAudio socket into the container to fix this. See [`docs/audio-output-docker.md`](audio-output-docker.md) for the full setup.
 
 ## Operational Checklist
 
