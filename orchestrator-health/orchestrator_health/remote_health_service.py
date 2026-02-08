@@ -7,6 +7,7 @@ import os
 import ipaddress
 import re
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -95,6 +96,30 @@ _NVIDIA_SMI_QUERY = [
     "--query-gpu=index,uuid,name,memory.total,driver_version",
     "--format=csv,noheader,nounits",
 ]
+
+_NVIDIA_SMI_STATS_QUERY = [
+    "nvidia-smi",
+    "--query-gpu=index,uuid,utilization.gpu,utilization.encoder,utilization.decoder,memory.used,memory.total,temperature.gpu,power.draw,power.limit",
+    "--format=csv,noheader,nounits",
+]
+
+_META_GPU_STATS_CACHE_LOCK = threading.Lock()
+_META_GPU_STATS_CACHE: Optional[dict[str, Any]] = None
+_META_GPU_STATS_CACHE_CAPTURED_MONO: Optional[float] = None
+
+
+def _meta_gpu_stats_ttl_seconds() -> float:
+    raw = (os.environ.get("META_GPU_STATS_TTL_SECONDS", "5") or "").strip()
+    try:
+        ttl_s = float(raw)
+    except Exception:
+        ttl_s = 5.0
+    if ttl_s < 0:
+        ttl_s = 0.0
+    # Cap to keep "cached" meaningfully fresh; avoid hiding stale stats for long periods.
+    if ttl_s > 600:
+        ttl_s = 600.0
+    return ttl_s
 
 
 class PowerState(BaseModel):
@@ -511,6 +536,38 @@ def _tail(text: str, *, max_lines: int = 200, max_chars: int = 50_000) -> str:
     return out
 
 
+def _meta_gpu_stats_cache_get() -> Optional[dict[str, Any]]:
+    ttl_s = _meta_gpu_stats_ttl_seconds()
+    if ttl_s <= 0:
+        return None
+    now_mono = time.monotonic()
+
+    with _META_GPU_STATS_CACHE_LOCK:
+        payload = _META_GPU_STATS_CACHE
+        captured_mono = _META_GPU_STATS_CACHE_CAPTURED_MONO
+        if (payload is None) or (captured_mono is None):
+            return None
+        age_s = now_mono - captured_mono
+        if age_s < 0 or age_s > ttl_s:
+            return None
+        out = dict(payload)
+
+    out["timestamp"] = datetime.now(timezone.utc).isoformat()
+    out["cached"] = True
+    out["cache_age_s"] = age_s
+    return out
+
+
+def _meta_gpu_stats_cache_set(payload: dict[str, Any], *, captured_mono: float) -> None:
+    global _META_GPU_STATS_CACHE, _META_GPU_STATS_CACHE_CAPTURED_MONO
+    ttl_s = _meta_gpu_stats_ttl_seconds()
+    if ttl_s <= 0:
+        return
+    with _META_GPU_STATS_CACHE_LOCK:
+        _META_GPU_STATS_CACHE = dict(payload)
+        _META_GPU_STATS_CACHE_CAPTURED_MONO = captured_mono
+
+
 def _cluster_project_dir() -> str:
     project_dir = (os.environ.get("ORCHESTRATOR_PROJECT_DIR") or "/home/ubuntu/Unreal_Vtuber").strip()
     if not project_dir.startswith("/"):
@@ -675,6 +732,73 @@ def _parse_nvidia_smi_csv(stdout: str) -> tuple[list[dict[str, Any]], Optional[s
     return gpus, driver_version
 
 
+def _parse_nvidia_smi_int(value: str) -> Optional[int]:
+    token = (value or "").strip()
+    if not token:
+        return None
+    lowered = token.lower()
+    if lowered in {"n/a", "na"}:
+        return None
+    try:
+        return int(float(token))
+    except Exception:
+        return None
+
+
+def _parse_nvidia_smi_float(value: str) -> Optional[float]:
+    token = (value or "").strip()
+    if not token:
+        return None
+    lowered = token.lower()
+    if lowered in {"n/a", "na"}:
+        return None
+    try:
+        return float(token)
+    except Exception:
+        return None
+
+
+def _parse_nvidia_smi_stats_csv(stdout: str) -> list[dict[str, Any]]:
+    gpus: list[dict[str, Any]] = []
+    for raw in (stdout or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 10:
+            continue
+        (
+            raw_index,
+            raw_uuid,
+            raw_util_gpu,
+            raw_util_enc,
+            raw_util_dec,
+            raw_mem_used,
+            raw_mem_total,
+            raw_temp,
+            raw_power_draw,
+            raw_power_limit,
+        ) = parts[:10]
+        index = _parse_nvidia_smi_int(raw_index)
+        if index is None:
+            continue
+        gpus.append(
+            {
+                "index": index,
+                "uuid": raw_uuid.strip() or None,
+                "utilization_gpu_pct": _parse_nvidia_smi_int(raw_util_gpu),
+                "utilization_encoder_pct": _parse_nvidia_smi_int(raw_util_enc),
+                "utilization_decoder_pct": _parse_nvidia_smi_int(raw_util_dec),
+                "memory_used_mib": _parse_nvidia_smi_int(raw_mem_used),
+                "memory_total_mib": _parse_nvidia_smi_int(raw_mem_total),
+                "temperature_gpu_c": _parse_nvidia_smi_int(raw_temp),
+                "power_draw_w": _parse_nvidia_smi_float(raw_power_draw),
+                "power_limit_w": _parse_nvidia_smi_float(raw_power_limit),
+            }
+        )
+    return gpus
+
+
 def _gpu_inventory_from_executor(*, executor: Any, image_id: str) -> dict[str, Any]:
     cmd = [
         "docker",
@@ -697,6 +821,31 @@ def _gpu_inventory_from_executor(*, executor: Any, image_id: str) -> dict[str, A
         "ok": True,
         "gpus": gpus,
         "driver_version": driver_version,
+        **out,
+    }
+
+
+def _gpu_stats_from_executor(*, executor: Any, image_id: str) -> dict[str, Any]:
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "--gpus",
+        "all",
+        image_id,
+        *_NVIDIA_SMI_STATS_QUERY,
+    ]
+    out = _cluster_executor_exec(executor, cmd)
+    out["stdout"] = _tail(out.get("stdout", ""))
+    out["stderr"] = _tail(out.get("stderr", ""))
+    if out["exit_code"] != 0:
+        return {"ok": False, "error": "nvidia-smi failed", **out}
+    gpus = _parse_nvidia_smi_stats_csv(out.get("stdout", ""))
+    if not gpus:
+        return {"ok": False, "error": "no GPUs detected", **out}
+    return {
+        "ok": True,
+        "gpus": gpus,
         **out,
     }
 
@@ -1399,6 +1548,39 @@ def read_meta_gpu(request: Request) -> dict[str, Any]:
 
     payload = _gpu_inventory_from_executor(executor=executor, image_id=image_id)
     payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+    return payload
+
+
+@app.get("/meta/gpu/stats")
+def read_meta_gpu_stats(request: Request) -> dict[str, Any]:
+    """Return NVIDIA GPU stats (best-effort) via nvidia-smi inside a GPU-enabled container.
+
+    Cached for META_GPU_STATS_TTL_SECONDS to avoid spamming nvidia-smi during long soak tests.
+    """
+    _require_auth_strict(request)
+
+    cached = _meta_gpu_stats_cache_get()
+    if cached is not None:
+        return cached
+
+    image_id = _self_image_id()
+    if not image_id:
+        payload: dict[str, Any] = {"ok": False, "error": "self image not found"}
+    else:
+        executor = _cluster_executor_try_container()
+        if executor is None:
+            payload = {"ok": False, "error": "cluster executor not running"}
+        else:
+            payload = _gpu_stats_from_executor(executor=executor, image_id=image_id)
+
+    captured_mono = time.monotonic()
+    captured_at = datetime.now(timezone.utc).isoformat()
+    payload["captured_at"] = captured_at
+    payload["timestamp"] = captured_at
+    payload["cached"] = False
+    payload["cache_age_s"] = 0.0
+
+    _meta_gpu_stats_cache_set(payload, captured_mono=captured_mono)
     return payload
 
 

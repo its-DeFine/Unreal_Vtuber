@@ -14,6 +14,8 @@ def power_app(monkeypatch, tmp_path):
     monkeypatch.delenv("POWER_ALLOWED_PROJECT_PREFIXES", raising=False)
     monkeypatch.setenv("DOCKER_API_VERSION", "1.41")
     monkeypatch.setenv("POWER_STATE_FILE", str(tmp_path / "power_state.json"))
+    # Avoid touching the real Docker daemon in tests unless explicitly enabled by a fixture.
+    monkeypatch.setenv("EXPERIMENTAL_REMOTE_CLUSTER_CONTROL", "0")
     import orchestrator_health.remote_health_service as svc
 
     importlib.reload(svc)
@@ -470,7 +472,7 @@ def test_meta_gpu_requires_allowlist(power_app):
 
 def test_meta_gpu_returns_inventory(ops_app, monkeypatch):
     app, svc = ops_app
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 12345))
 
     class DummyImage:
         id = "sha256:deadbeef"
@@ -506,7 +508,7 @@ def test_meta_gpu_returns_inventory(ops_app, monkeypatch):
 
 def test_meta_gpu_returns_error_on_nvidia_smi_failure(ops_app, monkeypatch):
     app, svc = ops_app
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 12345))
 
     class DummyImage:
         id = "sha256:deadbeef"
@@ -536,6 +538,102 @@ def test_meta_gpu_returns_error_on_nvidia_smi_failure(ops_app, monkeypatch):
     data = resp.json()
     assert data["ok"] is False
     assert data["error"] == "nvidia-smi failed"
+
+
+def test_meta_gpu_stats_requires_allowlist(power_app):
+    app, _svc = power_app
+    client = TestClient(app)
+    resp = client.get("/meta/gpu/stats")
+    assert resp.status_code == 403
+
+
+def test_meta_gpu_stats_returns_stats(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app, client=("127.0.0.1", 12345))
+
+    svc._META_GPU_STATS_CACHE = None
+    svc._META_GPU_STATS_CACHE_CAPTURED_MONO = None
+
+    class DummyImage:
+        id = "sha256:deadbeef"
+
+    class DummyContainer:
+        image = DummyImage()
+
+    class DummyContainers:
+        def get(self, name):  # noqa: ARG002
+            return DummyContainer()
+
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": DummyContainers()})())
+
+    class DummyResult:
+        exit_code = 0
+        output = (b"0, GPU-123, 17, 3, 0, 100, 24576, 55, 150.5, 250.0\n", b"")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            assert cmd[:6] == ["docker", "run", "--rm", "--gpus", "all", "sha256:deadbeef"]
+            assert "nvidia-smi" in cmd
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_try_container", lambda: DummyExecutor())
+
+    resp = client.get("/meta/gpu/stats")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["cached"] is False
+    assert data["gpus"][0]["utilization_gpu_pct"] == 17
+    assert data["gpus"][0]["memory_total_mib"] == 24576
+    assert data["gpus"][0]["power_draw_w"] == 150.5
+    assert "captured_at" in data
+
+
+def test_meta_gpu_stats_cache(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app, client=("127.0.0.1", 12345))
+
+    monkeypatch.setenv("META_GPU_STATS_TTL_SECONDS", "60")
+    svc._META_GPU_STATS_CACHE = None
+    svc._META_GPU_STATS_CACHE_CAPTURED_MONO = None
+
+    class DummyImage:
+        id = "sha256:deadbeef"
+
+    class DummyContainer:
+        image = DummyImage()
+
+    class DummyContainers:
+        def get(self, name):  # noqa: ARG002
+            return DummyContainer()
+
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": DummyContainers()})())
+
+    calls = {"count": 0}
+
+    class DummyResult:
+        exit_code = 0
+        output = (b"0, GPU-123, 17, 3, 0, 100, 24576, 55, 150.5, 250.0\n", b"")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            calls["count"] += 1
+            assert cmd[:6] == ["docker", "run", "--rm", "--gpus", "all", "sha256:deadbeef"]
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_try_container", lambda: DummyExecutor())
+
+    resp1 = client.get("/meta/gpu/stats")
+    assert resp1.status_code == 200
+    data1 = resp1.json()
+    assert data1["cached"] is False
+
+    resp2 = client.get("/meta/gpu/stats")
+    assert resp2.status_code == 200
+    data2 = resp2.json()
+    assert data2["cached"] is True
+    assert data2["captured_at"] == data1["captured_at"]
+    assert calls["count"] == 1
 
 
 def test_ops_pull_image_execs_docker_pull(ops_app, monkeypatch):
