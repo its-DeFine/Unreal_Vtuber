@@ -39,6 +39,7 @@ jobs:
       - name: Run Codex
         if: ${{ steps.secrets.outputs.can_run == 'true' }}
         id: run_codex
+        continue-on-error: true
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
