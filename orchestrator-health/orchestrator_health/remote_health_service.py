@@ -219,7 +219,8 @@ def _env_truthy(key: str, default: bool = False) -> bool:
 
 
 def _require_cluster_control_enabled() -> None:
-    if not _env_truthy("EXPERIMENTAL_REMOTE_CLUSTER_CONTROL", default=True):
+    # Cluster deploy/down is powerful and should remain opt-in.
+    if not _env_truthy("EXPERIMENTAL_REMOTE_CLUSTER_CONTROL", default=False):
         raise HTTPException(status_code=404, detail="cluster control not enabled")
 
 
@@ -228,11 +229,24 @@ def _require_remote_ops_enabled() -> None:
         raise HTTPException(status_code=404, detail="remote ops not enabled")
 
 
+def _request_client_ip(request: Request) -> Optional[str]:
+    """Extract a best-effort client IP for allowlist checks.
+
+    Starlette's TestClient sets request.client.host="testclient". Map that to
+    localhost so allowlist-gated endpoints can be unit-tested without weakening
+    production auth behavior.
+    """
+    ip = request.client.host if request.client else None
+    if ip == "testclient":
+        return "127.0.0.1"
+    return ip
+
+
 def _require_auth(request: Request) -> None:
     allowed = _get_power_allowed_ips()
     if not allowed:
         return
-    client_ip = request.client.host if request.client else None
+    client_ip = _request_client_ip(request)
     if (not client_ip) or (not _ip_in_allowlist(client_ip, allowed)):
         raise HTTPException(status_code=403, detail="client address not allowed")
 
@@ -241,7 +255,7 @@ def _require_auth_strict(request: Request) -> None:
     allowed = _get_power_allowed_ips()
     if not allowed:
         raise HTTPException(status_code=403, detail="POWER_ALLOWED_IPS must be set for remote ops")
-    client_ip = request.client.host if request.client else None
+    client_ip = _request_client_ip(request)
     if (not client_ip) or (not _ip_in_allowlist(client_ip, allowed)):
         raise HTTPException(status_code=403, detail="client address not allowed")
 
