@@ -4,7 +4,7 @@
 
 Changes merged after `v1.3.6` (current tagged release).
 
-- (none yet)
+- Fix: CLI overview no longer clobbers PATH when parsing rollout/verify state files (restores python3 detection in minimal hosts).
 
 ## v1.3.6 (2026-02-09)
 
