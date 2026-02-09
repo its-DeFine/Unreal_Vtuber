@@ -2,9 +2,68 @@
 
 ## Unreleased
 
-Changes merged after `v1.3.1` (current tagged release).
+Changes merged after `v1.3.6` (current tagged release).
 
 - (none yet)
+
+## v1.3.6 (2026-02-09)
+
+### Highlights
+
+- PixelStreaming2 stability: force H.264 + LowLatency + periodic keyframes across UE5 builds (including `config=Game` PluginSettings).
+- Layout B hardening: optional bearer-token auth for script runner, managed by edge-rotator control-plane config (in addition to IP allowlists).
+- Orchestrator health: add cached GPU stats endpoint.
+
+### Included PRs
+
+- [#193](https://github.com/its-DeFine/Unreal_Vtuber/pull/193) fix(compose): enable cluster control by default
+- [#202](https://github.com/its-DeFine/Unreal_Vtuber/pull/202) Fix: mount Engine.ini for PixelStreaming2 codec (H.264)
+- [#204](https://github.com/its-DeFine/Unreal_Vtuber/pull/204) fix(orchestrator-health): unblock PR CI (allowlist testclient + cluster default)
+- [#205](https://github.com/its-DeFine/Unreal_Vtuber/pull/205) orchestrator-health: add /meta/gpu/stats (cached)
+- [#206](https://github.com/its-DeFine/Unreal_Vtuber/pull/206) PixelStreaming2: set keyframe interval + LowLatency defaults
+- [#208](https://github.com/its-DeFine/Unreal_Vtuber/pull/208) feat(orchestrator): runner bearer-token auth + rotator-managed tokens
+- [#209](https://github.com/its-DeFine/Unreal_Vtuber/pull/209) fix(pixel-streaming): PS2 PluginSettings (H264 + keyframes) via Game.ini
+
+## v1.3.5 (2026-01-28)
+
+### Highlights
+
+- Orchestrator health: enable cluster control by default.
+
+### Included PRs
+
+- [#192](https://github.com/its-DeFine/Unreal_Vtuber/pull/192) Enable cluster control by default
+
+## v1.3.4 (2026-01-27)
+
+### Highlights
+
+- CLI: check Payments allowlist during start_vtuber_unreal.sh tests.
+
+### Included PRs
+
+- [#190](https://github.com/its-DeFine/Unreal_Vtuber/pull/190) cli: check Payments allowlist in start_vtuber_unreal.sh test
+
+## v1.3.3 (2026-01-27)
+
+### Highlights
+
+- Orchestrator health: add GPU inventory endpoint.
+
+### Included PRs
+
+- [#188](https://github.com/its-DeFine/Unreal_Vtuber/pull/188) orchestrator-health: add GPU inventory endpoint
+
+## v1.3.2 (2026-01-27)
+
+### Highlights
+
+- Ops: default-enable remote cluster control (plus docs clarifying v1.3.1 capabilities).
+
+### Included PRs
+
+- [#186](https://github.com/its-DeFine/Unreal_Vtuber/pull/186) Enable remote cluster control by default
+- [#180](https://github.com/its-DeFine/Unreal_Vtuber/pull/180) Docs: explain what v1.3.1 enables
 
 ## v1.3.1 (2026-01-25)
 
