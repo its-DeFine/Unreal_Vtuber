@@ -1557,11 +1557,11 @@ PY
   rollout_path="$(first_existing_path "$ROLLOUT_STATE_FILE_DEFAULT" "$ROLLOUT_STATE_FILE_FALLBACK")"
   if [[ -f "$rollout_path" ]] && command -v python3 >/dev/null 2>&1; then
     local rollout_summary
-    rollout_summary="$(PATH="$rollout_path" python3 - <<'PY' || true
+    rollout_summary="$(ROLLOUT_PATH="$rollout_path" python3 - <<'PY' || true
 import json
 import os
 
-path = os.environ.get("PATH") or ""
+path = os.environ.get("ROLLOUT_PATH") or ""
 try:
     data = json.load(open(path, "r"))
 except Exception:
@@ -1601,11 +1601,11 @@ PY
   verify_path="$(first_existing_path "$VERIFY_LAST_FILE_DEFAULT" "$VERIFY_LAST_FILE_FALLBACK")"
   if [[ -f "$verify_path" ]] && command -v python3 >/dev/null 2>&1; then
     local verify_summary
-    verify_summary="$(PATH="$verify_path" python3 - <<'PY' || true
+    verify_summary="$(VERIFY_PATH="$verify_path" python3 - <<'PY' || true
 import json
 import os
 
-path = os.environ.get("PATH") or ""
+path = os.environ.get("VERIFY_PATH") or ""
 try:
     data = json.load(open(path, "r"))
 except Exception:
