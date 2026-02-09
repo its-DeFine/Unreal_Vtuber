@@ -23,6 +23,7 @@ TCP_CONNECT_RETRIES = int(os.getenv("VTUBER_TCP_RETRIES", "20"))
 TCP_RETRY_DELAY = float(os.getenv("VTUBER_TCP_RETRY_DELAY", "0.5"))
 ALLOWED_ADDRESSES = [addr.strip() for addr in os.getenv("VTUBER_ALLOWED_ADDRESSES", "").split(",") if addr.strip()]
 DEFAULT_AUDIO_HOLD_MS = int(os.getenv("VTUBER_AUDIO_HOLD_MS", "15000"))
+RUNNER_API_TOKEN = (os.getenv("RUNNER_API_TOKEN") or os.getenv("VTUBER_RUNNER_API_TOKEN") or "").strip()
 
 
 class AudioAsset(BaseModel):
@@ -111,6 +112,37 @@ app = FastAPI()
 _session_lock = asyncio.Lock()
 _active_session: Optional[str] = None
 _statuses: Dict[str, ScriptStatus] = {}
+
+
+def _client_ip(request: Request) -> Optional[str]:
+    host = request.client.host if request.client else None
+    if not host:
+        return None
+    # FastAPI/uvicorn may report IPv4-mapped IPv6 addresses (e.g. ::ffff:1.2.3.4).
+    if host.startswith("::ffff:"):
+        return host.replace("::ffff:", "")
+    return host
+
+
+def _bearer_token(request: Request) -> str:
+    auth = request.headers.get("authorization", "")
+    token = auth.split(" ", 1)[1].strip() if auth.lower().startswith("bearer ") else auth.strip()
+    if token:
+        return token
+    # Fallback header for clients that can't easily set Authorization.
+    return (request.headers.get("x-runner-token") or "").strip()
+
+
+def _ensure_auth(request: Request) -> None:
+    client_ip = _client_ip(request)
+    if ALLOWED_ADDRESSES and (client_ip is None or client_ip not in ALLOWED_ADDRESSES):
+        raise HTTPException(status_code=403, detail="client address not allowed")
+    if RUNNER_API_TOKEN:
+        token = _bearer_token(request)
+        if not token:
+            raise HTTPException(status_code=401, detail="missing token")
+        if token != RUNNER_API_TOKEN:
+            raise HTTPException(status_code=403, detail="invalid token")
 
 
 async def _prepare_assets(payload: ScriptRequest) -> Tuple[Path, Dict[str, str]]:
@@ -210,9 +242,7 @@ async def health() -> dict:
 
 @app.post("/scripts/execute")
 async def execute_script(payload: ScriptRequest, request: Request) -> ScriptStatus:
-    client_ip = request.client.host if request.client else None
-    if ALLOWED_ADDRESSES and (client_ip not in ALLOWED_ADDRESSES):
-        raise HTTPException(status_code=403, detail="client address not allowed")
+    _ensure_auth(request)
     global _active_session
     async with _session_lock:
         if _active_session is not None:
@@ -246,7 +276,8 @@ async def _open_command_connection() -> tuple[asyncio.StreamReader, asyncio.Stre
 
 
 @app.get("/scripts/{session_id}")
-async def get_status(session_id: str) -> ScriptStatus:
+async def get_status(session_id: str, request: Request) -> ScriptStatus:
+    _ensure_auth(request)
     status = _statuses.get(session_id)
     if status is None:
         raise HTTPException(status_code=404, detail="session not found")

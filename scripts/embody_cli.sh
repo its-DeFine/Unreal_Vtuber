@@ -3725,7 +3725,7 @@ PY
     ui_check "record/download" "SKIP" "(stack sleeping)"
   else
     # Runner TCP smoke test (sends a single BYOB command through the runner to the game TCP port).
-    local session_id payload resp status_url status_body state
+    local session_id payload resp status_url status_body state runner_token runner_auth_headers
     session_id="verify_$(date +%s 2>/dev/null || echo 0)_$RANDOM"
     payload="$(SESSION_ID="$session_id" python3 - <<'PY'
 import json
@@ -3738,11 +3738,19 @@ print(json.dumps({
 }))
 PY
     )"
-    resp="$(curl -sS --max-time 5 -H "Content-Type: application/json" -d "$payload" http://127.0.0.1:9877/scripts/execute 2>/dev/null || true)"
+
+    runner_token="$(container_env_value vtuber-script-runner RUNNER_API_TOKEN 2>/dev/null || true)"
+    runner_token="$(trim_whitespace "${runner_token:-}")"
+    runner_auth_headers=()
+    if [[ -n "$runner_token" ]]; then
+      runner_auth_headers=(-H "Authorization: Bearer ${runner_token}")
+    fi
+
+    resp="$(curl -sS --max-time 5 -H "Content-Type: application/json" "${runner_auth_headers[@]}" -d "$payload" http://127.0.0.1:9877/scripts/execute 2>/dev/null || true)"
     status_url="http://127.0.0.1:9877/scripts/${session_id}"
     state=""
     for _ in {1..15}; do
-      status_body="$(curl -sS --max-time 3 "$status_url" 2>/dev/null || true)"
+      status_body="$(curl -sS --max-time 3 "${runner_auth_headers[@]}" "$status_url" 2>/dev/null || true)"
       state="$(BODY="$status_body" python3 - <<'PY'
 import json
 import os

@@ -29,11 +29,19 @@ Response JSON (minimal):
 Note:
 - For `VTUBER_ALLOWED_ADDRESSES`, the rotator can only translate `/32` edge CIDRs into allowed IP strings (runner/recorder do strict IP string matching; no CIDR support).
 
+Optional response fields (tokens):
+- `runner_api_token` (string) – written to `.env` `RUNNER_API_TOKEN` and picked up on runner recreate
+- `recordings_api_token` (string) – written to `.env` `RECORDINGS_API_TOKEN` and picked up on recorder-control recreate
+- Tokens may be set to the empty string to clear them intentionally.
+
 Accepted aliases:
 - `matchmaker_address` instead of `matchmaker_host`
 - `edge_ip` / `edge_ips` (IPv4s; converted to `/32`)
 - `edge_host` (DNS; resolved to A records; converted to `/32`)
 - `turn_external_ip` (optional; if `EDGE_UPDATE_TURN=true`, updates `.env.turn`; if omitted and exactly one `/32` edge IP is selected, the rotator uses that as a fallback)
+Token aliases:
+- `script_runner_api_token` / `runner_token` / `script_runner_token` → `RUNNER_API_TOKEN`
+- `recorder_api_token` / `recorder_token` → `RECORDINGS_API_TOKEN`
 
 ## Environment
 
