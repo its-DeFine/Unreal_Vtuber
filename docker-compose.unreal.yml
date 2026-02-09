@@ -111,6 +111,8 @@ services:
       - ${VTUBER_CONSOLE_VARIABLES_FILE:-./pixel-streaming/config/ConsoleVariables.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/ConsoleVariables.ini:ro
       # PixelStreaming2 codec control (UE5.4+/UE5.5+ ignores many legacy CLI flags).
       - ${VTUBER_ENGINE_INI_FILE:-./pixel-streaming/config/Engine.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/Engine.ini:ro
+      # Some UE5 builds use `config=Game` for PixelStreaming2 plugin settings; mount Game.ini too.
+      - ${VTUBER_GAME_INI_FILE:-./pixel-streaming/config/Game.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/Game.ini:ro
       - ${VTUBER_GAME_USER_SETTINGS_FILE:-./pixel-streaming/config/GameUserSettings.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/GameUserSettings.ini:ro
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
     networks:
