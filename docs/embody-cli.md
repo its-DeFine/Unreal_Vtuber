@@ -97,7 +97,7 @@ q) Quit
 
 The orchestrator uses allowlists to protect control endpoints:
 
-- Script runner (9877): strict IP string match via `VTUBER_ALLOWED_ADDRESSES`
+- Script runner (9877): strict IP string match via `VTUBER_ALLOWED_ADDRESSES` (and optional `RUNNER_API_TOKEN`)
 - Recorder control (8889): strict IP string match via `VTUBER_ALLOWED_ADDRESSES` (and optional `RECORDINGS_API_TOKEN`)
 - Power API (9090): CIDR-aware allowlist via `POWER_ALLOWED_IPS` or `POWER_ALLOWED_IPS_FILE`
 
@@ -106,6 +106,10 @@ If `EDGE_CONFIG_URL` is configured, the `orchestrator-edge-rotator` sidecar mana
 - `EDGE_FIREWALL_EXTRA_CIDRS` – additional CIDRs to allow through host firewall (ex: Payments host for `/health`)
 - `EDGE_POWER_EXTRA_CIDRS` – additional CIDRs allowed to call `/power` (ex: Payments host for wake/sleep)
 - `EDGE_LOCAL_ALLOWLIST` – IPs prepended to `VTUBER_ALLOWED_ADDRESSES` (ex: Payments host for runner/recorder)
+
+Optional: the rotator can also propagate API tokens from the control-plane JSON
+into `.env` and recreate services (keys: `runner_api_token` → `RUNNER_API_TOKEN`,
+`recordings_api_token` → `RECORDINGS_API_TOKEN`).
 
 CLI helper:
 

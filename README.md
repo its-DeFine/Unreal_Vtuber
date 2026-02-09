@@ -158,6 +158,10 @@ This includes both the single-instance stack and cluster-mode per-avatar contain
 
 This stack protects control endpoints (runner, recorder-control, power) with strict allowlists.
 
+Optional: you can also require bearer-token auth for the control endpoints:
+- Runner: `RUNNER_API_TOKEN`
+- Recorder-control: `RECORDINGS_API_TOKEN`
+
 Default allowlisted IPs depend on setup mode:
 - Always allow local access: `127.0.0.1`, `::1`, docker bridge gateways (`172.17.0.1`, `172.18.0.1`)
 - Control-plane mode (`EDGE_CONFIG_URL` set): allowlists are managed by the `orchestrator-edge-rotator` sidecar

@@ -436,7 +436,13 @@ def _compose(
     # When we update `.env` and then invoke `docker compose` from inside the rotator,
     # stale process env values can override `--env-file` and cause the recreated
     # containers to keep the *previous* values (breaking edge rotation).
-    for key in ("SIGNALING_EXTRA_ARGS", "SIGNALING_MATCHMAKER_ARGS", "VTUBER_ALLOWED_ADDRESSES"):
+    for key in (
+        "SIGNALING_EXTRA_ARGS",
+        "SIGNALING_MATCHMAKER_ARGS",
+        "VTUBER_ALLOWED_ADDRESSES",
+        "RUNNER_API_TOKEN",
+        "RECORDINGS_API_TOKEN",
+    ):
         env.pop(key, None)
     return _run(cmd, check=check, env=env)
 
@@ -636,6 +642,27 @@ def main() -> int:
                 desired_allowed_csv = ",".join(deduped)
                 env_changed = _upsert_env_value(env_file, "VTUBER_ALLOWED_ADDRESSES", desired_allowed_csv) or env_changed
 
+            # Optional: token-gate runner/recorder-control HTTP APIs for remote callers.
+            #
+            # This supports "Layout B" where a remote brain (OpenClaw + chat agent)
+            # calls the orchestrator's runner/recorder endpoints over the network.
+            #
+            # Tokens are sensitive; do not log them. Control plane may provide
+            # either canonical names or legacy aliases.
+            token_specs: list[tuple[list[str], str]] = [
+                (["runner_api_token", "script_runner_api_token", "runner_token", "script_runner_token"], "RUNNER_API_TOKEN"),
+                (["recordings_api_token", "recorder_api_token", "recorder_token"], "RECORDINGS_API_TOKEN"),
+            ]
+            for keys, env_key in token_specs:
+                for k in keys:
+                    if k not in desired:
+                        continue
+                    raw = desired.get(k)
+                    if isinstance(raw, str):
+                        # Allow empty-string to clear a token intentionally.
+                        env_changed = _upsert_env_value(env_file, env_key, raw.strip()) or env_changed
+                    break
+
             if update_turn:
                 turn_ip: str | None = None
                 raw_turn = desired.get("turn_external_ip")
@@ -668,6 +695,15 @@ def main() -> int:
                         drifted = True
                     if recorder_allowed and recorder_allowed != desired_allowed_csv:
                         drifted = True
+
+                desired_runner_token = _read_env_value(env_file, "RUNNER_API_TOKEN").strip()
+                desired_rec_token = _read_env_value(env_file, "RECORDINGS_API_TOKEN").strip()
+                runner_token = _container_env_value("vtuber-script-runner", "RUNNER_API_TOKEN")
+                rec_token = _container_env_value("vtuber-recorder-control", "RECORDINGS_API_TOKEN")
+                if desired_runner_token != runner_token:
+                    drifted = True
+                if desired_rec_token != rec_token:
+                    drifted = True
 
                 signaling_args = _container_env_value("vtuber-unreal-signaling", "SIGNALING_EXTRA_ARGS")
                 if signaling_args and _normalize_ws(args) not in _normalize_ws(signaling_args):

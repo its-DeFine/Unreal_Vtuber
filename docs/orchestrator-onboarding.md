@@ -70,7 +70,7 @@ If you use `EDGE_CONFIG_URL`, edge IPs may change over time; prefer keeping the 
 If `EDGE_CONFIG_URL` is set (recommended), the `orchestrator-edge-rotator` sidecar can:
 - Poll a control plane for the desired edge assignment
 - Update host firewall allowlists (via `iptables`)
-- Rewrite `.env` (`SIGNALING_EXTRA_ARGS`, `VTUBER_ALLOWED_ADDRESSES`) and recreate services so the orchestrator re-registers and accepts runner/recorder calls from the chosen edge
+- Rewrite `.env` (`SIGNALING_EXTRA_ARGS`, `VTUBER_ALLOWED_ADDRESSES`, optional API tokens) and recreate services so the orchestrator re-registers and accepts runner/recorder calls from the chosen edge
 
 Minimum `.env`:
 - `EDGE_CONFIG_URL=https://<control-plane>/orchestrator-edge`
