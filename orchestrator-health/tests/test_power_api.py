@@ -602,6 +602,90 @@ def test_ops_upgrade_recreate_all_recreates_full_stack(ops_app, monkeypatch):
     assert resp.json()["ok"] is True
 
 
+def test_ops_upgrade_recreate_orchestrator_health_schedules_background_job(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_detect_compose_identity", lambda: None)
+    monkeypatch.setattr(svc, "_read_power_state", lambda: svc.PowerState(state="sleeping"))
+
+    class DummyResult:
+        def __init__(self, exit_code: int = 0, stdout: str = "", stderr: str = ""):
+            self.exit_code = exit_code
+            self.output = (stdout.encode("utf-8"), stderr.encode("utf-8"))
+
+    class DummyContainer:
+        def __init__(self, service: str):
+            self.labels = {"com.docker.compose.service": service}
+
+    monkeypatch.setattr(
+        svc,
+        "_list_project_containers",
+        lambda _project=None: [  # noqa: ARG005
+            DummyContainer("turn-server"),
+            DummyContainer("orchestrator-registration"),
+            DummyContainer("orchestrator-health"),
+            DummyContainer("orchestrator-edge-rotator"),
+        ],
+    )
+
+    class DummyExecutor:
+        def __init__(self):
+            self.commands = []
+
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            self.commands.append(cmd)
+            git_prefix_a = ["git", "-C", "/tmp/repo"]
+            git_prefix_b = ["git", "-c", "safe.directory=/tmp/repo", "-C", "/tmp/repo"]
+
+            if cmd[: len(git_prefix_a)] == git_prefix_a:
+                git_cmd = cmd[len(git_prefix_a) :]
+            elif cmd[: len(git_prefix_b)] == git_prefix_b:
+                git_cmd = cmd[len(git_prefix_b) :]
+            else:
+                git_cmd = None
+
+            if git_cmd is not None:
+                if git_cmd[:3] == ["rev-parse", "--is-inside-work-tree"]:
+                    return DummyResult(stdout="true\n")
+                if git_cmd[:2] == ["status", "--porcelain"]:
+                    return DummyResult(stdout="")
+                if git_cmd[:3] == ["rev-parse", "--short", "HEAD"]:
+                    return DummyResult(stdout="abc123\n")
+                if git_cmd[:2] == ["fetch", "-q"]:
+                    return DummyResult(stdout="")
+                if git_cmd[:3] == ["pull", "-q", "--ff-only"]:
+                    return DummyResult(stdout="")
+                return DummyResult(stdout="")
+
+            if cmd[:2] == ["docker", "compose"]:
+                # Should still exclude self from regular pull/up. Self-recreate happens via a background job.
+                assert "orchestrator-health" not in cmd
+                assert "orchestrator-edge-rotator" not in cmd
+                return DummyResult(stdout="")
+
+            if cmd and cmd[0] == "python3":
+                # Background recreate job (runs bash -lc "...pull orchestrator-health && ...up ... orchestrator-health")
+                joined = " ".join(str(x) for x in cmd)
+                assert "ops-recreate-orchestrator-health.log" in joined
+                assert "orchestrator-health" in joined
+                assert "bash" in cmd
+                return DummyResult(stdout="scheduled\n")
+
+            raise AssertionError(f"unexpected cmd: {cmd}")
+
+    executor = DummyExecutor()
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: executor)
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post("/ops/upgrade", json={"apply": True, "recreate_orchestrator_health": True})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+    assert any(cmd and cmd[0] == "python3" for cmd in executor.commands)
+
+
 def test_ops_rollout_execs_script(ops_app, monkeypatch):
     app, svc = ops_app
     client = TestClient(app)

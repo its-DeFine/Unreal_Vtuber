@@ -6,6 +6,7 @@ import logging
 import os
 import ipaddress
 import re
+import shlex
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -190,6 +191,14 @@ class OpsUpgradeRequest(BaseModel):
             "If true (and apply=true), force-recreate all services in the current compose project "
             "(excluding orchestrator-health + orchestrator-edge-rotator). "
             "Implies recreate_game. Refuses when unreal-game is currently running (sleep first)."
+        ),
+    )
+    recreate_orchestrator_health: bool = Field(
+        default=False,
+        description=(
+            "If true (and apply=true), schedule a force-recreate of orchestrator-health AFTER responding "
+            "(via the executor container). This allows updating orchestrator-health itself without the "
+            "HTTP request getting cut off mid-response. Causes a brief control-plane blip (~5-15s)."
         ),
     )
 
@@ -1618,6 +1627,8 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
     """EXPERIMENTAL: update the repo (ff-only) and optionally recreate host-level containers."""
     _require_remote_ops_enabled()
     _require_auth_strict(request)
+    if payload.recreate_orchestrator_health and (not payload.apply):
+        raise HTTPException(status_code=400, detail="recreate_orchestrator_health requires apply=true")
     project_dir = _cluster_project_dir()
     if not project_dir:
         raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
@@ -1828,6 +1839,45 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
                 recreate_args.append("-d")
             recreate_args.extend(["--no-deps", "--force-recreate", *services_recreate])
             run_step("compose_recreate", recreate_args)
+
+        if payload.recreate_orchestrator_health:
+            # Schedule a self-recreate AFTER returning (and after a small delay),
+            # otherwise the HTTP response can get cut off mid-flight.
+            self_service = (POWER_SELF_SERVICE or "orchestrator-health").strip() or "orchestrator-health"
+            log_path = "/var/lib/vtuber/power-state/ops-recreate-orchestrator-health.log"
+
+            compose_base = [
+                "docker",
+                "compose",
+                "-p",
+                host_project,
+                "--project-directory",
+                project_dir,
+                "--env-file",
+                env_file,
+                "-f",
+                compose_file,
+            ]
+            pull_cmd = " ".join(shlex.quote(arg) for arg in [*compose_base, "pull", self_service])
+            up_cmd = " ".join(
+                shlex.quote(arg) for arg in [*compose_base, "up", "-d", "--no-deps", "--force-recreate", self_service]
+            )
+            shell_cmd = f"sleep 2; {pull_cmd} && {up_cmd}"
+
+            # Run the self-recreate asynchronously inside the executor container.
+            # Uses start_new_session=True to detach from the exec_run lifecycle.
+            code = (
+                "import subprocess,sys\n"
+                "log=sys.argv[1]\n"
+                "cmd=sys.argv[2:]\n"
+                "f=open(log,'ab', buffering=0)\n"
+                "subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)\n"
+                "print('scheduled')\n"
+            )
+            run_step(
+                "schedule_recreate_orchestrator_health",
+                ["python3", "-c", code, log_path, "bash", "-lc", shell_cmd],
+            )
 
     return {
         "ok": True,
