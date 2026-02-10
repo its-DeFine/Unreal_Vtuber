@@ -57,15 +57,22 @@ ensure_runner_namespace() {
 
   runner_id="$(compose_cmd ps -q "$WATCHDOG_RUNNER_SERVICE" | head -n 1 || true)"
   game_id="$(docker inspect -f '{{.Id}}' "$WATCHDOG_GAME_CONTAINER" 2>/dev/null || true)"
+  game_status="$(docker inspect -f '{{.State.Status}}' "$WATCHDOG_GAME_CONTAINER" 2>/dev/null || true)"
 
   if [ -z "$game_id" ]; then
     log "Game container $WATCHDOG_GAME_CONTAINER not available yet; skipping namespace check."
     return
   fi
+  if [ "$game_status" != "running" ]; then
+    log "Game container $WATCHDOG_GAME_CONTAINER status=$game_status (expected running); skipping runner namespace check."
+    return
+  fi
 
   if [ -z "$runner_id" ]; then
     log "Runner container missing; recreating $WATCHDOG_RUNNER_SERVICE."
-    compose_cmd up -d --no-deps --force-recreate "$WATCHDOG_RUNNER_SERVICE"
+    if ! compose_cmd up -d --no-deps --force-recreate "$WATCHDOG_RUNNER_SERVICE"; then
+      log "Runner recreate failed (game may be offline/starting); will retry on next game event."
+    fi
     return
   fi
 
@@ -74,7 +81,9 @@ ensure_runner_namespace() {
 
   if [ -z "$runner_mode" ] || [ "$runner_mode" != "$expected_mode" ]; then
     log "Network namespace mismatch detected (expected=$expected_mode runner=$runner_mode). Recreating runner."
-    compose_cmd up -d --no-deps --force-recreate "$WATCHDOG_RUNNER_SERVICE"
+    if ! compose_cmd up -d --no-deps --force-recreate "$WATCHDOG_RUNNER_SERVICE"; then
+      log "Runner recreate failed (game may be offline/starting); will retry on next game event."
+    fi
   elif [ "$WATCHDOG_VERBOSE" = "1" ]; then
     log "Runner network namespace matches Unreal game."
   fi
