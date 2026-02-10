@@ -142,6 +142,7 @@ Remote metadata + ops (experimental):
 - Enabled by default (opt-out: set `EXPERIMENTAL_REMOTE_OPS=0` in `.env` and recreate `orchestrator-health`).
 - Security: `/ops/*` always requires `POWER_ALLOWED_IPS` / `POWER_ALLOWED_IPS_FILE` allowlisting (otherwise returns 403).
 - `POST http://<host>:9090/ops/upgrade` with JSON `{ "apply": true }` (git ff-only update; optionally pull/recreate host-level containers).
+  - Optional: `{ "apply": true, "recreate_game": true }` to force-recreate `unreal-game` too (refuses while running; sleep first).
 - `POST http://<host>:9090/ops/rollout`:
   - Stage only (prefetch while live): `{ "payments_api_url": "http://<payments>:8081", "image_ref": "ghcr.io/...:enc-v1", "stage_only": true, "min_free_gb": 15 }`
   - Apply staged (idle window): `{ "image_ref": "ghcr.io/...:enc-v1", "skip_download": true, "recreate_stopped": true }`
