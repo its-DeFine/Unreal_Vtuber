@@ -102,6 +102,20 @@ def test_wake_with_awake_seconds_sets_awake_until(power_app, monkeypatch):
     assert scheduled["seconds"] == 10
 
 
+def test_wake_does_not_500_when_wake_all_containers_errors(power_app, monkeypatch):
+    app, svc = power_app
+    client = TestClient(app)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(svc, "_wake_all_containers", boom)
+
+    resp = client.post("/power", json={"action": "wake", "reason": "pytest"})
+    assert resp.status_code == 200
+    assert resp.json()["state"] == "awake"
+
+
 def test_project_power_roundtrip(power_app, monkeypatch):
     app, svc = power_app
     client = TestClient(app)
@@ -409,6 +423,106 @@ def test_ops_upgrade_sleeping_apply_uses_no_start(ops_app, monkeypatch):
                 if "up" in cmd:
                     assert "--no-start" in cmd
                     assert "-d" not in cmd
+                return DummyResult(stdout="")
+
+            raise AssertionError(f"unexpected cmd: {cmd}")
+
+    executor = DummyExecutor()
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: executor)
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post("/ops/upgrade", json={"apply": True})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_ops_upgrade_awake_apply_skips_port_binding_services_when_game_not_running(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_detect_compose_identity", lambda: None)
+    monkeypatch.setattr(svc, "_read_power_state", lambda: svc.PowerState(state="awake"))
+
+    class DummyResult:
+        def __init__(self, exit_code: int = 0, stdout: str = "", stderr: str = ""):
+            self.exit_code = exit_code
+            self.output = (stdout.encode("utf-8"), stderr.encode("utf-8"))
+
+    class DummyContainer:
+        def __init__(self, service: str, *, status: str = "created"):
+            self.labels = {"com.docker.compose.service": service}
+            self.status = status
+
+        def reload(self) -> None:  # pragma: no cover - used by service code
+            return None
+
+    # Simulate a cluster-mode box:
+    # - base stack is "awake" but unreal-game is not running (created)
+    # - if we tried to `up -d unreal-signaling` we'd hit port conflicts with the instance stack
+    monkeypatch.setattr(
+        svc,
+        "_list_project_containers",
+        lambda _project=None: [  # noqa: ARG005
+            DummyContainer("turn-server", status="running"),
+            DummyContainer("unreal-signaling", status="created"),
+            DummyContainer("unreal-game", status="created"),
+            DummyContainer("vtuber-script-runner", status="created"),
+            DummyContainer("recorder-control", status="created"),
+            DummyContainer("vtuber-watchdog", status="running"),
+            DummyContainer("vtuber-auto-updater", status="running"),
+            DummyContainer("orchestrator-registration", status="exited"),
+            DummyContainer("orchestrator-health", status="running"),
+            DummyContainer("orchestrator-edge-rotator", status="running"),
+        ],
+    )
+
+    class DummyExecutor:
+        def __init__(self):
+            self.commands = []
+
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            self.commands.append(cmd)
+            git_prefix_a = ["git", "-C", "/tmp/repo"]
+            git_prefix_b = ["git", "-c", "safe.directory=/tmp/repo", "-C", "/tmp/repo"]
+
+            if cmd[: len(git_prefix_a)] == git_prefix_a:
+                git_cmd = cmd[len(git_prefix_a) :]
+            elif cmd[: len(git_prefix_b)] == git_prefix_b:
+                git_cmd = cmd[len(git_prefix_b) :]
+            else:
+                git_cmd = None
+
+            if git_cmd is not None:
+                if git_cmd[:3] == ["rev-parse", "--is-inside-work-tree"]:
+                    return DummyResult(stdout="true\n")
+                if git_cmd[:2] == ["status", "--porcelain"]:
+                    return DummyResult(stdout="")
+                if git_cmd[:3] == ["rev-parse", "--short", "HEAD"]:
+                    return DummyResult(stdout="abc123\n")
+                if git_cmd[:2] == ["fetch", "-q"]:
+                    return DummyResult(stdout="")
+                if git_cmd[:3] == ["pull", "-q", "--ff-only"]:
+                    return DummyResult(stdout="")
+                return DummyResult(stdout="")
+
+            if cmd[:2] == ["docker", "compose"]:
+                if "up" in cmd:
+                    assert "-d" in cmd
+                    assert "--no-start" not in cmd
+                    # Must NOT try to start base port-binding services.
+                    for svc_name in (
+                        "unreal-signaling",
+                        "unreal-game",
+                        "vtuber-script-runner",
+                        "recorder-control",
+                        "orchestrator-registration",
+                    ):
+                        assert svc_name not in cmd
+                    # But should still include safe always-on services.
+                    assert "turn-server" in cmd
+                    assert "vtuber-watchdog" in cmd
+                    assert "vtuber-auto-updater" in cmd
                 return DummyResult(stdout="")
 
             raise AssertionError(f"unexpected cmd: {cmd}")

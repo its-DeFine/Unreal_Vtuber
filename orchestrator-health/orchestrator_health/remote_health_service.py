@@ -1734,19 +1734,23 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
 
         existing_services: set[str] = set()
         running_game: list[str] = []
+        base_game_running = False
         want_recreate_game = payload.recreate_game or payload.recreate_all
         for container in containers:
             labels = getattr(container, "labels", {}) or {}
             service = (labels.get("com.docker.compose.service") or "").strip()
             if service:
                 existing_services.add(service)
-            if want_recreate_game and service == "unreal-game":
+            if service == "unreal-game":
                 try:
                     container.reload()
                 except Exception:  # pragma: no cover - defensive
                     pass
-                if getattr(container, "status", "") == "running":
-                    running_game.append(getattr(container, "name", "<unknown>"))
+                status = getattr(container, "status", "")
+                if status == "running":
+                    base_game_running = True
+                    if want_recreate_game:
+                        running_game.append(getattr(container, "name", "<unknown>"))
 
         if want_recreate_game and running_game:
             raise HTTPException(
@@ -1800,6 +1804,22 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
             services_recreate = list(services_pull)
             if want_recreate_game and "unreal-game" not in services_recreate:
                 services_recreate.append("unreal-game")
+
+        # If the stack is "awake" but the base unreal-game is NOT running, we should not try to start
+        # base port-binding services (8080/7777/9877/8889, etc). This situation happens on cluster-mode
+        # boxes where per-instance compose projects (vtuber-*) own those host ports.
+        #
+        # When the base stack is sleeping, we use `docker compose up --no-start` which is safe to recreate
+        # even port-binding services. So only apply this filter when we would otherwise start them.
+        if (power_state.state != "sleeping") and (not base_game_running) and (not want_recreate_game):
+            skip = {
+                "unreal-signaling",
+                "unreal-game",
+                "vtuber-script-runner",
+                "recorder-control",
+                "orchestrator-registration",
+            }
+            services_recreate = [svc for svc in services_recreate if svc not in skip]
 
         if services_pull:
             run_step(
@@ -2057,8 +2077,13 @@ def change_power_state(payload: PowerRequest, request: Request) -> PowerState:
     if action == "sleep":
         _cancel_auto_sleep_timer()
         state = _write_power_state("sleeping", payload.reason, awake_until=None)
-        statuses = _sleep_all_containers(reason=payload.reason)
-        logger.info("Sleep requested; stopped=%s", statuses)
+        try:
+            statuses = _sleep_all_containers(reason=payload.reason)
+            logger.info("Sleep requested; stopped=%s", statuses)
+        except Exception as exc:  # noqa: BLE001
+            # Treat power state as a desired state. If stopping containers fails, we still want the
+            # caller to get a consistent response (200 + the persisted state) and debug via /meta.
+            logger.exception("Sleep requested but stop failed: %s", exc)
         return state
 
     # wake
@@ -2067,8 +2092,13 @@ def change_power_state(payload: PowerRequest, request: Request) -> PowerState:
     if payload.awake_seconds:
         awake_until = datetime.now(timezone.utc) + timedelta(seconds=payload.awake_seconds)
     state = _write_power_state("awake", payload.reason, awake_until=awake_until)
-    statuses = _wake_all_containers(timeout_seconds=120)
-    logger.info("Wake requested; started=%s", statuses)
+    try:
+        statuses = _wake_all_containers(timeout_seconds=120)
+        logger.info("Wake requested; started=%s", statuses)
+    except Exception as exc:  # noqa: BLE001
+        # Avoid returning 500 after persisting "awake" state, which is confusing for remote callers.
+        # Debug actual container state via /meta.
+        logger.exception("Wake requested but start failed: %s", exc)
     if payload.awake_seconds:
         _schedule_auto_sleep(payload.awake_seconds, reason="auto-sleep after wake TTL")
     return state
@@ -2085,7 +2115,10 @@ def change_project_power_state(project: str, payload: PowerRequest, request: Req
         _PROJECT_AWAKE_UNTIL.pop(project, None)
         if payload.reason:
             _PROJECT_LAST_REASON[project] = payload.reason
-        _sleep_all_containers(reason=payload.reason, project_name=project)
+        try:
+            _sleep_all_containers(reason=payload.reason, project_name=project)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Project sleep requested but stop failed (project=%s): %s", project, exc)
         return _power_state_from_project(project)
 
     # wake
@@ -2095,7 +2128,10 @@ def change_project_power_state(project: str, payload: PowerRequest, request: Req
         awake_until = datetime.now(timezone.utc) + timedelta(seconds=payload.awake_seconds)
     if payload.reason:
         _PROJECT_LAST_REASON[project] = payload.reason
-    _wake_all_containers(timeout_seconds=120, project_name=project)
+    try:
+        _wake_all_containers(timeout_seconds=120, project_name=project)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Project wake requested but start failed (project=%s): %s", project, exc)
     if awake_until is not None:
         _PROJECT_AWAKE_UNTIL[project] = awake_until
         _schedule_project_auto_sleep(payload.awake_seconds or 0, project=project, reason="auto-sleep after wake TTL")
