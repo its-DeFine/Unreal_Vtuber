@@ -133,6 +133,7 @@ The `orchestrator-health` service exposes remote metadata and a small remote-con
 
 - `GET http://<host>:9090/meta` – git head + service images/ids + last `verify` + rollout state
 - `POST http://<host>:9090/ops/upgrade` – ff-only git update; optional pull/recreate host services
+  - Optional: `{ "apply": true, "recreate_orchestrator_health": true }` schedules a force-recreate of `orchestrator-health` after responding (brief control-plane blip).
 - `POST http://<host>:9090/ops/rollout` – stage/apply encrypted game image via a Payments lease
 - `POST http://<host>:9090/ops/pull-image` – `docker pull` for unencrypted images
 

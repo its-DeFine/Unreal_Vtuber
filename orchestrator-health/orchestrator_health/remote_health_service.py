@@ -6,6 +6,7 @@ import logging
 import os
 import ipaddress
 import re
+import shlex
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -182,6 +183,22 @@ class OpsUpgradeRequest(BaseModel):
         description=(
             "If true (and apply=true), force-recreate the unreal-game container too. "
             "Refuses when unreal-game is currently running (sleep first)."
+        ),
+    )
+    recreate_all: bool = Field(
+        default=False,
+        description=(
+            "If true (and apply=true), force-recreate all services in the current compose project "
+            "(excluding orchestrator-health + orchestrator-edge-rotator). "
+            "Implies recreate_game. Refuses when unreal-game is currently running (sleep first)."
+        ),
+    )
+    recreate_orchestrator_health: bool = Field(
+        default=False,
+        description=(
+            "If true (and apply=true), schedule a force-recreate of orchestrator-health AFTER responding "
+            "(via the executor container). This allows updating orchestrator-health itself without the "
+            "HTTP request getting cut off mid-response. Causes a brief control-plane blip (~5-15s)."
         ),
     )
 
@@ -1610,6 +1627,8 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
     """EXPERIMENTAL: update the repo (ff-only) and optionally recreate host-level containers."""
     _require_remote_ops_enabled()
     _require_auth_strict(request)
+    if payload.recreate_orchestrator_health and (not payload.apply):
+        raise HTTPException(status_code=400, detail="recreate_orchestrator_health requires apply=true")
     project_dir = _cluster_project_dir()
     if not project_dir:
         raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
@@ -1715,12 +1734,13 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
 
         existing_services: set[str] = set()
         running_game: list[str] = []
+        want_recreate_game = payload.recreate_game or payload.recreate_all
         for container in containers:
             labels = getattr(container, "labels", {}) or {}
             service = (labels.get("com.docker.compose.service") or "").strip()
             if service:
                 existing_services.add(service)
-            if payload.recreate_game and service == "unreal-game":
+            if want_recreate_game and service == "unreal-game":
                 try:
                     container.reload()
                 except Exception:  # pragma: no cover - defensive
@@ -1728,7 +1748,7 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
                 if getattr(container, "status", "") == "running":
                     running_game.append(getattr(container, "name", "<unknown>"))
 
-        if payload.recreate_game and running_game:
+        if want_recreate_game and running_game:
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -1737,9 +1757,9 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
                 ),
             )
 
-        excluded = {POWER_SELF_SERVICE, "orchestrator-edge-rotator", "unreal-game"}
-        if payload.recreate_game:
-            excluded.remove("unreal-game")
+        excluded = {POWER_SELF_SERVICE, "orchestrator-edge-rotator"}
+        if not want_recreate_game:
+            excluded.add("unreal-game")
         ordered = [
             "turn-server",
             "unreal-signaling",
@@ -1749,17 +1769,37 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
             "vtuber-auto-updater",
             "orchestrator-registration",
         ]
-        if existing_services:
-            services_pull = [svc for svc in ordered if svc in existing_services and svc not in excluded]
-        else:
-            services_pull = [
-                svc for svc in ("turn-server", "vtuber-auto-updater", "orchestrator-registration") if svc not in excluded
-            ]
+        if payload.recreate_all:
+            # Full stack recreate: pull/recreate every service we currently have running (except
+            # the caller + executor). Avoid pulling the game image (potentially large); only recreate it.
+            excluded_pull = set(excluded)
+            excluded_pull.add("unreal-game")
 
-        # Avoid pulling the game image (potentially large). Only recreate it.
-        services_recreate = list(services_pull)
-        if payload.recreate_game and "unreal-game" not in services_recreate:
-            services_recreate.append("unreal-game")
+            services_pull = [svc for svc in ordered if svc in existing_services and svc not in excluded_pull]
+            for svc in sorted(existing_services):
+                if svc in excluded_pull or svc in services_pull:
+                    continue
+                services_pull.append(svc)
+
+            services_recreate = [svc for svc in ordered if svc in existing_services and svc not in excluded]
+            for svc in sorted(existing_services):
+                if svc in excluded or svc in services_recreate:
+                    continue
+                services_recreate.append(svc)
+        else:
+            if existing_services:
+                services_pull = [svc for svc in ordered if svc in existing_services and svc not in excluded]
+            else:
+                services_pull = [
+                    svc
+                    for svc in ("turn-server", "vtuber-auto-updater", "orchestrator-registration")
+                    if svc not in excluded
+                ]
+
+            # Avoid pulling the game image (potentially large). Only recreate it.
+            services_recreate = list(services_pull)
+            if want_recreate_game and "unreal-game" not in services_recreate:
+                services_recreate.append("unreal-game")
 
         if services_pull:
             run_step(
@@ -1799,6 +1839,45 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
                 recreate_args.append("-d")
             recreate_args.extend(["--no-deps", "--force-recreate", *services_recreate])
             run_step("compose_recreate", recreate_args)
+
+        if payload.recreate_orchestrator_health:
+            # Schedule a self-recreate AFTER returning (and after a small delay),
+            # otherwise the HTTP response can get cut off mid-flight.
+            self_service = (POWER_SELF_SERVICE or "orchestrator-health").strip() or "orchestrator-health"
+            log_path = "/var/lib/vtuber/power-state/ops-recreate-orchestrator-health.log"
+
+            compose_base = [
+                "docker",
+                "compose",
+                "-p",
+                host_project,
+                "--project-directory",
+                project_dir,
+                "--env-file",
+                env_file,
+                "-f",
+                compose_file,
+            ]
+            pull_cmd = " ".join(shlex.quote(arg) for arg in [*compose_base, "pull", self_service])
+            up_cmd = " ".join(
+                shlex.quote(arg) for arg in [*compose_base, "up", "-d", "--no-deps", "--force-recreate", self_service]
+            )
+            shell_cmd = f"sleep 2; {pull_cmd} && {up_cmd}"
+
+            # Run the self-recreate asynchronously inside the executor container.
+            # Uses start_new_session=True to detach from the exec_run lifecycle.
+            code = (
+                "import subprocess,sys\n"
+                "log=sys.argv[1]\n"
+                "cmd=sys.argv[2:]\n"
+                "f=open(log,'ab', buffering=0)\n"
+                "subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)\n"
+                "print('scheduled')\n"
+            )
+            run_step(
+                "schedule_recreate_orchestrator_health",
+                ["python3", "-c", code, log_path, "bash", "-lc", shell_cmd],
+            )
 
     return {
         "ok": True,
