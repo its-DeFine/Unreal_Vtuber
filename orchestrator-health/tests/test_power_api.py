@@ -422,6 +422,84 @@ def test_ops_upgrade_sleeping_apply_uses_no_start(ops_app, monkeypatch):
     assert resp.json()["ok"] is True
 
 
+def test_ops_upgrade_recreate_game_includes_unreal_game(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_detect_compose_identity", lambda: None)
+    monkeypatch.setattr(svc, "_read_power_state", lambda: svc.PowerState(state="sleeping"))
+
+    class DummyResult:
+        def __init__(self, exit_code: int = 0, stdout: str = "", stderr: str = ""):
+            self.exit_code = exit_code
+            self.output = (stdout.encode("utf-8"), stderr.encode("utf-8"))
+
+    class DummyContainer:
+        def __init__(self, service: str):
+            self.labels = {"com.docker.compose.service": service}
+
+    monkeypatch.setattr(
+        svc,
+        "_list_project_containers",
+        lambda _project=None: [  # noqa: ARG005
+            DummyContainer("turn-server"),
+            DummyContainer("unreal-signaling"),
+            DummyContainer("unreal-game"),
+            DummyContainer("vtuber-script-runner"),
+            DummyContainer("orchestrator-health"),
+            DummyContainer("orchestrator-edge-rotator"),
+        ],
+    )
+
+    class DummyExecutor:
+        def __init__(self):
+            self.commands = []
+
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            self.commands.append(cmd)
+            git_prefix_a = ["git", "-C", "/tmp/repo"]
+            git_prefix_b = ["git", "-c", "safe.directory=/tmp/repo", "-C", "/tmp/repo"]
+
+            if cmd[: len(git_prefix_a)] == git_prefix_a:
+                git_cmd = cmd[len(git_prefix_a) :]
+            elif cmd[: len(git_prefix_b)] == git_prefix_b:
+                git_cmd = cmd[len(git_prefix_b) :]
+            else:
+                git_cmd = None
+
+            if git_cmd is not None:
+                if git_cmd[:3] == ["rev-parse", "--is-inside-work-tree"]:
+                    return DummyResult(stdout="true\n")
+                if git_cmd[:2] == ["status", "--porcelain"]:
+                    return DummyResult(stdout="")
+                if git_cmd[:3] == ["rev-parse", "--short", "HEAD"]:
+                    return DummyResult(stdout="abc123\n")
+                if git_cmd[:2] == ["fetch", "-q"]:
+                    return DummyResult(stdout="")
+                if git_cmd[:3] == ["pull", "-q", "--ff-only"]:
+                    return DummyResult(stdout="")
+                return DummyResult(stdout="")
+
+            if cmd[:2] == ["docker", "compose"]:
+                if "pull" in cmd:
+                    assert "unreal-game" not in cmd
+                if "up" in cmd:
+                    assert "--no-start" in cmd
+                    assert "unreal-game" in cmd
+                return DummyResult(stdout="")
+
+            raise AssertionError(f"unexpected cmd: {cmd}")
+
+    executor = DummyExecutor()
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: executor)
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post("/ops/upgrade", json={"apply": True, "recreate_game": True})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
 def test_ops_rollout_execs_script(ops_app, monkeypatch):
     app, svc = ops_app
     client = TestClient(app)

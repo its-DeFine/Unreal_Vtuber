@@ -177,6 +177,13 @@ class OpsUpgradeRequest(BaseModel):
         description="Optional EMBODY_SERVICE_IMAGE_TAG to write into the host .env (used for service images).",
     )
     apply: bool = Field(default=False, description="If true, pull/recreate host-level containers after updating the repo.")
+    recreate_game: bool = Field(
+        default=False,
+        description=(
+            "If true (and apply=true), force-recreate the unreal-game container too. "
+            "Refuses when unreal-game is currently running (sleep first)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_upgrade_args(self) -> "OpsUpgradeRequest":
@@ -1707,13 +1714,32 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
             containers = []
 
         existing_services: set[str] = set()
+        running_game: list[str] = []
         for container in containers:
             labels = getattr(container, "labels", {}) or {}
             service = (labels.get("com.docker.compose.service") or "").strip()
             if service:
                 existing_services.add(service)
+            if payload.recreate_game and service == "unreal-game":
+                try:
+                    container.reload()
+                except Exception:  # pragma: no cover - defensive
+                    pass
+                if getattr(container, "status", "") == "running":
+                    running_game.append(getattr(container, "name", "<unknown>"))
+
+        if payload.recreate_game and running_game:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "refusing to recreate unreal-game while running: "
+                    f"{', '.join(sorted(set(running_game)))} (sleep first)"
+                ),
+            )
 
         excluded = {POWER_SELF_SERVICE, "orchestrator-edge-rotator", "unreal-game"}
+        if payload.recreate_game:
+            excluded.remove("unreal-game")
         ordered = [
             "turn-server",
             "unreal-signaling",
@@ -1724,11 +1750,18 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
             "orchestrator-registration",
         ]
         if existing_services:
-            services = [svc for svc in ordered if svc in existing_services and svc not in excluded]
+            services_pull = [svc for svc in ordered if svc in existing_services and svc not in excluded]
         else:
-            services = [svc for svc in ("turn-server", "vtuber-auto-updater", "orchestrator-registration") if svc not in excluded]
+            services_pull = [
+                svc for svc in ("turn-server", "vtuber-auto-updater", "orchestrator-registration") if svc not in excluded
+            ]
 
-        if services:
+        # Avoid pulling the game image (potentially large). Only recreate it.
+        services_recreate = list(services_pull)
+        if payload.recreate_game and "unreal-game" not in services_recreate:
+            services_recreate.append("unreal-game")
+
+        if services_pull:
             run_step(
                 "compose_pull",
                 [
@@ -1743,9 +1776,10 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
                     "-f",
                     compose_file,
                     "pull",
-                    *services,
+                    *services_pull,
                 ],
             )
+        if services_recreate:
             recreate_args = [
                 "docker",
                 "compose",
@@ -1763,7 +1797,7 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
                 recreate_args.append("--no-start")
             else:
                 recreate_args.append("-d")
-            recreate_args.extend(["--no-deps", "--force-recreate", *services])
+            recreate_args.extend(["--no-deps", "--force-recreate", *services_recreate])
             run_step("compose_recreate", recreate_args)
 
     return {
