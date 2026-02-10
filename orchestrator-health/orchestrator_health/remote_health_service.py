@@ -1805,21 +1805,29 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
             if want_recreate_game and "unreal-game" not in services_recreate:
                 services_recreate.append("unreal-game")
 
-        # If the stack is "awake" but the base unreal-game is NOT running, we should not try to start
-        # base port-binding services (8080/7777/9877/8889, etc). This situation happens on cluster-mode
-        # boxes where per-instance compose projects (vtuber-*) own those host ports.
+        # If the stack is "awake", avoid trying to start base port-binding services when those host
+        # ports are already owned by another compose project (e.g. cluster-mode instances vtuber-*) or
+        # any other container. This prevents apply=true from failing on cluster boxes with port conflicts
+        # (8080/7777/9877/8889, etc).
         #
         # When the base stack is sleeping, we use `docker compose up --no-start` which is safe to recreate
         # even port-binding services. So only apply this filter when we would otherwise start them.
-        if (power_state.state != "sleeping") and (not base_game_running) and (not want_recreate_game):
-            skip = {
-                "unreal-signaling",
-                "unreal-game",
-                "vtuber-script-runner",
-                "recorder-control",
-                "orchestrator-registration",
-            }
-            services_recreate = [svc for svc in services_recreate if svc not in skip]
+        if (power_state.state != "sleeping") and (not want_recreate_game):
+            conflicts: dict[int, str] = {}
+            try:
+                conflicts = _docker_port_conflicts({8080, 8888, 7777, 9877, 8889}, ignore_project=host_project)
+            except Exception:  # pragma: no cover - best-effort
+                conflicts = {}
+
+            if conflicts:
+                skip = {
+                    "unreal-signaling",
+                    "unreal-game",
+                    "vtuber-script-runner",
+                    "recorder-control",
+                    "orchestrator-registration",
+                }
+                services_recreate = [svc for svc in services_recreate if svc not in skip]
 
         if services_pull:
             run_step(
