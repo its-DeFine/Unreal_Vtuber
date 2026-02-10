@@ -184,6 +184,14 @@ class OpsUpgradeRequest(BaseModel):
             "Refuses when unreal-game is currently running (sleep first)."
         ),
     )
+    recreate_all: bool = Field(
+        default=False,
+        description=(
+            "If true (and apply=true), force-recreate all services in the current compose project "
+            "(excluding orchestrator-health + orchestrator-edge-rotator). "
+            "Implies recreate_game. Refuses when unreal-game is currently running (sleep first)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_upgrade_args(self) -> "OpsUpgradeRequest":
@@ -1715,12 +1723,13 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
 
         existing_services: set[str] = set()
         running_game: list[str] = []
+        want_recreate_game = payload.recreate_game or payload.recreate_all
         for container in containers:
             labels = getattr(container, "labels", {}) or {}
             service = (labels.get("com.docker.compose.service") or "").strip()
             if service:
                 existing_services.add(service)
-            if payload.recreate_game and service == "unreal-game":
+            if want_recreate_game and service == "unreal-game":
                 try:
                     container.reload()
                 except Exception:  # pragma: no cover - defensive
@@ -1728,7 +1737,7 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
                 if getattr(container, "status", "") == "running":
                     running_game.append(getattr(container, "name", "<unknown>"))
 
-        if payload.recreate_game and running_game:
+        if want_recreate_game and running_game:
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -1737,9 +1746,9 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
                 ),
             )
 
-        excluded = {POWER_SELF_SERVICE, "orchestrator-edge-rotator", "unreal-game"}
-        if payload.recreate_game:
-            excluded.remove("unreal-game")
+        excluded = {POWER_SELF_SERVICE, "orchestrator-edge-rotator"}
+        if not want_recreate_game:
+            excluded.add("unreal-game")
         ordered = [
             "turn-server",
             "unreal-signaling",
@@ -1749,17 +1758,37 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
             "vtuber-auto-updater",
             "orchestrator-registration",
         ]
-        if existing_services:
-            services_pull = [svc for svc in ordered if svc in existing_services and svc not in excluded]
-        else:
-            services_pull = [
-                svc for svc in ("turn-server", "vtuber-auto-updater", "orchestrator-registration") if svc not in excluded
-            ]
+        if payload.recreate_all:
+            # Full stack recreate: pull/recreate every service we currently have running (except
+            # the caller + executor). Avoid pulling the game image (potentially large); only recreate it.
+            excluded_pull = set(excluded)
+            excluded_pull.add("unreal-game")
 
-        # Avoid pulling the game image (potentially large). Only recreate it.
-        services_recreate = list(services_pull)
-        if payload.recreate_game and "unreal-game" not in services_recreate:
-            services_recreate.append("unreal-game")
+            services_pull = [svc for svc in ordered if svc in existing_services and svc not in excluded_pull]
+            for svc in sorted(existing_services):
+                if svc in excluded_pull or svc in services_pull:
+                    continue
+                services_pull.append(svc)
+
+            services_recreate = [svc for svc in ordered if svc in existing_services and svc not in excluded]
+            for svc in sorted(existing_services):
+                if svc in excluded or svc in services_recreate:
+                    continue
+                services_recreate.append(svc)
+        else:
+            if existing_services:
+                services_pull = [svc for svc in ordered if svc in existing_services and svc not in excluded]
+            else:
+                services_pull = [
+                    svc
+                    for svc in ("turn-server", "vtuber-auto-updater", "orchestrator-registration")
+                    if svc not in excluded
+                ]
+
+            # Avoid pulling the game image (potentially large). Only recreate it.
+            services_recreate = list(services_pull)
+            if want_recreate_game and "unreal-game" not in services_recreate:
+                services_recreate.append("unreal-game")
 
         if services_pull:
             run_step(

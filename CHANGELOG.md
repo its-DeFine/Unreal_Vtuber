@@ -6,6 +6,7 @@ Changes merged after `v1.3.6` (current tagged release).
 
 - Fix: CLI overview no longer clobbers PATH when parsing rollout/verify state files (restores python3 detection in minimal hosts).
 - Ops: `/ops/upgrade` can optionally force-recreate `unreal-game` remotely (`recreate_game=true`) while sleeping.
+- Ops: `/ops/upgrade` can force-recreate the full compose stack (`recreate_all=true`) for clean restarts (ex: resolve container conflicts).
 
 ## v1.3.6 (2026-02-09)
 
