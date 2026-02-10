@@ -436,7 +436,7 @@ def test_ops_upgrade_sleeping_apply_uses_no_start(ops_app, monkeypatch):
     assert resp.json()["ok"] is True
 
 
-def test_ops_upgrade_awake_apply_skips_port_binding_services_when_game_not_running(ops_app, monkeypatch):
+def test_ops_upgrade_awake_apply_skips_port_binding_services_when_port_conflicts(ops_app, monkeypatch):
     app, svc = ops_app
     client = TestClient(app)
 
@@ -457,9 +457,9 @@ def test_ops_upgrade_awake_apply_skips_port_binding_services_when_game_not_runni
         def reload(self) -> None:  # pragma: no cover - used by service code
             return None
 
-    # Simulate a cluster-mode box:
-    # - base stack is "awake" but unreal-game is not running (created)
-    # - if we tried to `up -d unreal-signaling` we'd hit port conflicts with the instance stack
+    # Simulate a cluster-mode box with a port conflict (instance stack owns 8080, etc).
+    # In this case, apply=true should NOT attempt to start base port-binding services, or we'd
+    # fail with "port is already allocated".
     monkeypatch.setattr(
         svc,
         "_list_project_containers",
@@ -476,6 +476,7 @@ def test_ops_upgrade_awake_apply_skips_port_binding_services_when_game_not_runni
             DummyContainer("orchestrator-edge-rotator", status="running"),
         ],
     )
+    monkeypatch.setattr(svc, "_docker_port_conflicts", lambda _ports, ignore_project=None: {8080: "vtuber-x"})  # noqa: ARG005
 
     class DummyExecutor:
         def __init__(self):
