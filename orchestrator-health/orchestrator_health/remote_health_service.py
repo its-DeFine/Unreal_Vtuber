@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
 import logging
 import os
 import ipaddress
@@ -13,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 
 from .service_monitor import ServiceMonitor
@@ -307,6 +309,94 @@ def _require_auth_strict(request: Request) -> None:
     client_ip = _request_client_ip(request)
     if (not client_ip) or (not _ip_in_allowlist(client_ip, allowed)):
         raise HTTPException(status_code=403, detail="client address not allowed")
+
+
+def _get_ops_hmac_secret() -> Optional[bytes]:
+    raw = (os.environ.get("OPS_HMAC_SECRET") or "").strip()
+    if raw:
+        return raw.encode("utf-8")
+    path_raw = (os.environ.get("OPS_HMAC_SECRET_FILE") or "").strip()
+    if not path_raw:
+        return None
+    try:
+        value = Path(path_raw).read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed reading OPS_HMAC_SECRET_FILE=%s: %s", path_raw, exc)
+        return None
+    return value.encode("utf-8") if value else None
+
+
+def _ops_hmac_required() -> bool:
+    return _env_truthy("OPS_HMAC_REQUIRED", default=False)
+
+
+def _ops_hmac_ttl_seconds() -> int:
+    raw = (os.environ.get("OPS_HMAC_TTL_SECONDS") or "").strip()
+    if not raw:
+        return 300
+    try:
+        ttl = int(raw)
+    except ValueError:
+        return 300
+    return max(10, min(24 * 60 * 60, ttl))
+
+
+async def _require_ops_hmac(request: Request) -> None:
+    """Optional second-factor auth for dangerous endpoints.
+
+    When enabled, the client must send:
+      - X-Embody-Ops-Timestamp: unix epoch seconds
+      - X-Embody-Ops-Signature: hex(hmac_sha256(secret, canonical_request))
+
+    canonical_request:
+      <ts>\\n<METHOD>\\n<PATH>\\n<sha256(body)>
+    """
+
+    secret = _get_ops_hmac_secret()
+    required = _ops_hmac_required()
+    if secret is None:
+        if required:
+            raise HTTPException(status_code=500, detail="OPS_HMAC_SECRET is required but not configured")
+        return
+
+    ts_raw = (request.headers.get("X-Embody-Ops-Timestamp") or "").strip()
+    sig_raw = (request.headers.get("X-Embody-Ops-Signature") or "").strip()
+    if not ts_raw or not sig_raw:
+        if required:
+            raise HTTPException(status_code=401, detail="ops signature required")
+        return
+
+    try:
+        ts = int(ts_raw)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="invalid ops timestamp")
+
+    now = int(time.time())
+    ttl = _ops_hmac_ttl_seconds()
+    if ts > now + 30 or now - ts > ttl:
+        raise HTTPException(status_code=401, detail="ops signature expired")
+
+    body = await request.body()
+    body_hash = hashlib.sha256(body).hexdigest()
+    path = request.url.path
+    canonical = f"{ts}\n{request.method.upper()}\n{path}\n{body_hash}".encode("utf-8")
+    expected = hmac.new(secret, canonical, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig_raw):
+        raise HTTPException(status_code=401, detail="invalid ops signature")
+
+
+async def _require_ops_action(request: Request) -> None:
+    _require_remote_ops_enabled()
+    _require_auth_strict(request)
+    await _require_ops_hmac(request)
+
+
+async def _require_cluster_action(request: Request) -> None:
+    _require_cluster_control_enabled()
+    _require_auth_strict(request)
+    await _require_ops_hmac(request)
 
 
 def _get_power_allowed_ips() -> list[str]:
@@ -1623,10 +1713,12 @@ def read_meta_gpu_stats(request: Request) -> dict[str, Any]:
 
 
 @app.post("/ops/upgrade")
-def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
+def ops_upgrade(
+    payload: OpsUpgradeRequest,
+    request: Request,
+    _: Any = Depends(_require_ops_action),
+) -> dict[str, Any]:
     """EXPERIMENTAL: update the repo (ff-only) and optionally recreate host-level containers."""
-    _require_remote_ops_enabled()
-    _require_auth_strict(request)
     if payload.recreate_orchestrator_health and (not payload.apply):
         raise HTTPException(status_code=400, detail="recreate_orchestrator_health requires apply=true")
     project_dir = _cluster_project_dir()
@@ -1917,14 +2009,16 @@ def ops_upgrade(payload: OpsUpgradeRequest, request: Request) -> dict[str, Any]:
 
 
 @app.post("/ops/rollout")
-def ops_rollout(payload: OpsRolloutRequest, request: Request) -> dict[str, Any]:
+def ops_rollout(
+    payload: OpsRolloutRequest,
+    request: Request,
+    _: Any = Depends(_require_ops_action),
+) -> dict[str, Any]:
     """EXPERIMENTAL: load a new encrypted game image via a Payments lease.
 
     By default this only loads the image (cluster-safe; no restarts). Optionally, it can force-recreate stopped
     game containers so the next wake/start uses the updated image.
     """
-    _require_remote_ops_enabled()
-    _require_auth_strict(request)
     project_dir = _cluster_project_dir()
     if not project_dir:
         raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
@@ -2046,10 +2140,12 @@ def ops_rollout(payload: OpsRolloutRequest, request: Request) -> dict[str, Any]:
 
 
 @app.post("/ops/pull-image")
-def ops_pull_image(payload: OpsPullImageRequest, request: Request) -> dict[str, Any]:
+def ops_pull_image(
+    payload: OpsPullImageRequest,
+    request: Request,
+    _: Any = Depends(_require_ops_action),
+) -> dict[str, Any]:
     """EXPERIMENTAL: docker pull an image ref (useful for unencrypted game updates)."""
-    _require_remote_ops_enabled()
-    _require_auth_strict(request)
 
     image = payload.image.strip()
     if not image or "\x00" in image or "\n" in image or "\r" in image or " " in image:
@@ -2147,11 +2243,12 @@ def change_project_power_state(project: str, payload: PowerRequest, request: Req
 
 
 @app.post("/cluster/deploy")
-def cluster_deploy_instance(payload: ClusterDeployRequest, request: Request) -> dict[str, Any]:
+def cluster_deploy_instance(
+    payload: ClusterDeployRequest,
+    request: Request,
+    _: Any = Depends(_require_cluster_action),
+) -> dict[str, Any]:
     """EXPERIMENTAL: create/start a cluster-mode avatar compose project (vtuber-<slug>)."""
-    _require_auth(request)
-    _require_cluster_control_enabled()
-
     avatar_id = payload.avatar_id.strip()
     slug = _slugify_avatar_id(avatar_id)
     if not slug:
@@ -2230,11 +2327,12 @@ def cluster_deploy_instance(payload: ClusterDeployRequest, request: Request) -> 
 
 
 @app.post("/cluster/down")
-def cluster_down_instance(payload: ClusterDownRequest, request: Request) -> dict[str, Any]:
+def cluster_down_instance(
+    payload: ClusterDownRequest,
+    request: Request,
+    _: Any = Depends(_require_cluster_action),
+) -> dict[str, Any]:
     """EXPERIMENTAL: stop/remove a cluster-mode avatar compose project (vtuber-<slug>)."""
-    _require_auth(request)
-    _require_cluster_control_enabled()
-
     project = payload.project
     slug: str | None = None
     if not project:

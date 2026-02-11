@@ -64,6 +64,10 @@ Optional:
 - `EDGE_LOCAL_ALLOWLIST` (default `127.0.0.1,::1,172.17.0.1,172.18.0.1`) – base tokens prepended to `VTUBER_ALLOWED_ADDRESSES` when the rotator rewrites it.
 - `EDGE_POWER_ALLOWED_IPS_FILE` (default `/var/lib/vtuber/power-state/power_allowed_ips.txt`) – writes edge CIDRs for `/power` allowlisting.
 - `EDGE_POWER_EXTRA_CIDRS` (default empty) – additional CIDRs to allow for `/power` (ex: Payments job dispatcher IP).
+- `EDGE_OPS_PORTS` (default `9090/tcp`) – port(s) to treat as “ops-only” in the host firewall allowlist.
+- `EDGE_OPS_ALLOW_CIDRS` (default empty; falls back to `EDGE_POWER_EXTRA_CIDRS`) – CIDRs allowed to reach `EDGE_OPS_PORTS`.
+  - Use this to lock `:9090` to the Payments backend (even while other ports remain edge-allowlisted).
+  - When set (or when `EDGE_POWER_EXTRA_CIDRS` is set), the selected ops ports will no longer be reachable from edge CIDRs.
 
 ## Security notes
 

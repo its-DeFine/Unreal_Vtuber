@@ -1,6 +1,9 @@
 import json
+import hashlib
+import hmac
 import importlib
 import os
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -190,6 +193,7 @@ def cluster_app(monkeypatch, tmp_path):
     monkeypatch.setenv("DOCKER_API_VERSION", "1.41")
     monkeypatch.setenv("POWER_STATE_FILE", str(tmp_path / "power_state.json"))
     monkeypatch.setenv("EXPERIMENTAL_REMOTE_CLUSTER_CONTROL", "1")
+    monkeypatch.setenv("POWER_ALLOWED_IPS", "127.0.0.1")
     import orchestrator_health.remote_health_service as svc
 
     importlib.reload(svc)
@@ -206,6 +210,24 @@ def ops_app(monkeypatch, tmp_path):
     monkeypatch.setenv("POWER_STATE_FILE", str(tmp_path / "power_state.json"))
     monkeypatch.setenv("EXPERIMENTAL_REMOTE_OPS", "1")
     monkeypatch.setenv("POWER_ALLOWED_IPS", "127.0.0.1")
+    import orchestrator_health.remote_health_service as svc
+
+    importlib.reload(svc)
+    app = svc.app
+    return app, svc
+
+
+@pytest.fixture
+def ops_hmac_app(monkeypatch, tmp_path):
+    monkeypatch.delenv("POWER_ALLOWED_IPS", raising=False)
+    monkeypatch.delenv("VTUBER_ALLOWED_ADDRESSES", raising=False)
+    monkeypatch.delenv("POWER_ALLOWED_PROJECT_PREFIXES", raising=False)
+    monkeypatch.setenv("DOCKER_API_VERSION", "1.41")
+    monkeypatch.setenv("POWER_STATE_FILE", str(tmp_path / "power_state.json"))
+    monkeypatch.setenv("EXPERIMENTAL_REMOTE_OPS", "1")
+    monkeypatch.setenv("POWER_ALLOWED_IPS", "127.0.0.1")
+    monkeypatch.setenv("OPS_HMAC_SECRET", "test-secret")
+    monkeypatch.setenv("OPS_HMAC_REQUIRED", "1")
     import orchestrator_health.remote_health_service as svc
 
     importlib.reload(svc)
@@ -255,6 +277,70 @@ def test_ops_endpoints_require_allowlist(monkeypatch, tmp_path):
     client = TestClient(svc.app)
     resp = client.post("/ops/upgrade", json={"apply": False})
     assert resp.status_code == 403
+
+
+def _ops_hmac_headers(*, secret: str, method: str, path: str, body_bytes: bytes, ts: int | None = None) -> dict[str, str]:
+    if ts is None:
+        ts = int(time.time())
+    body_hash = hashlib.sha256(body_bytes).hexdigest()
+    canonical = f"{ts}\n{method.upper()}\n{path}\n{body_hash}".encode("utf-8")
+    sig = hmac.new(secret.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+    return {
+        "X-Embody-Ops-Timestamp": str(ts),
+        "X-Embody-Ops-Signature": sig,
+    }
+
+
+def test_ops_hmac_required_rejects_missing_signature(ops_hmac_app):
+    app, _svc = ops_hmac_app
+    client = TestClient(app)
+    resp = client.post("/ops/upgrade", json={"apply": False})
+    assert resp.status_code == 401
+
+
+def test_ops_hmac_allows_valid_signature(ops_hmac_app, monkeypatch):
+    app, svc = ops_hmac_app
+    client = TestClient(app)
+
+    class DummyResult:
+        def __init__(self, exit_code: int = 0, stdout: str = "", stderr: str = ""):
+            self.exit_code = exit_code
+            self.output = (stdout.encode("utf-8"), stderr.encode("utf-8"))
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            git_prefix_a = ["git", "-C", "/tmp/repo"]
+            git_prefix_b = ["git", "-c", "safe.directory=/tmp/repo", "-C", "/tmp/repo"]
+
+            if cmd[: len(git_prefix_a)] == git_prefix_a:
+                git_cmd = cmd[len(git_prefix_a) :]
+            elif cmd[: len(git_prefix_b)] == git_prefix_b:
+                git_cmd = cmd[len(git_prefix_b) :]
+            else:
+                raise AssertionError(f"unexpected cmd: {cmd}")
+
+            if git_cmd[:3] == ["rev-parse", "--is-inside-work-tree"]:
+                return DummyResult(stdout="true\n")
+            if git_cmd[:2] == ["status", "--porcelain"]:
+                return DummyResult(stdout="")
+            if git_cmd[:3] == ["rev-parse", "--short", "HEAD"]:
+                return DummyResult(stdout="abc123\n")
+            if git_cmd[:2] == ["fetch", "-q"]:
+                return DummyResult(stdout="")
+            if git_cmd[:3] == ["pull", "-q", "--ff-only"]:
+                return DummyResult(stdout="")
+            return DummyResult(stdout="")
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    raw = json.dumps({"apply": False}, separators=(",", ":")).encode("utf-8")
+    headers = _ops_hmac_headers(secret="test-secret", method="POST", path="/ops/upgrade", body_bytes=raw)
+    headers["Content-Type"] = "application/json"
+
+    resp = client.post("/ops/upgrade", content=raw, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
 
 
 def test_ops_upgrade_execs_script(ops_app, monkeypatch):
