@@ -170,10 +170,31 @@ def _translate_docker_ports(ports: list[PortRule]) -> list[PortRule]:
     return out
 
 
-def _apply_firewall(chain: str, *, cidrs: list[str], ports: list[PortRule], enforce_exclusive: bool) -> None:
+def _apply_firewall(
+    chain: str,
+    *,
+    cidrs: list[str],
+    ports: list[PortRule],
+    enforce_exclusive: bool,
+    ops_ports: list[PortRule] | None = None,
+    ops_cidrs: list[str] | None = None,
+) -> None:
     _ensure_iptables_chain(chain)
 
     ports = _translate_docker_ports(ports)
+    ops_keys: set[tuple[str, int, int]] = set()
+    ops_allow_deduped: list[str] = []
+    if ops_ports and ops_cidrs:
+        ops_ports = _translate_docker_ports(ops_ports)
+        ops_keys = {(r.proto, r.start, r.end) for r in ops_ports}
+
+        allow = ["127.0.0.1/32", *ops_cidrs]
+        seen = set()
+        for c in allow:
+            if c in seen:
+                continue
+            seen.add(c)
+            ops_allow_deduped.append(c)
 
     # Always preserve loopback access to avoid breaking local checks.
     allow = ["127.0.0.1/32", *cidrs]
@@ -186,7 +207,8 @@ def _apply_firewall(chain: str, *, cidrs: list[str], ports: list[PortRule], enfo
         allow_deduped.append(c)
 
     for rule in ports:
-        for cidr in allow_deduped:
+        per_port_allow = ops_allow_deduped if (ops_keys and (rule.proto, rule.start, rule.end) in ops_keys) else allow_deduped
+        for cidr in per_port_allow:
             args = ["-A", chain, "-p", rule.proto, "-s", cidr]
             if rule.start == rule.end:
                 args += ["--dport", str(rule.start)]
@@ -540,6 +562,8 @@ def main() -> int:
     update_turn = _env_bool("EDGE_UPDATE_TURN", default=False)
     extra_firewall_cidrs = _parse_cidrs_csv(os.environ.get("EDGE_FIREWALL_EXTRA_CIDRS", ""))
     extra_power_cidrs = _parse_cidrs_csv(os.environ.get("EDGE_POWER_EXTRA_CIDRS", ""))
+    ops_ports = _parse_ports(os.environ.get("EDGE_OPS_PORTS", "9090/tcp"))
+    ops_allow_cidrs = _parse_cidrs_csv(os.environ.get("EDGE_OPS_ALLOW_CIDRS", "")) or extra_power_cidrs
     power_allowed_file_raw = (os.environ.get("EDGE_POWER_ALLOWED_IPS_FILE") or "").strip()
     power_allowed_file = Path(power_allowed_file_raw) if power_allowed_file_raw else None
     local_allowlist = (os.environ.get("EDGE_LOCAL_ALLOWLIST") or "127.0.0.1,::1,172.17.0.1,172.18.0.1").strip()
@@ -592,7 +616,14 @@ def main() -> int:
                 _log(f"desired edge_id={desired.get('edge_id')!r} matchmaker={mm_host}:{mm_port} cidrs={cidrs}")
 
             firewall_cidrs = [*cidrs, *extra_firewall_cidrs]
-            _apply_firewall(chain, cidrs=firewall_cidrs, ports=ports, enforce_exclusive=enforce)
+            _apply_firewall(
+                chain,
+                cidrs=firewall_cidrs,
+                ports=ports,
+                enforce_exclusive=enforce,
+                ops_ports=ops_ports if ops_allow_cidrs else None,
+                ops_cidrs=ops_allow_cidrs if ops_allow_cidrs else None,
+            )
 
             if power_allowed_file:
                 allow = ["127.0.0.1/32", *cidrs, *extra_power_cidrs]
