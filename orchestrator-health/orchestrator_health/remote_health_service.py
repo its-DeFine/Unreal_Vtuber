@@ -203,6 +203,14 @@ class OpsUpgradeRequest(BaseModel):
             "HTTP request getting cut off mid-response. Causes a brief control-plane blip (~5-15s)."
         ),
     )
+    recreate_orchestrator_edge_rotator: bool = Field(
+        default=False,
+        description=(
+            "If true (and apply=true), schedule a force-recreate of orchestrator-edge-rotator AFTER "
+            "responding (via a short-lived helper container). Useful for deterministic remote control-plane "
+            "updates without waiting for watchtower."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_upgrade_args(self) -> "OpsUpgradeRequest":
@@ -1721,6 +1729,8 @@ def ops_upgrade(
     """EXPERIMENTAL: update the repo (ff-only) and optionally recreate host-level containers."""
     if payload.recreate_orchestrator_health and (not payload.apply):
         raise HTTPException(status_code=400, detail="recreate_orchestrator_health requires apply=true")
+    if payload.recreate_orchestrator_edge_rotator and (not payload.apply):
+        raise HTTPException(status_code=400, detail="recreate_orchestrator_edge_rotator requires apply=true")
     project_dir = _cluster_project_dir()
     if not project_dir:
         raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
@@ -1960,24 +1970,24 @@ def ops_upgrade(
             recreate_args.extend(["--no-deps", "--force-recreate", *services_recreate])
             run_step("compose_recreate", recreate_args)
 
+        compose_base = [
+            "docker",
+            "compose",
+            "-p",
+            host_project,
+            "--project-directory",
+            project_dir,
+            "--env-file",
+            env_file,
+            "-f",
+            compose_file,
+        ]
+
         if payload.recreate_orchestrator_health:
             # Schedule a self-recreate AFTER returning (and after a small delay),
             # otherwise the HTTP response can get cut off mid-flight.
             self_service = (POWER_SELF_SERVICE or "orchestrator-health").strip() or "orchestrator-health"
             log_path = "/var/lib/vtuber/power-state/ops-recreate-orchestrator-health.log"
-
-            compose_base = [
-                "docker",
-                "compose",
-                "-p",
-                host_project,
-                "--project-directory",
-                project_dir,
-                "--env-file",
-                env_file,
-                "-f",
-                compose_file,
-            ]
             pull_cmd = " ".join(shlex.quote(arg) for arg in [*compose_base, "pull", self_service])
             up_cmd = " ".join(
                 shlex.quote(arg) for arg in [*compose_base, "up", "-d", "--no-deps", "--force-recreate", self_service]
@@ -1997,6 +2007,51 @@ def ops_upgrade(
             run_step(
                 "schedule_recreate_orchestrator_health",
                 ["python3", "-c", code, log_path, "bash", "-lc", shell_cmd],
+            )
+
+        if payload.recreate_orchestrator_edge_rotator:
+            edge_service = "orchestrator-edge-rotator"
+            log_path = "/var/lib/vtuber/power-state/ops-recreate-orchestrator-edge-rotator.log"
+            pull_cmd = " ".join(shlex.quote(arg) for arg in [*compose_base, "pull", edge_service])
+            up_cmd = " ".join(
+                shlex.quote(arg) for arg in [*compose_base, "up", "-d", "--no-deps", "--force-recreate", edge_service]
+            )
+            shell_cmd = f"sleep 2; ({pull_cmd} && {up_cmd}) >> {shlex.quote(log_path)} 2>&1"
+
+            helper_image = ""
+            try:
+                helper_image = (getattr(getattr(executor, "image", None), "id", "") or "").strip()
+            except Exception:
+                helper_image = ""
+            if not helper_image:
+                helper_image = (
+                    "ghcr.io/its-define/unreal_vtuber/orchestrator-edge-rotator:"
+                    f"{payload.service_image_tag or os.environ.get('EMBODY_SERVICE_IMAGE_TAG', 'latest')}"
+                )
+
+            helper_name = f"vtuber-ops-recreate-edge-rotator-{int(time.time())}"
+            run_step(
+                "schedule_recreate_orchestrator_edge_rotator",
+                [
+                    "docker",
+                    "run",
+                    "-d",
+                    "--rm",
+                    "--name",
+                    helper_name,
+                    "-v",
+                    "/var/run/docker.sock:/var/run/docker.sock",
+                    "-v",
+                    f"{project_dir}:{project_dir}",
+                    "-v",
+                    "/var/lib/vtuber/power-state:/var/lib/vtuber/power-state",
+                    "-w",
+                    project_dir,
+                    helper_image,
+                    "sh",
+                    "-lc",
+                    shell_cmd,
+                ],
             )
 
     return {
