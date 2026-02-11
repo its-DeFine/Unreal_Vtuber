@@ -1,0 +1,18 @@
+{#- Qwen3 chat template with thinking DISABLED.
+    Hardcodes enable_thinking=False so <think> tags are never generated.
+    Used by llama.cpp --chat-template-file for S1-FAST inference. -#}
+{%- if messages[0]['role'] == 'system' %}
+    {{- '<|im_start|>system\n' + messages[0]['content'] + '<|im_end|>\n' }}
+{%- endif %}
+{%- for message in messages %}
+    {%- if (message['role'] == 'user') or (message['role'] == 'system' and not loop.first) %}
+        {{- '<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>\n' }}
+    {%- elif message['role'] == 'assistant' %}
+        {%- if message.get('content') %}
+            {{- '<|im_start|>assistant\n' + message['content'] + '<|im_end|>\n' }}
+        {%- endif %}
+    {%- endif %}
+{%- endfor %}
+{%- if add_generation_prompt %}
+    {{- '<|im_start|>assistant\n' }}
+{%- endif %}

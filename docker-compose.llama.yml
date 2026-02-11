@@ -1,0 +1,46 @@
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda  # pin to release tag at deploy time
+    container_name: vtuber-llama-server
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - LLAMA_API_KEY=${LLAMA_API_KEY}
+    volumes:
+      - ./models:/models:ro
+      - ./config/qwen3-no-think.jinja:/etc/llama/chat-template.jinja:ro
+    ports:
+      - "0.0.0.0:8081:8081"
+    command: >
+      --model /models/Qwen3-1.7B-Q8_0.gguf
+      --port 8081
+      --host 0.0.0.0
+      --n-gpu-layers 99
+      --ctx-size 2048
+      --threads 2
+      --flash-attn
+      --chat-template-file /etc/llama/chat-template.jinja
+      --api-key ${LLAMA_API_KEY}
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+        limits:
+          memory: 3G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+networks:
+  default:
+    name: vtuber_network
+    external: true
