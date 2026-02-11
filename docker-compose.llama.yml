@@ -17,7 +17,8 @@ services:
       --n-gpu-layers 99
       --ctx-size 2048
       --threads 2
-      --flash-attn
+      --flash-attn on
+      --reasoning-format none
       --chat-template-file /etc/llama/chat-template.jinja
       --api-key ${LLAMA_API_KEY}
     healthcheck:
