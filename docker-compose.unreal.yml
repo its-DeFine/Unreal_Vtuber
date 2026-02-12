@@ -262,8 +262,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     command:
       [
-        "--interval",
-        "${WATCHTOWER_INTERVAL:-900}",
+        "--run-once",
         "--cleanup",
         "--include-restarting",
         "--label-enable",
