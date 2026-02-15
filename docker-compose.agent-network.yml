@@ -1,0 +1,18 @@
+services:
+  agent-network:
+    build: ./agent-network
+    container_name: embody-agent-network
+    restart: unless-stopped
+    ports:
+      - "${AGENT_NETWORK_PORT:-18900}:18900"
+    environment:
+      - ADMIN_TOKEN=${AGENT_NETWORK_ADMIN_TOKEN:-}
+      - DATABASE_PATH=/data/agent-network.db
+      - LOG_PATH=/data/events.jsonl
+    volumes:
+      - ${AGENT_NETWORK_DATA_DIR:-./data/agent-network}:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
