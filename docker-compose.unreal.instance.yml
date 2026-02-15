@@ -156,6 +156,35 @@ services:
     ports:
       - "${VTUBER_RECORDER_PORT:-8889}:8889"
 
+  # OpenClaw Agent Brain — autonomous agent per avatar instance
+  openclaw-brain:
+    image: ghcr.io/its-define/unreal_vtuber/openclaw-brain:${EMBODY_SERVICE_IMAGE_TAG:-latest}
+    container_name: vtuber-${VTUBER_AVATAR_SLUG:?VTUBER_AVATAR_SLUG is required}-openclaw-brain
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+      - "${OPENCLAW_CHAT_PORT:-18801}:18801"
+    environment:
+      - AGENT_NAME=${AGENT_NAME:-${VTUBER_AVATAR_SLUG}}
+      - AGENT_PERSONA=${AGENT_PERSONA:-A friendly VTuber streamer}
+      - AVATAR_SLUG=${VTUBER_AVATAR_SLUG}
+      - AGENT_NETWORK_URL=${AGENT_NETWORK_URL:-}
+      - AGENT_NETWORK_TOKEN=${AGENT_NETWORK_TOKEN:-}
+      - SCRIPT_RUNNER_URL=http://unreal-game:9877
+      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY:-}
+    volumes:
+      - ${VTUBER_AGENT_MEMORY_DIR:-/home/ubuntu/agent-memory/${VTUBER_AVATAR_SLUG}}:/data/memory
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - unreal-game
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 networks:
   default:
     ipam:

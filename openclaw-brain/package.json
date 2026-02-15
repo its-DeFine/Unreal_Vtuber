@@ -1,0 +1,19 @@
+{
+  "name": "openclaw-brain",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "OpenClaw agent brain for Embody VTuber instances",
+  "scripts": {
+    "start": "node chat-shim.mjs",
+    "client": "node network-client.mjs",
+    "infra": "node infra-manager.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "dockerode": "^4.0.0",
+    "express": "^4.21.0",
+    "node-fetch": "^3.3.0",
+    "ws": "^8.17.0"
+  }
+}

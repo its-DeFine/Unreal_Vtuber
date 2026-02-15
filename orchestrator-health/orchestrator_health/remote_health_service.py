@@ -537,6 +537,8 @@ def _cluster_ports(slot: int) -> dict[str, int]:
         "runner": 9877 + slot,
         "recorder": 8889 + slot,
         "game_tcp": 7777 + slot,
+        "openclaw_gateway": 18789 + slot,
+        "openclaw_chat": 18801 + slot,
     }
 
 
