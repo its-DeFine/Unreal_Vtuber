@@ -62,14 +62,37 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Start infra-manager (background)
+# 4. Start chat-shim (background first, to accept health checks)
+# ---------------------------------------------------------------------------
+echo "[start] Starting chat-shim on :18801 …"
+node /app/chat-shim.mjs &
+SHIM_PID=$!
+
+# Wait for chat-shim readiness (up to 15 s)
+for i in $(seq 1 15); do
+  if curl -sf http://localhost:18801/health >/dev/null 2>&1; then
+    echo "[start] Chat-shim ready"
+    break
+  fi
+  sleep 1
+done
+
+# ---------------------------------------------------------------------------
+# 5. Start infra-manager (background, restarts on crash)
 # ---------------------------------------------------------------------------
 echo "[start] Starting infra-manager …"
-node /app/infra-manager.mjs &
+(
+  while true; do
+    node /app/infra-manager.mjs || true
+    echo "[start] infra-manager exited; restarting in 5 s …"
+    sleep 5
+  done
+) &
 INFRA_PID=$!
 
 # ---------------------------------------------------------------------------
-# 5. Start network-client (background, restarts on crash)
+# 6. Start network-client (background, restarts on crash)
+#    Waits for chat-shim to be ready before connecting to the network
 # ---------------------------------------------------------------------------
 if [ -n "${AGENT_NETWORK_URL:-}" ]; then
   echo "[start] Starting network-client → ${AGENT_NETWORK_URL} …"
@@ -86,7 +109,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Start chat-shim (foreground — container stops if this exits)
+# 7. Wait for chat-shim (foreground — container stops if this exits)
 # ---------------------------------------------------------------------------
-echo "[start] Starting chat-shim on :18801 …"
-exec node /app/chat-shim.mjs
+echo "[start] All processes launched. Waiting for chat-shim (PID ${SHIM_PID}) …"
+wait $SHIM_PID

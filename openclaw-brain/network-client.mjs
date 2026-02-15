@@ -7,6 +7,8 @@
  */
 
 import { MemoryDB } from "./long-term-memory.mjs";
+import { SchedulerClient } from "./scheduler-client.mjs";
+import { GovernanceClient } from "./governance-client.mjs";
 
 const NETWORK_URL = process.env.AGENT_NETWORK_URL || "";
 const NETWORK_TOKEN = process.env.AGENT_NETWORK_TOKEN || "";
@@ -21,6 +23,8 @@ if (!NETWORK_URL) {
 }
 
 const memory = new MemoryDB();
+const scheduler = new SchedulerClient(memory);
+const governance = new GovernanceClient();
 let agentToken = NETWORK_TOKEN;
 let agentId = `${AVATAR_SLUG}-${AGENT_NAME}`;
 
@@ -129,13 +133,14 @@ async function pollMessages() {
 // ---------------------------------------------------------------------------
 async function syncSchedule() {
   try {
-    const data = await api(
-      "GET",
-      `/calendar/events?participant=${agentId}&status=confirmed`
-    );
-    const events = data.events || [];
-    memory.syncEvents(events);
+    const events = await scheduler.syncFromNetwork();
     console.log(`[network] Synced ${events.length} calendar events`);
+
+    // Check for upcoming appointments and prepare context
+    const context = await scheduler.prepareForUpcoming(15);
+    if (context) {
+      console.log(`[network] Upcoming event context: ${context}`);
+    }
   } catch (err) {
     console.error("[network] Schedule sync failed:", err.message);
   }
@@ -170,11 +175,23 @@ async function shareKnowledge() {
 // ---------------------------------------------------------------------------
 async function checkGovernance() {
   try {
-    const data = await api("GET", "/governance/proposals?status=open");
-    const proposals = data.proposals || [];
-    for (const p of proposals) {
+    // Check for open proposals (agents can view but only orchestrators vote)
+    const openProposals = await governance.listProposals("open");
+    for (const p of openProposals) {
       console.log(`[network] Open proposal: ${p.title} (${p.proposal_id})`);
-      // Agents can view but only orchestrators vote
+    }
+
+    // Check for approved proposals and auto-apply applicable ones
+    const approved = await governance.checkApprovedProposals();
+    for (const p of approved) {
+      console.log(`[network] Applying approved proposal: ${p.title}`);
+      const result = await governance.applyProposal(p);
+      memory.logExperience(
+        "maintenance",
+        `Applied governance proposal: ${p.title} — ${JSON.stringify(result)}`,
+        [p.proposer_id],
+        result.applied ? "applied" : "skipped"
+      );
     }
   } catch (err) {
     console.error("[network] Governance check failed:", err.message);
