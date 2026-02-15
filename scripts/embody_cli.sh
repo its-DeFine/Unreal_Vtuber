@@ -36,6 +36,8 @@ CLUSTER_SIGNALING_PORT_BASE="8080"
 CLUSTER_RUNNER_PORT_BASE="9877"
 CLUSTER_RECORDER_PORT_BASE="8889"
 CLUSTER_GAME_TCP_PORT_BASE="7777"
+CLUSTER_OPENCLAW_GATEWAY_PORT_BASE="18789"
+CLUSTER_OPENCLAW_CHAT_PORT_BASE="18801"
 CLUSTER_HOST_PROJECT_NAME="vtuber-host"
 
 USE_COLOR="0"
@@ -66,6 +68,7 @@ Usage:
   ./scripts/embody_cli.sh verify           # Full health/consistency checks (optionally auto-fix)
   ./scripts/embody_cli.sh power            # Sleep/wake via orchestrator-health /power
   ./scripts/embody_cli.sh cluster <cmd>    # Multi-instance cluster mode (plan/list/up/down/status/logs)
+  ./scripts/embody_cli.sh agent <cmd>      # Agent management (setup/start/stop/coach/schedule/network/governance)
 
 Day-to-day commands:
   ./scripts/embody_cli.sh start [--gpu <id|all|none>]   # Start stack (defaults to detached)
@@ -2176,12 +2179,14 @@ cluster_read_config() {
 
 cluster_instance_ports() {
   local slot="$1"
-  local signaling runner recorder game
+  local signaling runner recorder game openclaw_gw openclaw_chat
   signaling=$(( CLUSTER_SIGNALING_PORT_BASE + slot ))
   runner=$(( CLUSTER_RUNNER_PORT_BASE + slot ))
   recorder=$(( CLUSTER_RECORDER_PORT_BASE + slot ))
   game=$(( CLUSTER_GAME_TCP_PORT_BASE + slot ))
-  printf '%s\t%s\t%s\t%s\n' "$signaling" "$runner" "$recorder" "$game"
+  openclaw_gw=$(( CLUSTER_OPENCLAW_GATEWAY_PORT_BASE + slot ))
+  openclaw_chat=$(( CLUSTER_OPENCLAW_CHAT_PORT_BASE + slot ))
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$signaling" "$runner" "$recorder" "$game" "$openclaw_gw" "$openclaw_chat"
 }
 
 cluster_instance_subnet() {
@@ -2879,6 +2884,315 @@ cluster_logs() {
   else
     cluster_compose_instance "$project" "$slug" logs --tail=200
   fi
+}
+
+# =============================================================================
+# cmd_agent — Agent management (openclaw-brain + network)
+# =============================================================================
+
+_agent_config_path() {
+  echo "${TARGET_HOME}/.embody/agent.json"
+}
+
+_agent_chat_url() {
+  local port="${OPENCLAW_CHAT_PORT:-18801}"
+  echo "http://localhost:${port}"
+}
+
+_agent_network_url() {
+  local url="${AGENT_NETWORK_URL:-}"
+  if [ -z "$url" ]; then
+    local cfg; cfg="$(_agent_config_path)"
+    if [ -f "$cfg" ]; then
+      url=$(python3 -c "import json; print(json.load(open('$cfg')).get('network_url',''))" 2>/dev/null || true)
+    fi
+  fi
+  echo "$url"
+}
+
+_agent_network_token() {
+  local tok="${AGENT_NETWORK_TOKEN:-}"
+  if [ -z "$tok" ]; then
+    local cfg; cfg="$(_agent_config_path)"
+    if [ -f "$cfg" ]; then
+      tok=$(python3 -c "import json; print(json.load(open('$cfg')).get('network_token',''))" 2>/dev/null || true)
+    fi
+  fi
+  echo "$tok"
+}
+
+cmd_agent() {
+  local sub="${1:-}"
+  shift || true
+  case "$sub" in
+    setup)
+      bash "$(dirname "$0")/agent-setup-wizard.sh" "$@"
+      ;;
+    start)
+      echo "Starting openclaw-brain …"
+      docker compose -f docker-compose.unreal.instance.yml up -d openclaw-brain
+      ;;
+    stop)
+      echo "Stopping openclaw-brain …"
+      docker compose -f docker-compose.unreal.instance.yml stop openclaw-brain
+      ;;
+    restart)
+      echo "Restarting openclaw-brain …"
+      docker compose -f docker-compose.unreal.instance.yml restart openclaw-brain
+      ;;
+    logs)
+      docker compose -f docker-compose.unreal.instance.yml logs -f --tail=100 openclaw-brain
+      ;;
+    status)
+      local url; url="$(_agent_chat_url)"
+      echo "Agent status:"
+      curl -sf "${url}/health" 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "  (agent not reachable at ${url})"
+      ;;
+    coach)
+      local directive="${1:-}"
+      if [ -z "$directive" ]; then
+        echo "Usage: agent coach \"<directive text>\"" >&2
+        return 1
+      fi
+      local url; url="$(_agent_chat_url)"
+      curl -sf -X POST "${url}/coaching" \
+        -H "Content-Type: application/json" \
+        -d "{\"directive\":$(printf '%s' "$directive" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"priority\":\"${2:-medium}\"}" \
+        | python3 -m json.tool 2>/dev/null || echo "Failed to send coaching directive"
+      ;;
+    personality)
+      local mem_dir="${VTUBER_AGENT_MEMORY_DIR:-/home/ubuntu/agent-memory/${VTUBER_AVATAR_SLUG:-default}}"
+      local workspace="/workspace"
+      if [ -f "${mem_dir}/../workspace/SOUL.md" ] 2>/dev/null; then
+        cat "${mem_dir}/../workspace/SOUL.md"
+      else
+        echo "SOUL.md not found. Run 'agent setup' first."
+      fi
+      ;;
+    memory)
+      local subcmd="${1:-}"
+      shift || true
+      case "$subcmd" in
+        search)
+          local query="${1:-}"
+          if [ -z "$query" ]; then
+            echo "Usage: agent memory search \"<query>\"" >&2
+            return 1
+          fi
+          local url; url="$(_agent_chat_url)"
+          echo "Searching agent memory …"
+          curl -sf "${url}/network/knowledge?q=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$query'))")" \
+            | python3 -m json.tool 2>/dev/null || echo "Search failed"
+          ;;
+        *)
+          local url; url="$(_agent_chat_url)"
+          echo "Agent memory stats:"
+          curl -sf "${url}/health" 2>/dev/null \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('memory',{}), indent=2))" \
+            2>/dev/null || echo "  (agent not reachable)"
+          ;;
+      esac
+      ;;
+    skills)
+      local subcmd="${1:-list}"
+      shift || true
+      case "$subcmd" in
+        list)
+          local mem_dir="${VTUBER_AGENT_MEMORY_DIR:-/home/ubuntu/agent-memory/${VTUBER_AVATAR_SLUG:-default}}"
+          if [ -d "${mem_dir}/../workspace/skills" ] 2>/dev/null; then
+            ls -1 "${mem_dir}/../workspace/skills/"
+          else
+            echo "No skills directory found."
+          fi
+          ;;
+        add)
+          local file="${1:-}"
+          if [ -z "$file" ] || [ ! -f "$file" ]; then
+            echo "Usage: agent skills add <skill-file.md>" >&2
+            return 1
+          fi
+          local mem_dir="${VTUBER_AGENT_MEMORY_DIR:-/home/ubuntu/agent-memory/${VTUBER_AVATAR_SLUG:-default}}"
+          local target="${mem_dir}/../workspace/skills/$(basename "$file")"
+          cp "$file" "$target"
+          echo "Installed skill: $(basename "$file")"
+          ;;
+      esac
+      ;;
+    schedule)
+      local subcmd="${1:-list}"
+      shift || true
+      case "$subcmd" in
+        list)
+          local url; url="$(_agent_chat_url)"
+          echo "Upcoming schedule:"
+          curl -sf "${url}/schedule" | python3 -m json.tool 2>/dev/null || echo "  (agent not reachable)"
+          ;;
+        book)
+          local url; url="$(_agent_chat_url)"
+          echo "Booking appointment …"
+          # Expects JSON on stdin or as argument
+          local body="${1:-}"
+          if [ -z "$body" ]; then
+            echo "Usage: agent schedule book '{\"title\":\"...\",\"participants\":[...],\"scheduled_at\":\"...\"}'" >&2
+            return 1
+          fi
+          curl -sf -X POST "${url}/schedule/book" \
+            -H "Content-Type: application/json" \
+            -d "$body" | python3 -m json.tool 2>/dev/null || echo "Booking failed"
+          ;;
+        cancel)
+          local event_id="${1:-}"
+          if [ -z "$event_id" ]; then
+            echo "Usage: agent schedule cancel <event_id>" >&2
+            return 1
+          fi
+          local nurl; nurl="$(_agent_network_url)"
+          local ntok; ntok="$(_agent_network_token)"
+          if [ -z "$nurl" ]; then echo "Network not configured" >&2; return 1; fi
+          curl -sf -X PUT "${nurl}/api/v1/calendar/events/${event_id}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${ntok}" \
+            -d '{"status":"cancelled"}' | python3 -m json.tool 2>/dev/null || echo "Cancel failed"
+          ;;
+      esac
+      ;;
+    network)
+      local subcmd="${1:-status}"
+      shift || true
+      case "$subcmd" in
+        register)
+          local nurl; nurl="$(_agent_network_url)"
+          local ntok; ntok="$(_agent_network_token)"
+          if [ -z "$nurl" ]; then echo "Network URL not configured" >&2; return 1; fi
+          local agent_name="${AGENT_NAME:-${VTUBER_AVATAR_SLUG:-agent}}"
+          local avatar_slug="${VTUBER_AVATAR_SLUG:-default}"
+          curl -sf -X POST "${nurl}/api/v1/agents/register" \
+            -H "Content-Type: application/json" \
+            -d "{\"agent_id\":\"${avatar_slug}-${agent_name}\",\"name\":\"${agent_name}\",\"avatar_slug\":\"${avatar_slug}\",\"capabilities\":[\"streaming\",\"scheduling\",\"governance\"]}" \
+            | python3 -m json.tool 2>/dev/null || echo "Registration failed"
+          ;;
+        status)
+          local nurl; nurl="$(_agent_network_url)"
+          if [ -z "$nurl" ]; then
+            echo "Network: not configured"
+          else
+            echo "Network URL: ${nurl}"
+            curl -sf "${nurl}/health" | python3 -m json.tool 2>/dev/null || echo "  (network not reachable)"
+          fi
+          ;;
+        peers)
+          local url; url="$(_agent_chat_url)"
+          echo "Network peers:"
+          curl -sf "${url}/network/peers" | python3 -m json.tool 2>/dev/null || echo "  (agent not reachable)"
+          ;;
+        knowledge)
+          local query="${1:-}"
+          if [ -z "$query" ]; then
+            echo "Usage: agent network knowledge \"<query>\"" >&2
+            return 1
+          fi
+          local url; url="$(_agent_chat_url)"
+          curl -sf "${url}/network/knowledge?q=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$query'))")" \
+            | python3 -m json.tool 2>/dev/null || echo "  (query failed)"
+          ;;
+      esac
+      ;;
+    governance)
+      local subcmd="${1:-list}"
+      shift || true
+      case "$subcmd" in
+        list)
+          local nurl; nurl="$(_agent_network_url)"
+          local ntok; ntok="$(_agent_network_token)"
+          if [ -z "$nurl" ]; then echo "Network not configured" >&2; return 1; fi
+          echo "Governance proposals:"
+          curl -sf "${nurl}/api/v1/governance/proposals" \
+            -H "Authorization: Bearer ${ntok}" \
+            | python3 -m json.tool 2>/dev/null || echo "  (failed)"
+          ;;
+        propose)
+          local title="${1:-}"
+          local desc="${2:-}"
+          if [ -z "$title" ]; then
+            echo "Usage: agent governance propose \"<title>\" \"<description>\"" >&2
+            return 1
+          fi
+          local url; url="$(_agent_chat_url)"
+          curl -sf -X POST "${url}/governance/propose" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\":\"config_change\",\"title\":$(printf '%s' "$title" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),\"description\":$(printf '%s' "$desc" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}" \
+            | python3 -m json.tool 2>/dev/null || echo "  (failed)"
+          ;;
+        vote)
+          local pid="${1:-}"
+          local vote="${2:-}"
+          if [ -z "$pid" ] || [ -z "$vote" ]; then
+            echo "Usage: agent governance vote <proposal_id> approve|reject" >&2
+            return 1
+          fi
+          local nurl; nurl="$(_agent_network_url)"
+          local ntok; ntok="$(_agent_network_token)"
+          if [ -z "$nurl" ]; then echo "Network not configured" >&2; return 1; fi
+          curl -sf -X POST "${nurl}/api/v1/governance/proposals/${pid}/vote" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${ntok}" \
+            -d "{\"voter_id\":\"orchestrator\",\"vote\":\"${vote}\"}" \
+            | python3 -m json.tool 2>/dev/null || echo "  (failed)"
+          ;;
+        apply)
+          local pid="${1:-}"
+          if [ -z "$pid" ]; then
+            echo "Usage: agent governance apply <proposal_id>" >&2
+            return 1
+          fi
+          local nurl; nurl="$(_agent_network_url)"
+          local ntok; ntok="$(_agent_network_token)"
+          if [ -z "$nurl" ]; then echo "Network not configured" >&2; return 1; fi
+          curl -sf -X POST "${nurl}/api/v1/governance/proposals/${pid}/apply" \
+            -H "Authorization: Bearer ${ntok}" \
+            | python3 -m json.tool 2>/dev/null || echo "  (failed)"
+          ;;
+      esac
+      ;;
+    -h|--help|help|"")
+      cat <<'AGENT_HELP'
+Agent management commands:
+
+  agent setup                             Interactive agent setup wizard
+  agent start                             Start openclaw-brain container
+  agent stop                              Stop openclaw-brain container
+  agent restart                           Restart openclaw-brain container
+  agent logs                              Tail openclaw-brain logs
+  agent status                            Show agent state, metrics, memory stats
+  agent coach "<directive>"               Send coaching directive to agent
+  agent personality                       View agent persona (SOUL.md)
+  agent memory                            View long-term memory stats
+  agent memory search "<query>"           Search agent's long-term memory
+
+  agent skills list                       List installed skills
+  agent skills add <file>                 Add a skill file to workspace
+
+  agent schedule list                     Show upcoming schedule
+  agent schedule book '<json>'            Book appointment for agent
+  agent schedule cancel <event_id>        Cancel appointment
+
+  agent network register                  Register with agent network
+  agent network status                    Network connectivity + health
+  agent network peers                     List other agents on the network
+  agent network knowledge "<query>"       Search shared knowledge
+
+  agent governance list                   List governance proposals
+  agent governance propose "<title>" "<description>"  Submit proposal
+  agent governance vote <id> approve|reject            Vote on proposal
+  agent governance apply <id>             Apply approved proposal
+AGENT_HELP
+      ;;
+    *)
+      echo "Unknown agent subcommand: $sub" >&2
+      echo "Run './scripts/embody_cli.sh agent help' for usage." >&2
+      return 1
+      ;;
+  esac
 }
 
 cmd_cluster() {
@@ -4723,6 +5037,10 @@ main() {
     cluster)
       shift || true
       cmd_cluster "$@"
+      ;;
+    agent)
+      shift || true
+      cmd_agent "$@"
       ;;
     capacity)
       cmd_capacity
