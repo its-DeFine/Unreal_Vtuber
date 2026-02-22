@@ -1,0 +1,34 @@
+skill: mcp-negotiation
+version: 1.0.0
+description: "MCP server channel for workload negotiation on Livepeer orchestrators"
+core_version: 0.1.0
+adds:
+  - src/service.ts                       # Shared negotiator lifecycle (standalone + embedded)
+  - src/openclaw/plugin.ts              # OpenClaw plugin registration
+  - src/openclaw/channel.ts             # mcp-negotiation channel metadata + config adapter
+  - src/openclaw/plugin-config.ts       # Plugin config parser + schema/ui hints
+  - src/openclaw/default-config.ts      # Bootstrap default negotiator.yaml
+  - src/openclaw/index.ts               # OpenClaw exports
+  - openclaw.plugin.json                # Plugin manifest for OpenClaw discovery
+  - .claude/skills/add-mcp-negotiation/SKILL.md
+modifies:
+  - src/index.ts                        # Standalone entry uses shared lifecycle
+  - package.json                        # OpenClaw extension metadata + dependency
+structured:
+  npm_dependencies:
+    "@modelcontextprotocol/sdk": "^1.0.0"
+    "better-sqlite3": "^11.0.0"
+    "yaml": "^2.4.0"
+    "chokidar": "^4.0.0"
+    "openclaw": "2026.2.21-2"
+  env_additions:
+    - NEGOTIATOR_HOST
+    - NEGOTIATOR_PORT
+    - NEGOTIATOR_CONFIG_FILE
+    - ORCHESTRATOR_HEALTH_URL
+    - ORCHESTRATOR_ID
+    - NEGOTIATOR_KILLSWITCH
+    - NEGOTIATOR_RATE_LIMIT
+conflicts: []
+depends: []
+test: "npx vitest run tests/service.test.ts tests/openclaw-plugin.test.ts tests/integration.test.ts"

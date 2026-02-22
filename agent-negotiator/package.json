@@ -4,6 +4,22 @@
   "description": "MCP server for autonomous workload negotiation on Livepeer orchestrators",
   "type": "module",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./openclaw": "./dist/openclaw/plugin.js"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/openclaw/plugin.js"
+    ],
+    "channel": {
+      "id": "mcp-negotiation",
+      "label": "MCP Negotiation",
+      "selectionLabel": "MCP Negotiation",
+      "docsPath": "/docs/agent-negotiator.md",
+      "blurb": "Customer-facing MCP quote and booking API for orchestrator workloads."
+    }
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
@@ -20,6 +36,14 @@
     "yaml": "^2.4.0",
     "express": "^4.21.0",
     "zod": "^3.23.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.2.21-2"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",

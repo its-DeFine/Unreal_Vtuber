@@ -5,14 +5,24 @@ services:
     restart: unless-stopped
     env_file: [.env]
     environment:
+      NEGOTIATOR_HOST: 0.0.0.0
       NEGOTIATOR_PORT: 9100
       NEGOTIATOR_CONFIG_FILE: /config/negotiator.yaml
       NEGOTIATOR_DATA_DIR: /data
+      NEGOTIATOR_RATE_LIMIT: ${NEGOTIATOR_RATE_LIMIT:-30}
       ORCHESTRATOR_HEALTH_URL: http://vtuber-orchestrator-health:9090
       ORCHESTRATOR_ID: ${ORCHESTRATOR_ID}
     volumes:
       - ./config/negotiator:/config:ro
       - negotiator-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
     ports:
       - "${NEGOTIATOR_PORT:-9100}:9100"
     networks:
