@@ -1,0 +1,28 @@
+services:
+  agent-negotiator:
+    build: ./agent-negotiator
+    container_name: vtuber-agent-negotiator
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      NEGOTIATOR_PORT: 9100
+      NEGOTIATOR_CONFIG_FILE: /config/negotiator.yaml
+      NEGOTIATOR_DATA_DIR: /data
+      ORCHESTRATOR_HEALTH_URL: http://vtuber-orchestrator-health:9090
+      ORCHESTRATOR_ID: ${ORCHESTRATOR_ID}
+    volumes:
+      - ./config/negotiator:/config:ro
+      - negotiator-data:/data
+    ports:
+      - "${NEGOTIATOR_PORT:-9100}:9100"
+    networks:
+      - vtuber_network
+    depends_on:
+      - orchestrator-health
+
+volumes:
+  negotiator-data:
+
+networks:
+  vtuber_network:
+    external: true
