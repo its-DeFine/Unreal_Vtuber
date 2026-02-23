@@ -33,6 +33,7 @@ export interface KillswitchConfig {
 }
 
 export interface AgentConfig {
+  provider: "openai" | "anthropic";
   model: string;
   custom_instructions: string;
 }
@@ -73,10 +74,62 @@ const DEFAULTS: NegotiatorConfig = {
   ],
   killswitch: { enabled: false },
   agent: {
-    model: "claude-sonnet-4-5-20250929",
+    provider: "openai",
+    model: "gpt-4.1",
     custom_instructions: "Be professional but approachable.",
   },
 };
+
+const API_ONLY_PROVIDER_ALLOWLIST = new Set<AgentConfig["provider"]>([
+  "openai",
+  "anthropic",
+]);
+
+const LOCAL_MODEL_MARKERS = [
+  "ollama",
+  "llama.cpp",
+  "llama-cpp",
+  "gguf",
+  "vllm",
+  "localhost",
+  "127.0.0.1",
+  "file:",
+];
+
+function validateApiOnlyAgentConfig(agent: Partial<AgentConfig> | undefined): AgentConfig {
+  const provider = agent?.provider ?? DEFAULTS.agent.provider;
+  if (!API_ONLY_PROVIDER_ALLOWLIST.has(provider)) {
+    throw new Error(
+      `agent.provider must be one of: ${Array.from(API_ONLY_PROVIDER_ALLOWLIST).join(", ")}`
+    );
+  }
+
+  const model = (agent?.model ?? DEFAULTS.agent.model).trim();
+  if (model.length === 0) {
+    throw new Error("agent.model must not be empty");
+  }
+
+  const modelLower = model.toLowerCase();
+  if (
+    model.startsWith("/") ||
+    modelLower.includes("\\") ||
+    modelLower.endsWith(".gguf") ||
+    LOCAL_MODEL_MARKERS.some((marker) => modelLower.includes(marker))
+  ) {
+    throw new Error(
+      `agent.model '${model}' appears to reference a local/self-hosted runtime. API models only are allowed.`
+    );
+  }
+
+  const custom_instructions =
+    agent?.custom_instructions ?? DEFAULTS.agent.custom_instructions;
+
+  return {
+    provider,
+    model,
+    custom_instructions,
+  };
+}
 
 export class ConfigLoader extends EventEmitter {
   private config: NegotiatorConfig;
@@ -90,12 +143,9 @@ export class ConfigLoader extends EventEmitter {
   }
 
   private load(): NegotiatorConfig {
-    if (!fs.existsSync(this.configPath)) {
-      return { ...DEFAULTS };
-    }
-
-    const raw = fs.readFileSync(this.configPath, "utf-8");
-    const parsed = parseYaml(raw) ?? {};
+    const parsed = fs.existsSync(this.configPath)
+      ? (parseYaml(fs.readFileSync(this.configPath, "utf-8")) ?? {})
+      : {};
 
     return {
       pricing: { ...DEFAULTS.pricing, ...parsed.pricing },
@@ -105,7 +155,7 @@ export class ConfigLoader extends EventEmitter {
           ? parsed.session_types
           : DEFAULTS.session_types,
       killswitch: { ...DEFAULTS.killswitch, ...parsed.killswitch },
-      agent: { ...DEFAULTS.agent, ...parsed.agent },
+      agent: validateApiOnlyAgentConfig(parsed.agent),
     };
   }
 

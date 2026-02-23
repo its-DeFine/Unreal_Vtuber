@@ -27,7 +27,8 @@ killswitch:
   enabled: false
 
 agent:
-  model: "claude-sonnet-4-5-20250929"
+  provider: "openai"
+  model: "gpt-4.1"
   custom_instructions: "Be professional but approachable."
 `;
 

@@ -155,7 +155,7 @@ export const agentNegotiatorPluginConfigSchema = {
     },
     healthUrl: {
       label: "Orchestrator Health URL",
-      help: "Base URL for /meta/gpu-stats and /cluster deploy/down endpoints.",
+      help: "Base URL for /meta/gpu/stats and /cluster deploy/down endpoints.",
       placeholder: "http://vtuber-orchestrator-health:9090",
     },
     signalingPublicBaseUrl: {

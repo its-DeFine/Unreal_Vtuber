@@ -2,10 +2,10 @@
 
 `agent-negotiator` exposes a customer-facing MCP endpoint for orchestrator workload negotiation.
 
-It supports two deployment modes:
+Deployment mode is NanoClaw-only:
 
-1. Standalone container/service (current compose overlay)
-2. Embedded NanoClaw extension (`nanoclaw.plugin.json` + `nanoclaw.extensions`)
+1. Embedded NanoClaw extension (`nanoclaw.plugin.json` + `nanoclaw.extensions`)
+2. Standalone startup is intentionally disabled (`src/index.ts` exits with an error)
 
 ## Customer-facing MCP tools
 
@@ -22,28 +22,11 @@ It supports two deployment modes:
 - SQLite state-machine enforcement for quotes/bookings
 - JSONL audit log
 
-## Standalone deployment
-
-Use compose overlay:
-
-```bash
-docker compose -f docker-compose.unreal.yml -f docker-compose.negotiator.yml up -d
-```
-
-Relevant env values:
-
-- `NEGOTIATOR_HOST` (default `0.0.0.0`)
-- `NEGOTIATOR_PORT` (default `9100`)
-- `NEGOTIATOR_CONFIG_FILE` (default `/config/negotiator.yaml`)
-- `NEGOTIATOR_RATE_LIMIT` (default `30` req/min per IP)
-- `NEGOTIATOR_KILLSWITCH` (`0` or `1`)
-- `NEGOTIATOR_SIGNALING_PUBLIC_BASE_URL` (optional; routable base URL returned in `signaling_url`)
-- `NEGOTIATOR_SIGNALING_CHECK_BASE_URL` (optional; internal base URL used for signaling health polls)
-
 ## NanoClaw embedded mode
 
 The package publishes a NanoClaw extension entrypoint:
 
+- `package.json` → `main: "./dist/nanoclaw/index.js"`
 - `package.json` → `nanoclaw.extensions: ["./dist/nanoclaw/plugin.js"]`
 - `nanoclaw.plugin.json` defines id/config schema/channel id `mcp-negotiation`
 
@@ -54,6 +37,14 @@ When enabled, the plugin registers:
 - Command: `/negotiator` status
 
 The plugin will auto-generate a default negotiator YAML under plugin `stateDir` when no config file is provided.
+
+## API model policy
+
+`agent-negotiator` enforces API-backed model configuration in `negotiator.yaml`:
+
+- Allowed `agent.provider`: `openai`, `anthropic`
+- `agent.model` must be an API model ID
+- Local/self-hosted markers (e.g. `ollama`, `llama.cpp`, `gguf`, `localhost`, `file:`) are rejected at config load time
 
 ## Verification
 

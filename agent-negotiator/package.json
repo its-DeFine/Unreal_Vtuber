@@ -1,12 +1,13 @@
 {
   "name": "@embody/agent-negotiator",
   "version": "0.1.0",
-  "description": "MCP server for autonomous workload negotiation on Livepeer orchestrators",
+  "description": "NanoClaw-embedded MCP service for orchestrator workload negotiation",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/nanoclaw/index.js",
   "exports": {
-    ".": "./dist/index.js",
-    "./nanoclaw": "./dist/nanoclaw/plugin.js"
+    ".": "./dist/nanoclaw/index.js",
+    "./nanoclaw": "./dist/nanoclaw/plugin.js",
+    "./service": "./dist/service.js"
   },
   "nanoclaw": {
     "extensions": [
@@ -22,7 +23,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch src/nanoclaw/plugin.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",

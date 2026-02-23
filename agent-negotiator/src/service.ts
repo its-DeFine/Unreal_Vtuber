@@ -1,9 +1,8 @@
 /**
  * Shared service lifecycle for agent-negotiator.
  *
- * This lets us run the same negotiator runtime in two modes:
- * 1) standalone process (`src/index.ts`)
- * 2) embedded NanoClaw plugin service (`src/nanoclaw/plugin.ts`)
+ * The negotiator runtime is intended to run only via the NanoClaw plugin
+ * service (`src/nanoclaw/plugin.ts`).
  */
 
 import http from "node:http";
@@ -42,6 +41,13 @@ export interface NegotiatorServiceHandle {
   config: NegotiatorServiceConfig;
   port: number;
   stop: () => Promise<void>;
+}
+
+export type NegotiatorRuntimeSource = "nanoclaw-plugin";
+
+export interface StartNegotiatorServiceOptions {
+  logger?: NegotiatorLogger;
+  runtimeSource: NegotiatorRuntimeSource;
 }
 
 const defaultLogger: NegotiatorLogger = {
@@ -83,8 +89,14 @@ export function loadNegotiatorEnvConfig(
 
 export async function startNegotiatorService(
   config: NegotiatorServiceConfig,
-  options: { logger?: NegotiatorLogger } = {}
+  options: StartNegotiatorServiceOptions
 ): Promise<NegotiatorServiceHandle> {
+  if (options.runtimeSource !== "nanoclaw-plugin") {
+    throw new Error(
+      "agent-negotiator runtime is restricted to NanoClaw plugin startup (runtimeSource=nanoclaw-plugin)"
+    );
+  }
+
   const logger = options.logger ?? defaultLogger;
 
   mkdirSync(config.dataDir, { recursive: true });

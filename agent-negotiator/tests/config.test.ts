@@ -69,4 +69,32 @@ session_types:
     expect(cfg.session_types).toHaveLength(1);
     expect(cfg.session_types[0].id).toBe("custom_type");
   });
+
+  it("rejects non-API agent providers", () => {
+    const configPath = path.join(tmpDir, "invalid-provider.yaml");
+    fs.writeFileSync(
+      configPath,
+      `
+agent:
+  provider: "ollama"
+  model: "llama3.1"
+`
+    );
+
+    expect(() => new ConfigLoader(configPath)).toThrow(/agent.provider must be one of/);
+  });
+
+  it("rejects local/self-hosted model identifiers", () => {
+    const configPath = path.join(tmpDir, "invalid-model.yaml");
+    fs.writeFileSync(
+      configPath,
+      `
+agent:
+  provider: "openai"
+  model: "file:/models/llama-3.1.gguf"
+`
+    );
+
+    expect(() => new ConfigLoader(configPath)).toThrow(/API models only are allowed/);
+  });
 });

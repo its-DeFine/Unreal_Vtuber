@@ -80,7 +80,10 @@ const plugin = {
           return;
         }
 
-        running = await startNegotiatorService(resolved, { logger });
+        running = await startNegotiatorService(resolved, {
+          logger,
+          runtimeSource: "nanoclaw-plugin",
+        });
       },
       stop: async () => {
         if (!running) {

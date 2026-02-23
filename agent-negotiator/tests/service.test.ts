@@ -21,6 +21,8 @@ describe("startNegotiatorService", () => {
       ethUsdRate: 2500,
       rateLimitPerMinute: 100,
       quoteCleanupIntervalMs: 30_000,
+    }, {
+      runtimeSource: "nanoclaw-plugin",
     });
 
     const response = await fetch(`http://127.0.0.1:${service.port}/health`);
