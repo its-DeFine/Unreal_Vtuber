@@ -1,4 +1,4 @@
-declare module "nanoclaw/plugin-sdk" {
+declare module "openclaw/plugin-sdk" {
   export type ChannelPlugin<TAccount = unknown> = {
     id: string;
     meta: {
@@ -98,4 +98,8 @@ declare module "nanoclaw/plugin-sdk" {
     resolvePath: (input: string) => string;
     on: (...args: unknown[]) => void;
   };
+}
+
+declare module "nanoclaw/plugin-sdk" {
+  export * from "openclaw/plugin-sdk";
 }

@@ -15,6 +15,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import express from "express";
+import { timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
 import { z } from "zod";
 
@@ -679,6 +680,7 @@ export interface McpHttpServerOptions {
   port: number;
   rateLimiter: RateLimiter;
   audit: AuditLogger;
+  authToken?: string;
 }
 
 export function createHttpServer(
@@ -687,9 +689,44 @@ export function createHttpServer(
 ) {
   const app = express();
   const { rateLimiter, audit } = options;
+  const authToken = options.authToken?.trim();
 
   // Track SSE transports for cleanup
   const transports = new Map<string, SSEServerTransport>();
+
+  // Optional OpenClaw-style token auth on MCP endpoints.
+  // Health check stays open for orchestration probes.
+  app.use((req: Request, res: Response, next) => {
+    if (!authToken || req.path === "/health") {
+      next();
+      return;
+    }
+
+    const authHeader = (req.headers.authorization ?? "").toString();
+    const tokenHeader = (req.headers["x-openclaw-token"] ?? "").toString();
+    const presented = authHeader.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length).trim()
+      : tokenHeader.trim();
+
+    if (!presented) {
+      audit.log("error", { action: "auth", path: req.path, reason: "missing_token" });
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+
+    const expected = Buffer.from(authToken, "utf8");
+    const received = Buffer.from(presented, "utf8");
+    const valid =
+      expected.length === received.length && timingSafeEqual(expected, received);
+
+    if (!valid) {
+      audit.log("error", { action: "auth", path: req.path, reason: "invalid_token" });
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+
+    next();
+  });
 
   // Rate limiting middleware
   app.use((req: Request, res: Response, next) => {

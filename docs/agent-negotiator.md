@@ -2,10 +2,12 @@
 
 `agent-negotiator` exposes a customer-facing MCP endpoint for orchestrator workload negotiation.
 
-Deployment mode is NanoClaw-only:
+Current deployment is a temporary OpenClaw compatibility bridge:
 
-1. Embedded NanoClaw extension (`nanoclaw.plugin.json` + `nanoclaw.extensions`)
+1. Embedded OpenClaw-compatible extension (`openclaw.plugin.json` + `openclaw.extensions`)
 2. Standalone startup is intentionally disabled (`src/index.ts` exits with an error)
+
+Planned follow-up: revert this bridge to the hardened NanoClaw implementation once the secure runtime path is finalized.
 
 ## Customer-facing MCP tools
 
@@ -22,13 +24,14 @@ Deployment mode is NanoClaw-only:
 - SQLite state-machine enforcement for quotes/bookings
 - JSONL audit log
 
-## NanoClaw embedded mode
+## Embedded Claw Mode (temporary OpenClaw compatibility)
 
-The package publishes a NanoClaw extension entrypoint:
+The package currently publishes an OpenClaw-compatible extension entrypoint:
 
 - `package.json` → `main: "./dist/nanoclaw/index.js"`
-- `package.json` → `nanoclaw.extensions: ["./dist/nanoclaw/plugin.js"]`
-- `nanoclaw.plugin.json` defines id/config schema/channel id `mcp-negotiation`
+- `package.json` → `openclaw.extensions: ["./dist/nanoclaw/plugin.js"]` (temporary bridge)
+- `openclaw.plugin.json` defines id/config schema/channel id `mcp-negotiation`
+- `nanoclaw.plugin.json` is kept only for forward compatibility with the planned hardened NanoClaw runtime
 
 When enabled, the plugin registers:
 
@@ -37,6 +40,17 @@ When enabled, the plugin registers:
 - Command: `/negotiator` status
 
 The plugin will auto-generate a default negotiator YAML under plugin `stateDir` when no config file is provided.
+
+## OpenClaw-style auth token
+
+To match existing Chief/Athena auth behavior, set:
+
+- `OPENCLAW_GATEWAY_TOKEN=<secret>`
+
+When set, all MCP endpoints except `/health` require:
+
+- `Authorization: Bearer <secret>` or
+- `x-openclaw-token: <secret>`
 
 ## API model policy
 

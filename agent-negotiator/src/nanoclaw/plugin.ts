@@ -3,7 +3,7 @@ import type {
   NanoClawPluginApi,
   NanoClawPluginService,
   NanoClawPluginServiceContext,
-} from "nanoclaw/plugin-sdk";
+} from "openclaw/plugin-sdk";
 import { mcpNegotiationChannelPlugin } from "./channel.js";
 import {
   agentNegotiatorPluginConfigSchema,
@@ -82,7 +82,7 @@ const plugin = {
 
         running = await startNegotiatorService(resolved, {
           logger,
-          runtimeSource: "nanoclaw-plugin",
+          runtimeSource: "openclaw-plugin",
         });
       },
       stop: async () => {

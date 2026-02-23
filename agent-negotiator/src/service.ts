@@ -1,8 +1,8 @@
 /**
  * Shared service lifecycle for agent-negotiator.
  *
- * The negotiator runtime is intended to run only via the NanoClaw plugin
- * service (`src/nanoclaw/plugin.ts`).
+ * The negotiator runtime is intended to run only via claw plugin services
+ * (OpenClaw compatibility path today, NanoClaw hardening path later).
  */
 
 import http from "node:http";
@@ -22,6 +22,7 @@ export interface NegotiatorServiceConfig {
   port: number;
   configFile: string;
   healthUrl: string;
+  openclawGatewayToken?: string;
   signalingPublicBaseUrl?: string;
   signalingCheckBaseUrl?: string;
   orchestratorId: string;
@@ -43,7 +44,7 @@ export interface NegotiatorServiceHandle {
   stop: () => Promise<void>;
 }
 
-export type NegotiatorRuntimeSource = "nanoclaw-plugin";
+export type NegotiatorRuntimeSource = "openclaw-plugin" | "nanoclaw-plugin";
 
 export interface StartNegotiatorServiceOptions {
   logger?: NegotiatorLogger;
@@ -68,6 +69,11 @@ export function loadNegotiatorEnvConfig(
       overrides.healthUrl ??
       process.env.ORCHESTRATOR_HEALTH_URL ??
       "http://vtuber-orchestrator-health:9090",
+    openclawGatewayToken:
+      overrides.openclawGatewayToken ??
+      process.env.OPENCLAW_GATEWAY_TOKEN ??
+      process.env.OPENCLAW_AUTH_TOKEN ??
+      undefined,
     signalingPublicBaseUrl:
       overrides.signalingPublicBaseUrl ??
       process.env.NEGOTIATOR_SIGNALING_PUBLIC_BASE_URL ??
@@ -91,9 +97,12 @@ export async function startNegotiatorService(
   config: NegotiatorServiceConfig,
   options: StartNegotiatorServiceOptions
 ): Promise<NegotiatorServiceHandle> {
-  if (options.runtimeSource !== "nanoclaw-plugin") {
+  if (
+    options.runtimeSource !== "openclaw-plugin" &&
+    options.runtimeSource !== "nanoclaw-plugin"
+  ) {
     throw new Error(
-      "agent-negotiator runtime is restricted to NanoClaw plugin startup (runtimeSource=nanoclaw-plugin)"
+      "agent-negotiator runtime is restricted to claw plugin startup (runtimeSource=openclaw-plugin|nanoclaw-plugin)"
     );
   }
 
@@ -106,6 +115,9 @@ export async function startNegotiatorService(
   logger.info(`[negotiator] Health URL: ${config.healthUrl}`);
   if (config.signalingPublicBaseUrl) {
     logger.info(`[negotiator] Signaling public base: ${config.signalingPublicBaseUrl}`);
+  }
+  if (config.openclawGatewayToken) {
+    logger.info("[negotiator] OpenClaw gateway token auth is enabled");
   }
   logger.info(`[negotiator] Bind: ${config.host}:${config.port}`);
 
@@ -162,6 +174,7 @@ export async function startNegotiatorService(
     port: config.port,
     rateLimiter,
     audit,
+    authToken: config.openclawGatewayToken,
   });
 
   const server = await new Promise<http.Server>((resolve, reject) => {
