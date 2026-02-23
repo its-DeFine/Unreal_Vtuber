@@ -63,12 +63,33 @@ export class InternalTools {
   }
 
   async gpuStats(): Promise<GpuStats[]> {
-    const res = await fetch(`${this.healthBaseUrl}/meta/gpu-stats`);
-    if (!res.ok) {
-      throw new Error(`GPU stats request failed: ${res.status}`);
+    // Canonical endpoint is /meta/gpu/stats.
+    // Keep /meta/gpu-stats fallback for older builds if present.
+    const paths = ["/meta/gpu/stats", "/meta/gpu-stats"];
+    let lastError: Error | null = null;
+
+    for (const p of paths) {
+      try {
+        const res = await fetch(`${this.healthBaseUrl}${p}`);
+        if (res.ok) {
+          const data = (await res.json()) as { gpus?: GpuStats[] };
+          return data.gpus ?? [];
+        }
+
+        // Try legacy fallback only when canonical endpoint is missing.
+        if (res.status === 404) {
+          continue;
+        }
+
+        lastError = new Error(`GPU stats request failed (${p}): ${res.status}`);
+        break;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        lastError = new Error(`GPU stats request failed (${p}): ${message}`);
+      }
     }
-    const data = (await res.json()) as { gpus?: GpuStats[] };
-    return data.gpus ?? [];
+
+    throw lastError ?? new Error("GPU stats request failed");
   }
 
   readOperatorConfig(): ReturnType<ConfigLoader["get"]> {
