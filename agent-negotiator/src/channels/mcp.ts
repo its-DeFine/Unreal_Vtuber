@@ -720,7 +720,7 @@ export function createHttpServer(
   });
 
   // Message endpoint for MCP tool calls
-  app.post("/messages", express.json(), async (req: Request, res: Response) => {
+  app.post("/messages", async (req: Request, res: Response) => {
     const sessionId = req.query.sessionId as string;
     const transport = transports.get(sessionId);
 
