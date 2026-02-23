@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { startNegotiatorService } from "../src/service.js";
-import { DEFAULT_NEGOTIATOR_CONFIG_YAML } from "../src/openclaw/default-config.js";
+import { DEFAULT_NEGOTIATOR_CONFIG_YAML } from "../src/nanoclaw/default-config.js";
 
 describe("startNegotiatorService", () => {
   it("starts health endpoint and shuts down cleanly", async () => {

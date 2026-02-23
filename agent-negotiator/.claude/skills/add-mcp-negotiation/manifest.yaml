@@ -4,23 +4,22 @@ description: "MCP server channel for workload negotiation on Livepeer orchestrat
 core_version: 0.1.0
 adds:
   - src/service.ts                       # Shared negotiator lifecycle (standalone + embedded)
-  - src/openclaw/plugin.ts              # OpenClaw plugin registration
-  - src/openclaw/channel.ts             # mcp-negotiation channel metadata + config adapter
-  - src/openclaw/plugin-config.ts       # Plugin config parser + schema/ui hints
-  - src/openclaw/default-config.ts      # Bootstrap default negotiator.yaml
-  - src/openclaw/index.ts               # OpenClaw exports
-  - openclaw.plugin.json                # Plugin manifest for OpenClaw discovery
+  - src/nanoclaw/plugin.ts              # NanoClaw plugin registration
+  - src/nanoclaw/channel.ts             # mcp-negotiation channel metadata + config adapter
+  - src/nanoclaw/plugin-config.ts       # Plugin config parser + schema/ui hints
+  - src/nanoclaw/default-config.ts      # Bootstrap default negotiator.yaml
+  - src/nanoclaw/index.ts               # NanoClaw exports
+  - nanoclaw.plugin.json                # Plugin manifest for NanoClaw discovery
   - .claude/skills/add-mcp-negotiation/SKILL.md
 modifies:
   - src/index.ts                        # Standalone entry uses shared lifecycle
-  - package.json                        # OpenClaw extension metadata + dependency
+  - package.json                        # NanoClaw extension metadata
 structured:
   npm_dependencies:
     "@modelcontextprotocol/sdk": "^1.0.0"
     "better-sqlite3": "^11.0.0"
     "yaml": "^2.4.0"
     "chokidar": "^4.0.0"
-    "openclaw": "2026.2.21-2"
   env_additions:
     - NEGOTIATOR_HOST
     - NEGOTIATOR_PORT
@@ -31,4 +30,4 @@ structured:
     - NEGOTIATOR_RATE_LIMIT
 conflicts: []
 depends: []
-test: "npx vitest run tests/service.test.ts tests/openclaw-plugin.test.ts tests/integration.test.ts"
+test: "npx vitest run tests/service.test.ts tests/nanoclaw-plugin.test.ts tests/integration.test.ts"

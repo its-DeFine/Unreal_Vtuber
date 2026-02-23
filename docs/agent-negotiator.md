@@ -5,7 +5,7 @@
 It supports two deployment modes:
 
 1. Standalone container/service (current compose overlay)
-2. Embedded OpenClaw extension (`openclaw.plugin.json` + `openclaw.extensions`)
+2. Embedded NanoClaw extension (`nanoclaw.plugin.json` + `nanoclaw.extensions`)
 
 ## Customer-facing MCP tools
 
@@ -37,13 +37,15 @@ Relevant env values:
 - `NEGOTIATOR_CONFIG_FILE` (default `/config/negotiator.yaml`)
 - `NEGOTIATOR_RATE_LIMIT` (default `30` req/min per IP)
 - `NEGOTIATOR_KILLSWITCH` (`0` or `1`)
+- `NEGOTIATOR_SIGNALING_PUBLIC_BASE_URL` (optional; routable base URL returned in `signaling_url`)
+- `NEGOTIATOR_SIGNALING_CHECK_BASE_URL` (optional; internal base URL used for signaling health polls)
 
-## OpenClaw embedded mode
+## NanoClaw embedded mode
 
-The package publishes an OpenClaw extension entrypoint:
+The package publishes a NanoClaw extension entrypoint:
 
-- `package.json` → `openclaw.extensions: ["./dist/openclaw/plugin.js"]`
-- `openclaw.plugin.json` defines id/config schema/channel id `mcp-negotiation`
+- `package.json` → `nanoclaw.extensions: ["./dist/nanoclaw/plugin.js"]`
+- `nanoclaw.plugin.json` defines id/config schema/channel id `mcp-negotiation`
 
 When enabled, the plugin registers:
 
@@ -62,4 +64,3 @@ npm run typecheck
 npm test
 npm run verify
 ```
-

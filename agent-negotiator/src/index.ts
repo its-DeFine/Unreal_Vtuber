@@ -1,7 +1,7 @@
 /**
  * Standalone entrypoint for agent-negotiator.
  *
- * OpenClaw embedding uses `src/openclaw/plugin.ts`.
+ * NanoClaw embedding uses `src/nanoclaw/plugin.ts`.
  */
 
 import { loadNegotiatorEnvConfig, startNegotiatorService } from "./service.js";

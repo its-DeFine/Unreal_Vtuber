@@ -6,11 +6,11 @@
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
-    "./openclaw": "./dist/openclaw/plugin.js"
+    "./nanoclaw": "./dist/nanoclaw/plugin.js"
   },
-  "openclaw": {
+  "nanoclaw": {
     "extensions": [
-      "./dist/openclaw/plugin.js"
+      "./dist/nanoclaw/plugin.js"
     ],
     "channel": {
       "id": "mcp-negotiation",
@@ -36,14 +36,6 @@
     "yaml": "^2.4.0",
     "express": "^4.21.0",
     "zod": "^3.23.0"
-  },
-  "peerDependencies": {
-    "openclaw": ">=2026.2.21-2"
-  },
-  "peerDependenciesMeta": {
-    "openclaw": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",

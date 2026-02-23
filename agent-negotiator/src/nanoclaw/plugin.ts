@@ -1,9 +1,9 @@
 import path from "node:path";
 import type {
-  OpenClawPluginApi,
-  OpenClawPluginService,
-  OpenClawPluginServiceContext,
-} from "openclaw/plugin-sdk";
+  NanoClawPluginApi,
+  NanoClawPluginService,
+  NanoClawPluginServiceContext,
+} from "nanoclaw/plugin-sdk";
 import { mcpNegotiationChannelPlugin } from "./channel.js";
 import {
   agentNegotiatorPluginConfigSchema,
@@ -17,7 +17,7 @@ import {
 } from "../service.js";
 import { ensureNegotiatorConfigFile } from "./default-config.js";
 
-function serviceLogger(api: OpenClawPluginApi): NegotiatorLogger {
+function serviceLogger(api: NanoClawPluginApi): NegotiatorLogger {
   return {
     info: (message) => api.logger.info(message),
     warn: (message) => api.logger.warn(message),
@@ -26,8 +26,8 @@ function serviceLogger(api: OpenClawPluginApi): NegotiatorLogger {
 }
 
 function resolveServiceConfig(
-  api: OpenClawPluginApi,
-  ctx: OpenClawPluginServiceContext
+  api: NanoClawPluginApi,
+  ctx: NanoClawPluginServiceContext
 ) {
   const pluginConfig = parseAgentNegotiatorPluginConfig(api.pluginConfig);
   const dataDir = pluginConfig.dataDir ?? path.join(ctx.stateDir, "agent-negotiator");
@@ -42,6 +42,8 @@ function resolveServiceConfig(
     port: pluginConfig.port,
     configFile,
     healthUrl: pluginConfig.healthUrl,
+    signalingPublicBaseUrl: pluginConfig.signalingPublicBaseUrl,
+    signalingCheckBaseUrl: pluginConfig.signalingCheckBaseUrl,
     orchestratorId: pluginConfig.orchestratorId,
     dataDir,
     ethUsdRate: pluginConfig.ethUsdRate,
@@ -57,24 +59,24 @@ const plugin = {
   name: "Agent Negotiator",
   description: "Embedded MCP negotiation service for orchestrator workload quoting and booking",
   configSchema: agentNegotiatorPluginConfigSchema,
-  register(api: OpenClawPluginApi) {
+  register(api: NanoClawPluginApi) {
     let running: NegotiatorServiceHandle | null = null;
 
     api.registerChannel({
       plugin: mcpNegotiationChannelPlugin,
     });
 
-    const service: OpenClawPluginService = {
+    const service: NanoClawPluginService = {
       id: "agent-negotiator-mcp",
       start: async (ctx) => {
         if (running) {
-          api.logger.info("[negotiator][openclaw] Service already running; skipping start");
+          api.logger.info("[negotiator][nanoclaw] Service already running; skipping start");
           return;
         }
 
         const { pluginConfig, resolved, logger } = resolveServiceConfig(api, ctx);
         if (!pluginConfig.enabled) {
-          api.logger.info("[negotiator][openclaw] Service disabled by plugin config");
+          api.logger.info("[negotiator][nanoclaw] Service disabled by plugin config");
           return;
         }
 

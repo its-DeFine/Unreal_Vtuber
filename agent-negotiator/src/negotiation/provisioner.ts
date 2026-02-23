@@ -27,6 +27,15 @@ interface ClusterDeployPayload {
   recreate?: boolean;
 }
 
+interface ClusterDeployResponse {
+  ports?: {
+    signaling?: number;
+    runner?: number;
+    recorder?: number;
+    game_tcp?: number;
+  };
+}
+
 // Mirrors _cluster_ports from remote_health_service.py
 function clusterPorts(slot: number) {
   return {
@@ -37,24 +46,51 @@ function clusterPorts(slot: number) {
   };
 }
 
+function normalizeBaseUrl(baseUrl?: string): string | undefined {
+  if (!baseUrl) return undefined;
+  const out = baseUrl.trim().replace(/\/+$/, "");
+  return out.length > 0 ? out : undefined;
+}
+
+function buildUrlWithPort(baseUrl: string, port: number): string {
+  try {
+    const u = new URL(baseUrl);
+    u.port = String(port);
+    u.pathname = "/";
+    u.search = "";
+    u.hash = "";
+    return u.toString().replace(/\/$/, "");
+  } catch {
+    return `http://localhost:${port}`;
+  }
+}
+
 export class SessionProvisioner {
   private healthBaseUrl: string;
   private store: NegotiatorStore;
   private audit: AuditLogger;
   private teardownTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private signalingWaitMs: number;
+  private signalingPublicBaseUrl?: string;
+  private signalingCheckBaseUrl?: string;
 
   constructor(
     healthBaseUrl: string,
     store: NegotiatorStore,
     audit: AuditLogger,
-    options?: { signalingWaitMs?: number }
+    options?: {
+      signalingWaitMs?: number;
+      signalingPublicBaseUrl?: string;
+      signalingCheckBaseUrl?: string;
+    }
   ) {
     // Strip trailing slash
     this.healthBaseUrl = healthBaseUrl.replace(/\/+$/, "");
     this.store = store;
     this.audit = audit;
     this.signalingWaitMs = options?.signalingWaitMs ?? 120_000;
+    this.signalingPublicBaseUrl = normalizeBaseUrl(options?.signalingPublicBaseUrl);
+    this.signalingCheckBaseUrl = normalizeBaseUrl(options?.signalingCheckBaseUrl);
   }
 
   async provision(
@@ -92,12 +128,37 @@ export class SessionProvisioner {
       throw new Error(`Provisioning failed: ${deployRes.status} ${errText}`);
     }
 
-    this.audit.log("session_provisioned", { bookingId, slot, avatarId });
+    const deployData = (await deployRes
+      .json()
+      .catch(() => ({} as ClusterDeployResponse))) as ClusterDeployResponse;
+    this.audit.log("session_provisioned", {
+      bookingId,
+      slot,
+      avatarId,
+      deploy_ports: deployData.ports ?? null,
+    });
 
-    // Wait for signaling to come up
     const ports = clusterPorts(slot);
-    const signalingUrl = `http://localhost:${ports.signaling}`;
-    await this.waitForSignaling(signalingUrl, this.signalingWaitMs);
+    const signalingPort = deployData.ports?.signaling ?? ports.signaling;
+    const signalingCheckUrl = buildUrlWithPort(
+      this.signalingCheckBaseUrl ?? this.healthBaseUrl,
+      signalingPort
+    );
+    const signalingUrl = buildUrlWithPort(
+      this.signalingPublicBaseUrl ?? this.signalingCheckBaseUrl ?? this.healthBaseUrl,
+      signalingPort
+    );
+
+    if (this.signalingWaitMs > 0) {
+      const ready = await this.waitForSignaling(signalingCheckUrl, this.signalingWaitMs);
+      if (!ready) {
+        this.audit.log("error", {
+          bookingId,
+          message: "signaling healthcheck timeout",
+          signaling_check_url: signalingCheckUrl,
+        });
+      }
+    }
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + durationMin * 60_000);
@@ -189,21 +250,20 @@ export class SessionProvisioner {
   private async waitForSignaling(
     url: string,
     timeoutMs: number
-  ): Promise<void> {
+  ): Promise<boolean> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       try {
         const res = await fetch(url, {
           signal: AbortSignal.timeout(3000),
         });
-        if (res.ok) return;
+        if (res.ok) return true;
       } catch {
         // Not ready yet
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
-    // Don't fail — signaling might come up slightly later
-    // The booking is already marked active; worst case, client retries connection
+    return false;
   }
 
   cancelAllTimers(): void {

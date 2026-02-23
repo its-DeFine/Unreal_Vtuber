@@ -1,5 +1,5 @@
 /**
- * OpenClaw plugin config parser + schema hints for agent-negotiator.
+ * NanoClaw plugin config parser + schema hints for agent-negotiator.
  */
 
 const DEFAULT_PORT = 9100;
@@ -53,6 +53,8 @@ export interface AgentNegotiatorPluginConfig {
   port: number;
   configFile?: string;
   healthUrl?: string;
+  signalingPublicBaseUrl?: string;
+  signalingCheckBaseUrl?: string;
   orchestratorId?: string;
   dataDir?: string;
   ethUsdRate?: number;
@@ -73,6 +75,18 @@ export function parseAgentNegotiatorPluginConfig(
   const healthUrl =
     typeof raw.healthUrl === "string" && raw.healthUrl.trim().length > 0
       ? raw.healthUrl.trim()
+      : undefined;
+
+  const signalingPublicBaseUrl =
+    typeof raw.signalingPublicBaseUrl === "string" &&
+    raw.signalingPublicBaseUrl.trim().length > 0
+      ? raw.signalingPublicBaseUrl.trim()
+      : undefined;
+
+  const signalingCheckBaseUrl =
+    typeof raw.signalingCheckBaseUrl === "string" &&
+    raw.signalingCheckBaseUrl.trim().length > 0
+      ? raw.signalingCheckBaseUrl.trim()
       : undefined;
 
   const orchestratorId =
@@ -106,6 +120,8 @@ export function parseAgentNegotiatorPluginConfig(
     port: asNumber(raw.port, DEFAULT_PORT, 1, 65_535),
     configFile,
     healthUrl,
+    signalingPublicBaseUrl,
+    signalingCheckBaseUrl,
     orchestratorId,
     dataDir,
     ethUsdRate,
@@ -142,6 +158,17 @@ export const agentNegotiatorPluginConfigSchema = {
       help: "Base URL for /meta/gpu-stats and /cluster deploy/down endpoints.",
       placeholder: "http://vtuber-orchestrator-health:9090",
     },
+    signalingPublicBaseUrl: {
+      label: "Signaling Public Base URL",
+      help: "Routable base URL handed to customers in signaling_url responses.",
+      placeholder: "https://orchestrator.example.com",
+    },
+    signalingCheckBaseUrl: {
+      label: "Signaling Check Base URL",
+      help: "Base URL used internally to poll signaling health after deploy.",
+      advanced: true,
+      placeholder: "http://127.0.0.1",
+    },
     orchestratorId: {
       label: "Orchestrator ID",
       help: "Identifier returned by orchestrator_info tool.",
@@ -176,6 +203,8 @@ export const agentNegotiatorPluginConfigSchema = {
       port: { type: "number", minimum: 1, maximum: 65535 },
       configFile: { type: "string" },
       healthUrl: { type: "string" },
+      signalingPublicBaseUrl: { type: "string" },
+      signalingCheckBaseUrl: { type: "string" },
       orchestratorId: { type: "string" },
       dataDir: { type: "string" },
       ethUsdRate: { type: "number", minimum: 1 },

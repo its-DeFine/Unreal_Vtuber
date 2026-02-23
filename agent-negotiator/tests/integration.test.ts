@@ -26,6 +26,7 @@ import {
 let mockServer: http.Server;
 let mockPort: number;
 let mockGpuUtilization = 40;
+let mockGpuStatsFail = false;
 let deployCallCount = 0;
 let downCallCount = 0;
 
@@ -35,6 +36,12 @@ function startMockHealth(): Promise<void> {
       const url = new URL(req.url!, `http://localhost`);
 
       if (url.pathname === "/meta/gpu-stats" && req.method === "GET") {
+        if (mockGpuStatsFail) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "gpu stats unavailable" }));
+          return;
+        }
+
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
@@ -62,8 +69,21 @@ function startMockHealth(): Promise<void> {
         let body = "";
         req.on("data", (chunk) => (body += chunk));
         req.on("end", () => {
+          const parsed = JSON.parse(body);
+          const slot = Number(parsed.slot) || 0;
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ status: "ok", deployed: JSON.parse(body) }));
+          res.end(
+            JSON.stringify({
+              status: "ok",
+              deployed: parsed,
+              ports: {
+                signaling: 8080 + slot,
+                runner: 9877 + slot,
+                recorder: 8889 + slot,
+                game_tcp: 7777 + slot,
+              },
+            })
+          );
         });
         return;
       }
@@ -119,6 +139,7 @@ afterAll(() => {
 beforeEach(() => {
   // Reset state
   mockGpuUtilization = 40;
+  mockGpuStatsFail = false;
   deployCallCount = 0;
   downCallCount = 0;
 
@@ -164,6 +185,7 @@ killswitch:
   // Skip signaling wait in tests (mock doesn't listen on cluster ports)
   provisioner = new SessionProvisioner(healthUrl, store, audit, {
     signalingWaitMs: 0,
+    signalingPublicBaseUrl: "https://orchestrator.example.com",
   });
   internalTools = new InternalTools({
     healthBaseUrl: healthUrl,
@@ -211,6 +233,15 @@ describe("Integration: Capacity Check", () => {
 
     expect(capacity.available).toBe(false);
     expect(capacity.gpu_utilization_pct).toBe(90);
+  });
+
+  it("fails closed when GPU telemetry is unavailable", async () => {
+    mockGpuStatsFail = true;
+
+    const capacity = await internalTools.checkCapacity();
+
+    expect(capacity.available).toBe(false);
+    expect(capacity.gpu_utilization_pct).toBe(100);
   });
 
   it("reports unavailable when sessions are full", async () => {
@@ -283,6 +314,7 @@ describe("Integration: Full Booking Flow", () => {
     const activeBooking = store.getBooking(booking.booking_id);
     expect(activeBooking!.status).toBe("active");
     expect(activeBooking!.signaling_url).toBeDefined();
+    expect(activeBooking!.signaling_url).toContain("https://orchestrator.example.com:");
     expect(activeBooking!.slot).toBe(1);
 
     // 4. Teardown

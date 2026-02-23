@@ -72,7 +72,7 @@ function fakeApi(pluginConfig: Record<string, unknown>) {
   return { api: api as any, channels, services, commands };
 }
 
-describe("OpenClaw agent-negotiator plugin", () => {
+describe("NanoClaw agent-negotiator plugin", () => {
   beforeEach(() => {
     startMock.mockClear();
     stopMock.mockClear();
@@ -80,7 +80,7 @@ describe("OpenClaw agent-negotiator plugin", () => {
   });
 
   it("registers channel, service, and command", async () => {
-    const { default: plugin } = await import("../src/openclaw/plugin.js");
+    const { default: plugin } = await import("../src/nanoclaw/plugin.js");
     const { api, channels, services, commands } = fakeApi({ enabled: true, port: 19010 });
 
     plugin.register(api);
@@ -92,7 +92,7 @@ describe("OpenClaw agent-negotiator plugin", () => {
   });
 
   it("starts/stops embedded service when enabled", async () => {
-    const { default: plugin } = await import("../src/openclaw/plugin.js");
+    const { default: plugin } = await import("../src/nanoclaw/plugin.js");
     const { api, services } = fakeApi({ enabled: true, port: 19011 });
 
     plugin.register(api);
@@ -118,7 +118,7 @@ describe("OpenClaw agent-negotiator plugin", () => {
   });
 
   it("does not start service when plugin is disabled", async () => {
-    const { default: plugin } = await import("../src/openclaw/plugin.js");
+    const { default: plugin } = await import("../src/nanoclaw/plugin.js");
     const { api, services } = fakeApi({ enabled: false, port: 19012 });
 
     plugin.register(api);

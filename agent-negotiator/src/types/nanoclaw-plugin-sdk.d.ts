@@ -1,4 +1,4 @@
-declare module "openclaw/plugin-sdk" {
+declare module "nanoclaw/plugin-sdk" {
   export type ChannelPlugin<TAccount = unknown> = {
     id: string;
     meta: {
@@ -43,7 +43,7 @@ declare module "openclaw/plugin-sdk" {
     };
   };
 
-  export type OpenClawPluginServiceContext = {
+  export type NanoClawPluginServiceContext = {
     config: unknown;
     workspaceDir?: string;
     stateDir: string;
@@ -55,13 +55,13 @@ declare module "openclaw/plugin-sdk" {
     };
   };
 
-  export type OpenClawPluginService = {
+  export type NanoClawPluginService = {
     id: string;
-    start: (ctx: OpenClawPluginServiceContext) => void | Promise<void>;
-    stop?: (ctx: OpenClawPluginServiceContext) => void | Promise<void>;
+    start: (ctx: NanoClawPluginServiceContext) => void | Promise<void>;
+    stop?: (ctx: NanoClawPluginServiceContext) => void | Promise<void>;
   };
 
-  export type OpenClawPluginApi = {
+  export type NanoClawPluginApi = {
     id: string;
     name: string;
     source: string;
@@ -85,7 +85,7 @@ declare module "openclaw/plugin-sdk" {
     registerChannel: (registration: { plugin: ChannelPlugin<any> } | ChannelPlugin<any>) => void;
     registerGatewayMethod: (...args: unknown[]) => void;
     registerCli: (...args: unknown[]) => void;
-    registerService: (service: OpenClawPluginService) => void;
+    registerService: (service: NanoClawPluginService) => void;
     registerProvider: (...args: unknown[]) => void;
     registerCommand: (command: {
       name: string;

@@ -40,6 +40,6 @@ export function ensureNegotiatorConfigFile(
 
   if (!fs.existsSync(configFile)) {
     fs.writeFileSync(configFile, DEFAULT_NEGOTIATOR_CONFIG_YAML, "utf8");
-    logger.info(`[negotiator][openclaw] Created default config at ${configFile}`);
+    logger.info(`[negotiator][nanoclaw] Created default config at ${configFile}`);
   }
 }

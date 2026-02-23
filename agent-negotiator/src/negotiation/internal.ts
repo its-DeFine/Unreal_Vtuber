@@ -82,6 +82,7 @@ export class InternalTools {
 
     // Get GPU utilization
     let gpuPct = 0;
+    let gpuTelemetryOk = true;
     try {
       const stats = await this.gpuStats();
       if (stats.length > 0) {
@@ -90,10 +91,17 @@ export class InternalTools {
           stats.length;
       }
     } catch {
-      // GPU stats unavailable — assume 0 utilization (conservative)
+      // Fail closed when telemetry is unavailable.
+      gpuTelemetryOk = false;
+      gpuPct = 100;
+      this.audit.log("error", {
+        action: "capacity_check",
+        message: "GPU telemetry unavailable; failing capacity closed",
+      });
     }
 
     const available =
+      gpuTelemetryOk &&
       activeCount < maxSessions &&
       gpuPct < cfg.capacity.capacity_threshold_pct;
 

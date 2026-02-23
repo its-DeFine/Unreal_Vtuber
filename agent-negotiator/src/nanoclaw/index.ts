@@ -1,4 +1,4 @@
-export { default as agentNegotiatorOpenClawPlugin } from "./plugin.js";
+export { default as agentNegotiatorNanoClawPlugin } from "./plugin.js";
 export {
   parseAgentNegotiatorPluginConfig,
   agentNegotiatorPluginConfigSchema,

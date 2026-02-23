@@ -1,16 +1,16 @@
 # Skill: add-mcp-negotiation
 
-Purpose: add an embedded MCP negotiation channel to an orchestrator using OpenClaw plugin conventions, while preserving standalone execution support.
+Purpose: add an embedded MCP negotiation channel to an orchestrator using NanoClaw plugin conventions, while preserving standalone execution support.
 
 ## What this skill installs
 
-1. OpenClaw plugin wiring
-- `openclaw.plugin.json`
-- `package.json` `openclaw.extensions` metadata
-- `src/openclaw/plugin.ts`
-- `src/openclaw/channel.ts`
-- `src/openclaw/plugin-config.ts`
-- `src/openclaw/default-config.ts`
+1. NanoClaw plugin wiring
+- `nanoclaw.plugin.json`
+- `package.json` `nanoclaw.extensions` metadata
+- `src/nanoclaw/plugin.ts`
+- `src/nanoclaw/channel.ts`
+- `src/nanoclaw/plugin-config.ts`
+- `src/nanoclaw/default-config.ts`
 
 2. Shared negotiator lifecycle
 - `src/service.ts`
@@ -28,7 +28,7 @@ Purpose: add an embedded MCP negotiation channel to an orchestrator using OpenCl
 
 2. Keep two run modes with shared internals
 - Standalone: `node dist/index.js`
-- Embedded: OpenClaw loads `dist/openclaw/plugin.js` from package metadata
+- Embedded: NanoClaw loads `dist/nanoclaw/plugin.js` from package metadata
 
 3. Default-safe config behavior
 - If plugin config omits `configFile`, write a default YAML under plugin state dir.
@@ -50,10 +50,10 @@ Purpose: add an embedded MCP negotiation channel to an orchestrator using OpenCl
 3. Full flow
 - `npm run verify`
 
-4. OpenClaw plugin load smoke test
-- Ensure `openclaw.plugin.json` exists in package root.
+4. NanoClaw plugin load smoke test
+- Ensure `nanoclaw.plugin.json` exists in package root.
 - Ensure `package.json` contains:
-  - `openclaw.extensions: ["./dist/openclaw/plugin.js"]`
+  - `nanoclaw.extensions: ["./dist/nanoclaw/plugin.js"]`
   - `channels` includes `mcp-negotiation` in manifest.
 
 ## Expected outputs

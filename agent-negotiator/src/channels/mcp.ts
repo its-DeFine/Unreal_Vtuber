@@ -332,6 +332,42 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         };
       }
 
+      // Delayed scheduling is not implemented in v1.
+      // Reject future start times instead of silently provisioning immediately.
+      if (input.start_time) {
+        const requestedStart = new Date(input.start_time);
+        if (Number.isNaN(requestedStart.getTime())) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  error: "invalid_start_time",
+                  message: "start_time must be a valid ISO-8601 timestamp",
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        if (requestedStart.getTime() > Date.now() + 30_000) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  error: "scheduled_start_not_supported",
+                  message:
+                    "Future start_time scheduling is not supported yet. Omit start_time to start now.",
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+
       // Capacity check
       const capacity = await internalTools.checkCapacity();
       if (!capacity.available || capacity.next_slot === null) {

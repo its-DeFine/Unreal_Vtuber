@@ -1,4 +1,4 @@
-import type { ChannelPlugin } from "openclaw/plugin-sdk";
+import type { ChannelPlugin } from "nanoclaw/plugin-sdk";
 
 export const MCP_NEGOTIATION_CHANNEL_ID = "mcp-negotiation";
 const DEFAULT_ACCOUNT_ID = "default";

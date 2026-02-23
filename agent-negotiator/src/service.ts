@@ -3,7 +3,7 @@
  *
  * This lets us run the same negotiator runtime in two modes:
  * 1) standalone process (`src/index.ts`)
- * 2) embedded OpenClaw plugin service (`src/openclaw/plugin.ts`)
+ * 2) embedded NanoClaw plugin service (`src/nanoclaw/plugin.ts`)
  */
 
 import http from "node:http";
@@ -23,6 +23,8 @@ export interface NegotiatorServiceConfig {
   port: number;
   configFile: string;
   healthUrl: string;
+  signalingPublicBaseUrl?: string;
+  signalingCheckBaseUrl?: string;
   orchestratorId: string;
   dataDir: string;
   ethUsdRate: number;
@@ -60,6 +62,14 @@ export function loadNegotiatorEnvConfig(
       overrides.healthUrl ??
       process.env.ORCHESTRATOR_HEALTH_URL ??
       "http://vtuber-orchestrator-health:9090",
+    signalingPublicBaseUrl:
+      overrides.signalingPublicBaseUrl ??
+      process.env.NEGOTIATOR_SIGNALING_PUBLIC_BASE_URL ??
+      undefined,
+    signalingCheckBaseUrl:
+      overrides.signalingCheckBaseUrl ??
+      process.env.NEGOTIATOR_SIGNALING_CHECK_BASE_URL ??
+      undefined,
     orchestratorId: overrides.orchestratorId ?? process.env.ORCHESTRATOR_ID ?? "unknown",
     dataDir: overrides.dataDir ?? process.env.NEGOTIATOR_DATA_DIR ?? "/data",
     ethUsdRate: overrides.ethUsdRate ?? parseFloat(process.env.ETH_USD_RATE ?? "2500"),
@@ -82,6 +92,9 @@ export async function startNegotiatorService(
   logger.info(`[negotiator] Starting agent-negotiator for ${config.orchestratorId}`);
   logger.info(`[negotiator] Config: ${config.configFile}`);
   logger.info(`[negotiator] Health URL: ${config.healthUrl}`);
+  if (config.signalingPublicBaseUrl) {
+    logger.info(`[negotiator] Signaling public base: ${config.signalingPublicBaseUrl}`);
+  }
   logger.info(`[negotiator] Bind: ${config.host}:${config.port}`);
 
   const store = new NegotiatorStore(path.join(config.dataDir, "negotiator.db"));
@@ -102,7 +115,10 @@ export async function startNegotiatorService(
   configLoader.startWatching();
 
   const killswitch = new Killswitch(configLoader);
-  const provisioner = new SessionProvisioner(config.healthUrl, store, audit);
+  const provisioner = new SessionProvisioner(config.healthUrl, store, audit, {
+    signalingPublicBaseUrl: config.signalingPublicBaseUrl,
+    signalingCheckBaseUrl: config.signalingCheckBaseUrl,
+  });
 
   const internalTools = new InternalTools({
     healthBaseUrl: config.healthUrl,
