@@ -14,6 +14,7 @@ Key properties:
 
 You’ll need:
 - `From your admin: a one-time invite code (bound to your payout wallet)` — Any Livepeer orchestrator can join the program; request a code at `george@atumera.com` or via Discord (`de_fi_ne`).
+
 - From you: a **unique orchestrator ID** + a **payout wallet address** (`0x…`)
 - A GPU host with an NVIDIA GPU (**at least 16GB VRAM required**) (Ubuntu 22.04 recommended)
 
