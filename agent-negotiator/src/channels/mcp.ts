@@ -23,7 +23,7 @@ import type { NegotiatorStore } from "../negotiation/store.js";
 import type { ConfigLoader } from "../negotiation/config.js";
 import type { AuditLogger } from "../negotiation/audit.js";
 import type { Killswitch } from "../negotiation/killswitch.js";
-import type { SessionProvisioner } from "../negotiation/provisioner.js";
+import { clusterPorts, type SessionProvisioner } from "../negotiation/provisioner.js";
 import type { InternalTools } from "../negotiation/internal.js";
 import { calculatePrice, type PricingResult } from "../negotiation/pricing.js";
 
@@ -83,6 +83,19 @@ export interface McpChannelDeps {
   internalTools: InternalTools;
   orchestratorId: string;
   ethUsdRate?: number; // defaults to 2500 if not provided
+}
+
+function withPort(baseUrl: string, port: number): string | null {
+  try {
+    const u = new URL(baseUrl);
+    u.port = String(port);
+    u.pathname = "/";
+    u.search = "";
+    u.hash = "";
+    return u.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
 }
 
 export function createMcpServer(deps: McpChannelDeps): McpServer {
@@ -440,6 +453,13 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
                     token: result.session_token,
                     expires_at: result.expires_at,
                     slot: result.slot,
+                    control: {
+                      avatar_id: result.avatar_id,
+                      runner_url: result.runner_url,
+                      runner_execute_url: result.runner_execute_url,
+                      runner_status_url_template: result.runner_status_url_template,
+                      game_tcp_port: result.game_tcp_port,
+                    },
                   },
                 },
                 null,
@@ -521,6 +541,21 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         timeRemainingMin = Math.max(0, Math.round(remaining / 60_000));
       }
 
+      let control: Record<string, unknown> | null = null;
+      if (booking.status === "active" && typeof booking.slot === "number" && booking.signaling_url) {
+        const ports = clusterPorts(booking.slot);
+        const runnerUrl = withPort(booking.signaling_url, ports.runner);
+        if (runnerUrl) {
+          control = {
+            avatar_id: booking.avatar_id ?? null,
+            runner_url: runnerUrl,
+            runner_execute_url: `${runnerUrl}/scripts/execute`,
+            runner_status_url_template: `${runnerUrl}/scripts/{session_id}`,
+            game_tcp_port: ports.game_tcp,
+          };
+        }
+      }
+
       return {
         content: [
           {
@@ -541,6 +576,7 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
                 ...(timeRemainingMin !== null && {
                   time_remaining_min: timeRemainingMin,
                 }),
+                ...(control && { control }),
               },
               null,
               2

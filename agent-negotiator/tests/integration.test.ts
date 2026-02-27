@@ -29,6 +29,104 @@ let mockGpuUtilization = 40;
 let mockGpuStatsFail = false;
 let deployCallCount = 0;
 let downCallCount = 0;
+const mockRunnerServers = new Map<number, http.Server>();
+const mockRunnerPortsBySlot = new Map<number, number>();
+
+function ensureMockRunnerForSlot(slot: number): Promise<number> {
+  const existing = mockRunnerPortsBySlot.get(slot);
+  if (typeof existing === "number") {
+    return Promise.resolve(existing);
+  }
+
+  return new Promise((resolve, reject) => {
+    const sessions = new Map<string, { state: string; lastCommand: string | null }>();
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://localhost");
+
+      if (url.pathname === "/health" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ status: "ok" }));
+        return;
+      }
+
+      if (url.pathname === "/scripts/execute" && req.method === "POST") {
+        let body = "";
+        req.on("data", (chunk) => (body += chunk));
+        req.on("end", () => {
+          try {
+            const parsed = JSON.parse(body || "{}");
+            const sessionId = String(parsed.session_id || "");
+            const first = Array.isArray(parsed.commands) && parsed.commands.length > 0
+              ? parsed.commands[0]
+              : null;
+            const lastCommand = first && typeof first.value === "string" ? first.value : null;
+            sessions.set(sessionId, { state: "completed", lastCommand });
+
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(
+              JSON.stringify({
+                session_id: sessionId,
+                state: "running",
+              })
+            );
+          } catch {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "invalid_payload" }));
+          }
+        });
+        return;
+      }
+
+      if (url.pathname.startsWith("/scripts/") && req.method === "GET") {
+        const sessionId = decodeURIComponent(url.pathname.replace("/scripts/", ""));
+        const status = sessions.get(sessionId);
+        if (!status) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ detail: "session not found" }));
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            session_id: sessionId,
+            state: status.state,
+            last_command: status.lastCommand,
+          })
+        );
+        return;
+      }
+
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "not_found" }));
+    });
+
+    server.on("error", reject);
+    server.listen(0, () => {
+      const addr = server.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      if (!port) {
+        reject(new Error("failed to allocate mock runner port"));
+        return;
+      }
+      mockRunnerServers.set(port, server);
+      mockRunnerPortsBySlot.set(slot, port);
+      resolve(port);
+    });
+  });
+}
+
+async function stopMockRunners(): Promise<void> {
+  await Promise.all(
+    Array.from(mockRunnerServers.values()).map(
+      (server) =>
+        new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        })
+    )
+  );
+  mockRunnerServers.clear();
+  mockRunnerPortsBySlot.clear();
+}
 
 function startMockHealth(): Promise<void> {
   return new Promise((resolve) => {
@@ -68,22 +166,28 @@ function startMockHealth(): Promise<void> {
         deployCallCount++;
         let body = "";
         req.on("data", (chunk) => (body += chunk));
-        req.on("end", () => {
-          const parsed = JSON.parse(body);
-          const slot = Number(parsed.slot) || 0;
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(
-            JSON.stringify({
-              status: "ok",
-              deployed: parsed,
-              ports: {
-                signaling: 8080 + slot,
-                runner: 9877 + slot,
-                recorder: 8889 + slot,
-                game_tcp: 7777 + slot,
-              },
-            })
-          );
+        req.on("end", async () => {
+          try {
+            const parsed = JSON.parse(body);
+            const slot = Number(parsed.slot) || 0;
+            const runnerPort = await ensureMockRunnerForSlot(slot);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(
+              JSON.stringify({
+                status: "ok",
+                deployed: parsed,
+                ports: {
+                  signaling: 8080 + slot,
+                  runner: runnerPort,
+                  recorder: 8889 + slot,
+                  game_tcp: 7777 + slot,
+                },
+              })
+            );
+          } catch {
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "mock_deploy_failed" }));
+          }
         });
         return;
       }
@@ -132,8 +236,9 @@ beforeAll(async () => {
   await startMockHealth();
 });
 
-afterAll(() => {
+afterAll(async () => {
   mockServer?.close();
+  await stopMockRunners();
 });
 
 beforeEach(() => {
@@ -306,9 +411,18 @@ describe("Integration: Full Booking Flow", () => {
     );
 
     expect(result.slot).toBe(1);
+    expect(result.avatar_id).toMatch(/^negotiator-/);
     expect(result.session_token).toBeDefined();
     expect(result.expires_at).toBeDefined();
+    expect(result.runner_url).toContain("https://orchestrator.example.com:");
+    expect(result.runner_execute_url).toBe(`${result.runner_url}/scripts/execute`);
+    expect(result.runner_status_url_template).toBe(
+      `${result.runner_url}/scripts/{session_id}`
+    );
+    expect(result.game_tcp_port).toBeGreaterThan(0);
     expect(deployCallCount).toBe(1);
+    const localRunnerPort = mockRunnerPortsBySlot.get(result.slot);
+    expect(localRunnerPort).toBeDefined();
 
     // Booking should be active
     const activeBooking = store.getBooking(booking.booking_id);
@@ -317,7 +431,44 @@ describe("Integration: Full Booking Flow", () => {
     expect(activeBooking!.signaling_url).toContain("https://orchestrator.example.com:");
     expect(activeBooking!.slot).toBe(1);
 
-    // 4. Teardown
+    // 4. Simulate a buyer control command via script-runner
+    const clientSessionId = `client-skill-${Date.now()}`;
+    const localRunnerUrl = `http://127.0.0.1:${localRunnerPort}`;
+    const executeResp = await fetch(`${localRunnerUrl}/scripts/execute`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: clientSessionId,
+        commands: [
+          {
+            delay_ms: 0,
+            type: "tcp",
+            value: "TTS_BYOB_/opt/embody/sample-15s.mp3",
+          },
+        ],
+        audio: [],
+      }),
+    });
+    expect(executeResp.ok).toBe(true);
+
+    const executeBody = (await executeResp.json()) as {
+      session_id: string;
+      state: string;
+    };
+    expect(executeBody.session_id).toBe(clientSessionId);
+
+    const statusResp = await fetch(
+      `${localRunnerUrl}/scripts/${encodeURIComponent(clientSessionId)}`
+    );
+    expect(statusResp.ok).toBe(true);
+    const statusBody = (await statusResp.json()) as {
+      state: string;
+      last_command: string;
+    };
+    expect(statusBody.state).toBe("completed");
+    expect(statusBody.last_command).toBe("TTS_BYOB_/opt/embody/sample-15s.mp3");
+
+    // 5. Teardown
     await provisioner.teardown(booking.booking_id);
     expect(downCallCount).toBe(1);
 
