@@ -16,6 +16,11 @@ import type { AuditLogger } from "./audit.js";
 export interface ProvisionResult {
   slot: number;
   signaling_url: string;
+  runner_url: string;
+  runner_execute_url: string;
+  runner_status_url_template: string;
+  game_tcp_port: number;
+  avatar_id: string;
   session_token: string;
   expires_at: string;
 }
@@ -37,7 +42,7 @@ interface ClusterDeployResponse {
 }
 
 // Mirrors _cluster_ports from remote_health_service.py
-function clusterPorts(slot: number) {
+export function clusterPorts(slot: number) {
   return {
     signaling: 8080 + slot,
     runner: 9877 + slot,
@@ -140,6 +145,8 @@ export class SessionProvisioner {
 
     const ports = clusterPorts(slot);
     const signalingPort = deployData.ports?.signaling ?? ports.signaling;
+    const runnerPort = deployData.ports?.runner ?? ports.runner;
+    const gameTcpPort = deployData.ports?.game_tcp ?? ports.game_tcp;
     const signalingCheckUrl = buildUrlWithPort(
       this.signalingCheckBaseUrl ?? this.healthBaseUrl,
       signalingPort
@@ -147,6 +154,10 @@ export class SessionProvisioner {
     const signalingUrl = buildUrlWithPort(
       this.signalingPublicBaseUrl ?? this.signalingCheckBaseUrl ?? this.healthBaseUrl,
       signalingPort
+    );
+    const runnerUrl = buildUrlWithPort(
+      this.signalingPublicBaseUrl ?? this.signalingCheckBaseUrl ?? this.healthBaseUrl,
+      runnerPort
     );
 
     if (this.signalingWaitMs > 0) {
@@ -175,6 +186,8 @@ export class SessionProvisioner {
       bookingId,
       slot,
       signaling_url: signalingUrl,
+      runner_url: runnerUrl,
+      game_tcp_port: gameTcpPort,
       expires_at: expiresAt.toISOString(),
     });
 
@@ -184,6 +197,11 @@ export class SessionProvisioner {
     return {
       slot,
       signaling_url: signalingUrl,
+      runner_url: runnerUrl,
+      runner_execute_url: `${runnerUrl}/scripts/execute`,
+      runner_status_url_template: `${runnerUrl}/scripts/{session_id}`,
+      game_tcp_port: gameTcpPort,
+      avatar_id: avatarId,
       session_token: sessionToken,
       expires_at: expiresAt.toISOString(),
     };

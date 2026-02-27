@@ -17,6 +17,16 @@ Planned follow-up: revert this bridge to the hardened NanoClaw implementation on
 - `session_status`
 - `cancel_session`
 
+`accept_quote` and `session_status` return a `session.control` block for active leases:
+
+- `avatar_id`
+- `runner_url`
+- `runner_execute_url` (`POST /scripts/execute`)
+- `runner_status_url_template` (`GET /scripts/{session_id}`)
+- `game_tcp_port`
+
+This enables deterministic post-lease embodied control through the script-runner path.
+
 ## Internal safety controls
 
 - Per-IP rate limit
