@@ -15,7 +15,7 @@
 
 import type { NegotiatorStore } from "./store.js";
 import type { ConfigLoader } from "./config.js";
-import type { SessionProvisioner } from "./provisioner.js";
+import type { ProvisionOptions, SessionProvisioner } from "./provisioner.js";
 import type { AuditLogger } from "./audit.js";
 
 export interface GpuStats {
@@ -142,9 +142,10 @@ export class InternalTools {
   async provisionSession(
     bookingId: string,
     slot: number,
-    durationMin: number
+    durationMin: number,
+    options?: ProvisionOptions
   ) {
-    return this.provisioner.provision(bookingId, slot, durationMin);
+    return this.provisioner.provision(bookingId, slot, durationMin, options);
   }
 
   async teardownSession(bookingId: string) {

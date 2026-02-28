@@ -15,6 +15,7 @@ export type AuditEvent =
   | "booking_active"
   | "booking_completed"
   | "booking_cancelled"
+  | "booking_connection_updated"
   | "booking_failed"
   | "session_provisioned"
   | "session_control_validated"
