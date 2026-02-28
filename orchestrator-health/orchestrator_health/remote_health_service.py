@@ -211,6 +211,14 @@ class OpsUpgradeRequest(BaseModel):
             "updates without waiting for watchtower."
         ),
     )
+    ops_allow_cidrs: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "Optional exact CIDR/IP allowlist for remote ops access. When provided, writes "
+            "EDGE_OPS_ALLOW_CIDRS, EDGE_POWER_EXTRA_CIDRS, EDGE_FIREWALL_EXTRA_CIDRS and POWER_ALLOWED_IPS "
+            "in the host .env. If apply=true, also auto-recreates orchestrator-health + edge-rotator."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_upgrade_args(self) -> "OpsUpgradeRequest":
@@ -238,6 +246,24 @@ class OpsUpgradeRequest(BaseModel):
                 raise ValueError("service_image_tag contains invalid whitespace/control characters")
             elif not _DOCKER_TAG_RE.match(self.service_image_tag):
                 raise ValueError("service_image_tag must be a docker tag (letters/digits/._-; max 128 chars)")
+
+        if self.ops_allow_cidrs is not None:
+            normalized: list[str] = []
+            seen: set[str] = set()
+            for raw in self.ops_allow_cidrs:
+                token = (raw or "").strip()
+                if not token:
+                    continue
+                try:
+                    net = ipaddress.ip_network(token, strict=False)
+                except ValueError as exc:
+                    raise ValueError("ops_allow_cidrs entries must be valid IPv4/IPv6 CIDR or IP") from exc
+                canon = str(net)
+                if canon in seen:
+                    continue
+                seen.add(canon)
+                normalized.append(canon)
+            self.ops_allow_cidrs = normalized or None
 
         return self
 
@@ -1821,7 +1847,62 @@ def ops_upgrade(
         if set_tag["exit_code"] != 0:
             return {"ok": False, "exit_code": set_tag["exit_code"], "steps": steps}
 
+    ops_allowlist_requested = payload.ops_allow_cidrs is not None
+    if ops_allowlist_requested:
+        allowlist = payload.ops_allow_cidrs or []
+        allow_csv = ",".join(allowlist)
+        power_allow_tokens = ["127.0.0.1/32", "::1/128", *allowlist]
+        deduped_power_allow: list[str] = []
+        seen_power_allow: set[str] = set()
+        for token in power_allow_tokens:
+            if token in seen_power_allow:
+                continue
+            seen_power_allow.add(token)
+            deduped_power_allow.append(token)
+        power_allow_csv = ",".join(deduped_power_allow)
+        updates = json.dumps(
+            {
+                "EDGE_OPS_ALLOW_CIDRS": allow_csv,
+                "EDGE_POWER_EXTRA_CIDRS": allow_csv,
+                "EDGE_FIREWALL_EXTRA_CIDRS": allow_csv,
+                "POWER_ALLOWED_IPS": power_allow_csv,
+            },
+            separators=(",", ":"),
+        )
+        code = (
+            "import json,pathlib,sys\n"
+            "path=pathlib.Path(sys.argv[1])\n"
+            "updates=json.loads(sys.argv[2])\n"
+            "lines=path.read_text(encoding='utf-8').splitlines(True) if path.exists() else []\n"
+            "out=[]\n"
+            "seen=set()\n"
+            "for line in lines:\n"
+            "    replaced=False\n"
+            "    for key,val in updates.items():\n"
+            "        if line.startswith(f'{key}='):\n"
+            "            if key not in seen:\n"
+            "                out.append(f'{key}={val}\\n')\n"
+            "                seen.add(key)\n"
+            "            replaced=True\n"
+            "            break\n"
+            "    if not replaced:\n"
+            "        out.append(line)\n"
+            "for key,val in updates.items():\n"
+            "    if key in seen:\n"
+            "        continue\n"
+            "    if out and not out[-1].endswith('\\n'):\n"
+            "        out[-1]=out[-1]+'\\n'\n"
+            "    out.append(f'{key}={val}\\n')\n"
+            "path.parent.mkdir(parents=True, exist_ok=True)\n"
+            "path.write_text(''.join(out), encoding='utf-8')\n"
+        )
+        set_ops_allow = run_step("set_ops_allow_cidrs", ["python3", "-c", code, env_file, updates])
+        if set_ops_allow["exit_code"] != 0:
+            return {"ok": False, "exit_code": set_ops_allow["exit_code"], "steps": steps}
+
     if payload.apply:
+        recreate_orchestrator_health = payload.recreate_orchestrator_health or ops_allowlist_requested
+        recreate_orchestrator_edge_rotator = payload.recreate_orchestrator_edge_rotator or ops_allowlist_requested
         _detect_compose_identity()
         host_project = (POWER_PROJECT_NAME or os.environ.get("COMPOSE_PROJECT_NAME") or "unreal_vtuber").strip()
         host_project = _validate_compose_project_name(host_project)
@@ -1983,7 +2064,7 @@ def ops_upgrade(
             compose_file,
         ]
 
-        if payload.recreate_orchestrator_health:
+        if recreate_orchestrator_health:
             # Schedule a self-recreate AFTER returning (and after a small delay),
             # otherwise the HTTP response can get cut off mid-flight.
             self_service = (POWER_SELF_SERVICE or "orchestrator-health").strip() or "orchestrator-health"
@@ -2009,7 +2090,7 @@ def ops_upgrade(
                 ["python3", "-c", code, log_path, "bash", "-lc", shell_cmd],
             )
 
-        if payload.recreate_orchestrator_edge_rotator:
+        if recreate_orchestrator_edge_rotator:
             edge_service = "orchestrator-edge-rotator"
             log_path = "/var/lib/vtuber/power-state/ops-recreate-orchestrator-edge-rotator.log"
             pull_cmd = " ".join(shlex.quote(arg) for arg in [*compose_base, "pull", edge_service])

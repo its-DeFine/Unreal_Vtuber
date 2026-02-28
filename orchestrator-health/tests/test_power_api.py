@@ -400,6 +400,112 @@ def test_ops_upgrade_rejects_invalid_service_image_tag(ops_app):
     assert resp.status_code == 422
 
 
+def test_ops_upgrade_rejects_invalid_ops_allow_cidrs(ops_app):
+    app, _svc = ops_app
+    client = TestClient(app)
+    resp = client.post("/ops/upgrade", json={"ops_allow_cidrs": ["not-a-cidr"]})
+    assert resp.status_code == 422
+
+
+def test_ops_upgrade_sets_ops_allow_cidrs(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+
+    class DummyResult:
+        def __init__(self, exit_code: int = 0, stdout: str = "", stderr: str = ""):
+            self.exit_code = exit_code
+            self.output = (stdout.encode("utf-8"), stderr.encode("utf-8"))
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            git_prefix_a = ["git", "-C", "/tmp/repo"]
+            git_prefix_b = ["git", "-c", "safe.directory=/tmp/repo", "-C", "/tmp/repo"]
+
+            if cmd[: len(git_prefix_a)] == git_prefix_a:
+                git_cmd = cmd[len(git_prefix_a) :]
+            elif cmd[: len(git_prefix_b)] == git_prefix_b:
+                git_cmd = cmd[len(git_prefix_b) :]
+            else:
+                return DummyResult(stdout="")
+
+            if git_cmd[:3] == ["rev-parse", "--is-inside-work-tree"]:
+                return DummyResult(stdout="true\n")
+            if git_cmd[:2] == ["status", "--porcelain"]:
+                return DummyResult(stdout="")
+            if git_cmd[:3] == ["rev-parse", "--short", "HEAD"]:
+                return DummyResult(stdout="abc123\n")
+            if git_cmd[:2] == ["fetch", "-q"]:
+                return DummyResult(stdout="")
+            if git_cmd[:3] == ["pull", "-q", "--ff-only"]:
+                return DummyResult(stdout="")
+            return DummyResult(stdout="")
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post("/ops/upgrade", json={"apply": False, "ops_allow_cidrs": ["86.106.138.188/32"]})
+    assert resp.status_code == 200
+    steps = resp.json()["steps"]
+    names = [step.get("name") for step in steps]
+    assert "set_ops_allow_cidrs" in names
+
+
+def test_ops_upgrade_apply_with_ops_allow_cidrs_auto_recreates_control_plane(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_detect_compose_identity", lambda: None)
+    monkeypatch.setattr(
+        svc,
+        "_read_power_state",
+        lambda *_args, **_kwargs: svc.PowerState(state="sleeping", reason="pytest"),
+    )
+    monkeypatch.setattr(svc, "_list_project_containers", lambda *_args, **_kwargs: [])
+
+    class DummyResult:
+        def __init__(self, exit_code: int = 0, stdout: str = "", stderr: str = ""):
+            self.exit_code = exit_code
+            self.output = (stdout.encode("utf-8"), stderr.encode("utf-8"))
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            git_prefix_a = ["git", "-C", "/tmp/repo"]
+            git_prefix_b = ["git", "-c", "safe.directory=/tmp/repo", "-C", "/tmp/repo"]
+
+            if cmd[: len(git_prefix_a)] == git_prefix_a:
+                git_cmd = cmd[len(git_prefix_a) :]
+            elif cmd[: len(git_prefix_b)] == git_prefix_b:
+                git_cmd = cmd[len(git_prefix_b) :]
+            else:
+                return DummyResult(stdout="")
+
+            if git_cmd[:3] == ["rev-parse", "--is-inside-work-tree"]:
+                return DummyResult(stdout="true\n")
+            if git_cmd[:2] == ["status", "--porcelain"]:
+                return DummyResult(stdout="")
+            if git_cmd[:3] == ["rev-parse", "--short", "HEAD"]:
+                return DummyResult(stdout="abc123\n")
+            if git_cmd[:2] == ["fetch", "-q"]:
+                return DummyResult(stdout="")
+            if git_cmd[:3] == ["pull", "-q", "--ff-only"]:
+                return DummyResult(stdout="")
+            return DummyResult(stdout="")
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post("/ops/upgrade", json={"apply": True, "ops_allow_cidrs": ["86.106.138.188/32"]})
+    assert resp.status_code == 200
+    steps = resp.json()["steps"]
+    names = [step.get("name") for step in steps]
+    assert "set_ops_allow_cidrs" in names
+    assert "schedule_recreate_orchestrator_health" in names
+    assert "schedule_recreate_orchestrator_edge_rotator" in names
+
+
 def test_ops_upgrade_recreate_orchestrator_edge_rotator_requires_apply(ops_app, monkeypatch):
     app, svc = ops_app
     client = TestClient(app)
