@@ -1,0 +1,61 @@
+{
+  "id": "agent-negotiator",
+  "name": "Agent Negotiator",
+  "description": "Temporary OpenClaw-compatible MCP service for workload negotiation (planned move back to hardened NanoClaw runtime)",
+  "channels": ["mcp-negotiation"],
+  "skills": ["./.claude/skills"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean" },
+      "host": { "type": "string" },
+      "port": { "type": "number", "minimum": 1, "maximum": 65535 },
+      "configFile": { "type": "string" },
+      "healthUrl": { "type": "string" },
+      "signalingPublicBaseUrl": { "type": "string" },
+      "signalingCheckBaseUrl": { "type": "string" },
+      "orchestratorId": { "type": "string" },
+      "dataDir": { "type": "string" },
+      "ethUsdRate": { "type": "number", "minimum": 1 },
+      "rateLimitPerMinute": { "type": "number", "minimum": 1 },
+      "quoteCleanupIntervalMs": { "type": "number", "minimum": 1000 }
+    }
+  },
+  "uiHints": {
+    "enabled": {
+      "label": "Enabled",
+      "help": "Start or skip the negotiator MCP service"
+    },
+    "port": {
+      "label": "MCP Port",
+      "help": "Port exposed for customer-facing MCP requests",
+      "placeholder": "9100"
+    },
+    "healthUrl": {
+      "label": "Orchestrator Health URL",
+      "help": "orchestrator-health base URL used for GPU stats and cluster deploy/down"
+    },
+    "signalingPublicBaseUrl": {
+      "label": "Signaling Public Base URL",
+      "help": "Routable URL base returned to customers for signaling access"
+    },
+    "signalingCheckBaseUrl": {
+      "label": "Signaling Check Base URL",
+      "help": "Internal URL base used to poll signaling health after deploy",
+      "advanced": true
+    },
+    "orchestratorId": {
+      "label": "Orchestrator ID",
+      "help": "Identifier returned by orchestrator_info"
+    },
+    "configFile": {
+      "label": "Negotiator YAML Path",
+      "advanced": true
+    },
+    "dataDir": {
+      "label": "Data Directory",
+      "advanced": true
+    }
+  }
+}
