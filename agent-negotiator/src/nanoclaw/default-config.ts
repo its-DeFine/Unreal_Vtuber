@@ -25,11 +25,6 @@ session_types:
 
 killswitch:
   enabled: false
-
-agent:
-  provider: "openai"
-  model: "gpt-4.1"
-  custom_instructions: "Be professional but approachable."
 `;
 
 export function ensureNegotiatorConfigFile(

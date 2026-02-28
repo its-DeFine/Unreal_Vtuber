@@ -2,12 +2,7 @@
 
 `agent-negotiator` exposes a customer-facing MCP endpoint for orchestrator workload negotiation.
 
-Current deployment is a temporary OpenClaw compatibility bridge:
-
-1. Embedded OpenClaw-compatible extension (`openclaw.plugin.json` + `openclaw.extensions`)
-2. Standalone startup is intentionally disabled (`src/index.ts` exits with an error)
-
-Planned follow-up: revert this bridge to the hardened NanoClaw implementation once the secure runtime path is finalized.
+Current deployment runs as an embedded claw plugin service. Standalone startup is intentionally disabled (`src/index.ts` exits with an error).
 
 ## Customer-facing MCP tools
 
@@ -15,6 +10,7 @@ Planned follow-up: revert this bridge to the hardened NanoClaw implementation on
 - `negotiate_quote`
 - `accept_quote`
 - `session_status`
+- `validate_renter_control`
 - `cancel_session`
 
 `accept_quote` and `session_status` return a `session.control` block for active leases:
@@ -26,6 +22,8 @@ Planned follow-up: revert this bridge to the hardened NanoClaw implementation on
 - `game_tcp_port`
 
 This enables deterministic post-lease embodied control through the script-runner path.
+
+`validate_renter_control` adds a deterministic validation path that executes a command sequence through `runner_execute_url` and confirms terminal completion from `runner_status_url_template`.
 
 ## Internal safety controls
 
@@ -51,24 +49,25 @@ When enabled, the plugin registers:
 
 The plugin will auto-generate a default negotiator YAML under plugin `stateDir` when no config file is provided.
 
-## OpenClaw-style auth token
+## API token auth
 
-To match existing Chief/Athena auth behavior, set:
+Set:
 
-- `OPENCLAW_GATEWAY_TOKEN=<secret>`
+- `NEGOTIATOR_API_TOKEN=<secret>`
 
 When set, all MCP endpoints except `/health` require:
 
-- `Authorization: Bearer <secret>` or
-- `x-openclaw-token: <secret>`
+- `Authorization: Bearer <secret>`
 
-## API model policy
+## Skill policy rails (PR223)
 
-`agent-negotiator` enforces API-backed model configuration in `negotiator.yaml`:
+Set `NEGOTIATOR_SKILL_POLICY_FILE` to a `SKILL.md` containing a fenced yaml/json `negotiator_policy` block.
 
-- Allowed `agent.provider`: `openai`, `anthropic`
-- `agent.model` must be an API model ID
-- Local/self-hosted markers (e.g. `ollama`, `llama.cpp`, `gguf`, `localhost`, `file:`) are rejected at config load time
+When configured, `accept_quote` enforces:
+
+- consumer entitlement allowlist from `skill.md`
+- paid rail proof (`402` + `ERC-4337` user operation hash)
+- zero-price signed-message proof (HMAC signature with secret from env, default `NEGOTIATOR_SIGNED_MESSAGE_SECRET`)
 
 ## Verification
 

@@ -26,6 +26,8 @@ import type { Killswitch } from "../negotiation/killswitch.js";
 import { clusterPorts, type SessionProvisioner } from "../negotiation/provisioner.js";
 import type { InternalTools } from "../negotiation/internal.js";
 import { calculatePrice, type PricingResult } from "../negotiation/pricing.js";
+import type { AccessRequest, LoadedSkillPolicy } from "../access/policy.js";
+import { enforceAccessPolicy } from "../access/policy.js";
 
 // --- Rate Limiter ---
 
@@ -40,8 +42,11 @@ export class RateLimiter {
   private windowMs: number;
 
   constructor(maxPerWindow = 30, windowMs = 60_000) {
-    this.maxPerWindow = maxPerWindow;
-    this.windowMs = windowMs;
+    const safeMaxPerWindow = Number.isFinite(maxPerWindow) && maxPerWindow >= 1 ? maxPerWindow : 30;
+    const safeWindowMs = Number.isFinite(windowMs) && windowMs >= 1 ? windowMs : 60_000;
+
+    this.maxPerWindow = Math.floor(safeMaxPerWindow);
+    this.windowMs = Math.floor(safeWindowMs);
   }
 
   check(ip: string): boolean {
@@ -83,6 +88,7 @@ export interface McpChannelDeps {
   internalTools: InternalTools;
   orchestratorId: string;
   ethUsdRate?: number; // defaults to 2500 if not provided
+  accessPolicy?: LoadedSkillPolicy;
 }
 
 function withPort(baseUrl: string, port: number): string | null {
@@ -98,6 +104,10 @@ function withPort(baseUrl: string, port: number): string | null {
   }
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function createMcpServer(deps: McpChannelDeps): McpServer {
   const {
     store,
@@ -106,6 +116,7 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
     killswitch,
     internalTools,
     orchestratorId,
+    accessPolicy,
   } = deps;
 
   const ethUsdRate = deps.ethUsdRate ?? 2500;
@@ -324,9 +335,43 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         .string()
         .optional()
         .describe("Desired start time (ISO 8601). If omitted, starts immediately."),
+      access: z
+        .object({
+          rail: z.enum(["paid", "zero_price"]),
+          paid: z
+            .object({
+              http_status: z.number().int().describe("Expected paid rail status code (402)"),
+              standard: z.string().min(1).describe("Payment rail standard (ERC-4337)"),
+              user_operation_hash: z
+                .string()
+                .min(1)
+                .describe("ERC-4337 userOperation hash"),
+            })
+            .optional(),
+          zero_price: z
+            .object({
+              nonce: z.string().min(1).max(256).describe("Signed-message nonce"),
+              timestamp: z
+                .string()
+                .min(1)
+                .describe("Signed-message timestamp (ISO-8601)"),
+              signature: z
+                .string()
+                .min(1)
+                .describe("Signed-message signature"),
+            })
+            .optional(),
+        })
+        .optional()
+        .describe("Policy-driven access rail proof"),
     },
     async (params) => {
-      const input = params as { quote_id: string; customer_id: string; start_time?: string };
+      const input = params as {
+        quote_id: string;
+        customer_id: string;
+        start_time?: string;
+        access?: AccessRequest;
+      };
 
       // Killswitch check
       if (killswitch.isActive()) {
@@ -380,6 +425,34 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
             isError: true,
           };
         }
+      }
+
+      const accessDecision = enforceAccessPolicy(accessPolicy, {
+        customerId: input.customer_id,
+        quoteId: input.quote_id,
+        access: input.access,
+      });
+      if (!accessDecision.allowed) {
+        audit.log("error", {
+          action: "access_gate",
+          customer_id: input.customer_id,
+          quote_id: input.quote_id,
+          code: accessDecision.code,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: accessDecision.code ?? "access_denied",
+                message:
+                  accessDecision.message ??
+                  "Access denied by negotiated customer entitlement policy",
+              }),
+            },
+          ],
+          isError: true,
+        };
       }
 
       // Capacity check
@@ -589,6 +662,291 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
 
   // --- cancel_session ---
   server.tool(
+    "validate_renter_control",
+    "Execute a deterministic TCP command sequence through script-runner and verify completion.",
+    {
+      booking_id: z.string().min(1).describe("The active booking ID"),
+      customer_id: z.string().min(1).describe("Customer identifier (must match booking)"),
+      commands: z
+        .array(z.string().min(1))
+        .min(1)
+        .max(32)
+        .optional()
+        .describe("TCP commands to execute in-order"),
+      session_id: z
+        .string()
+        .min(1)
+        .max(128)
+        .optional()
+        .describe("Optional runner session ID override"),
+      timeout_ms: z
+        .number()
+        .int()
+        .min(1_000)
+        .max(120_000)
+        .optional()
+        .describe("Total timeout before validation fails"),
+      poll_interval_ms: z
+        .number()
+        .int()
+        .min(100)
+        .max(10_000)
+        .optional()
+        .describe("Polling interval for runner status"),
+    },
+    async (params) => {
+      const input = params as {
+        booking_id: string;
+        customer_id: string;
+        commands?: string[];
+        session_id?: string;
+        timeout_ms?: number;
+        poll_interval_ms?: number;
+      };
+
+      const booking = store.getBooking(input.booking_id);
+      if (!booking) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "not_found",
+                message: `Booking ${input.booking_id} not found`,
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      if (booking.customer_id !== input.customer_id) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "unauthorized",
+                message: "Customer ID does not match booking",
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      if (booking.status !== "active") {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "inactive_session",
+                message: `Booking ${input.booking_id} is ${booking.status}, not active`,
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      if (typeof booking.slot !== "number" || !booking.signaling_url) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "control_unavailable",
+                message: "Booking does not expose active control metadata",
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const ports = clusterPorts(booking.slot);
+      const runnerUrl = withPort(booking.signaling_url, ports.runner);
+      if (!runnerUrl) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "runner_url_invalid",
+                message: "Failed to resolve runner URL from booking signaling URL",
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const commands = input.commands ?? [
+        "EMOTE_Wave",
+        "CAMSHOT.ExtremeClose",
+        "CAMSHOT.WideShot",
+        "EMOTE_ThumbsUp",
+        "CAMSHOT.Default",
+      ];
+      const sessionId =
+        input.session_id ??
+        `renter-control-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      const timeoutMs = input.timeout_ms ?? 30_000;
+      const pollIntervalMs = input.poll_interval_ms ?? 500;
+
+      const commandPayload = {
+        session_id: sessionId,
+        commands: commands.map((value, index) => ({
+          delay_ms: index === 0 ? 0 : 500,
+          type: "tcp",
+          value,
+        })),
+        audio: [],
+      };
+
+      let executeResponseStatus = 0;
+      try {
+        const executeResponse = await fetch(`${runnerUrl}/scripts/execute`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(commandPayload),
+        });
+        executeResponseStatus = executeResponse.status;
+        if (!executeResponse.ok) {
+          const responseBody = await executeResponse.text();
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  error: "runner_execute_failed",
+                  message: `script-runner execute returned ${executeResponse.status}`,
+                  response: responseBody.slice(0, 1000),
+                }),
+              },
+            ],
+            isError: true,
+          };
+        }
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "runner_execute_unreachable",
+                message,
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const deadline = Date.now() + timeoutMs;
+      let lastState = "unknown";
+      let lastStatusBody: Record<string, unknown> | undefined;
+      let statusHttpCode = 0;
+
+      while (Date.now() <= deadline) {
+        try {
+          const statusResponse = await fetch(
+            `${runnerUrl}/scripts/${encodeURIComponent(sessionId)}`
+          );
+          statusHttpCode = statusResponse.status;
+          if (statusResponse.ok) {
+            const parsed = (await statusResponse.json()) as Record<string, unknown>;
+            lastStatusBody = parsed;
+            lastState =
+              typeof parsed.state === "string" ? parsed.state.toLowerCase() : "unknown";
+
+            if (
+              lastState === "completed" ||
+              lastState === "failed" ||
+              lastState === "error" ||
+              lastState === "cancelled"
+            ) {
+              const validated = lastState === "completed";
+              if (!validated) {
+                return {
+                  content: [
+                    {
+                      type: "text" as const,
+                      text: JSON.stringify({
+                        error: "runner_terminal_failure",
+                        message: `script-runner ended in terminal state ${lastState}`,
+                        state: lastState,
+                        session_id: sessionId,
+                        execute_http_status: executeResponseStatus,
+                        status_http_status: statusHttpCode,
+                        status: parsed,
+                      }),
+                    },
+                  ],
+                  isError: true,
+                };
+              }
+
+              audit.log("session_control_validated", {
+                booking_id: input.booking_id,
+                customer_id: input.customer_id,
+                session_id: sessionId,
+                command_count: commands.length,
+              });
+
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: JSON.stringify(
+                      {
+                        validated: true,
+                        booking_id: input.booking_id,
+                        session_id: sessionId,
+                        state: lastState,
+                        runner_execute_url: `${runnerUrl}/scripts/execute`,
+                        runner_status_url: `${runnerUrl}/scripts/${encodeURIComponent(sessionId)}`,
+                        commands,
+                        status: parsed,
+                      },
+                      null,
+                      2
+                    ),
+                  },
+                ],
+              };
+            }
+          }
+        } catch {
+          // retry until deadline
+        }
+
+        await wait(pollIntervalMs);
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              error: "runner_status_timeout",
+              message: `Timed out waiting for runner completion after ${timeoutMs}ms`,
+              session_id: sessionId,
+              last_state: lastState,
+              execute_http_status: executeResponseStatus,
+              status_http_status: statusHttpCode,
+              status: lastStatusBody ?? null,
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
+  );
+
+  server.tool(
     "cancel_session",
     "Cancel an active or pending session. Returns cancellation confirmation and refund eligibility.",
     {
@@ -730,7 +1088,7 @@ export function createHttpServer(
   // Track SSE transports for cleanup
   const transports = new Map<string, SSEServerTransport>();
 
-  // Optional OpenClaw-style token auth on MCP endpoints.
+  // Optional bearer-token auth on MCP endpoints.
   // Health check stays open for orchestration probes.
   app.use((req: Request, res: Response, next) => {
     if (!authToken || req.path === "/health") {
@@ -739,10 +1097,9 @@ export function createHttpServer(
     }
 
     const authHeader = (req.headers.authorization ?? "").toString();
-    const tokenHeader = (req.headers["x-openclaw-token"] ?? "").toString();
     const presented = authHeader.startsWith("Bearer ")
       ? authHeader.slice("Bearer ".length).trim()
-      : tokenHeader.trim();
+      : "";
 
     if (!presented) {
       audit.log("error", { action: "auth", path: req.path, reason: "missing_token" });
