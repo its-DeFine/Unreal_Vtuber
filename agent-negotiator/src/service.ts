@@ -16,6 +16,10 @@ import { SessionProvisioner } from "./negotiation/provisioner.js";
 import { InternalTools } from "./negotiation/internal.js";
 import { createMcpServer, createHttpServer, RateLimiter } from "./channels/mcp.js";
 import { loadSkillPolicyFromFile } from "./access/policy.js";
+import {
+  type FleetOrchestratorConfig,
+  loadFleetRegistryFromFile,
+} from "./negotiation/fleet.js";
 
 export interface NegotiatorServiceConfig {
   host: string;
@@ -31,6 +35,7 @@ export interface NegotiatorServiceConfig {
   ethUsdRate: number;
   rateLimitPerMinute: number;
   quoteCleanupIntervalMs: number;
+  fleetRegistryFile?: string;
 }
 
 export interface NegotiatorLogger {
@@ -154,6 +159,9 @@ export function loadNegotiatorEnvConfig(
         DEFAULT_CLEANUP_INTERVAL_MS,
         1
       ),
+    fleetRegistryFile:
+      overrides.fleetRegistryFile ??
+      parseOptionalTokenEnv(process.env.NEGOTIATOR_FLEET_REGISTRY_FILE),
   };
 }
 
@@ -210,10 +218,37 @@ export async function startNegotiatorService(
   configLoader.startWatching();
 
   const killswitch = new Killswitch(configLoader);
-  const provisioner = new SessionProvisioner(config.healthUrl, store, audit, {
-    signalingPublicBaseUrl: config.signalingPublicBaseUrl,
-    signalingCheckBaseUrl: config.signalingCheckBaseUrl,
+  const fleetFromFile = loadFleetRegistryFromFile(config.fleetRegistryFile);
+  const orchestrators = new Map<string, FleetOrchestratorConfig>();
+  const upsertOrchestrator = (entry: FleetOrchestratorConfig) => {
+    if (!entry.id || !entry.health_url) return;
+    orchestrators.set(entry.id, entry);
+  };
+  upsertOrchestrator({
+    id: config.orchestratorId,
+    health_url: config.healthUrl,
+    signaling_public_base_url: config.signalingPublicBaseUrl,
+    signaling_check_base_url: config.signalingCheckBaseUrl,
+    enabled: true,
   });
+  for (const entry of fleetFromFile) {
+    upsertOrchestrator(entry);
+  }
+  logger.info(
+    `[negotiator] Fleet orchestrators configured: ${Array.from(orchestrators.keys()).join(", ")}`
+  );
+
+  const provisioners = new Map<string, SessionProvisioner>();
+  for (const [orchestratorId, entry] of orchestrators.entries()) {
+    provisioners.set(
+      orchestratorId,
+      new SessionProvisioner(entry.health_url, store, audit, {
+        signalingPublicBaseUrl: entry.signaling_public_base_url,
+        signalingCheckBaseUrl: entry.signaling_check_base_url,
+      })
+    );
+  }
+  const provisioner = provisioners.get(config.orchestratorId)!;
 
   const internalTools = new InternalTools({
     healthBaseUrl: config.healthUrl,
@@ -240,6 +275,9 @@ export async function startNegotiatorService(
     orchestratorId: config.orchestratorId,
     ethUsdRate: config.ethUsdRate,
     accessPolicy,
+    fleetOrchestrators: Array.from(orchestrators.values()),
+    fleetProvisioners: provisioners,
+    defaultHealthUrl: config.healthUrl,
   });
 
   const app = createHttpServer(mcpServer, {
@@ -274,7 +312,9 @@ export async function startNegotiatorService(
       stopped = true;
 
       clearInterval(cleanupInterval);
-      provisioner.cancelAllTimers();
+      for (const p of provisioners.values()) {
+        p.cancelAllTimers();
+      }
       configLoader.stopWatching();
 
       await new Promise<void>((resolve) => {

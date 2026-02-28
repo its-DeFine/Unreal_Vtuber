@@ -24,10 +24,11 @@ import type { ConfigLoader } from "../negotiation/config.js";
 import type { AuditLogger } from "../negotiation/audit.js";
 import type { Killswitch } from "../negotiation/killswitch.js";
 import { clusterPorts, type SessionProvisioner } from "../negotiation/provisioner.js";
-import type { InternalTools } from "../negotiation/internal.js";
+import type { GpuStats, InternalTools } from "../negotiation/internal.js";
 import { calculatePrice, type PricingResult } from "../negotiation/pricing.js";
 import type { AccessRequest, LoadedSkillPolicy } from "../access/policy.js";
 import { enforceAccessPolicy } from "../access/policy.js";
+import type { FleetOrchestratorConfig } from "../negotiation/fleet.js";
 
 // --- Rate Limiter ---
 
@@ -89,6 +90,9 @@ export interface McpChannelDeps {
   orchestratorId: string;
   ethUsdRate?: number; // defaults to 2500 if not provided
   accessPolicy?: LoadedSkillPolicy;
+  fleetOrchestrators?: FleetOrchestratorConfig[];
+  fleetProvisioners?: Map<string, SessionProvisioner>;
+  defaultHealthUrl?: string;
 }
 
 interface ConnectionTargetInput {
@@ -236,6 +240,51 @@ function buildControlFromSignaling(
   };
 }
 
+interface FleetCapacityInfo {
+  orchestrator_id: string;
+  health_url: string;
+  available: boolean;
+  active_sessions: number;
+  max_sessions: number;
+  available_slots: number;
+  gpu_utilization_pct: number;
+  capacity_threshold_pct: number;
+  next_slot: number | null;
+  telemetry_ok: boolean;
+}
+
+interface ResolveOrchestratorResult {
+  id: string;
+  healthUrl: string;
+  provisioner: SessionProvisioner;
+}
+
+async function fetchGpuStatsFromHealth(healthBaseUrl: string): Promise<GpuStats[]> {
+  const base = healthBaseUrl.replace(/\/+$/, "");
+  const paths = ["/meta/gpu/stats", "/meta/gpu-stats"];
+  let lastError: Error | null = null;
+
+  for (const p of paths) {
+    try {
+      const res = await fetch(`${base}${p}`);
+      if (res.ok) {
+        const data = (await res.json()) as { gpus?: GpuStats[] };
+        return data.gpus ?? [];
+      }
+      if (res.status === 404) {
+        continue;
+      }
+      lastError = new Error(`GPU stats request failed (${p}): ${res.status}`);
+      break;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      lastError = new Error(`GPU stats request failed (${p}): ${message}`);
+    }
+  }
+
+  throw lastError ?? new Error("GPU stats request failed");
+}
+
 export function createMcpServer(deps: McpChannelDeps): McpServer {
   const {
     store,
@@ -246,8 +295,98 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
     orchestratorId,
     accessPolicy,
   } = deps;
+  const fleetOrchestratorsInput = deps.fleetOrchestrators ?? [];
+  const fleetProvisionersInput = deps.fleetProvisioners ?? new Map<string, SessionProvisioner>();
 
   const ethUsdRate = deps.ethUsdRate ?? 2500;
+  const provisionersByOrchestrator = new Map<string, SessionProvisioner>();
+  provisionersByOrchestrator.set(orchestratorId, deps.provisioner);
+  for (const [id, p] of fleetProvisionersInput.entries()) {
+    provisionersByOrchestrator.set(id, p);
+  }
+
+  const orchestratorById = new Map<string, FleetOrchestratorConfig>();
+  for (const item of fleetOrchestratorsInput) {
+    if (item?.id && item?.health_url) {
+      orchestratorById.set(item.id, item);
+    }
+  }
+  if (!orchestratorById.has(orchestratorId)) {
+    orchestratorById.set(orchestratorId, {
+      id: orchestratorId,
+      health_url: deps.defaultHealthUrl ?? "",
+      enabled: true,
+    });
+  }
+
+  const localOrchestratorIds = new Set(
+    [orchestratorId, ...Array.from(orchestratorById.keys())].filter((v) => v.length > 0)
+  );
+
+  const resolveTargetOrchestrator = (
+    requestedOrchestratorId: string | undefined
+  ): ResolveOrchestratorResult | null => {
+    const id = (requestedOrchestratorId ?? orchestratorId).trim();
+    const record = orchestratorById.get(id);
+    const provisioner = provisionersByOrchestrator.get(id);
+    if (!record || !provisioner) {
+      return null;
+    }
+    return { id, healthUrl: record.health_url, provisioner };
+  };
+
+  const checkCapacityForOrchestrator = async (
+    requestedOrchestratorId: string | undefined
+  ): Promise<FleetCapacityInfo | null> => {
+    const target = resolveTargetOrchestrator(requestedOrchestratorId);
+    if (!target) return null;
+
+    const cfg = config.get();
+    const orchestratorCfg = orchestratorById.get(target.id);
+    const maxSessions =
+      orchestratorCfg?.max_concurrent_sessions ?? cfg.capacity.max_concurrent_sessions;
+    const thresholdPct =
+      orchestratorCfg?.capacity_threshold_pct ?? cfg.capacity.capacity_threshold_pct;
+
+    const activeCount = store.getActiveBookingCount(target.id);
+    let gpuPct = 0;
+    let telemetryOk = true;
+    if (target.healthUrl.length === 0 && target.id === orchestratorId) {
+      const fallback = await internalTools.checkCapacity();
+      gpuPct = fallback.gpu_utilization_pct;
+    } else {
+      try {
+        const stats = await fetchGpuStatsFromHealth(target.healthUrl);
+        if (stats.length > 0) {
+          gpuPct =
+            stats.reduce((sum, g) => sum + g.utilization_gpu_pct, 0) /
+            stats.length;
+        }
+      } catch {
+        telemetryOk = false;
+        gpuPct = 100;
+      }
+    }
+
+    const available =
+      telemetryOk &&
+      activeCount < maxSessions &&
+      gpuPct < thresholdPct;
+
+    const nextSlot = store.getNextAvailableSlot(maxSessions, target.id);
+    return {
+      orchestrator_id: target.id,
+      health_url: target.healthUrl,
+      available,
+      active_sessions: activeCount,
+      max_sessions: maxSessions,
+      available_slots: Math.max(0, maxSessions - activeCount),
+      gpu_utilization_pct: Math.round(gpuPct * 100) / 100,
+      capacity_threshold_pct: thresholdPct,
+      next_slot: nextSlot,
+      telemetry_ok: telemetryOk,
+    };
+  };
 
   const server = new McpServer({
     name: `embody-negotiator-${orchestratorId}`,
@@ -262,8 +401,12 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
     async () => {
       const cfg = config.get();
       let gpuInfo: string = "unknown";
+      let capacity = await checkCapacityForOrchestrator(orchestratorId);
       try {
-        const stats = await internalTools.gpuStats();
+        const target = resolveTargetOrchestrator(orchestratorId);
+        const stats = target
+          ? await fetchGpuStatsFromHealth(target.healthUrl)
+          : await internalTools.gpuStats();
         if (stats.length > 0) {
           gpuInfo = `${stats.length}x GPU, ${stats[0].memory_total_mib}MiB VRAM each`;
         }
@@ -271,7 +414,21 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         gpuInfo = "GPU stats unavailable";
       }
 
-      const capacity = await internalTools.checkCapacity();
+      if (!capacity) {
+        const fallback = await internalTools.checkCapacity();
+        capacity = {
+          orchestrator_id: orchestratorId,
+          health_url: "unknown",
+          available: fallback.available,
+          active_sessions: fallback.active_sessions,
+          max_sessions: fallback.max_sessions,
+          available_slots: fallback.available_slots,
+          gpu_utilization_pct: fallback.gpu_utilization_pct,
+          capacity_threshold_pct: fallback.capacity_threshold_pct,
+          next_slot: fallback.next_slot,
+          telemetry_ok: true,
+        };
+      }
 
       return {
         content: [
@@ -304,6 +461,53 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
     }
   );
 
+  // --- fleet_overview ---
+  server.tool(
+    "fleet_overview",
+    "List available orchestrators with capacity snapshots for allocator decisions.",
+    {},
+    async () => {
+      const rows: Array<Record<string, unknown>> = [];
+      for (const orchestratorIdItem of localOrchestratorIds) {
+        const cap = await checkCapacityForOrchestrator(orchestratorIdItem);
+        if (!cap) {
+          rows.push({
+            orchestrator_id: orchestratorIdItem,
+            available: false,
+            error: "orchestrator_not_configured",
+          });
+          continue;
+        }
+        rows.push({
+          orchestrator_id: cap.orchestrator_id,
+          health_url: cap.health_url,
+          available: cap.available,
+          active_sessions: cap.active_sessions,
+          max_sessions: cap.max_sessions,
+          available_slots: cap.available_slots,
+          gpu_utilization_pct: cap.gpu_utilization_pct,
+          capacity_threshold_pct: cap.capacity_threshold_pct,
+          telemetry_ok: cap.telemetry_ok,
+        });
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                orchestrators: rows,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
+
   // --- negotiate_quote ---
   server.tool(
     "negotiate_quote",
@@ -326,10 +530,21 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         .max(500)
         .optional()
         .describe("Optional message or requirements"),
+      preferred_orchestrator_id: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Optional orchestrator preference. If omitted, allocator picks best available."),
     },
     async (params) => {
       // MCP SDK already validates via inline zod schemas; use params directly
-      const input = params as { session_type: string; duration_min: number; resolution: string; message?: string };
+      const input = params as {
+        session_type: string;
+        duration_min: number;
+        resolution: string;
+        message?: string;
+        preferred_orchestrator_id?: string;
+      };
       const cfg = config.get();
 
       // Validate session type
@@ -386,19 +601,82 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         };
       }
 
-      // Check capacity
-      const capacity = await internalTools.checkCapacity();
+      const requested = input.preferred_orchestrator_id?.trim();
+      if (requested && !localOrchestratorIds.has(requested)) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "unknown_orchestrator",
+                message: `Unknown orchestrator: ${requested}`,
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
 
-      // Calculate price
-      const pricing: PricingResult = calculatePrice(
-        {
-          gpuUtilizationPct: capacity.gpu_utilization_pct,
-          durationMin: input.duration_min,
-          resolution: input.resolution,
-        },
-        cfg.pricing,
-        ethUsdRate
-      );
+      const candidateIds = requested
+        ? [requested]
+        : Array.from(localOrchestratorIds);
+
+      const evaluated: Array<{
+        capacity: FleetCapacityInfo;
+        pricing: PricingResult;
+      }> = [];
+      for (const id of candidateIds) {
+        const capacity = await checkCapacityForOrchestrator(id);
+        if (!capacity) {
+          continue;
+        }
+        const pricing: PricingResult = calculatePrice(
+          {
+            gpuUtilizationPct: capacity.gpu_utilization_pct,
+            durationMin: input.duration_min,
+            resolution: input.resolution,
+          },
+          cfg.pricing,
+          ethUsdRate
+        );
+        evaluated.push({ capacity, pricing });
+      }
+
+      const available = evaluated.filter((item) => item.capacity.available);
+      if (available.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "no_capacity",
+                message: "No orchestrator has available capacity right now.",
+                candidates: evaluated.map((item) => ({
+                  orchestrator_id: item.capacity.orchestrator_id,
+                  available: item.capacity.available,
+                  available_slots: item.capacity.available_slots,
+                  max_sessions: item.capacity.max_sessions,
+                  active_sessions: item.capacity.active_sessions,
+                  gpu_utilization_pct: item.capacity.gpu_utilization_pct,
+                  telemetry_ok: item.capacity.telemetry_ok,
+                })),
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      available.sort((a, b) => {
+        const priceDiff = a.pricing.price_usd_total - b.pricing.price_usd_total;
+        if (priceDiff !== 0) return priceDiff;
+        if (a.capacity.available_slots !== b.capacity.available_slots) {
+          return b.capacity.available_slots - a.capacity.available_slots;
+        }
+        return a.capacity.gpu_utilization_pct - b.capacity.gpu_utilization_pct;
+      });
+
+      const selected = available[0];
 
       // Quote valid for 5 minutes
       const validUntil = new Date(Date.now() + 5 * 60_000).toISOString();
@@ -407,21 +685,23 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         session_type: input.session_type,
         duration_min: input.duration_min,
         resolution: input.resolution,
-        price_wei: pricing.price_wei,
-        price_usd_est: pricing.price_usd_total,
+        price_wei: selected.pricing.price_wei,
+        price_usd_est: selected.pricing.price_usd_total,
         valid_until: validUntil,
         customer_message: input.message,
-        gpu_utilization_pct: capacity.gpu_utilization_pct,
+        gpu_utilization_pct: selected.capacity.gpu_utilization_pct,
+        orchestrator_id: selected.capacity.orchestrator_id,
       });
 
       audit.log("quote_created", {
         quote_id: quote.quote_id,
+        orchestrator_id: selected.capacity.orchestrator_id,
         session_type: input.session_type,
         duration_min: input.duration_min,
         resolution: input.resolution,
-        price_usd: pricing.price_usd_total,
-        price_per_hour: pricing.price_usd_per_hour,
-        surge: pricing.surge_active,
+        price_usd: selected.pricing.price_usd_total,
+        price_per_hour: selected.pricing.price_usd_per_hour,
+        surge: selected.pricing.surge_active,
       });
 
       return {
@@ -431,13 +711,18 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
             text: JSON.stringify(
               {
                 quote_id: quote.quote_id,
+                orchestrator_id: selected.capacity.orchestrator_id,
                 price_wei: quote.price_wei,
-                price_usd_est: pricing.price_usd_total,
-                price_usd_per_hour: pricing.price_usd_per_hour,
-                surge_active: pricing.surge_active,
+                price_usd_est: selected.pricing.price_usd_total,
+                price_usd_per_hour: selected.pricing.price_usd_per_hour,
+                surge_active: selected.pricing.surge_active,
                 valid_until: quote.valid_until,
-                available: capacity.available,
-                available_slots: capacity.available_slots,
+                available: selected.capacity.available,
+                available_slots: selected.capacity.available_slots,
+                allocator: {
+                  strategy: "lowest_price_then_capacity",
+                  considered_orchestrators: candidateIds,
+                },
               },
               null,
               2
@@ -603,16 +888,51 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         };
       }
 
-      // Capacity check
-      const capacity = await internalTools.checkCapacity();
-      if (!capacity.available || capacity.next_slot === null) {
+      const quote = store.getQuote(input.quote_id);
+      if (!quote) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "quote_not_found",
+                message: `Quote ${input.quote_id} not found`,
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+      const targetOrchestratorId =
+        quote.orchestrator_id?.trim() || orchestratorId;
+      const target = resolveTargetOrchestrator(targetOrchestratorId);
+      if (!target) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "orchestrator_not_configured",
+                message: `Orchestrator ${targetOrchestratorId} is not configured`,
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Capacity check (target orchestrator)
+      const capacity = await checkCapacityForOrchestrator(targetOrchestratorId);
+      if (!capacity || !capacity.available || capacity.next_slot === null) {
         return {
           content: [
             {
               type: "text" as const,
               text: JSON.stringify({
                 error: "no_capacity",
-                message: `No available slots. ${capacity.active_sessions}/${capacity.max_sessions} sessions active, GPU at ${capacity.gpu_utilization_pct}%.`,
+                message: capacity
+                  ? `No available slots on ${targetOrchestratorId}. ${capacity.active_sessions}/${capacity.max_sessions} sessions active, GPU at ${capacity.gpu_utilization_pct}%.`
+                  : `No available slots on ${targetOrchestratorId}.`,
               }),
             },
           ],
@@ -621,14 +941,14 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
       }
 
       // Create booking — atomically checks capacity + reserves slot inside SQLite transaction
-      const cfg = config.get();
       let booking;
       try {
         booking = store.createBooking({
           quote_id: input.quote_id,
           customer_id: input.customer_id,
           slot: capacity.next_slot,
-          maxConcurrentSessions: cfg.capacity.max_concurrent_sessions,
+          maxConcurrentSessions: capacity.max_sessions,
+          orchestrator_id: targetOrchestratorId,
         });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -650,6 +970,7 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         booking_id: booking.booking_id,
         quote_id: input.quote_id,
         customer_id: input.customer_id,
+        orchestrator_id: targetOrchestratorId,
         slot: capacity.next_slot,
         connection_route_base: routeResolution.baseUrl ?? null,
         connection_route_source: routeResolution.source ?? "default",
@@ -657,7 +978,7 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
 
       // Provision session
       try {
-        const result = await internalTools.provisionSession(
+        const result = await target.provisioner.provision(
           booking.booking_id,
           capacity.next_slot,
           booking.duration_min,
@@ -683,6 +1004,7 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
               text: JSON.stringify(
                 {
                   booking_id: booking.booking_id,
+                  orchestrator_id: targetOrchestratorId,
                   status: "active",
                   session: {
                     signaling_url: result.signaling_url,
@@ -708,7 +1030,11 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
           store.updateBookingStatus(booking.booking_id, "failed");
         } catch { /* best effort */ }
         const message = err instanceof Error ? err.message : String(err);
-        audit.log("booking_failed", { booking_id: booking.booking_id, error: message });
+        audit.log("booking_failed", {
+          booking_id: booking.booking_id,
+          orchestrator_id: targetOrchestratorId,
+          error: message,
+        });
         return {
           content: [
             {
@@ -791,6 +1117,7 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
             text: JSON.stringify(
               {
                 booking_id: booking.booking_id,
+                orchestrator_id: booking.orchestrator_id ?? orchestratorId,
                 status: booking.status,
                 session_type: booking.session_type,
                 duration_min: booking.duration_min,
@@ -963,6 +1290,7 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
             text: JSON.stringify(
               {
                 booking_id: booking.booking_id,
+                orchestrator_id: booking.orchestrator_id ?? orchestratorId,
                 status: updated.status,
                 signaling_url: signalingUrl,
                 connection_route: {
@@ -1344,12 +1672,19 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
 
         // Teardown if session was running
         if (booking.status === "active" || booking.status === "provisioning") {
-          await internalTools.teardownSession(input.booking_id);
+          const targetOrchestratorId = booking.orchestrator_id ?? orchestratorId;
+          const target = resolveTargetOrchestrator(targetOrchestratorId);
+          if (target) {
+            await target.provisioner.teardown(input.booking_id);
+          } else {
+            await internalTools.teardownSession(input.booking_id);
+          }
         }
 
         audit.log("booking_cancelled", {
           booking_id: input.booking_id,
           customer_id: input.customer_id,
+          orchestrator_id: booking.orchestrator_id ?? orchestratorId,
           reason: input.reason,
           refund_eligible: refundEligible,
           previous_status: booking.status,
@@ -1362,6 +1697,7 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
               text: JSON.stringify({
                 cancelled: true,
                 booking_id: input.booking_id,
+                orchestrator_id: booking.orchestrator_id ?? orchestratorId,
                 refund_eligible: refundEligible,
                 previous_status: booking.status,
               }),
