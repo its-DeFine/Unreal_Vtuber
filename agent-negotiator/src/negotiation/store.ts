@@ -56,6 +56,20 @@ export interface Booking {
   created_at: string;
 }
 
+type BookingMutableFields = Partial<
+  Pick<
+    Booking,
+    | "slot"
+    | "avatar_id"
+    | "signaling_url"
+    | "session_token"
+    | "started_at"
+    | "expires_at"
+    | "cancelled_at"
+    | "cancel_reason"
+  >
+>;
+
 // Runtime column whitelist for updateBookingStatus (prevents SQL injection)
 const ALLOWED_BOOKING_EXTRA_COLUMNS = new Set([
   "slot",
@@ -275,22 +289,37 @@ export class NegotiatorStore {
       .get(bookingId) as Booking | undefined;
   }
 
+  updateBookingFields(bookingId: string, fields: BookingMutableFields): void {
+    const booking = this.getBooking(bookingId);
+    if (!booking) throw new Error(`Booking ${bookingId} not found`);
+
+    const sets: string[] = [];
+    const values: unknown[] = [];
+
+    for (const [key, val] of Object.entries(fields)) {
+      if (val !== undefined) {
+        if (!ALLOWED_BOOKING_EXTRA_COLUMNS.has(key)) {
+          throw new Error(`Invalid booking column: ${key}`);
+        }
+        sets.push(`${key} = ?`);
+        values.push(val);
+      }
+    }
+
+    if (sets.length === 0) {
+      return;
+    }
+
+    values.push(bookingId);
+    this.db
+      .prepare(`UPDATE bookings SET ${sets.join(", ")} WHERE booking_id = ?`)
+      .run(...values);
+  }
+
   updateBookingStatus(
     bookingId: string,
     newStatus: BookingStatus,
-    extra?: Partial<
-      Pick<
-        Booking,
-        | "slot"
-        | "avatar_id"
-        | "signaling_url"
-        | "session_token"
-        | "started_at"
-        | "expires_at"
-        | "cancelled_at"
-        | "cancel_reason"
-      >
-    >
+    extra?: BookingMutableFields
   ): void {
     const booking = this.getBooking(bookingId);
     if (!booking) throw new Error(`Booking ${bookingId} not found`);

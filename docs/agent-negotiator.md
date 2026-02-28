@@ -10,6 +10,7 @@ Current deployment runs as an embedded claw plugin service. Standalone startup i
 - `negotiate_quote`
 - `accept_quote`
 - `session_status`
+- `update_webrtc_connection`
 - `validate_renter_control`
 - `cancel_session`
 
@@ -22,6 +23,22 @@ Current deployment runs as an embedded claw plugin service. Standalone startup i
 - `game_tcp_port`
 
 This enables deterministic post-lease embodied control through the script-runner path.
+
+## Direct WebRTC route selection
+
+`accept_quote` accepts an optional `connection` object so the renter can choose the direct WebRTC route at booking time:
+
+- `direct_webrtc_base_url` (full base URL, e.g. `https://203.0.113.10`)
+- `direct_webrtc_ip` (IP/host shortcut, with optional `scheme` of `http` or `https`)
+
+Provide exactly one of `direct_webrtc_base_url` or `direct_webrtc_ip`.
+
+When provided, provisioned URLs (`signaling_url`, `session.control.runner_url`) are generated from that selected route base. Responses also include:
+
+- `session.connection_route.base_url`
+- `session.connection_route.source` (`base_url`, `ip`, or `default`)
+
+`update_webrtc_connection` lets the renter rotate the route later (for example, after IP allowlist changes). It updates the booking signaling URL and returns updated control endpoints for reconnect.
 
 `validate_renter_control` adds a deterministic validation path that executes a command sequence through `runner_execute_url` and confirms terminal completion from `runner_status_url_template`.
 

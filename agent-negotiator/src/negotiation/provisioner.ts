@@ -25,6 +25,10 @@ export interface ProvisionResult {
   expires_at: string;
 }
 
+export interface ProvisionOptions {
+  signalingBaseUrlOverride?: string;
+}
+
 interface ClusterDeployPayload {
   avatar_id: string;
   slot: number;
@@ -101,7 +105,8 @@ export class SessionProvisioner {
   async provision(
     bookingId: string,
     slot: number,
-    durationMin: number
+    durationMin: number,
+    options?: ProvisionOptions
   ): Promise<ProvisionResult> {
     const sessionToken = crypto.randomUUID();
     const avatarId = `negotiator-${bookingId.slice(2, 10)}`;
@@ -151,14 +156,14 @@ export class SessionProvisioner {
       this.signalingCheckBaseUrl ?? this.healthBaseUrl,
       signalingPort
     );
-    const signalingUrl = buildUrlWithPort(
-      this.signalingPublicBaseUrl ?? this.signalingCheckBaseUrl ?? this.healthBaseUrl,
-      signalingPort
-    );
-    const runnerUrl = buildUrlWithPort(
-      this.signalingPublicBaseUrl ?? this.signalingCheckBaseUrl ?? this.healthBaseUrl,
-      runnerPort
-    );
+    const routeBaseUrl =
+      normalizeBaseUrl(options?.signalingBaseUrlOverride) ??
+      this.signalingPublicBaseUrl ??
+      this.signalingCheckBaseUrl ??
+      this.healthBaseUrl;
+
+    const signalingUrl = buildUrlWithPort(routeBaseUrl, signalingPort);
+    const runnerUrl = buildUrlWithPort(routeBaseUrl, runnerPort);
 
     if (this.signalingWaitMs > 0) {
       const ready = await this.waitForSignaling(signalingCheckUrl, this.signalingWaitMs);

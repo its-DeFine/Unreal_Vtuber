@@ -91,6 +91,38 @@ export interface McpChannelDeps {
   accessPolicy?: LoadedSkillPolicy;
 }
 
+interface ConnectionTargetInput {
+  direct_webrtc_base_url?: string;
+  direct_webrtc_ip?: string;
+  scheme?: "http" | "https";
+}
+
+interface ConnectionRouteResolution {
+  baseUrl?: string;
+  source?: "base_url" | "ip";
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+const ConnectionTargetSchema = z.object({
+  direct_webrtc_base_url: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Direct WebRTC route base URL (e.g. https://203.0.113.10 or https://stream.example.com)"),
+  direct_webrtc_ip: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Direct WebRTC IP or hostname shortcut (without port)"),
+  scheme: z
+    .enum(["http", "https"])
+    .optional()
+    .describe("Scheme to use with direct_webrtc_ip when protocol is omitted"),
+});
+
 function withPort(baseUrl: string, port: number): string | null {
   try {
     const u = new URL(baseUrl);
@@ -106,6 +138,102 @@ function withPort(baseUrl: string, port: number): string | null {
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeRouteBaseUrl(
+  candidate: string,
+  source: "base_url" | "ip"
+): ConnectionRouteResolution {
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return {
+        error: {
+          code: "invalid_connection_route_protocol",
+          message: "connection route must use http or https",
+        },
+      };
+    }
+    if (!parsed.hostname) {
+      return {
+        error: {
+          code: "invalid_connection_route_host",
+          message: "connection route must include a host",
+        },
+      };
+    }
+    parsed.pathname = "/";
+    parsed.search = "";
+    parsed.hash = "";
+    return {
+      baseUrl: parsed.toString().replace(/\/$/, ""),
+      source,
+    };
+  } catch {
+    return {
+      error: {
+        code: "invalid_connection_route",
+        message: "failed to parse connection route target",
+      },
+    };
+  }
+}
+
+function resolveConnectionRouteBase(
+  connection?: ConnectionTargetInput
+): ConnectionRouteResolution {
+  if (!connection) {
+    return {};
+  }
+
+  const fromBase = connection.direct_webrtc_base_url?.trim() ?? "";
+  const fromIp = connection.direct_webrtc_ip?.trim() ?? "";
+
+  if (fromBase.length > 0 && fromIp.length > 0) {
+    return {
+      error: {
+        code: "connection_route_ambiguous",
+        message: "provide either direct_webrtc_base_url or direct_webrtc_ip, not both",
+      },
+    };
+  }
+
+  if (fromBase.length > 0) {
+    return normalizeRouteBaseUrl(fromBase, "base_url");
+  }
+
+  if (fromIp.length > 0) {
+    const scheme = connection.scheme === "https" ? "https" : "http";
+    const candidate = fromIp.includes("://") ? fromIp : `${scheme}://${fromIp}`;
+    return normalizeRouteBaseUrl(candidate, "ip");
+  }
+
+  return {
+    error: {
+      code: "connection_route_missing",
+      message: "connection target is missing direct_webrtc_base_url/direct_webrtc_ip",
+    },
+  };
+}
+
+function buildControlFromSignaling(
+  signalingUrl: string,
+  slot: number,
+  avatarId?: string | null
+): Record<string, unknown> | null {
+  const ports = clusterPorts(slot);
+  const runnerUrl = withPort(signalingUrl, ports.runner);
+  if (!runnerUrl) {
+    return null;
+  }
+
+  return {
+    avatar_id: avatarId ?? null,
+    runner_url: runnerUrl,
+    runner_execute_url: `${runnerUrl}/scripts/execute`,
+    runner_status_url_template: `${runnerUrl}/scripts/{session_id}`,
+    game_tcp_port: ports.game_tcp,
+  };
 }
 
 export function createMcpServer(deps: McpChannelDeps): McpServer {
@@ -364,6 +492,9 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         })
         .optional()
         .describe("Policy-driven access rail proof"),
+      connection: ConnectionTargetSchema.optional().describe(
+        "Optional direct WebRTC route preference for this booking"
+      ),
     },
     async (params) => {
       const input = params as {
@@ -371,6 +502,7 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         customer_id: string;
         start_time?: string;
         access?: AccessRequest;
+        connection?: ConnectionTargetInput;
       };
 
       // Killswitch check
@@ -455,6 +587,22 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         };
       }
 
+      const routeResolution = resolveConnectionRouteBase(input.connection);
+      if (routeResolution.error) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: routeResolution.error.code,
+                message: routeResolution.error.message,
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Capacity check
       const capacity = await internalTools.checkCapacity();
       if (!capacity.available || capacity.next_slot === null) {
@@ -503,6 +651,8 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         quote_id: input.quote_id,
         customer_id: input.customer_id,
         slot: capacity.next_slot,
+        connection_route_base: routeResolution.baseUrl ?? null,
+        connection_route_source: routeResolution.source ?? "default",
       });
 
       // Provision session
@@ -510,8 +660,21 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
         const result = await internalTools.provisionSession(
           booking.booking_id,
           capacity.next_slot,
-          booking.duration_min
+          booking.duration_min,
+          routeResolution.baseUrl
+            ? { signalingBaseUrlOverride: routeResolution.baseUrl }
+            : undefined
         );
+
+        const control =
+          buildControlFromSignaling(result.signaling_url, result.slot, result.avatar_id) ??
+          {
+            avatar_id: result.avatar_id,
+            runner_url: result.runner_url,
+            runner_execute_url: result.runner_execute_url,
+            runner_status_url_template: result.runner_status_url_template,
+            game_tcp_port: result.game_tcp_port,
+          };
 
         return {
           content: [
@@ -526,12 +689,10 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
                     token: result.session_token,
                     expires_at: result.expires_at,
                     slot: result.slot,
-                    control: {
-                      avatar_id: result.avatar_id,
-                      runner_url: result.runner_url,
-                      runner_execute_url: result.runner_execute_url,
-                      runner_status_url_template: result.runner_status_url_template,
-                      game_tcp_port: result.game_tcp_port,
+                    control,
+                    connection_route: {
+                      base_url: routeResolution.baseUrl ?? null,
+                      source: routeResolution.source ?? "default",
                     },
                   },
                 },
@@ -616,17 +777,11 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
 
       let control: Record<string, unknown> | null = null;
       if (booking.status === "active" && typeof booking.slot === "number" && booking.signaling_url) {
-        const ports = clusterPorts(booking.slot);
-        const runnerUrl = withPort(booking.signaling_url, ports.runner);
-        if (runnerUrl) {
-          control = {
-            avatar_id: booking.avatar_id ?? null,
-            runner_url: runnerUrl,
-            runner_execute_url: `${runnerUrl}/scripts/execute`,
-            runner_status_url_template: `${runnerUrl}/scripts/{session_id}`,
-            game_tcp_port: ports.game_tcp,
-          };
-        }
+        control = buildControlFromSignaling(
+          booking.signaling_url,
+          booking.slot,
+          booking.avatar_id ?? null
+        );
       }
 
       return {
@@ -660,7 +815,174 @@ export function createMcpServer(deps: McpChannelDeps): McpServer {
     }
   );
 
-  // --- cancel_session ---
+  // --- update_webrtc_connection ---
+  server.tool(
+    "update_webrtc_connection",
+    "Update direct WebRTC route (IP/base URL) for an existing booking.",
+    {
+      booking_id: z.string().min(1).describe("The booking ID to update"),
+      customer_id: z
+        .string()
+        .min(1)
+        .describe("Customer identifier (must match booking)"),
+      connection: ConnectionTargetSchema.describe(
+        "New direct WebRTC route target"
+      ),
+    },
+    async (params) => {
+      const input = params as {
+        booking_id: string;
+        customer_id: string;
+        connection: ConnectionTargetInput;
+      };
+
+      const booking = store.getBooking(input.booking_id);
+      if (!booking) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "not_found",
+                message: `Booking ${input.booking_id} not found`,
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      if (booking.customer_id !== input.customer_id) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "unauthorized",
+                message: "Customer ID does not match booking",
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      if (
+        booking.status !== "confirmed" &&
+        booking.status !== "provisioning" &&
+        booking.status !== "active"
+      ) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "connection_update_not_allowed",
+                message: `Booking ${input.booking_id} is ${booking.status}; only confirmed/provisioning/active can change route`,
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      if (typeof booking.slot !== "number") {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "slot_unavailable",
+                message: "Booking has no assigned slot yet",
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const routeResolution = resolveConnectionRouteBase(input.connection);
+      if (routeResolution.error || !routeResolution.baseUrl) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: routeResolution.error?.code ?? "invalid_connection_route",
+                message:
+                  routeResolution.error?.message ??
+                  "failed to resolve connection route",
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const signalingUrl = withPort(
+        routeResolution.baseUrl,
+        clusterPorts(booking.slot).signaling
+      );
+      if (!signalingUrl) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "invalid_connection_route",
+                message: "unable to build signaling URL from requested route",
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      store.updateBookingFields(booking.booking_id, {
+        signaling_url: signalingUrl,
+      });
+
+      const updated = store.getBooking(booking.booking_id) ?? booking;
+      const control = buildControlFromSignaling(
+        signalingUrl,
+        booking.slot,
+        updated.avatar_id ?? null
+      );
+
+      audit.log("booking_connection_updated", {
+        booking_id: booking.booking_id,
+        customer_id: input.customer_id,
+        signaling_url: signalingUrl,
+        route_source: routeResolution.source ?? "unknown",
+      });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                booking_id: booking.booking_id,
+                status: updated.status,
+                signaling_url: signalingUrl,
+                connection_route: {
+                  base_url: routeResolution.baseUrl,
+                  source: routeResolution.source ?? "unknown",
+                },
+                control,
+                message:
+                  "WebRTC route updated. Reconnect the client using the new signaling_url/control URLs.",
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
+
+  // --- validate_renter_control ---
   server.tool(
     "validate_renter_control",
     "Execute a deterministic TCP command sequence through script-runner and verify completion.",
