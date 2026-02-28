@@ -272,4 +272,46 @@ describe("NegotiatorStore — Bookings", () => {
 
     expect(store.getNextAvailableSlot(2)).toBeNull();
   });
+
+  it("tracks slot/capacity independently per orchestrator", () => {
+    const qA = store.createQuote({
+      session_type: "avatar_stream",
+      duration_min: 60,
+      resolution: "1080p",
+      price_wei: "1000000000000000000",
+      price_usd_est: 5.0,
+      valid_until: new Date(Date.now() + 300_000).toISOString(),
+      gpu_utilization_pct: 30,
+      orchestrator_id: "orch-a",
+    });
+    const qB = store.createQuote({
+      session_type: "avatar_stream",
+      duration_min: 60,
+      resolution: "1080p",
+      price_wei: "1000000000000000000",
+      price_usd_est: 5.0,
+      valid_until: new Date(Date.now() + 300_000).toISOString(),
+      gpu_utilization_pct: 30,
+      orchestrator_id: "orch-b",
+    });
+
+    const bA = store.createBooking({
+      quote_id: qA.quote_id,
+      customer_id: "a",
+      orchestrator_id: "orch-a",
+    });
+    const bB = store.createBooking({
+      quote_id: qB.quote_id,
+      customer_id: "b",
+      orchestrator_id: "orch-b",
+    });
+
+    store.updateBookingStatus(bA.booking_id, "provisioning", { slot: 1 });
+    store.updateBookingStatus(bB.booking_id, "provisioning", { slot: 1 });
+
+    expect(store.getActiveBookingCount("orch-a")).toBe(1);
+    expect(store.getActiveBookingCount("orch-b")).toBe(1);
+    expect(store.getNextAvailableSlot(2, "orch-a")).toBe(2);
+    expect(store.getNextAvailableSlot(2, "orch-b")).toBe(2);
+  });
 });

@@ -7,6 +7,7 @@ Current deployment runs as an embedded claw plugin service. Standalone startup i
 ## Customer-facing MCP tools
 
 - `orchestrator_info`
+- `fleet_overview`
 - `negotiate_quote`
 - `accept_quote`
 - `session_status`
@@ -23,6 +24,17 @@ Current deployment runs as an embedded claw plugin service. Standalone startup i
 - `game_tcp_port`
 
 This enables deterministic post-lease embodied control through the script-runner path.
+
+## Fleet allocator flow
+
+The negotiator supports multi-orchestrator allocation for workstation/remote-ops fleets:
+
+1. `fleet_overview` returns a per-orchestrator capacity snapshot.
+2. `negotiate_quote` picks an orchestrator automatically (`lowest_price_then_capacity`) or honors `preferred_orchestrator_id`.
+3. `accept_quote` provisions on the orchestrator bound to the quote and returns `orchestrator_id` in the response.
+
+The consumer skill only needs one MCP endpoint; allocator routing is handled server-side.
+See also: `docs/consumer-skill-flow.md` for the step-by-step consumer contract.
 
 ## Direct WebRTC route selection
 
@@ -75,6 +87,26 @@ Set:
 When set, all MCP endpoints except `/health` require:
 
 - `Authorization: Bearer <secret>`
+
+## Fleet registry (optional)
+
+Set:
+
+- `NEGOTIATOR_FLEET_REGISTRY_FILE=/path/to/fleet.yaml`
+
+Example:
+
+```yaml
+orchestrators:
+  - id: workstation-a
+    health_url: http://workstation-a:9090
+    signaling_public_base_url: https://stream-a.example.com
+    max_concurrent_sessions: 2
+  - id: workstation-b
+    health_url: http://workstation-b:9090
+    signaling_public_base_url: https://stream-b.example.com
+    max_concurrent_sessions: 2
+```
 
 ## Skill policy rails (PR223)
 

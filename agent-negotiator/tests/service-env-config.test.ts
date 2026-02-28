@@ -27,6 +27,7 @@ describe("loadNegotiatorEnvConfig", () => {
     delete process.env.ETH_USD_RATE;
     delete process.env.NEGOTIATOR_RATE_LIMIT;
     delete process.env.NEGOTIATOR_CLEANUP_INTERVAL_MS;
+    delete process.env.NEGOTIATOR_FLEET_REGISTRY_FILE;
 
     const config = loadNegotiatorEnvConfig();
 
@@ -41,6 +42,7 @@ describe("loadNegotiatorEnvConfig", () => {
     expect(config.ethUsdRate).toBe(2500);
     expect(config.rateLimitPerMinute).toBe(30);
     expect(config.quoteCleanupIntervalMs).toBe(60_000);
+    expect(config.fleetRegistryFile).toBeUndefined();
   });
 
   it("parses supported env vars and falls back on invalid numeric values", () => {
@@ -57,6 +59,7 @@ describe("loadNegotiatorEnvConfig", () => {
     process.env.ETH_USD_RATE = "0";
     process.env.NEGOTIATOR_RATE_LIMIT = "-5";
     process.env.NEGOTIATOR_CLEANUP_INTERVAL_MS = "15000";
+    process.env.NEGOTIATOR_FLEET_REGISTRY_FILE = "/tmp/fleet.yaml";
 
     const config = loadNegotiatorEnvConfig();
 
@@ -73,6 +76,7 @@ describe("loadNegotiatorEnvConfig", () => {
     expect(config.ethUsdRate).toBe(2500);
     expect(config.rateLimitPerMinute).toBe(30);
     expect(config.quoteCleanupIntervalMs).toBe(15000);
+    expect(config.fleetRegistryFile).toBe("/tmp/fleet.yaml");
   });
 
   it("treats a blank API token env as unset", () => {

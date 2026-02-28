@@ -23,6 +23,7 @@ export type BookingStatus =
 
 export interface Quote {
   quote_id: string;
+  orchestrator_id?: string;
   session_type: string;
   duration_min: number;
   resolution: string;
@@ -38,6 +39,7 @@ export interface Quote {
 export interface Booking {
   booking_id: string;
   quote_id: string;
+  orchestrator_id?: string;
   customer_id: string;
   session_type: string;
   duration_min: number;
@@ -114,6 +116,7 @@ export class NegotiatorStore {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS quotes (
         quote_id         TEXT PRIMARY KEY,
+        orchestrator_id  TEXT NOT NULL DEFAULT 'default',
         session_type     TEXT NOT NULL,
         duration_min     INTEGER NOT NULL,
         resolution       TEXT NOT NULL,
@@ -129,6 +132,7 @@ export class NegotiatorStore {
       CREATE TABLE IF NOT EXISTS bookings (
         booking_id     TEXT PRIMARY KEY,
         quote_id       TEXT NOT NULL REFERENCES quotes(quote_id),
+        orchestrator_id TEXT NOT NULL DEFAULT 'default',
         customer_id    TEXT NOT NULL,
         session_type   TEXT NOT NULL,
         duration_min   INTEGER NOT NULL,
@@ -149,13 +153,45 @@ export class NegotiatorStore {
 
       CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
       CREATE INDEX IF NOT EXISTS idx_bookings_customer ON bookings(customer_id);
+      CREATE INDEX IF NOT EXISTS idx_bookings_orchestrator ON bookings(orchestrator_id);
       CREATE INDEX IF NOT EXISTS idx_quotes_status ON quotes(status);
 
-      -- Prevent double-booking of same slot for active bookings
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_active_slot
-        ON bookings(slot)
+      -- Prevent double-booking of same slot for active bookings within a specific orchestrator
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_active_orchestrator_slot
+        ON bookings(orchestrator_id, slot)
         WHERE status IN ('confirmed', 'provisioning', 'active') AND slot IS NOT NULL;
     `);
+
+    this.ensureColumn(
+      "quotes",
+      "orchestrator_id",
+      "TEXT NOT NULL DEFAULT 'default'"
+    );
+    this.ensureColumn(
+      "bookings",
+      "orchestrator_id",
+      "TEXT NOT NULL DEFAULT 'default'"
+    );
+    this.db.exec(`
+      DROP INDEX IF EXISTS idx_active_slot;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_active_orchestrator_slot
+        ON bookings(orchestrator_id, slot)
+        WHERE status IN ('confirmed', 'provisioning', 'active') AND slot IS NOT NULL;
+      UPDATE quotes SET orchestrator_id = 'default'
+        WHERE orchestrator_id IS NULL OR trim(orchestrator_id) = '';
+      UPDATE bookings SET orchestrator_id = 'default'
+        WHERE orchestrator_id IS NULL OR trim(orchestrator_id) = '';
+    `);
+  }
+
+  private ensureColumn(table: string, column: string, definition: string): void {
+    const columns = this.db
+      .prepare(`PRAGMA table_info(${table})`)
+      .all() as Array<{ name: string }>;
+    if (columns.some((c) => c.name === column)) {
+      return;
+    }
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 
   // --- Quotes ---
@@ -167,15 +203,16 @@ export class NegotiatorStore {
     this.db
       .prepare(
         `INSERT INTO quotes (quote_id, session_type, duration_min, resolution,
-         price_wei, price_usd_est, valid_until, status, customer_message,
+         orchestrator_id, price_wei, price_usd_est, valid_until, status, customer_message,
          gpu_utilization_pct, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`
       )
       .run(
         quote_id,
         params.session_type,
         params.duration_min,
         params.resolution,
+        params.orchestrator_id?.trim() || "default",
         params.price_wei,
         params.price_usd_est,
         params.valid_until,
@@ -226,6 +263,7 @@ export class NegotiatorStore {
     customer_id: string;
     slot?: number;
     maxConcurrentSessions?: number;
+    orchestrator_id?: string;
   }): Booking {
     const quote = this.getQuote(params.quote_id);
     if (!quote) throw new Error(`Quote ${params.quote_id} not found`);
@@ -239,6 +277,11 @@ export class NegotiatorStore {
       throw new Error(`Quote ${params.quote_id} has expired`);
     }
 
+    const orchestratorId =
+      params.orchestrator_id?.trim() ||
+      quote.orchestrator_id?.trim() ||
+      "default";
+
     const booking_id = `b_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
     const now = new Date().toISOString();
 
@@ -249,9 +292,9 @@ export class NegotiatorStore {
       if (params.maxConcurrentSessions !== undefined) {
         const { count } = this.db
           .prepare(
-            "SELECT COUNT(*) as count FROM bookings WHERE status IN ('confirmed', 'provisioning', 'active')"
+            "SELECT COUNT(*) as count FROM bookings WHERE status IN ('confirmed', 'provisioning', 'active') AND orchestrator_id = ?"
           )
-          .get() as { count: number };
+          .get(orchestratorId) as { count: number };
         if (count >= params.maxConcurrentSessions) {
           throw new Error("No capacity: all session slots are in use");
         }
@@ -261,13 +304,14 @@ export class NegotiatorStore {
 
       this.db
         .prepare(
-          `INSERT INTO bookings (booking_id, quote_id, customer_id, session_type,
+          `INSERT INTO bookings (booking_id, quote_id, orchestrator_id, customer_id, session_type,
            duration_min, resolution, price_wei, price_usd_est, status, slot, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)`
         )
         .run(
           booking_id,
           quote.quote_id,
+          orchestratorId,
           params.customer_id,
           quote.session_type,
           quote.duration_min,
@@ -352,7 +396,14 @@ export class NegotiatorStore {
       .run(...values);
   }
 
-  getActiveBookings(): Booking[] {
+  getActiveBookings(orchestratorId?: string): Booking[] {
+    if (orchestratorId) {
+      return this.db
+        .prepare(
+          "SELECT * FROM bookings WHERE status IN ('confirmed', 'provisioning', 'active') AND orchestrator_id = ?"
+        )
+        .all(orchestratorId) as Booking[];
+    }
     return this.db
       .prepare(
         "SELECT * FROM bookings WHERE status IN ('confirmed', 'provisioning', 'active')"
@@ -360,12 +411,18 @@ export class NegotiatorStore {
       .all() as Booking[];
   }
 
-  getActiveBookingCount(): number {
-    const row = this.db
-      .prepare(
-        "SELECT COUNT(*) as count FROM bookings WHERE status IN ('confirmed', 'provisioning', 'active')"
-      )
-      .get() as { count: number };
+  getActiveBookingCount(orchestratorId?: string): number {
+    const row = orchestratorId
+      ? (this.db
+        .prepare(
+          "SELECT COUNT(*) as count FROM bookings WHERE status IN ('confirmed', 'provisioning', 'active') AND orchestrator_id = ?"
+        )
+        .get(orchestratorId) as { count: number })
+      : (this.db
+        .prepare(
+          "SELECT COUNT(*) as count FROM bookings WHERE status IN ('confirmed', 'provisioning', 'active')"
+        )
+        .get() as { count: number });
     return row.count;
   }
 
@@ -375,12 +432,18 @@ export class NegotiatorStore {
       .all(customerId) as Booking[];
   }
 
-  getNextAvailableSlot(maxSlots: number): number | null {
-    const usedSlots = this.db
-      .prepare(
-        "SELECT slot FROM bookings WHERE status IN ('confirmed', 'provisioning', 'active') AND slot IS NOT NULL"
-      )
-      .all() as { slot: number }[];
+  getNextAvailableSlot(maxSlots: number, orchestratorId?: string): number | null {
+    const usedSlots = orchestratorId
+      ? (this.db
+        .prepare(
+          "SELECT slot FROM bookings WHERE status IN ('confirmed', 'provisioning', 'active') AND slot IS NOT NULL AND orchestrator_id = ?"
+        )
+        .all(orchestratorId) as { slot: number }[])
+      : (this.db
+        .prepare(
+          "SELECT slot FROM bookings WHERE status IN ('confirmed', 'provisioning', 'active') AND slot IS NOT NULL"
+        )
+        .all() as { slot: number }[]);
 
     const used = new Set(usedSlots.map((r) => r.slot));
     for (let i = 1; i <= maxSlots; i++) {
