@@ -344,6 +344,27 @@ def _cidrs_to_ips(cidrs: list[str]) -> list[str]:
     return ips
 
 
+def _matchmaker_host_cidrs(host: str) -> list[str]:
+    host = (host or "").strip()
+    if not host:
+        return []
+
+    cidrs: list[str] = []
+    try:
+        addr = ipaddress.ip_address(host)
+        if addr.version == 4:
+            cidrs.append(f"{addr}/32")
+    except ValueError:
+        try:
+            for ip in _resolve_a_records(host):
+                cidrs.append(f"{ip}/32")
+        except Exception as exc:  # noqa: BLE001
+            _log(f"WARN: failed to resolve matchmaker_host={host!r} for ops allowlist shaping: {exc}")
+            return []
+
+    return _parse_cidrs_csv(",".join(cidrs))
+
+
 def _read_env_value(env_path: Path, key: str) -> str:
     if not env_path.exists():
         return ""
@@ -563,7 +584,8 @@ def main() -> int:
     extra_firewall_cidrs = _parse_cidrs_csv(os.environ.get("EDGE_FIREWALL_EXTRA_CIDRS", ""))
     extra_power_cidrs = _parse_cidrs_csv(os.environ.get("EDGE_POWER_EXTRA_CIDRS", ""))
     ops_ports = _parse_ports(os.environ.get("EDGE_OPS_PORTS", "9090/tcp"))
-    ops_allow_cidrs = _parse_cidrs_csv(os.environ.get("EDGE_OPS_ALLOW_CIDRS", "")) or extra_power_cidrs
+    env_ops_allow_cidrs = _parse_cidrs_csv(os.environ.get("EDGE_OPS_ALLOW_CIDRS", "")) or extra_power_cidrs
+    prefer_plane_non_edge_ops_allow = _env_bool("EDGE_OPS_ALLOW_FROM_PLANE_NON_EDGE", default=True)
     power_allowed_file_raw = (os.environ.get("EDGE_POWER_ALLOWED_IPS_FILE") or "").strip()
     power_allowed_file = Path(power_allowed_file_raw) if power_allowed_file_raw else None
     local_allowlist = (os.environ.get("EDGE_LOCAL_ALLOWLIST") or "127.0.0.1,::1,172.17.0.1,172.18.0.1").strip()
@@ -614,6 +636,13 @@ def main() -> int:
             desired_changed = apply_key != last_applied_key
             if desired_changed:
                 _log(f"desired edge_id={desired.get('edge_id')!r} matchmaker={mm_host}:{mm_port} cidrs={cidrs}")
+
+            ops_allow_cidrs = list(env_ops_allow_cidrs)
+            if prefer_plane_non_edge_ops_allow:
+                mm_cidrs = set(_matchmaker_host_cidrs(mm_host))
+                plane_non_edge = [token for token in cidrs if token not in mm_cidrs]
+                if plane_non_edge:
+                    ops_allow_cidrs = plane_non_edge
 
             firewall_cidrs = [*cidrs, *extra_firewall_cidrs]
             _apply_firewall(
