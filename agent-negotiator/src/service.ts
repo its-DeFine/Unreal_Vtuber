@@ -1,8 +1,7 @@
 /**
  * Shared service lifecycle for agent-negotiator.
  *
- * The negotiator runtime is intended to run only via claw plugin services
- * (OpenClaw compatibility path today, NanoClaw hardening path later).
+ * The negotiator runtime is intended to run only via claw plugin services.
  */
 
 import http from "node:http";
@@ -16,13 +15,15 @@ import { Killswitch } from "./negotiation/killswitch.js";
 import { SessionProvisioner } from "./negotiation/provisioner.js";
 import { InternalTools } from "./negotiation/internal.js";
 import { createMcpServer, createHttpServer, RateLimiter } from "./channels/mcp.js";
+import { loadSkillPolicyFromFile } from "./access/policy.js";
 
 export interface NegotiatorServiceConfig {
   host: string;
   port: number;
   configFile: string;
+  skillPolicyFile?: string;
   healthUrl: string;
-  openclawGatewayToken?: string;
+  apiToken?: string;
   signalingPublicBaseUrl?: string;
   signalingCheckBaseUrl?: string;
   orchestratorId: string;
@@ -44,7 +45,7 @@ export interface NegotiatorServiceHandle {
   stop: () => Promise<void>;
 }
 
-export type NegotiatorRuntimeSource = "openclaw-plugin" | "nanoclaw-plugin";
+export type NegotiatorRuntimeSource = "claw-plugin";
 
 export interface StartNegotiatorServiceOptions {
   logger?: NegotiatorLogger;
@@ -57,22 +58,74 @@ const defaultLogger: NegotiatorLogger = {
   error: (message: string) => console.error(message),
 };
 
+const DEFAULT_NEGOTIATOR_PORT = 9100;
+const DEFAULT_ETH_USD_RATE = 2500;
+const DEFAULT_RATE_LIMIT_PER_MINUTE = 30;
+const DEFAULT_CLEANUP_INTERVAL_MS = 60_000;
+
+function parseIntegerEnv(
+  value: string | undefined,
+  fallback: number,
+  minValue: number
+): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < minValue) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function parseFloatEnv(
+  value: string | undefined,
+  fallback: number,
+  minValue: number
+): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < minValue) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function parseOptionalTokenEnv(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export function loadNegotiatorEnvConfig(
   overrides: Partial<NegotiatorServiceConfig> = {}
 ): NegotiatorServiceConfig {
   return {
     host: overrides.host ?? process.env.NEGOTIATOR_HOST ?? "0.0.0.0",
-    port: overrides.port ?? parseInt(process.env.NEGOTIATOR_PORT ?? "9100", 10),
+    port:
+      overrides.port ??
+      parseIntegerEnv(process.env.NEGOTIATOR_PORT, DEFAULT_NEGOTIATOR_PORT, 1),
     configFile:
       overrides.configFile ?? process.env.NEGOTIATOR_CONFIG_FILE ?? "/config/negotiator.yaml",
+    skillPolicyFile:
+      overrides.skillPolicyFile ??
+      parseOptionalTokenEnv(process.env.NEGOTIATOR_SKILL_POLICY_FILE),
     healthUrl:
       overrides.healthUrl ??
       process.env.ORCHESTRATOR_HEALTH_URL ??
       "http://vtuber-orchestrator-health:9090",
-    openclawGatewayToken:
-      overrides.openclawGatewayToken ??
-      process.env.OPENCLAW_GATEWAY_TOKEN ??
-      process.env.OPENCLAW_AUTH_TOKEN ??
+    apiToken:
+      overrides.apiToken ??
+      parseOptionalTokenEnv(process.env.NEGOTIATOR_API_TOKEN) ??
       undefined,
     signalingPublicBaseUrl:
       overrides.signalingPublicBaseUrl ??
@@ -84,12 +137,23 @@ export function loadNegotiatorEnvConfig(
       undefined,
     orchestratorId: overrides.orchestratorId ?? process.env.ORCHESTRATOR_ID ?? "unknown",
     dataDir: overrides.dataDir ?? process.env.NEGOTIATOR_DATA_DIR ?? "/data",
-    ethUsdRate: overrides.ethUsdRate ?? parseFloat(process.env.ETH_USD_RATE ?? "2500"),
+    ethUsdRate:
+      overrides.ethUsdRate ??
+      parseFloatEnv(process.env.ETH_USD_RATE, DEFAULT_ETH_USD_RATE, 0.000001),
     rateLimitPerMinute:
-      overrides.rateLimitPerMinute ?? parseInt(process.env.NEGOTIATOR_RATE_LIMIT ?? "30", 10),
+      overrides.rateLimitPerMinute ??
+      parseIntegerEnv(
+        process.env.NEGOTIATOR_RATE_LIMIT,
+        DEFAULT_RATE_LIMIT_PER_MINUTE,
+        1
+      ),
     quoteCleanupIntervalMs:
       overrides.quoteCleanupIntervalMs ??
-      parseInt(process.env.NEGOTIATOR_CLEANUP_INTERVAL_MS ?? "60000", 10),
+      parseIntegerEnv(
+        process.env.NEGOTIATOR_CLEANUP_INTERVAL_MS,
+        DEFAULT_CLEANUP_INTERVAL_MS,
+        1
+      ),
   };
 }
 
@@ -97,12 +161,9 @@ export async function startNegotiatorService(
   config: NegotiatorServiceConfig,
   options: StartNegotiatorServiceOptions
 ): Promise<NegotiatorServiceHandle> {
-  if (
-    options.runtimeSource !== "openclaw-plugin" &&
-    options.runtimeSource !== "nanoclaw-plugin"
-  ) {
+  if (options.runtimeSource !== "claw-plugin") {
     throw new Error(
-      "agent-negotiator runtime is restricted to claw plugin startup (runtimeSource=openclaw-plugin|nanoclaw-plugin)"
+      "agent-negotiator runtime is restricted to claw plugin startup (runtimeSource=claw-plugin)"
     );
   }
 
@@ -116,8 +177,18 @@ export async function startNegotiatorService(
   if (config.signalingPublicBaseUrl) {
     logger.info(`[negotiator] Signaling public base: ${config.signalingPublicBaseUrl}`);
   }
-  if (config.openclawGatewayToken) {
-    logger.info("[negotiator] OpenClaw gateway token auth is enabled");
+  if (config.apiToken) {
+    logger.info("[negotiator] API token auth is enabled");
+  }
+  const accessPolicy = loadSkillPolicyFromFile(config.skillPolicyFile);
+  if (accessPolicy.configured && accessPolicy.sourcePath) {
+    if (accessPolicy.parseError) {
+      logger.warn(
+        `[negotiator] Skill policy load error (${accessPolicy.sourcePath}): ${accessPolicy.parseError}`
+      );
+    } else {
+      logger.info(`[negotiator] Skill policy loaded: ${accessPolicy.sourcePath}`);
+    }
   }
   logger.info(`[negotiator] Bind: ${config.host}:${config.port}`);
 
@@ -168,13 +239,14 @@ export async function startNegotiatorService(
     internalTools,
     orchestratorId: config.orchestratorId,
     ethUsdRate: config.ethUsdRate,
+    accessPolicy,
   });
 
   const app = createHttpServer(mcpServer, {
     port: config.port,
     rateLimiter,
     audit,
-    authToken: config.openclawGatewayToken,
+    authToken: config.apiToken,
   });
 
   const server = await new Promise<http.Server>((resolve, reject) => {

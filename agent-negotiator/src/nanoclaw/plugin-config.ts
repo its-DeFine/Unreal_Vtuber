@@ -52,6 +52,7 @@ export interface AgentNegotiatorPluginConfig {
   host: string;
   port: number;
   configFile?: string;
+  skillPolicyFile?: string;
   healthUrl?: string;
   signalingPublicBaseUrl?: string;
   signalingCheckBaseUrl?: string;
@@ -75,6 +76,11 @@ export function parseAgentNegotiatorPluginConfig(
   const healthUrl =
     typeof raw.healthUrl === "string" && raw.healthUrl.trim().length > 0
       ? raw.healthUrl.trim()
+      : undefined;
+
+  const skillPolicyFile =
+    typeof raw.skillPolicyFile === "string" && raw.skillPolicyFile.trim().length > 0
+      ? raw.skillPolicyFile.trim()
       : undefined;
 
   const signalingPublicBaseUrl =
@@ -119,6 +125,7 @@ export function parseAgentNegotiatorPluginConfig(
     host: asString(raw.host, "0.0.0.0"),
     port: asNumber(raw.port, DEFAULT_PORT, 1, 65_535),
     configFile,
+    skillPolicyFile,
     healthUrl,
     signalingPublicBaseUrl,
     signalingCheckBaseUrl,
@@ -151,6 +158,11 @@ export const agentNegotiatorPluginConfigSchema = {
     configFile: {
       label: "Config File",
       help: "Path to negotiator YAML config. If omitted, plugin writes a default under stateDir.",
+      advanced: true,
+    },
+    skillPolicyFile: {
+      label: "Skill Policy File",
+      help: "Path to skill.md policy block used for entitlement and access-rail enforcement.",
       advanced: true,
     },
     healthUrl: {
@@ -202,6 +214,7 @@ export const agentNegotiatorPluginConfigSchema = {
       host: { type: "string" },
       port: { type: "number", minimum: 1, maximum: 65535 },
       configFile: { type: "string" },
+      skillPolicyFile: { type: "string" },
       healthUrl: { type: "string" },
       signalingPublicBaseUrl: { type: "string" },
       signalingCheckBaseUrl: { type: "string" },

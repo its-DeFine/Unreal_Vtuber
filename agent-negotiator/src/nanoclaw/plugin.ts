@@ -41,6 +41,7 @@ function resolveServiceConfig(
     host: pluginConfig.host,
     port: pluginConfig.port,
     configFile,
+    skillPolicyFile: pluginConfig.skillPolicyFile,
     healthUrl: pluginConfig.healthUrl,
     signalingPublicBaseUrl: pluginConfig.signalingPublicBaseUrl,
     signalingCheckBaseUrl: pluginConfig.signalingCheckBaseUrl,
@@ -82,7 +83,7 @@ const plugin = {
 
         running = await startNegotiatorService(resolved, {
           logger,
-          runtimeSource: "openclaw-plugin",
+          runtimeSource: "claw-plugin",
         });
       },
       stop: async () => {

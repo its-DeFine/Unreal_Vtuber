@@ -4,6 +4,6 @@
  */
 
 console.error(
-  "[negotiator] Standalone startup is disabled. Load this package via OpenClaw/NanoClaw plugin `agent-negotiator`."
+  "[negotiator] Standalone startup is disabled. Load this package via claw plugin `agent-negotiator`."
 );
 process.exit(1);
