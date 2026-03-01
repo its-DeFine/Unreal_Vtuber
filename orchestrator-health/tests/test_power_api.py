@@ -1124,6 +1124,10 @@ def test_meta_includes_rollout_and_verify(power_app):
     resp = client.get("/meta")
     assert resp.status_code == 200
     data = resp.json()
+    assert "auth" in data
+    assert "power_allowlist_source" in data["auth"]
+    assert isinstance(data["auth"]["power_allowlist_count"], int)
+    assert data["auth"]["power_allowlist_count"] >= 0
     assert "rollout" in data
     assert "verify_last" in data
 
