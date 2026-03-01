@@ -559,6 +559,74 @@ def _normalize_ws(s: str) -> str:
     return " ".join((s or "").split()).strip()
 
 
+def _maybe_bootstrap_orchestrator_health_recreate(
+    *,
+    project_dir: str,
+    env_file: Path,
+    compose_file: Path,
+) -> None:
+    """Best-effort one-shot self-bootstrap for orchestrator-health updates.
+
+    Remote ops currently executes from orchestrator-health itself. If the running
+    orchestrator-health image is stale, "self-recreate" logic can get stuck.
+    Since edge-rotator already has docker socket access, do a one-shot
+    pull+recreate for orchestrator-health on edge-rotator startup.
+
+    The bootstrap is keyed by EMBODY_SERVICE_IMAGE_TAG and runs at most once per
+    tag (persisted under /var/lib/vtuber/power-state).
+    """
+
+    if not _env_bool("EDGE_BOOTSTRAP_RECREATE_ORCH_HEALTH", default=True):
+        return
+
+    state_path = Path(
+        (os.environ.get("EDGE_BOOTSTRAP_STATE_FILE") or "").strip()
+        or "/var/lib/vtuber/power-state/edge_bootstrap_orch_health_state.json"
+    )
+
+    desired_tag = _read_env_value(env_file, "EMBODY_SERVICE_IMAGE_TAG").strip() or "latest"
+    key = f"orchestrator-health:{desired_tag}"
+    if _read_state_key(state_path) == key:
+        return
+
+    _log(f"bootstrap: recreating orchestrator-health for tag={desired_tag}")
+    pull = _compose(
+        project_dir=project_dir,
+        env_file=str(env_file),
+        compose_file=str(compose_file),
+        args=["pull", "orchestrator-health"],
+        check=False,
+    )
+    if pull.returncode != 0:
+        stderr = "\n".join((pull.stderr or "").splitlines()[-5:]).strip()
+        _log(f"WARN: bootstrap pull orchestrator-health failed (rc={pull.returncode}): {stderr or 'no stderr'}")
+        return
+
+    recreate = _compose(
+        project_dir=project_dir,
+        env_file=str(env_file),
+        compose_file=str(compose_file),
+        args=["up", "-d", "--no-deps", "--force-recreate", "orchestrator-health"],
+        check=False,
+    )
+    if recreate.returncode != 0:
+        stderr = "\n".join((recreate.stderr or "").splitlines()[-5:]).strip()
+        _log(
+            f"WARN: bootstrap recreate orchestrator-health failed (rc={recreate.returncode}): "
+            f"{stderr or 'no stderr'}"
+        )
+        return
+
+    _write_json_file(
+        state_path,
+        {
+            "last_applied_key": key,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    _log("bootstrap: orchestrator-health recreate complete")
+
+
 def main() -> int:
     control_plane_url = (os.environ.get("EDGE_CONFIG_URL") or "").strip()
     if not control_plane_url:
@@ -600,6 +668,15 @@ def main() -> int:
     _log(
         f"init project_dir={project_dir} poll={poll_s}s chain={chain} ports={[str(p) for p in ports]} enforce={enforce} state_file={state_file}"
     )
+
+    try:
+        _maybe_bootstrap_orchestrator_health_recreate(
+            project_dir=project_dir,
+            env_file=env_file,
+            compose_file=compose_file,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log(f"WARN: bootstrap orchestrator-health recreate failed: {exc}")
 
     while True:
         try:
