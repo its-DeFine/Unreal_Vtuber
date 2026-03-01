@@ -919,7 +919,7 @@ def test_ops_upgrade_recreate_all_recreates_full_stack(ops_app, monkeypatch):
     assert resp.json()["ok"] is True
 
 
-def test_ops_upgrade_recreate_orchestrator_health_schedules_background_job(ops_app, monkeypatch):
+def test_ops_upgrade_recreate_orchestrator_health_schedules_background_helper(ops_app, monkeypatch):
     app, svc = ops_app
     client = TestClient(app)
 
@@ -948,6 +948,8 @@ def test_ops_upgrade_recreate_orchestrator_health_schedules_background_job(ops_a
     )
 
     class DummyExecutor:
+        image = type("Img", (), {"id": "sha256:cafebabe"})()
+
         def __init__(self):
             self.commands = []
 
@@ -982,13 +984,15 @@ def test_ops_upgrade_recreate_orchestrator_health_schedules_background_job(ops_a
                 assert "orchestrator-edge-rotator" not in cmd
                 return DummyResult(stdout="")
 
-            if cmd and cmd[0] == "python3":
-                # Background recreate job (runs bash -lc "...pull orchestrator-health && ...up ... orchestrator-health")
+            if cmd[:3] == ["docker", "run", "-d"]:
+                # Background helper schedules "...pull orchestrator-health && ...up ... orchestrator-health".
                 joined = " ".join(str(x) for x in cmd)
+                assert "--name" in cmd
+                assert "vtuber-ops-recreate-orchestrator-health-" in joined
+                assert "/var/run/docker.sock:/var/run/docker.sock" in joined
                 assert "ops-recreate-orchestrator-health.log" in joined
                 assert "orchestrator-health" in joined
-                assert "bash" in cmd
-                return DummyResult(stdout="scheduled\n")
+                return DummyResult(stdout="helper123\n")
 
             raise AssertionError(f"unexpected cmd: {cmd}")
 
@@ -1000,7 +1004,7 @@ def test_ops_upgrade_recreate_orchestrator_health_schedules_background_job(ops_a
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
 
-    assert any(cmd and cmd[0] == "python3" for cmd in executor.commands)
+    assert any(cmd[:3] == ["docker", "run", "-d"] for cmd in executor.commands)
 
 
 def test_ops_upgrade_recreate_orchestrator_edge_rotator_schedules_background_helper(ops_app, monkeypatch):
