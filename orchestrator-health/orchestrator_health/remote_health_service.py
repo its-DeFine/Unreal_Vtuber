@@ -434,18 +434,48 @@ async def _require_cluster_action(request: Request) -> None:
 
 
 def _get_power_allowed_ips() -> list[str]:
+    allowlist, _source = _resolve_power_allowlist()
+    return allowlist
+
+
+def _resolve_power_allowlist() -> tuple[list[str], str]:
     if POWER_ALLOWED_IPS_FILE is None:
-        return POWER_ALLOWED_IPS
+        if POWER_ALLOWED_IPS:
+            return POWER_ALLOWED_IPS, "env"
+        return [], "none"
     try:
         raw = POWER_ALLOWED_IPS_FILE.read_text().strip()
     except FileNotFoundError:
-        return POWER_ALLOWED_IPS
+        if POWER_ALLOWED_IPS:
+            return POWER_ALLOWED_IPS, "env_file_missing"
+        return [], "none_file_missing"
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to read POWER_ALLOWED_IPS_FILE=%s: %s", POWER_ALLOWED_IPS_FILE, exc)
-        return POWER_ALLOWED_IPS
+        if POWER_ALLOWED_IPS:
+            return POWER_ALLOWED_IPS, "env_file_error"
+        return [], "none_file_error"
 
     entries = [addr.strip() for addr in raw.split(",") if addr.strip()]
-    return entries or POWER_ALLOWED_IPS
+    if entries:
+        return entries, "file"
+    if POWER_ALLOWED_IPS:
+        return POWER_ALLOWED_IPS, "env"
+    return [], "none"
+
+
+def _power_allowlist_diagnostics() -> dict[str, Any]:
+    allowlist, source = _resolve_power_allowlist()
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for token in allowlist:
+        if token in seen:
+            continue
+        seen.add(token)
+        deduped.append(token)
+    return {
+        "power_allowlist_source": source,
+        "power_allowlist_count": len(deduped),
+    }
 
 
 def _ip_in_allowlist(client_ip: str, allowlist: list[str]) -> bool:
@@ -1680,6 +1710,7 @@ def read_meta(request: Request) -> dict[str, Any]:
             "ORCHESTRATOR_PROJECT_DIR": project_dir or None,
             "CLUSTER_INSTANCE_COMPOSE_FILE": instance_compose or None,
         },
+        "auth": _power_allowlist_diagnostics(),
         "git": git_info,
         "containers": containers,
         "rollout": _read_json_file(ROLLOUT_STATE_FILE),
