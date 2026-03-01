@@ -24,7 +24,7 @@ This is an orchestrator helper that:
   4) Restarts the compose stack
 
 Options:
-  --payments-api-url     Payments backend base URL (example: http://3.141.111.200:8081)
+  --payments-api-url     Payments backend base URL (example: http://<payments-host>:8081)
   --image-ref            Image ref registered in Payments licenses (example: ghcr.io/...:enc-v1)
   --artifact-url         Optional override: public/presigned URL to the encrypted artifact (.tar.zst.age). If omitted, Payments returns a fresh URL per lease.
   --orch-token           Orchestrator license token (NOT recommended; may leak via shell history)

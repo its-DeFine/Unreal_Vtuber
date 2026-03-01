@@ -202,7 +202,7 @@ services:
       - POWER_KEEP_RUNNING_SERVICES=${POWER_KEEP_RUNNING_SERVICES-orchestrator-edge-rotator}
       - POWER_ALLOWED_IPS_FILE=${EDGE_POWER_ALLOWED_IPS_FILE-/var/lib/vtuber/power-state/power_allowed_ips.txt}
       # Experimental: allow remote cluster instance deploy/down via :9090/cluster/*
-      - EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=${EXPERIMENTAL_REMOTE_CLUSTER_CONTROL:-1}
+      - EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=${EXPERIMENTAL_REMOTE_CLUSTER_CONTROL:-0}
       # Experimental: allow remote ops endpoints via :9090/ops/*
       - EXPERIMENTAL_REMOTE_OPS=${EXPERIMENTAL_REMOTE_OPS:-1}
       - ORCHESTRATOR_PROJECT_DIR=${EDGE_PROJECT_DIR:-/home/ubuntu/Unreal_Vtuber}

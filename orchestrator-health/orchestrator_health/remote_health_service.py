@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Optional
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
@@ -70,7 +71,7 @@ def _parse_csv(primary_env: str, default: str = "") -> list[str]:
     return [token.strip() for token in raw.split(",") if token.strip()]
 
 
-POWER_ALLOWED_IPS = _parse_ip_list("POWER_ALLOWED_IPS", fallback_env="VTUBER_ALLOWED_ADDRESSES")
+POWER_ALLOWED_IPS = _parse_ip_list("POWER_ALLOWED_IPS")
 POWER_ALLOWED_IPS_FILE_RAW = os.environ.get("POWER_ALLOWED_IPS_FILE", "").strip()
 POWER_ALLOWED_IPS_FILE = Path(POWER_ALLOWED_IPS_FILE_RAW) if POWER_ALLOWED_IPS_FILE_RAW else None
 POWER_KEEP_RUNNING_SERVICES = set(_parse_csv("POWER_KEEP_RUNNING_SERVICES"))
@@ -328,12 +329,8 @@ def _request_client_ip(request: Request) -> Optional[str]:
 
 
 def _require_auth(request: Request) -> None:
-    allowed = _get_power_allowed_ips()
-    if not allowed:
-        return
-    client_ip = _request_client_ip(request)
-    if (not client_ip) or (not _ip_in_allowlist(client_ip, allowed)):
-        raise HTTPException(status_code=403, detail="client address not allowed")
+    # Keep legacy handler semantics, but enforce explicit allowlist presence.
+    _require_auth_strict(request)
 
 
 def _require_auth_strict(request: Request) -> None:
@@ -438,29 +435,66 @@ def _get_power_allowed_ips() -> list[str]:
     return allowlist
 
 
+def _derive_legacy_power_allowlist() -> list[str]:
+    # Backward-compatible baseline for older deployments that did not set POWER_ALLOWED_IPS.
+    # Keep this narrow: localhost + explicit control-plane CIDRs/IP.
+    derived = ["127.0.0.1/32", "::1/128"]
+
+    raw_extra = (os.environ.get("EDGE_POWER_EXTRA_CIDRS") or "").strip()
+    if raw_extra:
+        for token in [part.strip() for part in raw_extra.split(",") if part.strip()]:
+            try:
+                derived.append(str(ipaddress.ip_network(token, strict=False)))
+            except ValueError:
+                continue
+
+    payments_url = (os.environ.get("PAYMENTS_API_URL") or "").strip()
+    if payments_url:
+        candidate = payments_url if "://" in payments_url else f"http://{payments_url}"
+        try:
+            host = (urlparse(candidate).hostname or "").strip()
+            if host:
+                ip = ipaddress.ip_address(host)
+                if ip.version == 4:
+                    derived.append(f"{ip}/32")
+                else:
+                    derived.append(f"{ip}/128")
+        except Exception:
+            pass
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for token in derived:
+        if token in seen:
+            continue
+        seen.add(token)
+        deduped.append(token)
+    return deduped
+
+
 def _resolve_power_allowlist() -> tuple[list[str], str]:
     if POWER_ALLOWED_IPS_FILE is None:
         if POWER_ALLOWED_IPS:
             return POWER_ALLOWED_IPS, "env"
-        return [], "none"
+        return _derive_legacy_power_allowlist(), "derived"
     try:
         raw = POWER_ALLOWED_IPS_FILE.read_text().strip()
     except FileNotFoundError:
         if POWER_ALLOWED_IPS:
             return POWER_ALLOWED_IPS, "env_file_missing"
-        return [], "none_file_missing"
+        return _derive_legacy_power_allowlist(), "derived_file_missing"
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to read POWER_ALLOWED_IPS_FILE=%s: %s", POWER_ALLOWED_IPS_FILE, exc)
         if POWER_ALLOWED_IPS:
             return POWER_ALLOWED_IPS, "env_file_error"
-        return [], "none_file_error"
+        return _derive_legacy_power_allowlist(), "derived_file_error"
 
     entries = [addr.strip() for addr in raw.split(",") if addr.strip()]
     if entries:
         return entries, "file"
     if POWER_ALLOWED_IPS:
         return POWER_ALLOWED_IPS, "env"
-    return [], "none"
+    return _derive_legacy_power_allowlist(), "derived"
 
 
 def _power_allowlist_diagnostics() -> dict[str, Any]:

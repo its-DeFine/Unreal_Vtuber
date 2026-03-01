@@ -28,7 +28,7 @@ VERIFY_LAST_FILE_FALLBACK="${TARGET_HOME}/.embody/verify_last.json"
 ROLLOUT_STATE_FILE_DEFAULT="/var/lib/vtuber/power-state/rollout_state.json"
 ROLLOUT_STATE_FILE_FALLBACK="${TARGET_HOME}/.embody/rollout_state.json"
 CLUSTER_CONFIG_FILE_DEFAULT="${TARGET_HOME}/.embody/cluster.json"
-DEFAULT_PAYMENTS_API_URL="http://3.141.111.200:8081"
+DEFAULT_PAYMENTS_API_URL=""
 DEFAULT_LICENSE_IMAGE_REF="ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1"
 
 CLUSTER_MAX_SLOTS="20"
@@ -487,10 +487,26 @@ get_gpu_devices() {
   printf '%s' "$raw"
 }
 
+is_unresolved_payments_api_url() {
+  local value="$1"
+  value="$(trim_whitespace "$value")"
+  if [[ -z "$value" ]]; then
+    return 0
+  fi
+  if [[ "$value" == *"<"* || "$value" == *">"* ]]; then
+    return 0
+  fi
+  return 1
+}
+
 get_payments_api_url() {
   local raw
   raw="$(read_env_value "$ENV_FILE" "PAYMENTS_API_URL" 2>/dev/null || true)"
   raw="$(strip_inline_comment "$raw")"
+  if is_unresolved_payments_api_url "$raw"; then
+    printf '%s' ""
+    return 0
+  fi
   printf '%s' "$raw"
 }
 

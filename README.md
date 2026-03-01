@@ -133,13 +133,13 @@ Remote automation (ex: Payments) can call:
 - `POST http://<host>:9090/power/projects/<compose_project>`
 
 Experimental remote spawn/delete (cluster instances):
-- Enabled by default for new installs (in `orchestrator.env.example`). To disable: set `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=0` in `.env` and recreate `orchestrator-health`.
+- Disabled by default. To enable: set `EXPERIMENTAL_REMOTE_CLUSTER_CONTROL=1` in `.env` and recreate `orchestrator-health`.
 - `POST http://<host>:9090/cluster/deploy` with JSON `{ "avatar_id": "embody-0", "slot": 0, "gpu": "0" }`
 - `POST http://<host>:9090/cluster/down` with JSON `{ "avatar_id": "embody-0" }` (or `{ "project": "vtuber-embody-0" }`)
 
 Remote metadata + ops (experimental):
 - `GET http://<host>:9090/meta` (git head + container image refs/ids, plus last `verify` + pending rollout state).
-- Enabled by default (opt-out: set `EXPERIMENTAL_REMOTE_OPS=0` in `.env` and recreate `orchestrator-health`).
+- Enabled by default. To disable: set `EXPERIMENTAL_REMOTE_OPS=0` in `.env` and recreate `orchestrator-health`.
 - Security: `/ops/*` always requires `POWER_ALLOWED_IPS` / `POWER_ALLOWED_IPS_FILE` allowlisting (otherwise returns 403).
 - `POST http://<host>:9090/ops/upgrade` with JSON `{ "apply": true }` (git ff-only update; optionally pull/recreate host-level containers).
   - Optional: `{ "apply": true, "recreate_game": true }` to force-recreate `unreal-game` too (refuses while running; sleep first).

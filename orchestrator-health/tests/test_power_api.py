@@ -26,12 +26,12 @@ def power_app(monkeypatch, tmp_path):
     return app, svc
 
 
-def test_allowed_ips_fallbacks_to_vtuber(monkeypatch):
+def test_allowed_ips_no_longer_fallbacks_to_vtuber(monkeypatch):
     monkeypatch.setenv("VTUBER_ALLOWED_ADDRESSES", "1.1.1.1,2.2.2.2")
     import orchestrator_health.remote_health_service as svc
 
     importlib.reload(svc)
-    assert svc.POWER_ALLOWED_IPS == ["1.1.1.1", "2.2.2.2"]
+    assert svc.POWER_ALLOWED_IPS == []
 
 
 def test_allowed_ips_uses_primary_if_set(monkeypatch):
@@ -43,13 +43,13 @@ def test_allowed_ips_uses_primary_if_set(monkeypatch):
     assert svc.POWER_ALLOWED_IPS == ["3.3.3.3"]
 
 
-def test_allowed_ips_empty_primary_falls_back_to_vtuber(monkeypatch):
+def test_allowed_ips_empty_primary_stays_empty(monkeypatch):
     monkeypatch.setenv("POWER_ALLOWED_IPS", "")
     monkeypatch.setenv("VTUBER_ALLOWED_ADDRESSES", "1.1.1.1")
     import orchestrator_health.remote_health_service as svc
 
     importlib.reload(svc)
-    assert svc.POWER_ALLOWED_IPS == ["1.1.1.1"]
+    assert svc.POWER_ALLOWED_IPS == []
 
 
 def test_power_state_roundtrip(power_app, monkeypatch):
@@ -237,11 +237,11 @@ def ops_hmac_app(monkeypatch, tmp_path):
 
 def test_ops_endpoints_require_allowlist_by_default(power_app):
     app, _svc = power_app
-    client = TestClient(app)
+    client = TestClient(app, client=("198.51.100.10", 12345))
 
     resp = client.post("/ops/upgrade", json={"apply": False})
     assert resp.status_code == 403
-    assert resp.json()["detail"] == "POWER_ALLOWED_IPS must be set for remote ops"
+    assert "not allowed" in resp.json()["detail"]
 
     resp = client.post("/ops/rollout", json={})
     assert resp.status_code == 403
@@ -274,7 +274,7 @@ def test_ops_endpoints_require_allowlist(monkeypatch, tmp_path):
     import orchestrator_health.remote_health_service as svc
 
     importlib.reload(svc)
-    client = TestClient(svc.app)
+    client = TestClient(svc.app, client=("198.51.100.11", 12345))
     resp = client.post("/ops/upgrade", json={"apply": False})
     assert resp.status_code == 403
 
@@ -1131,14 +1131,14 @@ def test_meta_includes_rollout_and_verify(power_app):
     assert "auth" in data
     assert "power_allowlist_source" in data["auth"]
     assert isinstance(data["auth"]["power_allowlist_count"], int)
-    assert data["auth"]["power_allowlist_count"] >= 0
+    assert data["auth"]["power_allowlist_count"] >= 1
     assert "rollout" in data
     assert "verify_last" in data
 
 
 def test_meta_gpu_requires_allowlist(power_app):
     app, _svc = power_app
-    client = TestClient(app)
+    client = TestClient(app, client=("198.51.100.12", 12345))
     resp = client.get("/meta/gpu")
     assert resp.status_code == 403
 
@@ -1215,7 +1215,7 @@ def test_meta_gpu_returns_error_on_nvidia_smi_failure(ops_app, monkeypatch):
 
 def test_meta_gpu_stats_requires_allowlist(power_app):
     app, _svc = power_app
-    client = TestClient(app)
+    client = TestClient(app, client=("198.51.100.13", 12345))
     resp = client.get("/meta/gpu/stats")
     assert resp.status_code == 403
 
