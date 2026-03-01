@@ -2104,21 +2104,42 @@ def ops_upgrade(
             up_cmd = " ".join(
                 shlex.quote(arg) for arg in [*compose_base, "up", "-d", "--no-deps", "--force-recreate", self_service]
             )
-            shell_cmd = f"sleep 2; {pull_cmd} && {up_cmd}"
+            shell_cmd = f"sleep 2; ({pull_cmd} && {up_cmd}) >> {shlex.quote(log_path)} 2>&1"
 
-            # Run the self-recreate asynchronously inside the executor container.
-            # Uses start_new_session=True to detach from the exec_run lifecycle.
-            code = (
-                "import subprocess,sys\n"
-                "log=sys.argv[1]\n"
-                "cmd=sys.argv[2:]\n"
-                "f=open(log,'ab', buffering=0)\n"
-                "subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)\n"
-                "print('scheduled')\n"
-            )
+            helper_image = ""
+            try:
+                helper_image = (getattr(getattr(executor, "image", None), "id", "") or "").strip()
+            except Exception:
+                helper_image = ""
+            if not helper_image:
+                helper_image = (
+                    "ghcr.io/its-define/unreal_vtuber/orchestrator-edge-rotator:"
+                    f"{payload.service_image_tag or os.environ.get('EMBODY_SERVICE_IMAGE_TAG', 'latest')}"
+                )
+
+            helper_name = f"vtuber-ops-recreate-orchestrator-health-{int(time.time())}"
             run_step(
                 "schedule_recreate_orchestrator_health",
-                ["python3", "-c", code, log_path, "bash", "-lc", shell_cmd],
+                [
+                    "docker",
+                    "run",
+                    "-d",
+                    "--rm",
+                    "--name",
+                    helper_name,
+                    "-v",
+                    "/var/run/docker.sock:/var/run/docker.sock",
+                    "-v",
+                    f"{project_dir}:{project_dir}",
+                    "-v",
+                    "/var/lib/vtuber/power-state:/var/lib/vtuber/power-state",
+                    "-w",
+                    project_dir,
+                    helper_image,
+                    "sh",
+                    "-lc",
+                    shell_cmd,
+                ],
             )
 
         if recreate_orchestrator_edge_rotator:
