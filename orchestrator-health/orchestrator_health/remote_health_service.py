@@ -220,6 +220,17 @@ class OpsUpgradeRequest(BaseModel):
             "in the host .env. If apply=true, also auto-recreates orchestrator-health + edge-rotator."
         ),
     )
+    ops_hmac_secret: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional secret value for OPS_HMAC_SECRET written to host .env. "
+            "Applied via executor env (not command args) to avoid leaking in logs."
+        ),
+    )
+    ops_hmac_required: Optional[bool] = Field(
+        default=None,
+        description="Optional toggle for OPS_HMAC_REQUIRED in host .env (true=1, false=0).",
+    )
 
     @model_validator(mode="after")
     def _validate_upgrade_args(self) -> "OpsUpgradeRequest":
@@ -265,6 +276,13 @@ class OpsUpgradeRequest(BaseModel):
                 seen.add(canon)
                 normalized.append(canon)
             self.ops_allow_cidrs = normalized or None
+
+        if self.ops_hmac_secret is not None:
+            self.ops_hmac_secret = self.ops_hmac_secret.strip()
+            if "\x00" in self.ops_hmac_secret or "\n" in self.ops_hmac_secret or "\r" in self.ops_hmac_secret:
+                raise ValueError("ops_hmac_secret contains invalid control characters")
+            if len(self.ops_hmac_secret) > 4096:
+                raise ValueError("ops_hmac_secret is too long")
 
         return self
 
@@ -1829,8 +1847,8 @@ def ops_upgrade(
     executor = _cluster_executor_container()
     steps: list[dict[str, Any]] = []
 
-    def run_step(name: str, cmd: list[str]) -> dict[str, Any]:
-        out = _cluster_executor_exec(executor, cmd)
+    def run_step(name: str, cmd: list[str], *, env: Optional[dict[str, str]] = None) -> dict[str, Any]:
+        out = _cluster_executor_exec(executor, cmd, env=env)
         out["name"] = name
         out["stdout"] = _tail(out.get("stdout", ""))
         out["stderr"] = _tail(out.get("stderr", ""))
@@ -1965,8 +1983,56 @@ def ops_upgrade(
         if set_ops_allow["exit_code"] != 0:
             return {"ok": False, "exit_code": set_ops_allow["exit_code"], "steps": steps}
 
+    ops_hmac_requested = payload.ops_hmac_secret is not None or payload.ops_hmac_required is not None
+    if ops_hmac_requested:
+        updates: dict[str, str] = {}
+        if payload.ops_hmac_required is not None:
+            updates["OPS_HMAC_REQUIRED"] = "1" if payload.ops_hmac_required else "0"
+        updates_json = json.dumps(updates, separators=(",", ":"))
+        code = (
+            "import json,os,pathlib,sys\n"
+            "path=pathlib.Path(sys.argv[1])\n"
+            "updates=json.loads(sys.argv[2])\n"
+            "secret_present=(os.environ.get('EMBODY_OPS_HMAC_SECRET_PRESENT')=='1')\n"
+            "if secret_present:\n"
+            "    updates['OPS_HMAC_SECRET']=os.environ.get('EMBODY_OPS_HMAC_SECRET','')\n"
+            "lines=path.read_text(encoding='utf-8').splitlines(True) if path.exists() else []\n"
+            "out=[]\n"
+            "seen=set()\n"
+            "for line in lines:\n"
+            "    replaced=False\n"
+            "    for key,val in updates.items():\n"
+            "        if line.startswith(f'{key}='):\n"
+            "            if key not in seen:\n"
+            "                out.append(f'{key}={val}\\n')\n"
+            "                seen.add(key)\n"
+            "            replaced=True\n"
+            "            break\n"
+            "    if not replaced:\n"
+            "        out.append(line)\n"
+            "for key,val in updates.items():\n"
+            "    if key in seen:\n"
+            "        continue\n"
+            "    if out and not out[-1].endswith('\\n'):\n"
+            "        out[-1]=out[-1]+'\\n'\n"
+            "    out.append(f'{key}={val}\\n')\n"
+            "path.parent.mkdir(parents=True, exist_ok=True)\n"
+            "path.write_text(''.join(out), encoding='utf-8')\n"
+        )
+        step_env = {
+            "EMBODY_OPS_HMAC_SECRET_PRESENT": "1" if payload.ops_hmac_secret is not None else "0",
+            "EMBODY_OPS_HMAC_SECRET": payload.ops_hmac_secret or "",
+        }
+        set_ops_hmac = run_step(
+            "set_ops_hmac_config",
+            ["python3", "-c", code, env_file, updates_json],
+            env=step_env,
+        )
+        if set_ops_hmac["exit_code"] != 0:
+            return {"ok": False, "exit_code": set_ops_hmac["exit_code"], "steps": steps}
+
     if payload.apply:
-        recreate_orchestrator_health = payload.recreate_orchestrator_health or ops_allowlist_requested
+        recreate_orchestrator_health = payload.recreate_orchestrator_health or ops_allowlist_requested or ops_hmac_requested
         recreate_orchestrator_edge_rotator = payload.recreate_orchestrator_edge_rotator or ops_allowlist_requested
         _detect_compose_identity()
         host_project = (POWER_PROJECT_NAME or os.environ.get("COMPOSE_PROJECT_NAME") or "unreal_vtuber").strip()
