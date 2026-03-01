@@ -38,7 +38,7 @@ Usage:
     (--invite-code <code> | --orch-token-file <path> | --orch-token-env <ENV> | --orch-token <value>)
 
 Common options:
-  --payments-api-url <url>    (default: http://3.141.111.200:8081)
+  --payments-api-url <url>    (required unless PAYMENTS_API_URL is already set in .env)
   --image-ref <ref>           (default: ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1)
   --edge-ip <ip>              Primary Embody edge/gateway IP (required only if EDGE_CONFIG_URL is unset)
   --forwarder-ip <ip>         Alias for --edge-ip (backwards compatible)
@@ -245,6 +245,18 @@ strip_inline_comment() {
   trim_whitespace "$s"
 }
 
+is_unresolved_payments_api_url() {
+  local value="$1"
+  value="$(trim_whitespace "$value")"
+  if [[ -z "$value" ]]; then
+    return 0
+  fi
+  if [[ "$value" == *"<"* || "$value" == *">"* ]]; then
+    return 0
+  fi
+  return 1
+}
+
 extract_first_nonlocal_ip() {
   local csv="$1"
   local raw ip
@@ -409,7 +421,8 @@ TURN_ENV_FILE="$REPO_ROOT/.env.turn"
 COMPOSE_FILE="$REPO_ROOT/docker-compose.unreal.yml"
 ENV_TEMPLATE="$REPO_ROOT/orchestrator.env.example"
 
-PAYMENTS_API_URL="http://3.141.111.200:8081"
+PAYMENTS_API_URL="${PAYMENTS_API_URL:-}"
+PAYMENTS_API_URL_PLACEHOLDER="http://<payments-host>:8081"
 IMAGE_REF="ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1"
 EDGE_IP=""
 PUBLIC_IP="auto"
@@ -1511,6 +1524,11 @@ maybe_run_wizard() {
   if [[ -z "$existing_payments" ]]; then
     existing_payments="$(read_env_value "$ENV_TEMPLATE" "PAYMENTS_API_URL" 2>/dev/null || true)"
   fi
+  existing_payments="$(trim_whitespace "$existing_payments")"
+  existing_payments="$(strip_inline_comment "$existing_payments")"
+  if is_unresolved_payments_api_url "$existing_payments"; then
+    existing_payments=""
+  fi
 
   existing_allowlist_csv="$(read_env_value "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" 2>/dev/null || true)"
   if [[ -z "$existing_allowlist_csv" ]]; then
@@ -1549,12 +1567,22 @@ maybe_run_wizard() {
     NVIDIA_VISIBLE_DEVICES="$existing_gpu_devices"
   fi
 
-  if [[ -z "$PAYMENTS_API_URL" || "$PAYMENTS_API_URL" == "http://3.141.111.200:8081" ]]; then
-    PAYMENTS_API_URL="${existing_payments:-$PAYMENTS_API_URL}"
+  if is_unresolved_payments_api_url "$PAYMENTS_API_URL"; then
+    PAYMENTS_API_URL="${existing_payments:-}"
   fi
-  if [[ "$ADVANCED" == "1" || -z "$PAYMENTS_API_URL" ]]; then
-    PAYMENTS_API_URL="$(prompt_default "Payments API URL" "$PAYMENTS_API_URL")"
+  if [[ "$ADVANCED" == "1" ]] || is_unresolved_payments_api_url "$PAYMENTS_API_URL"; then
+    local default_payments_url
+    default_payments_url="${PAYMENTS_API_URL:-$PAYMENTS_API_URL_PLACEHOLDER}"
+    PAYMENTS_API_URL="$(prompt_default "Payments API URL" "$default_payments_url")"
+    PAYMENTS_API_URL="$(trim_whitespace "$PAYMENTS_API_URL")"
+    PAYMENTS_API_URL="$(strip_inline_comment "$PAYMENTS_API_URL")"
   fi
+  while is_unresolved_payments_api_url "$PAYMENTS_API_URL"; do
+    note "Payments API URL is required (example: ${PAYMENTS_API_URL_PLACEHOLDER})."
+    PAYMENTS_API_URL="$(prompt_default "Payments API URL" "$PAYMENTS_API_URL_PLACEHOLDER")"
+    PAYMENTS_API_URL="$(trim_whitespace "$PAYMENTS_API_URL")"
+    PAYMENTS_API_URL="$(strip_inline_comment "$PAYMENTS_API_URL")"
+  done
 
   section "Identity"
 
@@ -1931,6 +1959,19 @@ if is_zero_eth_address "$ORCH_ADDRESS"; then
   die "ORCHESTRATOR_ADDRESS cannot be 0x0000000000000000000000000000000000000000"
 fi
 
+PAYMENTS_API_URL="$(trim_whitespace "$PAYMENTS_API_URL")"
+PAYMENTS_API_URL="$(strip_inline_comment "$PAYMENTS_API_URL")"
+if is_unresolved_payments_api_url "$PAYMENTS_API_URL"; then
+  if [[ "$INTERACTIVE" == "0" ]]; then
+    die "--payments-api-url is required and must be explicit (not a placeholder)"
+  fi
+  while is_unresolved_payments_api_url "$PAYMENTS_API_URL"; do
+    PAYMENTS_API_URL="$(prompt_default "Payments API URL" "$PAYMENTS_API_URL_PLACEHOLDER")"
+    PAYMENTS_API_URL="$(trim_whitespace "$PAYMENTS_API_URL")"
+    PAYMENTS_API_URL="$(strip_inline_comment "$PAYMENTS_API_URL")"
+  done
+fi
+
 if [[ -z "$INVITE_CODE" && -z "$ORCH_TOKEN" && -z "$ORCH_TOKEN_FILE" && -z "$ORCH_TOKEN_ENV" ]]; then
   die "license token or invite code required (use --invite-code, --orch-token-file, or --orch-token-env)"
 fi
@@ -2123,6 +2164,19 @@ else
   allowed_addresses="$(join_csv 127.0.0.1 ::1 172.17.0.1 172.18.0.1 "${CONTROL_IPS[@]}")"
   upsert_env_kv "$ENV_FILE" "VTUBER_ALLOWED_ADDRESSES" "$allowed_addresses"
 fi
+
+# Power/remote-ops allowlist is intentionally narrower than runner/recorder allowlists.
+# Keep /power and /ops reachable only from localhost + Payments control-plane IP.
+power_allowed_ips=("127.0.0.1/32" "::1/128")
+payments_host="$(extract_host_from_url "$PAYMENTS_API_URL")"
+if is_ipv4 "$payments_host"; then
+  power_allowed_ips+=("${payments_host}/32")
+fi
+deduped_power_allowed_ips=()
+while IFS= read -r ip; do
+  deduped_power_allowed_ips+=("$ip")
+done < <(dedupe_list "${power_allowed_ips[@]}")
+upsert_env_kv "$ENV_FILE" "POWER_ALLOWED_IPS" "$(join_csv "${deduped_power_allowed_ips[@]}")"
 upsert_env_kv "$ENV_FILE" "VTUBER_SESSION_DIR" "$SESSION_DIR"
 upsert_env_kv "$ENV_FILE" "VTUBER_RECORDINGS_DIR" "$RECORDINGS_DIR"
 if [[ -n "$NVIDIA_VISIBLE_DEVICES" ]]; then

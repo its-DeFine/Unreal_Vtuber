@@ -50,7 +50,7 @@ Download + decrypt + `docker load` using a Payments-issued lease:
 
 ```bash
 ./tools/encrypted-game-image/consume.sh \
-  --payments-api-url http://3.141.111.200:8081 \
+  --payments-api-url http://<payments-host>:8081 \
   --orch-token-file /path/to/orchestrator-license-token.txt \
   --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1
 ```
@@ -61,7 +61,7 @@ If you want an end-to-end “reload the game image and restart the stack” help
 
 ```bash
 ./tools/encrypted-game-image/rollout.sh \
-  --payments-api-url http://3.141.111.200:8081 \
+  --payments-api-url http://<payments-host>:8081 \
   --orch-token-file /path/to/orchestrator-license-token.txt \
   --image-ref ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1
 ```

@@ -24,7 +24,7 @@ Usage:
     [--orch-id <id> --orch-address <0x...>]
 
 Options:
-  --payments-api-url     Payments backend base URL (example: http://3.141.111.200:8081)
+  --payments-api-url     Payments backend base URL (example: http://<payments-host>:8081)
   --image-ref            Image ref registered in Payments licenses (example: ghcr.io/...:enc-v1)
   --artifact-url         Optional override: public/presigned URL to the encrypted artifact (.age). If omitted, Payments returns a fresh URL per lease.
   --orch-token           Orchestrator license token (NOT recommended; may leak via shell history)
@@ -677,7 +677,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$payments_api_url" ]] && is_tty; then
-  payments_api_url="$(prompt_input "Payments API URL" "${PAYMENTS_API_URL:-http://3.141.111.200:8081}")"
+  payments_api_url="$(prompt_input "Payments API URL" "${PAYMENTS_API_URL:-http://<payments-host>:8081}")"
 fi
 if [[ -z "$image_ref" ]] && is_tty; then
   image_ref="$(prompt_input "Image ref (must exist in Payments licenses)" "${IMAGE_REF:-}")"

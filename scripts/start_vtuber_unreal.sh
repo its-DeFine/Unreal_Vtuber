@@ -182,7 +182,8 @@ check_payments_allowlist() {
     local payments_url payments_host payments_ip want_cidr allow_file power_allow
     payments_url="$(read_env_value "PAYMENTS_API_URL")"
     if [ -z "$payments_url" ]; then
-        payments_url="http://3.141.111.200:8081"
+        echo -e "${YELLOW}WARN: PAYMENTS_API_URL is unset; skipping Payments allowlist test.${NC}"
+        return 2
     fi
     payments_host="$(extract_host_from_url "$payments_url")"
     if ! is_ipv4 "$payments_host"; then
