@@ -1091,13 +1091,14 @@ def test_ops_upgrade_recreate_orchestrator_edge_rotator_schedules_background_hel
     assert any(cmd[:3] == ["docker", "run", "-d"] for cmd in executor.commands)
 
 
-def test_ops_rollout_execs_script(ops_app, monkeypatch):
+def test_ops_rollout_defaults_to_token_file(ops_app, monkeypatch):
     app, svc = ops_app
     client = TestClient(app)
 
     monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
     monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
     monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
+    observed = {}
 
     class DummyResult:
         exit_code = 0
@@ -1105,6 +1106,8 @@ def test_ops_rollout_execs_script(ops_app, monkeypatch):
 
     class DummyExecutor:
         def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            observed["cmd"] = cmd
+            observed["environment"] = environment
             assert cmd[0] == "bash"
             assert cmd[1].endswith("/tmp/repo/tools/encrypted-game-image/consume.sh")
             return DummyResult()
@@ -1115,11 +1118,62 @@ def test_ops_rollout_execs_script(ops_app, monkeypatch):
     resp = client.post("/ops/rollout", json={"no_verify": True, "payments_api_url": "http://payments:8081"})
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
+    assert "--orch-token-env" not in observed["cmd"]
+    idx = observed["cmd"].index("--orch-token-file")
+    assert observed["cmd"][idx + 1] == "/root/.embody/orch-license-token.txt"
+    assert observed["environment"] is None
 
     state_path = svc.ROLLOUT_STATE_FILE
     assert state_path.exists()
     state = json.loads(state_path.read_text())
     assert state["status"] in ("staged", "applied")
+
+
+def test_ops_rollout_uses_orch_token_env_injection(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
+    observed = {}
+
+    class DummyResult:
+        exit_code = 0
+        output = (b"loaded\n", b"")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            observed["cmd"] = cmd
+            observed["environment"] = environment
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post(
+        "/ops/rollout",
+        json={"no_verify": True, "payments_api_url": "http://payments:8081", "orch_token": "ephemeral-token"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert "--orch-token-file" not in observed["cmd"]
+    idx = observed["cmd"].index("--orch-token-env")
+    assert observed["cmd"][idx + 1] == "ORCH_TOKEN"
+    assert observed["environment"] == {"ORCH_TOKEN": "ephemeral-token"}
+    assert "ephemeral-token" not in observed["cmd"]
+
+
+def test_ops_rollout_rejects_orch_token_control_chars(ops_app):
+    app, _svc = ops_app
+    client = TestClient(app)
+
+    resp = client.post(
+        "/ops/rollout",
+        json={"payments_api_url": "http://payments:8081", "orch_token": "bad\ttoken"},
+    )
+    assert resp.status_code == 422
+    assert "orch_token contains invalid control characters" in resp.text
 
 
 def test_meta_includes_rollout_and_verify(power_app):

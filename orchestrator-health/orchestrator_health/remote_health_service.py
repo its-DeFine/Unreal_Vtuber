@@ -272,6 +272,10 @@ class OpsUpgradeRequest(BaseModel):
 class OpsRolloutRequest(BaseModel):
     payments_api_url: Optional[str] = Field(default=None, description="Payments backend base URL override.")
     image_ref: Optional[str] = Field(default=None, description="Payments license image_ref override (enc-v1, etc).")
+    orch_token: Optional[str] = Field(
+        default=None,
+        description="Optional ephemeral orchestrator token override injected into the executor environment.",
+    )
     no_verify: bool = Field(default=False, description="Skip post-rollout health verification.")
     stage_only: bool = Field(
         default=False,
@@ -291,6 +295,16 @@ class OpsRolloutRequest(BaseModel):
         default=False,
         description="If true, force-recreate stopped game containers after the image is loaded (keeps them stopped).",
     )
+
+    @model_validator(mode="after")
+    def _validate_rollout_args(self) -> "OpsRolloutRequest":
+        if self.orch_token is not None:
+            if any(ord(ch) < 32 or ord(ch) == 127 for ch in self.orch_token):
+                raise ValueError("orch_token contains invalid control characters")
+            self.orch_token = self.orch_token.strip()
+            if not self.orch_token:
+                self.orch_token = None
+        return self
 
 
 class OpsPullImageRequest(BaseModel):
@@ -2322,6 +2336,7 @@ def ops_rollout(
         _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
     else:
         token_path = "/root/.embody/orch-license-token.txt"
+        cmd_env = None
         cmd = [
             "bash",
             f"{project_dir}/tools/encrypted-game-image/consume.sh",
@@ -2329,10 +2344,13 @@ def ops_rollout(
             payments_url,
             "--image-ref",
             image_ref,
-            "--orch-token-file",
-            token_path,
         ]
-        download = _cluster_executor_exec(executor, cmd)
+        if payload.orch_token:
+            cmd.extend(["--orch-token-env", "ORCH_TOKEN"])
+            cmd_env = {"ORCH_TOKEN": payload.orch_token}
+        else:
+            cmd.extend(["--orch-token-file", token_path])
+        download = _cluster_executor_exec(executor, cmd, env=cmd_env)
         download["stdout"] = _tail(download.get("stdout", ""))
         download["stderr"] = _tail(download.get("stderr", ""))
         download["ok"] = download.get("exit_code") == 0
