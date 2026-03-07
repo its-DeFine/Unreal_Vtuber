@@ -1164,6 +1164,43 @@ def test_ops_rollout_uses_orch_token_env_injection(ops_app, monkeypatch):
     assert "ephemeral-token" not in observed["cmd"]
 
 
+def test_ops_rollout_persists_download_error_tails(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
+    monkeypatch.setattr(
+        svc,
+        "docker_client",
+        type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})(),
+    )
+
+    class DummyResult:
+        exit_code = 17
+        output = (b"stdout-line\n", b"stderr-line\n")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post("/ops/rollout", json={"payments_api_url": "http://payments:8081"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["download"]["exit_code"] == 17
+
+    state = json.loads(svc.ROLLOUT_STATE_FILE.read_text())
+    assert state["status"] == "error"
+    assert state["detail"] == "download/load failed"
+    assert state["download_exit_code"] == 17
+    assert "stdout-line" in state["download_stdout_tail"]
+    assert "stderr-line" in state["download_stderr_tail"]
+
+
 def test_ops_rollout_rejects_orch_token_control_chars(ops_app):
     app, _svc = ops_app
     client = TestClient(app)

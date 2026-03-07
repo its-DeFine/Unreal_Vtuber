@@ -2359,6 +2359,9 @@ def ops_rollout(
             out["ok"] = False
             state["status"] = "error"
             state["detail"] = "download/load failed"
+            state["download_exit_code"] = download.get("exit_code")
+            state["download_stdout_tail"] = download.get("stdout")
+            state["download_stderr_tail"] = download.get("stderr")
             _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
             return out
 
