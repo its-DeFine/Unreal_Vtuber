@@ -1380,6 +1380,7 @@ def test_meta_includes_rollout_and_verify(power_app):
     assert data["rollout"]["progress_percent"] == 50.0
     assert data["rollout"]["can_resume"] is True
     assert "worker_active" in data["rollout"]
+    assert "game_diagnostics" in data
     assert "verify_last" in data
 
 
@@ -1824,7 +1825,20 @@ def test_meta_endpoint_reports_git_and_containers(power_app, monkeypatch):
                         "com.docker.compose.service": "unreal-game",
                     },
                     "Image": "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest",
-                }
+                },
+                "State": {
+                    "Running": False,
+                    "Restarting": True,
+                    "OOMKilled": False,
+                    "Dead": False,
+                    "Paused": False,
+                    "ExitCode": 137,
+                    "Error": "process crashed",
+                    "StartedAt": "2026-03-07T11:00:00Z",
+                    "FinishedAt": "2026-03-07T11:00:10Z",
+                    "Health": {"Status": "unhealthy"},
+                },
+                "RestartCount": 4,
             }
 
             class _Image:
@@ -1834,6 +1848,13 @@ def test_meta_endpoint_reports_git_and_containers(power_app, monkeypatch):
 
         def reload(self) -> None:  # pragma: no cover - used by service code
             return None
+
+        def logs(self, stdout=True, stderr=True, tail=120, timestamps=False):  # noqa: FBT002
+            assert stdout is True
+            assert stderr is True
+            assert tail == 120
+            assert timestamps is True
+            return b"line1\nline2\nfatal crash reason\n"
 
     class DummyDocker:
         def __init__(self, executor, containers):
@@ -1863,3 +1884,114 @@ def test_meta_endpoint_reports_git_and_containers(power_app, monkeypatch):
     assert data["git"]["sha"].startswith("deadbeef")
     assert data["containers"][0]["name"] == "vtuber-unreal-game"
     assert data["containers"][0]["image_id"] == "sha256:abc123"
+
+
+def test_meta_unreal_game_diagnostics_returns_bounded_redacted_tail(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app, client=("127.0.0.1", 12345))
+    monkeypatch.setenv("TEST_SECRET_TOKEN", "super-secret-value")
+
+    class DummyContainer:
+        def __init__(self):
+            self.name = "vtuber-unreal-game"
+            self.status = "restarting"
+            self.attrs = {
+                "Config": {
+                    "Labels": {
+                        "com.docker.compose.project": "unreal_vtuber",
+                        "com.docker.compose.service": "unreal-game",
+                    },
+                    "Image": "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest",
+                },
+                "State": {
+                    "Status": "restarting",
+                    "Running": False,
+                    "Restarting": True,
+                    "OOMKilled": False,
+                    "Dead": False,
+                    "ExitCode": 137,
+                    "Error": "process exited unexpectedly",
+                    "StartedAt": "2026-03-07T11:00:00Z",
+                    "FinishedAt": "2026-03-07T11:00:05Z",
+                    "Health": {"Status": "unhealthy"},
+                },
+                "RestartCount": 6,
+            }
+
+            class _Image:
+                id = "sha256:newimage"
+
+            self.image = _Image()
+
+        def reload(self) -> None:  # pragma: no cover - used by service code
+            return None
+
+        def logs(self, stdout=True, stderr=True, tail=0, timestamps=True):  # noqa: ARG002
+            assert stdout is True
+            assert stderr is True
+            assert timestamps is True
+            assert tail == 80
+            lines = [f"2026-03-07T11:00:{idx:02d}Z line-{idx}" for idx in range(95)]
+            lines.append("2026-03-07T11:02:00Z api_key=abcdef")
+            lines.append("2026-03-07T11:02:01Z bearer Authorization: Bearer abc123")
+            lines.append("2026-03-07T11:02:02Z leaked super-secret-value")
+            return "\n".join(lines).encode("utf-8")
+
+    class DummyDocker:
+        def __init__(self, container):
+            self._container = container
+
+            class _Containers:
+                def __init__(self, parent):
+                    self._parent = parent
+
+                def list(self, all: bool = False, filters=None, **_kwargs):  # noqa: A002, ANN001
+                    assert all is True
+                    labels = (filters or {}).get("label") or []
+                    if "com.docker.compose.service=unreal-game" in labels:
+                        return [self._parent._container]
+                    return []
+
+            self.containers = _Containers(self)
+
+    monkeypatch.setattr(svc, "docker_client", DummyDocker(DummyContainer()))
+
+    resp = client.get("/meta/unreal-game/diagnostics")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["found"] is True
+    assert data["service"] == "unreal-game"
+    assert data["container"]["name"] == "vtuber-unreal-game"
+    assert data["container"]["restart_count"] == 6
+    assert data["container"]["state"]["exit_code"] == 137
+    assert data["container"]["state"]["health_status"] == "unhealthy"
+    assert data["logs_error"] is None
+    assert "line-0" not in data["logs_tail"]
+    assert "line-94" in data["logs_tail"]
+    assert "super-secret-value" not in data["logs_tail"]
+    assert "api_key=[redacted]" in data["logs_tail"]
+    assert "Authorization: Bearer [redacted]" in data["logs_tail"]
+    assert "[redacted]" in data["logs_tail"]
+
+
+def test_meta_unreal_game_diagnostics_reports_missing_container(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app, client=("127.0.0.1", 12345))
+
+    class DummyDocker:
+        class _Containers:
+            def list(self, all: bool = False, filters=None, **_kwargs):  # noqa: A002, ANN001
+                assert all is True
+                return []
+
+        containers = _Containers()
+
+    monkeypatch.setattr(svc, "docker_client", DummyDocker())
+
+    resp = client.get("/meta/unreal-game/diagnostics")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["found"] is False
+    assert data["service"] == "unreal-game"
+    assert data["logs_tail"] == ""
+    assert "not found" in data["detail"]
