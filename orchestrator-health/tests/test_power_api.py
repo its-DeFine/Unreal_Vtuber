@@ -2086,6 +2086,9 @@ def test_ops_fix_unreal_game_whisper_runtime_puts_script_and_restarts(ops_app, m
 
     assert "WHISPER_RUNTIME_DIR" in payload
     assert "libwhisper.so.1" in payload
+    assert "libggml-cuda.so" in payload
+    assert "${lib}.0" in payload
+    assert "rm -f /tmp/.X99-lock" in payload
     assert data["container"]["name"] == "vtuber-unreal-game"
 
 

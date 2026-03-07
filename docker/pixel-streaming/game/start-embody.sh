@@ -42,6 +42,17 @@ fi
 
 WHISPER_RUNTIME_DIR="/opt/embody/Embody/Source/ThirdParty/Lib/Linux/whisper/x64"
 if [ -d "${WHISPER_RUNTIME_DIR}" ]; then
+  for lib in \
+    libwhisper.so \
+    libggml.so \
+    libggml-base.so \
+    libggml-cpu.so \
+    libggml-cuda.so
+  do
+    if [ -f "${WHISPER_RUNTIME_DIR}/${lib}" ] && [ ! -e "${WHISPER_RUNTIME_DIR}/${lib}.0" ]; then
+      ln -sf "${lib}" "${WHISPER_RUNTIME_DIR}/${lib}.0" || true
+    fi
+  done
   if [ -f "${WHISPER_RUNTIME_DIR}/libwhisper.so" ] && [ ! -e "${WHISPER_RUNTIME_DIR}/libwhisper.so.1" ]; then
     ln -sf libwhisper.so "${WHISPER_RUNTIME_DIR}/libwhisper.so.1" || true
   fi
@@ -66,6 +77,7 @@ trap cleanup EXIT
 if [ "${USE_XVFB}" != "0" ]; then
   mkdir -p /tmp/.X11-unix || true
   chmod 1777 /tmp/.X11-unix 2>/dev/null || true
+  rm -f /tmp/.X99-lock 2>/dev/null || true
   echo "Starting Xvfb on ${DISPLAY_VALUE} with ${XVFB_RESOLUTION}"
   Xvfb "${DISPLAY_VALUE}" -screen 0 "${XVFB_RESOLUTION}" &
   xvfb_pid=$!
