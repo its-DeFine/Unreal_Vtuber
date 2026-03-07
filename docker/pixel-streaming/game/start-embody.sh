@@ -40,6 +40,14 @@ if [ -d "${OPENCV_RUNTIME_DIR}" ]; then
   export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}${OPENCV_RUNTIME_DIR}"
 fi
 
+WHISPER_RUNTIME_DIR="/opt/embody/Embody/Source/ThirdParty/Lib/Linux/whisper/x64"
+if [ -d "${WHISPER_RUNTIME_DIR}" ]; then
+  if [ -f "${WHISPER_RUNTIME_DIR}/libwhisper.so" ] && [ ! -e "${WHISPER_RUNTIME_DIR}/libwhisper.so.1" ]; then
+    ln -sf libwhisper.so "${WHISPER_RUNTIME_DIR}/libwhisper.so.1" || true
+  fi
+  export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}${WHISPER_RUNTIME_DIR}"
+fi
+
 xvfb_pid=""
 embody_pid=""
 cleanup() {
