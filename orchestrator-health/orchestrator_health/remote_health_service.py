@@ -4,11 +4,13 @@ from __future__ import annotations
 import json
 import hashlib
 import hmac
+import io
 import logging
 import os
 import ipaddress
 import re
 import shlex
+import tarfile
 import threading
 import time
 import uuid
@@ -1401,6 +1403,25 @@ def _container_log_tail(container: Any, *, tail_lines: int = 120, max_chars: int
     return _tail(_redact_sensitive_text(text), max_lines=tail_lines, max_chars=max_chars)
 
 
+def _container_put_text_file(container: Any, path: str, content: str, *, mode: int = 0o755) -> None:
+    normalized = path.strip()
+    if not normalized.startswith("/"):
+        raise ValueError("path must be absolute")
+    parent = os.path.dirname(normalized)
+    name = os.path.basename(normalized)
+    data = content.encode("utf-8")
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w") as tar:
+        info = tarfile.TarInfo(name=name)
+        info.size = len(data)
+        info.mode = mode
+        tar.addfile(info, io.BytesIO(data))
+    archive.seek(0)
+    ok = container.put_archive(parent, archive.read())
+    if ok is False:
+        raise RuntimeError(f"docker put_archive returned false for {normalized}")
+
+
 def _container_diagnostics(container: Any) -> dict[str, Any]:
     meta = _container_meta(container)
     attrs = container.attrs or {}
@@ -1421,6 +1442,98 @@ def _container_diagnostics(container: Any) -> dict[str, Any]:
         "restart_count": attrs.get("RestartCount"),
         "log_tail": _container_log_tail(container),
     }
+
+
+def _patched_unreal_game_start_script() -> str:
+    return """#!/usr/bin/env bash
+set -euo pipefail
+
+PIXEL_STREAMING_URL="${PIXEL_STREAMING_URL:-ws://127.0.0.1:8888}"
+USE_XVFB="${USE_XVFB:-1}"
+DISPLAY_VALUE="${DISPLAY:-:99}"
+XVFB_RESOLUTION="${XVFB_RESOLUTION:-1920x1080x24}"
+ULIMIT_NOFILE_VALUE="${ULIMIT_NOFILE:-1048576}"
+
+HOST_LIBRARY_PATHS_DEFAULT="/host-libs/usr/lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:/host-libs/usr/lib/nvidia:/host-libs/lib64:/host-libs/usr/lib64"
+IFS=":" read -r -a HOST_LIBRARY_PATHS <<< "${HOST_LIB_PATHS:-$HOST_LIBRARY_PATHS_DEFAULT}"
+for path in "${HOST_LIBRARY_PATHS[@]}"; do
+  if [ -d "${path}" ]; then
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}${path}"
+  fi
+done
+
+if [ -z "${VK_ICD_FILENAMES:-}" ] && [ -f /host-libs/usr/share/vulkan/icd.d/nvidia_icd.json ]; then
+  export VK_ICD_FILENAMES="/host-libs/usr/share/vulkan/icd.d/nvidia_icd.json"
+fi
+
+if [ -z "${VK_LAYER_PATH:-}" ]; then
+  layer_dirs=(
+    "/host-libs/usr/share/vulkan/implicit_layer.d"
+    "/host-libs/usr/share/vulkan/explicit_layer.d"
+  )
+  accumulated=()
+  for dir in "${layer_dirs[@]}"; do
+    if [ -d "${dir}" ]; then
+      accumulated+=("${dir}")
+    fi
+  done
+  if [ ${#accumulated[@]} -gt 0 ]; then
+    export VK_LAYER_PATH="$(IFS=:; echo "${accumulated[*]}")"
+  fi
+fi
+
+OPENCV_RUNTIME_DIR="/opt/embody/Engine/Plugins/Runtime/OpenCV/Binaries/ThirdParty/Linux/x86_64-unknown-linux-gnu/opencv/lib"
+if [ -d "${OPENCV_RUNTIME_DIR}" ]; then
+  export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}${OPENCV_RUNTIME_DIR}"
+fi
+
+WHISPER_RUNTIME_DIR="/opt/embody/Embody/Source/ThirdParty/Lib/Linux/whisper/x64"
+if [ -d "${WHISPER_RUNTIME_DIR}" ]; then
+  if [ -f "${WHISPER_RUNTIME_DIR}/libwhisper.so" ] && [ ! -e "${WHISPER_RUNTIME_DIR}/libwhisper.so.1" ]; then
+    ln -sf libwhisper.so "${WHISPER_RUNTIME_DIR}/libwhisper.so.1" || true
+  fi
+  export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}${WHISPER_RUNTIME_DIR}"
+fi
+
+xvfb_pid=""
+embody_pid=""
+cleanup() {
+  set +e
+  if [ -n "${embody_pid}" ] && kill -0 "${embody_pid}" 2>/dev/null; then
+    kill "${embody_pid}" 2>/dev/null || true
+    wait "${embody_pid}" 2>/dev/null || true
+  fi
+  if [ -n "${xvfb_pid}" ] && kill -0 "${xvfb_pid}" 2>/dev/null; then
+    kill "${xvfb_pid}" 2>/dev/null || true
+    wait "${xvfb_pid}" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+if [ "${USE_XVFB}" != "0" ]; then
+  mkdir -p /tmp/.X11-unix || true
+  chmod 1777 /tmp/.X11-unix 2>/dev/null || true
+  echo "Starting Xvfb on ${DISPLAY_VALUE} with ${XVFB_RESOLUTION}"
+  Xvfb "${DISPLAY_VALUE}" -screen 0 "${XVFB_RESOLUTION}" &
+  xvfb_pid=$!
+  export DISPLAY="${DISPLAY_VALUE}"
+else
+  echo "USE_XVFB=0, not starting Xvfb"
+fi
+
+ulimit -n "${ULIMIT_NOFILE_VALUE}" || true
+
+cd /opt/embody
+
+if [ -n "${EMBODY_EXTRA_ARGS:-}" ]; then
+  # shellcheck disable=SC2086
+  set -- ${EMBODY_EXTRA_ARGS} "$@"
+fi
+
+./Embody.sh -RenderOffScreen -PixelStreamingURL="${PIXEL_STREAMING_URL}" -Log "$@" &
+embody_pid=$!
+wait "${embody_pid}"
+"""
 
 
 def _unreal_game_diagnostics(*, project_name: str | None = None) -> dict[str, Any]:
@@ -1486,6 +1599,27 @@ def _unreal_game_diagnostics(*, project_name: str | None = None) -> dict[str, An
         "log_tail_lines": log_tail_lines,
         "log_tail_chars": len(logs_tail),
         "logs_error": logs_error,
+    }
+
+
+def _hotfix_unreal_game_whisper_runtime(*, project_name: str | None = None) -> dict[str, Any]:
+    container = _find_container(POWER_GAME_SERVICE, POWER_GAME_CONTAINER or None, project_name=project_name)
+    if container is None:
+        raise HTTPException(status_code=404, detail=f"{POWER_GAME_SERVICE} container not found")
+    try:
+        container.reload()
+    except Exception:
+        pass
+    _container_put_text_file(container, "/usr/local/bin/start-embody.sh", _patched_unreal_game_start_script(), mode=0o755)
+    container.restart(timeout=10)
+    try:
+        container.reload()
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "detail": "patched start-embody.sh copied into unreal-game container and container restarted",
+        "container": _container_diagnostics(container),
     }
 
 
@@ -2352,6 +2486,16 @@ def read_meta_unreal_game_diagnostics(request: Request) -> dict[str, Any]:
     """Return bounded recent diagnostics for the host unreal-game container."""
     _require_auth(request)
     payload = _unreal_game_diagnostics()
+    payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+    return payload
+
+
+@app.post("/ops/unreal-game/fix-whisper-runtime")
+def fix_unreal_game_whisper_runtime(request: Request) -> dict[str, Any]:
+    """Hotfix the running unreal-game container with the patched launcher and restart it."""
+    _require_remote_ops_enabled()
+    _require_auth(request)
+    payload = _hotfix_unreal_game_whisper_runtime(project_name=POWER_PROJECT_NAME or None)
     payload["timestamp"] = datetime.now(timezone.utc).isoformat()
     return payload
 

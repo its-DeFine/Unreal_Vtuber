@@ -1,8 +1,10 @@
+import io
 import json
 import hashlib
 import hmac
 import importlib
 import os
+import tarfile
 import time
 
 import pytest
@@ -1995,3 +1997,112 @@ def test_meta_unreal_game_diagnostics_reports_missing_container(ops_app, monkeyp
     assert data["service"] == "unreal-game"
     assert data["logs_tail"] == ""
     assert "not found" in data["detail"]
+
+
+def test_ops_fix_unreal_game_whisper_runtime_puts_script_and_restarts(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app, client=("127.0.0.1", 12345))
+
+    class DummyContainer:
+        def __init__(self):
+            self.name = "vtuber-unreal-game"
+            self.status = "restarting"
+            self.attrs = {
+                "Config": {
+                    "Labels": {
+                        "com.docker.compose.project": "unreal_vtuber",
+                        "com.docker.compose.service": "unreal-game",
+                    },
+                    "Image": "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest",
+                },
+                "State": {
+                    "Status": "restarting",
+                    "Running": False,
+                    "Restarting": True,
+                    "OOMKilled": False,
+                    "Dead": False,
+                    "ExitCode": 127,
+                    "Error": "",
+                    "StartedAt": "2026-03-07T12:00:00Z",
+                    "FinishedAt": "2026-03-07T12:00:01Z",
+                    "Health": {"Status": "starting"},
+                },
+                "RestartCount": 10,
+            }
+            self.put_archive_calls = []
+            self.restart_calls = []
+
+            class _Image:
+                id = "sha256:fixed"
+
+            self.image = _Image()
+
+        def reload(self) -> None:  # pragma: no cover - service hook
+            return None
+
+        def logs(self, stdout=True, stderr=True, tail=0, timestamps=True):  # noqa: ARG002
+            return b"launcher output"
+
+        def put_archive(self, path, data):  # noqa: ANN001 - docker SDK shape
+            self.put_archive_calls.append((path, data))
+            return True
+
+        def restart(self, timeout=10):  # noqa: ANN001 - docker SDK shape
+            self.restart_calls.append(timeout)
+            return None
+
+    class DummyDocker:
+        def __init__(self, container):
+            self._container = container
+
+            class _Containers:
+                def __init__(self, parent):
+                    self._parent = parent
+
+                def list(self, all: bool = False, filters=None, **_kwargs):  # noqa: A002, ANN001
+                    assert all is True
+                    labels = (filters or {}).get("label") or []
+                    if "com.docker.compose.service=unreal-game" in labels:
+                        return [self._parent._container]
+                    return []
+
+            self.containers = _Containers(self)
+
+    container = DummyContainer()
+    monkeypatch.setattr(svc, "docker_client", DummyDocker(container))
+
+    resp = client.post("/ops/unreal-game/fix-whisper-runtime")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert container.restart_calls == [10]
+    assert len(container.put_archive_calls) == 1
+    parent, archive_bytes = container.put_archive_calls[0]
+    assert parent == "/usr/local/bin"
+
+    with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:") as tar:
+        member = tar.getmember("start-embody.sh")
+        payload = tar.extractfile(member).read().decode("utf-8")
+
+    assert "WHISPER_RUNTIME_DIR" in payload
+    assert "libwhisper.so.1" in payload
+    assert data["container"]["name"] == "vtuber-unreal-game"
+
+
+def test_ops_fix_unreal_game_whisper_runtime_404_when_missing(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app, client=("127.0.0.1", 12345))
+
+    class DummyDocker:
+        class _Containers:
+            def list(self, all: bool = False, filters=None, **_kwargs):  # noqa: A002, ANN001
+                assert all is True
+                return []
+
+        containers = _Containers()
+
+    monkeypatch.setattr(svc, "docker_client", DummyDocker())
+
+    resp = client.post("/ops/unreal-game/fix-whisper-runtime")
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"]
