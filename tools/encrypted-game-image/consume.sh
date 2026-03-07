@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 USE_COLOR="0"
 USE_FX="0"
 COLOR_MODE="auto"
@@ -14,6 +16,24 @@ STYLE_GRN=""
 STYLE_YLW=""
 STYLE_CYN=""
 STYLE_MAG=""
+
+rollout_state_file_primary=""
+rollout_state_file_fallback=""
+cache_root_primary=""
+cache_root_fallback=""
+rollout_state_file_override=""
+rollout_state_fallback_override=""
+rollout_job_id=""
+rollout_work_dir=""
+artifact_local_path=""
+artifact_partial_path=""
+artifact_cache_dir=""
+artifact_total_bytes=""
+artifact_downloaded_bytes="0"
+artifact_download_percent=""
+artifact_resumed="0"
+artifact_resume_from_bytes="0"
+artifact_download_action=""
 
 usage() {
   cat <<'EOF'
@@ -35,6 +55,10 @@ Options:
   --invite-code-env      Read invite code from env var name (recommended)
   --orch-id              Orchestrator ID to register in Payments (required when redeeming invite)
   --orch-address         Orchestrator wallet address (0x...) (required when redeeming invite)
+  --rollout-state-file   Explicit rollout state path to update while running
+  --rollout-state-fallback Optional fallback rollout state path if primary is not writable
+  --rollout-work-dir     Explicit working directory for rollout logs/probe artifacts
+  --rollout-job-id       Rollout job id to persist in rollout state
   --no-heartbeat         Do not heartbeat the lease while loading
   --debug                Keep detailed stderr logs on disk (prints path on failure/success)
   --no-color             Disable ANSI colors
@@ -94,6 +118,239 @@ write_secret_file() {
   if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
     chown "$SUDO_USER":"$SUDO_USER" "$dir" "$path" 2>/dev/null || true
   fi
+}
+
+write_json_file_atomic() {
+  local path="$1"
+  local json="$2"
+  mkdir -p "$(dirname "$path")" 2>/dev/null || return 1
+  local tmp
+  tmp="$(mktemp "$(dirname "$path")/.tmp.XXXXXX" 2>/dev/null || true)"
+  [[ -n "$tmp" ]] || return 1
+  printf '%s\n' "$json" >"$tmp" || { rm -f "$tmp" >/dev/null 2>&1 || true; return 1; }
+  mv "$tmp" "$path" || { rm -f "$tmp" >/dev/null 2>&1 || true; return 1; }
+  return 0
+}
+
+write_state_json_best_effort() {
+  local primary="$1"
+  local fallback="$2"
+  local json="$3"
+  if write_json_file_atomic "$primary" "$json"; then
+    printf '%s' "$primary"
+    return 0
+  fi
+  if write_json_file_atomic "$fallback" "$json"; then
+    printf '%s' "$fallback"
+    return 0
+  fi
+  return 1
+}
+
+rollout_state_json() {
+  python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+from datetime import datetime, timezone
+
+ACTIVE_STATUSES = {"queued", "downloading", "decrypting", "loading", "applying"}
+TERMINAL_STATUSES = {"downloaded", "staged", "applied", "error", "failed"}
+
+
+def clean(name: str) -> str:
+    return (os.environ.get(name) or "").strip()
+
+
+def read_existing(*paths: str) -> dict:
+    for raw in paths:
+        path = (raw or "").strip()
+        if not path:
+            continue
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
+def int_or_none(name: str):
+    raw = clean(name)
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except Exception:
+        return None
+
+
+def float_or_none(name: str):
+    raw = clean(name)
+    if not raw:
+        return None
+    try:
+        return round(float(raw), 2)
+    except Exception:
+        return None
+
+
+def value_bool_or_none(value):
+    if isinstance(value, bool):
+        return value
+    raw = str(value or "").strip().lower()
+    if raw in {"1", "true", "yes"}:
+        return True
+    if raw in {"0", "false", "no"}:
+        return False
+    return None
+
+
+def resume_possible(data: dict, downloaded_bytes: int, total_bytes: int | None) -> bool:
+    explicit = value_bool_or_none(data.get("can_resume"))
+    if explicit is not None:
+        return explicit
+
+    partial_path = str(data.get("artifact_partial_path") or "").strip()
+    if partial_path:
+        try:
+            if Path(partial_path).exists() and Path(partial_path).stat().st_size > 0:
+                return True
+        except Exception:
+            pass
+
+    artifact_path = str(data.get("artifact_local_path") or "").strip()
+    if artifact_path:
+        try:
+            size = Path(artifact_path).stat().st_size
+            if size > 0 and (total_bytes is None or total_bytes <= 0 or size == total_bytes):
+                return True
+        except Exception:
+            pass
+
+    return downloaded_bytes > 0 and (total_bytes is None or downloaded_bytes <= total_bytes)
+
+
+now = datetime.now(timezone.utc).isoformat()
+existing = read_existing(clean("ROLLOUT_STATE_FILE_PRIMARY"), clean("ROLLOUT_STATE_FILE_FALLBACK"))
+
+status = clean("STATUS") or None
+phase = clean("PHASE") or None
+detail = clean("DETAIL") or None
+job_id = clean("ROLLOUT_JOB_ID") or (str(existing.get("job_id") or "").strip() or None)
+work_dir = clean("ROLLOUT_WORK_DIR") or (str(existing.get("work_dir") or "").strip() or None)
+artifact_total_bytes = int_or_none("ARTIFACT_TOTAL_BYTES")
+if artifact_total_bytes is None:
+    current_total = existing.get("artifact_total_bytes")
+    try:
+        artifact_total_bytes = int(current_total) if current_total is not None else None
+    except Exception:
+        artifact_total_bytes = None
+artifact_downloaded_bytes = int_or_none("ARTIFACT_DOWNLOADED_BYTES")
+if artifact_downloaded_bytes is None:
+    current_downloaded = existing.get("artifact_downloaded_bytes")
+    try:
+        artifact_downloaded_bytes = int(current_downloaded) if current_downloaded is not None else 0
+    except Exception:
+        artifact_downloaded_bytes = 0
+artifact_download_percent = float_or_none("ARTIFACT_DOWNLOAD_PERCENT")
+if artifact_download_percent is None and artifact_total_bytes and artifact_total_bytes > 0:
+    artifact_download_percent = round(
+        min(100.0, (float(artifact_downloaded_bytes) * 100.0) / float(artifact_total_bytes)),
+        2,
+    )
+if artifact_download_percent is None:
+    current_percent = existing.get("artifact_download_percent", existing.get("progress_percent"))
+    try:
+        artifact_download_percent = round(float(current_percent), 2) if current_percent is not None else 0.0
+    except Exception:
+        artifact_download_percent = 0.0
+
+history = existing.get("history")
+if not isinstance(history, list):
+    history = []
+previous_status = str(existing.get("status") or "").strip()
+if status and status != previous_status:
+    history = history + [{"status": status, "at": now}]
+
+data = dict(existing)
+updates = {
+    "job_id": job_id,
+    "status": status,
+    "phase": phase,
+    "detail": detail,
+    "updated_at": now,
+    "image_ref": clean("IMAGE_REF") or None,
+    "payments_api_url": clean("PAYMENTS_API_URL") or None,
+    "lease_id": clean("LEASE_ID") or None,
+    "artifact_local_path": clean("ARTIFACT_LOCAL_PATH") or None,
+    "artifact_partial_path": clean("ARTIFACT_PARTIAL_PATH") or None,
+    "artifact_cache_dir": clean("ARTIFACT_CACHE_DIR") or None,
+    "artifact_download_action": clean("ARTIFACT_DOWNLOAD_ACTION") or None,
+    "artifact_total_bytes": artifact_total_bytes,
+    "artifact_downloaded_bytes": artifact_downloaded_bytes,
+    "artifact_download_percent": artifact_download_percent,
+    "artifact_resumed": value_bool_or_none(clean("ARTIFACT_RESUMED")),
+    "artifact_resume_from_bytes": int_or_none("ARTIFACT_RESUME_FROM_BYTES"),
+    "loaded_image_id": clean("LOADED_IMAGE_ID") or None,
+    "work_dir": work_dir,
+}
+for key, value in updates.items():
+    if value is not None:
+        data[key] = value
+
+data["history"] = history[-32:]
+data["downloaded_bytes"] = artifact_downloaded_bytes
+data["progress_percent"] = artifact_download_percent
+data["can_resume"] = resume_possible(data, artifact_downloaded_bytes, artifact_total_bytes)
+if status:
+    data["active"] = status in ACTIVE_STATUSES
+    data["terminal"] = status in TERMINAL_STATUSES
+    if status in TERMINAL_STATUSES:
+        data["completed_at"] = now
+        if status == "error":
+            data["failed_at"] = now
+        else:
+            data.pop("failed_at", None)
+    else:
+        data.pop("completed_at", None)
+        data.pop("failed_at", None)
+
+print(json.dumps({k: v for k, v in data.items() if v is not None}, sort_keys=True))
+PY
+}
+
+write_rollout_state() {
+  local status="$1"
+  local phase="$2"
+  local detail="${3:-}"
+  local loaded_image_id="${4:-}"
+  local json=""
+  json="$(
+    STATUS="$status" \
+    PHASE="$phase" \
+    DETAIL="$detail" \
+    LOADED_IMAGE_ID="$loaded_image_id" \
+    ROLLOUT_JOB_ID="$rollout_job_id" \
+    ROLLOUT_WORK_DIR="$rollout_work_dir" \
+    ROLLOUT_STATE_FILE_PRIMARY="$rollout_state_file_primary" \
+    ROLLOUT_STATE_FILE_FALLBACK="$rollout_state_file_fallback" \
+    IMAGE_REF="$image_ref" \
+    PAYMENTS_API_URL="$payments_api_url" \
+    LEASE_ID="$lease_id" \
+    ARTIFACT_LOCAL_PATH="$artifact_local_path" \
+    ARTIFACT_PARTIAL_PATH="$artifact_partial_path" \
+    ARTIFACT_CACHE_DIR="$artifact_cache_dir" \
+    ARTIFACT_DOWNLOAD_ACTION="$artifact_download_action" \
+    ARTIFACT_TOTAL_BYTES="$artifact_total_bytes" \
+    ARTIFACT_DOWNLOADED_BYTES="$artifact_downloaded_bytes" \
+    ARTIFACT_DOWNLOAD_PERCENT="$artifact_download_percent" \
+    ARTIFACT_RESUMED="$artifact_resumed" \
+    ARTIFACT_RESUME_FROM_BYTES="$artifact_resume_from_bytes" \
+    rollout_state_json
+  )"
+  write_state_json_best_effort "$rollout_state_file_primary" "$rollout_state_file_fallback" "$json" >/dev/null 2>&1 || true
 }
 
 prompt_input() {
@@ -650,6 +907,22 @@ while [[ $# -gt 0 ]]; do
       orch_address="${2:-}"
       shift 2
       ;;
+    --rollout-state-file)
+      rollout_state_file_override="${2:-}"
+      shift 2
+      ;;
+    --rollout-state-fallback)
+      rollout_state_fallback_override="${2:-}"
+      shift 2
+      ;;
+    --rollout-work-dir)
+      rollout_work_dir="${2:-}"
+      shift 2
+      ;;
+    --rollout-job-id)
+      rollout_job_id="${2:-}"
+      shift 2
+      ;;
     --no-heartbeat)
       heartbeat="0"
       shift 1
@@ -685,6 +958,10 @@ fi
 
 payments_api_url="$(normalize_secret "$payments_api_url")"
 image_ref="$(normalize_secret "$image_ref")"
+rollout_state_file_override="$(trim_whitespace "$rollout_state_file_override")"
+rollout_state_fallback_override="$(trim_whitespace "$rollout_state_fallback_override")"
+rollout_work_dir="$(trim_whitespace "$rollout_work_dir")"
+rollout_job_id="$(trim_whitespace "$rollout_job_id")"
 
 [[ -n "$payments_api_url" ]] || die "--payments-api-url is required"
 [[ -n "$image_ref" ]] || die "--image-ref is required"
@@ -736,6 +1013,24 @@ fi
 if [[ -z "$target_home" ]]; then
   target_home="$HOME"
 fi
+
+if [[ -n "$rollout_state_file_override" ]]; then
+  rollout_state_file_primary="$rollout_state_file_override"
+else
+  rollout_state_file_primary="${ROLLOUT_STATE_FILE:-/var/lib/vtuber/power-state/rollout_state.json}"
+fi
+if [[ -n "$rollout_state_fallback_override" ]]; then
+  rollout_state_file_fallback="$rollout_state_fallback_override"
+else
+  rollout_state_file_fallback="${target_home}/.embody/rollout_state.json"
+fi
+cache_root_primary="${ENCRYPTED_GAME_IMAGE_CACHE_DIR:-$(dirname "$rollout_state_file_primary")/encrypted-game-image-cache}"
+cache_root_fallback="${target_home}/.embody/encrypted-game-image-cache"
+if [[ -z "$rollout_work_dir" ]] && [[ -n "$rollout_job_id" ]]; then
+  rollout_work_dir="$(dirname "$rollout_state_file_primary")/rollout-work/${rollout_job_id}"
+fi
+download_helper="${SCRIPT_DIR}/resume_download.py"
+[[ -f "$download_helper" ]] || die "missing helper: $download_helper"
 
 # Auto-load a cached token if nothing was provided explicitly.
 default_token_file="$target_home/.embody/orch-license-token.txt"
@@ -945,14 +1240,20 @@ if ! grep -q '^AGE-SECRET-KEY-1' "$identity_file" 2>/dev/null; then
   die "Payments returned an invalid decryption identity (secret_b64 decoded but no AGE-SECRET-KEY-1 line found)"
 fi
 
-note "Downloading artifact → decrypt → decompress → load game image (this can take a while)"
-log_dir="$(mktemp -d)"
+note "Downloading encrypted artifact to local cache (resume-safe) → decrypt → decompress → load game image (this can take a while)"
+if [[ -n "$rollout_work_dir" ]]; then
+  log_dir="${rollout_work_dir}/logs"
+  mkdir -p "$log_dir"
+else
+  log_dir="$(mktemp -d)"
+fi
 chmod 700 "$log_dir"
 curl_err="$log_dir/curl.err"
 age_err="$log_dir/age.err"
 zstd_err="$log_dir/zstd.err"
 curl_head_err="$log_dir/curl.head.err"
 curl_head_prefix="$log_dir/curl.head.prefix"
+curl_head_headers="$log_dir/curl.head.headers"
 
 print_err_tail() {
   local label="$1"
@@ -964,38 +1265,84 @@ print_err_tail() {
   fi
 }
 
-note "Validating artifact header (expects age-encryption.org/v1)"
+note "Validating artifact header and downloading with resume support"
+download_cmd=(
+  python3 "$download_helper"
+  --url "$artifact_url"
+  --image-ref "$image_ref"
+  --payments-api-url "$payments_api_url"
+  --lease-id "$lease_id"
+  --state-file "$rollout_state_file_primary"
+  --state-fallback "$rollout_state_file_fallback"
+  --cache-root-primary "$cache_root_primary"
+  --cache-root-fallback "$cache_root_fallback"
+  --probe-prefix-path "$curl_head_prefix"
+  --probe-headers-path "$curl_head_headers"
+  --probe-stderr-path "$curl_head_err"
+  --download-stderr-path "$curl_err"
+)
+if [[ -n "$rollout_job_id" ]]; then
+  download_cmd+=(--job-id "$rollout_job_id")
+fi
+if [[ -n "$rollout_work_dir" ]]; then
+  download_cmd+=(--work-dir "$rollout_work_dir")
+fi
 set +e
-curl -fL --connect-timeout 10 --max-time 20 --retry 2 --retry-delay 1 --retry-connrefused -sS --range 0-127 "$artifact_url" \
-  -o "$curl_head_prefix" 2>"$curl_head_err"
-curl_head_rc="$?"
+download_json="$("${download_cmd[@]}")"
+download_rc="$?"
 set -e
-if [[ "$curl_head_rc" -ne 0 ]]; then
+if [[ "$download_rc" -ne 0 ]]; then
+  write_rollout_state "error" "downloading" "artifact download failed"
   print_err_tail "curl (header) stderr:" "$curl_head_err"
-  die "failed to fetch artifact header (URL expired/unreachable). Re-run to request a fresh lease."
+  print_err_tail "curl stderr:" "$curl_err"
+  echo "" >&2
+  if [[ "$debug" == "1" ]]; then
+    note "Debug logs kept at: $log_dir"
+  else
+    note "Debug logs saved at: $log_dir"
+    debug="1"
+  fi
+  die "failed to download encrypted artifact; see errors above"
 fi
-artifact_header="$(head -n1 "$curl_head_prefix" || true)"
-if [[ "$artifact_header" != age-encryption.org/v1* ]]; then
-  print_err_tail "curl (header) stderr:" "$curl_head_err"
-  die "artifact does not look age-encrypted (expected header age-encryption.org/v1, got: ${artifact_header:-<empty>})"
-fi
-ok "Artifact header OK"
+
+artifact_local_path="$(printf '%s' "$download_json" | jq -r '.artifact_path // empty' 2>/dev/null || true)"
+artifact_partial_path="$(printf '%s' "$download_json" | jq -r '.artifact_partial_path // empty' 2>/dev/null || true)"
+artifact_cache_dir="$(printf '%s' "$download_json" | jq -r '.artifact_cache_dir // empty' 2>/dev/null || true)"
+artifact_total_bytes="$(printf '%s' "$download_json" | jq -r '.artifact_total_bytes // empty' 2>/dev/null || true)"
+artifact_downloaded_bytes="$(printf '%s' "$download_json" | jq -r '.artifact_downloaded_bytes // 0' 2>/dev/null || echo "0")"
+artifact_download_percent="$(printf '%s' "$download_json" | jq -r '.artifact_download_percent // empty' 2>/dev/null || true)"
+artifact_resume_from_bytes="$(printf '%s' "$download_json" | jq -r '.artifact_resume_from_bytes // 0' 2>/dev/null || echo "0")"
+artifact_download_action="$(printf '%s' "$download_json" | jq -r '.artifact_download_action // empty' 2>/dev/null || true)"
+artifact_resumed="$(printf '%s' "$download_json" | jq -r 'if .artifact_resumed then "1" else "0" end' 2>/dev/null || echo "0")"
+
+[[ -n "$artifact_local_path" ]] || die "download helper did not return an artifact path"
+[[ -f "$artifact_local_path" ]] || die "download helper reported a missing artifact path: $artifact_local_path"
+
+case "$artifact_download_action" in
+  reused_complete)
+    ok "Using cached complete encrypted artifact at $artifact_local_path"
+    ;;
+  resumed)
+    ok "Resumed encrypted artifact download from ${artifact_resume_from_bytes} bytes"
+    ;;
+  *)
+    ok "Encrypted artifact downloaded to $artifact_local_path"
+    ;;
+esac
+
+write_rollout_state "loading" "loading" "Decrypting cached artifact and streaming into docker load"
 
 set +e
-curl -fL --connect-timeout 10 --retry 3 --retry-delay 2 --retry-connrefused -sS "$artifact_url" 2>"$curl_err" \
-  | age --decrypt -i "$identity_file" 2>"$age_err" \
+age --decrypt -i "$identity_file" "$artifact_local_path" 2>"$age_err" \
   | zstd -d -c 2>"$zstd_err" \
   | docker_load_with_meter "LOADING"
-pipeline_rc=$? curl_rc="${PIPESTATUS[0]:-}" age_rc="${PIPESTATUS[1]:-}" zstd_rc="${PIPESTATUS[2]:-}" docker_rc="${PIPESTATUS[3]:-}"
+pipeline_rc=$? age_rc="${PIPESTATUS[0]:-}" zstd_rc="${PIPESTATUS[1]:-}" docker_rc="${PIPESTATUS[2]:-}"
 set -e
 
 if [[ "$pipeline_rc" -ne 0 ]]; then
+  write_rollout_state "error" "loading" "decrypt/decompress/load failed"
   echo "" >&2
-  echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} image load pipeline failed (curl=${curl_rc:-?} age=${age_rc:-?} zstd=${zstd_rc:-?} docker=${docker_rc:-?})." >&2
-  if [[ "${curl_rc:-}" == "23" ]]; then
-    echo "${STYLE_DIM}note:${STYLE_RESET} curl exit 23 usually means a broken pipe (downstream decrypt/decompress/load exited early)." >&2
-  fi
-  print_err_tail "curl stderr:" "$curl_err"
+  echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} image load pipeline failed (age=${age_rc:-?} zstd=${zstd_rc:-?} docker=${docker_rc:-?})." >&2
   print_err_tail "age stderr:" "$age_err"
   print_err_tail "zstd stderr:" "$zstd_err"
   echo "" >&2
@@ -1007,6 +1354,10 @@ if [[ "$pipeline_rc" -ne 0 ]]; then
   fi
   die "failed to load encrypted image; see errors above"
 fi
+
+artifact_downloaded_bytes="${artifact_total_bytes:-$artifact_downloaded_bytes}"
+artifact_download_percent="100"
+write_rollout_state "staged" "staged" "Encrypted artifact downloaded and image loaded into docker"
 
 if [[ "$debug" == "1" ]]; then
   note "Debug logs kept at: $log_dir"

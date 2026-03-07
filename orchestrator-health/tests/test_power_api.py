@@ -1091,6 +1091,105 @@ def test_ops_upgrade_recreate_orchestrator_edge_rotator_schedules_background_hel
     assert any(cmd[:3] == ["docker", "run", "-d"] for cmd in executor.commands)
 
 
+def _capture_rollout_thread(monkeypatch, svc):
+    captured = {}
+
+    class DummyThread:
+        def __init__(self, kwargs):
+            self.kwargs = kwargs
+            self.started = False
+
+        def start(self):
+            self.started = True
+
+        def is_alive(self):
+            return self.started
+
+    def fake_make_rollout_thread(**kwargs):
+        thread = DummyThread(kwargs)
+        captured["thread"] = thread
+        captured["kwargs"] = kwargs
+        return thread
+
+    monkeypatch.setattr(svc, "_make_rollout_thread", fake_make_rollout_thread)
+    return captured
+
+
+def test_ops_rollout_persists_queued_state_before_background_work(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: object())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+    captured = _capture_rollout_thread(monkeypatch, svc)
+
+    resp = client.post("/ops/rollout", json={"no_verify": True, "payments_api_url": "http://payments:8081"})
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["accepted"] is True
+    assert body["status"] == "queued"
+    assert body["rollout"]["progress_percent"] == 0.0
+    assert body["rollout"]["downloaded_bytes"] == 0
+    assert body["rollout"]["can_resume"] is False
+
+    state = json.loads(svc.ROLLOUT_STATE_FILE.read_text())
+    assert state["job_id"] == body["job_id"]
+    assert state["status"] == "queued"
+    assert state["history"] == [{"status": "queued", "at": state["requested_at"]}]
+    assert captured["kwargs"]["job_id"] == body["job_id"]
+    assert captured["kwargs"]["rollout_state_file"] == str(svc.ROLLOUT_STATE_FILE)
+    assert captured["kwargs"]["rollout_work_dir"].endswith(body["job_id"])
+
+
+def test_ops_rollout_reuses_existing_progress_when_requeued(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: object())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+    captured = _capture_rollout_thread(monkeypatch, svc)
+
+    partial_path = svc.ROLLOUT_STATE_FILE.parent / "resume-cache" / "artifact.age.part"
+    partial_path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path.write_bytes(b"age-encryption.org/v1\npartial")
+    svc._write_json_file_atomic(
+        svc.ROLLOUT_STATE_FILE,
+        {
+            "job_id": "old-job",
+            "status": "failed",
+            "image_ref": "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1",
+            "artifact_partial_path": str(partial_path),
+            "artifact_downloaded_bytes": partial_path.stat().st_size,
+            "artifact_total_bytes": partial_path.stat().st_size + 1024,
+            "artifact_download_percent": 6.25,
+            "history": [{"status": "failed", "at": "2026-03-07T10:00:00+00:00"}],
+        },
+    )
+
+    resp = client.post("/ops/rollout", json={"no_verify": True, "payments_api_url": "http://payments:8081"})
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["rollout"]["job_id"] == body["job_id"]
+    assert body["rollout"]["downloaded_bytes"] == partial_path.stat().st_size
+    assert body["rollout"]["artifact_total_bytes"] == partial_path.stat().st_size + 1024
+    assert body["rollout"]["progress_percent"] == 6.25
+    assert body["rollout"]["can_resume"] is True
+
+    state = json.loads(svc.ROLLOUT_STATE_FILE.read_text())
+    assert state["job_id"] == body["job_id"]
+    assert state["resume_from_job_id"] == "old-job"
+    assert state["downloaded_bytes"] == partial_path.stat().st_size
+    assert state["progress_percent"] == 6.25
+    assert captured["kwargs"]["job_id"] == body["job_id"]
+
+
 def test_ops_rollout_defaults_to_token_file(ops_app, monkeypatch):
     app, svc = ops_app
     client = TestClient(app)
@@ -1099,6 +1198,7 @@ def test_ops_rollout_defaults_to_token_file(ops_app, monkeypatch):
     monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
     monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
     observed = {}
+    captured = _capture_rollout_thread(monkeypatch, svc)
 
     class DummyResult:
         exit_code = 0
@@ -1116,17 +1216,27 @@ def test_ops_rollout_defaults_to_token_file(ops_app, monkeypatch):
     monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
 
     resp = client.post("/ops/rollout", json={"no_verify": True, "payments_api_url": "http://payments:8081"})
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     assert resp.json()["ok"] is True
+    assert resp.json()["accepted"] is True
+
+    svc._run_rollout_job(**captured["kwargs"])
+
     assert "--orch-token-env" not in observed["cmd"]
     idx = observed["cmd"].index("--orch-token-file")
     assert observed["cmd"][idx + 1] == "/root/.embody/orch-license-token.txt"
+    idx = observed["cmd"].index("--rollout-state-file")
+    assert observed["cmd"][idx + 1] == str(svc.ROLLOUT_STATE_FILE)
+    idx = observed["cmd"].index("--rollout-job-id")
+    assert observed["cmd"][idx + 1] == captured["kwargs"]["job_id"]
+    idx = observed["cmd"].index("--rollout-work-dir")
+    assert observed["cmd"][idx + 1] == captured["kwargs"]["rollout_work_dir"]
     assert observed["environment"] is None
 
     state_path = svc.ROLLOUT_STATE_FILE
     assert state_path.exists()
     state = json.loads(state_path.read_text())
-    assert state["status"] in ("staged", "applied")
+    assert state["status"] == "staged"
 
 
 def test_ops_rollout_uses_orch_token_env_injection(ops_app, monkeypatch):
@@ -1137,6 +1247,7 @@ def test_ops_rollout_uses_orch_token_env_injection(ops_app, monkeypatch):
     monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
     monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
     observed = {}
+    captured = _capture_rollout_thread(monkeypatch, svc)
 
     class DummyResult:
         exit_code = 0
@@ -1155,8 +1266,11 @@ def test_ops_rollout_uses_orch_token_env_injection(ops_app, monkeypatch):
         "/ops/rollout",
         json={"no_verify": True, "payments_api_url": "http://payments:8081", "orch_token": "ephemeral-token"},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     assert resp.json()["ok"] is True
+
+    svc._run_rollout_job(**captured["kwargs"])
+
     assert "--orch-token-file" not in observed["cmd"]
     idx = observed["cmd"].index("--orch-token-env")
     assert observed["cmd"][idx + 1] == "ORCH_TOKEN"
@@ -1170,35 +1284,48 @@ def test_ops_rollout_persists_download_error_tails(ops_app, monkeypatch):
 
     monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
     monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
-    monkeypatch.setattr(
-        svc,
-        "docker_client",
-        type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})(),
-    )
-
-    class DummyResult:
-        exit_code = 17
-        output = (b"stdout-line\n", b"stderr-line\n")
-
-    class DummyExecutor:
-        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
-            return DummyResult()
-
-    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: object())
     monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+    captured = _capture_rollout_thread(monkeypatch, svc)
+
+    def fake_exec_stream(_executor, cmd, *, env=None, on_status=None):
+        assert cmd[0] == "bash"
+        assert env is None
+        assert on_status is not None
+        on_status("downloading")
+        on_status("decrypting")
+        on_status("loading")
+        return {
+            "exit_code": 17,
+            "stdout": "stdout-line\n",
+            "stderr": "stderr-line\n",
+            "cmd": cmd,
+        }
+
+    monkeypatch.setattr(svc, "_cluster_executor_exec_stream", fake_exec_stream)
 
     resp = client.post("/ops/rollout", json={"payments_api_url": "http://payments:8081"})
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     body = resp.json()
-    assert body["ok"] is False
-    assert body["download"]["exit_code"] == 17
+    assert body["ok"] is True
+    assert body["accepted"] is True
+
+    svc._run_rollout_job(**captured["kwargs"])
 
     state = json.loads(svc.ROLLOUT_STATE_FILE.read_text())
-    assert state["status"] == "error"
+    assert state["status"] == "failed"
     assert state["detail"] == "download/load failed"
     assert state["download_exit_code"] == 17
     assert "stdout-line" in state["download_stdout_tail"]
     assert "stderr-line" in state["download_stderr_tail"]
+    assert [entry["status"] for entry in state["history"]] == [
+        "queued",
+        "downloading",
+        "decrypting",
+        "loading",
+        "failed",
+    ]
 
 
 def test_ops_rollout_rejects_orch_token_control_chars(ops_app):
@@ -1214,8 +1341,29 @@ def test_ops_rollout_rejects_orch_token_control_chars(ops_app):
 
 
 def test_meta_includes_rollout_and_verify(power_app):
-    app, _svc = power_app
+    app, svc = power_app
     client = TestClient(app)
+    partial_path = svc.ROLLOUT_STATE_FILE.parent / "meta-progress" / "artifact.age.part"
+    partial_path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path.write_bytes(b"partial-rollout")
+    svc._write_json_file_atomic(
+        svc.ROLLOUT_STATE_FILE,
+        {
+            "job_id": "job-123",
+            "status": "loading",
+            "detail": "docker image load in progress",
+            "updated_at": "2026-03-07T10:00:00+00:00",
+            "requested_at": "2026-03-07T09:59:00+00:00",
+            "artifact_partial_path": str(partial_path),
+            "artifact_downloaded_bytes": partial_path.stat().st_size,
+            "artifact_total_bytes": partial_path.stat().st_size * 2,
+            "artifact_download_percent": 50.0,
+            "history": [
+                {"status": "queued", "at": "2026-03-07T09:59:00+00:00"},
+                {"status": "loading", "at": "2026-03-07T10:00:00+00:00"},
+            ],
+        },
+    )
     resp = client.get("/meta")
     assert resp.status_code == 200
     data = resp.json()
@@ -1224,6 +1372,14 @@ def test_meta_includes_rollout_and_verify(power_app):
     assert isinstance(data["auth"]["power_allowlist_count"], int)
     assert data["auth"]["power_allowlist_count"] >= 1
     assert "rollout" in data
+    assert data["rollout"]["job_id"] == "job-123"
+    assert data["rollout"]["status"] == "loading"
+    assert data["rollout"]["history"][0]["status"] == "queued"
+    assert data["rollout"]["downloaded_bytes"] == partial_path.stat().st_size
+    assert data["rollout"]["artifact_total_bytes"] == partial_path.stat().st_size * 2
+    assert data["rollout"]["progress_percent"] == 50.0
+    assert data["rollout"]["can_resume"] is True
+    assert "worker_active" in data["rollout"]
     assert "verify_last" in data
 
 

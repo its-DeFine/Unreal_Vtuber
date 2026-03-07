@@ -11,9 +11,10 @@ import re
 import shlex
 import threading
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Callable, Literal, Optional
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -774,6 +775,429 @@ def _tail(text: str, *, max_lines: int = 200, max_chars: int = 50_000) -> str:
     if len(out) > max_chars:
         out = out[-max_chars:]
     return out
+
+
+ROLLOUT_ACTIVE_STATUSES = frozenset({"queued", "downloading", "decrypting", "loading", "applying"})
+ROLLOUT_TERMINAL_STATUSES = frozenset({"staged", "applied", "failed"})
+ROLLOUT_STATUS_DETAILS = {
+    "queued": "rollout job queued",
+    "downloading": "requesting decryption lease / downloading artifact",
+    "decrypting": "artifact stream is being decrypted",
+    "loading": "docker image load in progress",
+    "staged": "encrypted image loaded and staged",
+    "applying": "recreating stopped game projects",
+    "applied": "staged image applied to stopped game projects",
+}
+_ROLLOUT_JOB_LOCK = threading.Lock()
+_ROLLOUT_JOB_THREAD: threading.Thread | None = None
+_ROLLOUT_JOB_ID: str | None = None
+_ROLLOUT_RESUME_FIELDS = frozenset(
+    {
+        "artifact_local_path",
+        "artifact_partial_path",
+        "artifact_cache_dir",
+        "artifact_download_action",
+        "artifact_total_bytes",
+        "artifact_downloaded_bytes",
+        "artifact_download_percent",
+        "artifact_resumed",
+        "artifact_resume_from_bytes",
+        "downloaded_bytes",
+        "progress_percent",
+        "can_resume",
+        "loaded_image_id",
+        "lease_id",
+        "work_dir",
+    }
+)
+
+
+def _rollout_is_active_status(status: str) -> bool:
+    return status in ROLLOUT_ACTIVE_STATUSES
+
+
+def _int_or_none(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return None
+
+
+def _float_or_none(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return round(float(str(value).strip()), 2)
+    except Exception:
+        return None
+
+
+def _bool_or_none(value: Any) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    clean = str(value).strip().lower()
+    if clean in {"1", "true", "yes", "y", "on"}:
+        return True
+    if clean in {"0", "false", "no", "n", "off"}:
+        return False
+    return None
+
+
+def _rollout_can_resume(
+    state: dict[str, Any],
+    *,
+    downloaded_bytes: Optional[int],
+    artifact_total_bytes: Optional[int],
+) -> bool:
+    explicit = _bool_or_none(state.get("can_resume"))
+    if explicit is not None:
+        return explicit
+
+    partial_path = str(state.get("artifact_partial_path") or "").strip()
+    if partial_path:
+        try:
+            if Path(partial_path).exists() and Path(partial_path).stat().st_size > 0:
+                return True
+        except Exception:
+            pass
+
+    artifact_path = str(state.get("artifact_local_path") or "").strip()
+    if artifact_path:
+        try:
+            size = Path(artifact_path).stat().st_size
+            if size > 0 and (artifact_total_bytes is None or artifact_total_bytes <= 0 or size == artifact_total_bytes):
+                return True
+        except Exception:
+            pass
+
+    if downloaded_bytes is None:
+        downloaded_bytes = _int_or_none(state.get("artifact_downloaded_bytes"))
+    if downloaded_bytes is None:
+        downloaded_bytes = _int_or_none(state.get("downloaded_bytes"))
+    if downloaded_bytes is None or downloaded_bytes <= 0:
+        return False
+    if artifact_total_bytes is None:
+        return True
+    return downloaded_bytes <= artifact_total_bytes
+
+
+def _normalize_rollout_progress(state: dict[str, Any]) -> dict[str, Any]:
+    out = dict(state)
+    artifact_total_bytes = _int_or_none(out.get("artifact_total_bytes"))
+    downloaded_bytes = _int_or_none(out.get("downloaded_bytes"))
+    if downloaded_bytes is None:
+        downloaded_bytes = _int_or_none(out.get("artifact_downloaded_bytes"))
+    if downloaded_bytes is None:
+        downloaded_bytes = 0
+
+    progress_percent = _float_or_none(out.get("progress_percent"))
+    if progress_percent is None:
+        progress_percent = _float_or_none(out.get("artifact_download_percent"))
+    if progress_percent is None and artifact_total_bytes and artifact_total_bytes > 0:
+        progress_percent = round(min(100.0, (float(downloaded_bytes) * 100.0) / float(artifact_total_bytes)), 2)
+    if progress_percent is None:
+        progress_percent = 0.0
+
+    out["artifact_total_bytes"] = artifact_total_bytes
+    out["downloaded_bytes"] = downloaded_bytes
+    out["progress_percent"] = progress_percent
+    out["can_resume"] = _rollout_can_resume(
+        out,
+        downloaded_bytes=downloaded_bytes,
+        artifact_total_bytes=artifact_total_bytes,
+    )
+    return out
+
+
+def _rollout_resume_fields(existing: Optional[dict[str, Any]], *, image_ref: str) -> dict[str, Any]:
+    if not existing:
+        return {}
+    if str(existing.get("image_ref") or "").strip() != image_ref:
+        return {}
+
+    seeded: dict[str, Any] = {}
+    normalized = _normalize_rollout_progress(existing)
+    for key in _ROLLOUT_RESUME_FIELDS:
+        value = normalized.get(key)
+        if value is not None:
+            seeded[key] = value
+
+    previous_job_id = str(existing.get("job_id") or "").strip()
+    if previous_job_id:
+        seeded["resume_from_job_id"] = previous_job_id
+    return seeded
+
+
+def _rollout_work_dir(job_id: str) -> Path:
+    return ROLLOUT_STATE_FILE.parent / "rollout-work" / job_id
+
+
+def _read_rollout_state_with_runtime() -> Optional[dict[str, Any]]:
+    state = _read_json_file(ROLLOUT_STATE_FILE)
+    if state is None:
+        return None
+
+    status = str(state.get("status") or "").strip()
+    with _ROLLOUT_JOB_LOCK:
+        global _ROLLOUT_JOB_THREAD, _ROLLOUT_JOB_ID
+        thread = _ROLLOUT_JOB_THREAD
+        matches_runtime = bool(thread is not None and _ROLLOUT_JOB_ID and state.get("job_id") == _ROLLOUT_JOB_ID)
+        worker_active = bool(matches_runtime and (thread.is_alive() or _rollout_is_active_status(status)))
+        if matches_runtime and thread is not None and (not thread.is_alive()) and (not _rollout_is_active_status(status)):
+            _ROLLOUT_JOB_THREAD = None
+            _ROLLOUT_JOB_ID = None
+
+    out = _normalize_rollout_progress(state)
+    out["worker_active"] = worker_active
+    out["active"] = _rollout_is_active_status(status)
+    out["terminal"] = status in ROLLOUT_TERMINAL_STATUSES
+    return out
+
+
+def _init_rollout_state(
+    *,
+    job_id: str,
+    mode: str,
+    image_ref: str,
+    payments_url: str,
+    game_image: str,
+    disk_free_bytes: Optional[int],
+    stage_only: bool,
+    skip_download: bool,
+    recreate_stopped: bool,
+    no_verify: bool,
+    loaded_image_id: Optional[str] = None,
+    resume_state: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    state: dict[str, Any] = {
+        "job_id": job_id,
+        "status": "queued",
+        "detail": ROLLOUT_STATUS_DETAILS["queued"],
+        "mode": mode,
+        "image_ref": image_ref,
+        "payments_api_url": payments_url,
+        "game_image": game_image,
+        "disk_free_bytes": disk_free_bytes,
+        "stage_only": stage_only,
+        "skip_download": skip_download,
+        "recreate_stopped": recreate_stopped,
+        "no_verify": no_verify,
+        "requested_at": now,
+        "updated_at": now,
+        "history": [{"status": "queued", "at": now}],
+        "active": True,
+        "terminal": False,
+    }
+    if resume_state:
+        state.update(resume_state)
+    state["downloaded_bytes"] = _int_or_none(state.get("downloaded_bytes")) or 0
+    state["progress_percent"] = _float_or_none(state.get("progress_percent")) or 0.0
+    state["can_resume"] = _rollout_can_resume(
+        state,
+        downloaded_bytes=_int_or_none(state.get("downloaded_bytes")),
+        artifact_total_bytes=_int_or_none(state.get("artifact_total_bytes")),
+    )
+    if loaded_image_id:
+        state["loaded_image_id"] = loaded_image_id
+    return state
+
+
+def _update_rollout_state(
+    job_id: str,
+    *,
+    status: Optional[str] = None,
+    detail: Optional[str] = None,
+    **fields: Any,
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    with _ROLLOUT_JOB_LOCK:
+        state = _read_json_file(ROLLOUT_STATE_FILE) or {"job_id": job_id, "history": []}
+        state["job_id"] = job_id
+
+        if status is not None:
+            history = state.get("history")
+            if not isinstance(history, list):
+                history = []
+            current_status = str(state.get("status") or "").strip()
+            if current_status != status:
+                history.append({"status": status, "at": now})
+            state["history"] = history[-32:]
+            state["status"] = status
+            state["active"] = _rollout_is_active_status(status)
+            state["terminal"] = status in ROLLOUT_TERMINAL_STATUSES
+            if status == "failed":
+                state["failed_at"] = now
+                state["completed_at"] = now
+            elif status in ROLLOUT_TERMINAL_STATUSES:
+                state["completed_at"] = now
+                state.pop("failed_at", None)
+
+        if detail is not None:
+            state["detail"] = detail
+
+        state.update(fields)
+        state["updated_at"] = now
+        _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
+        return state
+
+
+def _fail_rollout_state(job_id: str, detail: str, **fields: Any) -> dict[str, Any]:
+    return _update_rollout_state(job_id, status="failed", detail=detail, **fields)
+
+
+def _rollout_status_from_output_line(line: str) -> Optional[str]:
+    clean = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line or "")
+    clean = clean.replace("\r", "\n").strip()
+    if not clean:
+        return None
+    if "LOADING" in clean:
+        return "loading"
+    if "Validating artifact header" in clean:
+        return "decrypting"
+    if (
+        "Downloading artifact" in clean
+        or "Requesting a decryption lease from Payments" in clean
+        or "Retrying decryption lease request" in clean
+    ):
+        return "downloading"
+    return None
+
+
+def _emit_rollout_statuses_from_output(
+    out: dict[str, Any],
+    *,
+    on_status: Optional[Callable[[str], None]] = None,
+) -> None:
+    if on_status is None:
+        return
+    for text in (str(out.get("stdout") or ""), str(out.get("stderr") or "")):
+        for line in text.replace("\r", "\n").splitlines():
+            status = _rollout_status_from_output_line(line)
+            if status:
+                on_status(status)
+
+
+def _consume_exec_stream_text(
+    chunk: str,
+    *,
+    remainder: str,
+    on_status: Optional[Callable[[str], None]] = None,
+) -> tuple[str, str]:
+    text = (remainder + chunk).replace("\r", "\n")
+    lines = text.splitlines(keepends=True)
+    next_remainder = ""
+    if lines and not lines[-1].endswith("\n"):
+        next_remainder = lines.pop()
+    if on_status is not None:
+        for line in lines:
+            status = _rollout_status_from_output_line(line)
+            if status:
+                on_status(status)
+    return "".join(lines), next_remainder
+
+
+def _cluster_executor_exec_stream(
+    executor: Any,
+    cmd: list[str],
+    *,
+    env: Optional[dict[str, str]] = None,
+    on_status: Optional[Callable[[str], None]] = None,
+) -> dict[str, Any]:
+    api = getattr(getattr(executor, "client", None), "api", None) or getattr(docker_client, "api", None)
+    executor_id = getattr(executor, "id", None)
+    if api is None or not executor_id:
+        out = _cluster_executor_exec(executor, cmd, env=env)
+        _emit_rollout_statuses_from_output(out, on_status=on_status)
+        return out
+
+    try:
+        created = api.exec_create(
+            executor_id,
+            cmd,
+            stdout=True,
+            stderr=True,
+            stdin=False,
+            tty=False,
+            environment=env or None,
+        )
+        exec_id = created["Id"] if isinstance(created, dict) else created
+        stream = api.exec_start(exec_id, stream=True, demux=True)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"exec failed: {exc}") from exc
+
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+    stdout_remainder = ""
+    stderr_remainder = ""
+
+    try:
+        for item in stream:
+            stdout_b: bytes | None
+            stderr_b: bytes | None
+            if isinstance(item, tuple):
+                stdout_b, stderr_b = item
+            else:
+                stdout_b, stderr_b = item, None
+
+            if stdout_b:
+                kept, stdout_remainder = _consume_exec_stream_text(
+                    stdout_b.decode("utf-8", errors="replace"),
+                    remainder=stdout_remainder,
+                    on_status=on_status,
+                )
+                if kept:
+                    stdout_parts.append(kept)
+            if stderr_b:
+                kept, stderr_remainder = _consume_exec_stream_text(
+                    stderr_b.decode("utf-8", errors="replace"),
+                    remainder=stderr_remainder,
+                    on_status=on_status,
+                )
+                if kept:
+                    stderr_parts.append(kept)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"exec stream failed: {exc}") from exc
+
+    if stdout_remainder:
+        if on_status is not None:
+            status = _rollout_status_from_output_line(stdout_remainder)
+            if status:
+                on_status(status)
+        stdout_parts.append(stdout_remainder)
+    if stderr_remainder:
+        if on_status is not None:
+            status = _rollout_status_from_output_line(stderr_remainder)
+            if status:
+                on_status(status)
+        stderr_parts.append(stderr_remainder)
+
+    try:
+        inspected = api.exec_inspect(exec_id)
+        exit_code = int(inspected.get("ExitCode", 1))
+    except Exception:  # pragma: no cover - defensive
+        exit_code = 1
+
+    return {
+        "exit_code": exit_code,
+        "stdout": "".join(stdout_parts),
+        "stderr": "".join(stderr_parts),
+        "cmd": cmd,
+    }
+
+
+def _make_rollout_thread(**kwargs: Any) -> threading.Thread:
+    job_id = str(kwargs.get("job_id") or "rollout")
+    return threading.Thread(
+        target=_run_rollout_job,
+        kwargs=kwargs,
+        name=f"rollout-{job_id[:8]}",
+        daemon=True,
+    )
 
 
 def _meta_gpu_stats_cache_get() -> Optional[dict[str, Any]]:
@@ -1761,7 +2185,7 @@ def read_meta(request: Request) -> dict[str, Any]:
         "auth": _power_allowlist_diagnostics(),
         "git": git_info,
         "containers": containers,
-        "rollout": _read_json_file(ROLLOUT_STATE_FILE),
+        "rollout": _read_rollout_state_with_runtime(),
         "verify_last": _read_json_file(VERIFY_LAST_FILE),
     }
 
@@ -2244,7 +2668,176 @@ def ops_upgrade(
     }
 
 
-@app.post("/ops/rollout")
+def _run_rollout_job(
+    *,
+    job_id: str,
+    project_dir: str,
+    payments_url: str,
+    image_ref: str,
+    game_image: str,
+    skip_download: bool,
+    recreate_stopped: bool,
+    orch_token: Optional[str],
+    rollout_state_file: str,
+    rollout_work_dir: str,
+) -> None:
+    started_at = datetime.now(timezone.utc).isoformat()
+    try:
+        loaded_image_id = _docker_image_id(game_image)
+
+        if skip_download:
+            _update_rollout_state(
+                job_id,
+                status="applying",
+                detail=ROLLOUT_STATUS_DETAILS["applying"],
+                started_at=started_at,
+                apply_requested_at=started_at,
+                loaded_image_id=loaded_image_id,
+            )
+            recreate = _recreate_stopped_game_projects(project_dir=project_dir)
+            failed_projects = sorted(
+                {
+                    str(item.get("project") or "<unknown>")
+                    for item in recreate
+                    if (not item.get("ok", False)) and (not item.get("skipped", False))
+                }
+            )
+            if failed_projects:
+                _fail_rollout_state(
+                    job_id,
+                    f"failed to apply staged rollout: {', '.join(failed_projects)}",
+                    recreate=recreate,
+                    loaded_image_id=_docker_image_id(game_image),
+                )
+                return
+
+            _update_rollout_state(
+                job_id,
+                status="applied",
+                detail=ROLLOUT_STATUS_DETAILS["applied"],
+                recreate=recreate,
+                applied_at=datetime.now(timezone.utc).isoformat(),
+                loaded_image_id=_docker_image_id(game_image),
+            )
+            return
+
+        _update_rollout_state(
+            job_id,
+            status="downloading",
+            detail=ROLLOUT_STATUS_DETAILS["downloading"],
+            started_at=started_at,
+        )
+
+        token_path = "/root/.embody/orch-license-token.txt"
+        cmd_env = None
+        Path(rollout_work_dir).mkdir(parents=True, exist_ok=True)
+        cmd = [
+            "bash",
+            f"{project_dir}/tools/encrypted-game-image/consume.sh",
+            "--payments-api-url",
+            payments_url,
+            "--image-ref",
+            image_ref,
+            "--rollout-state-file",
+            rollout_state_file,
+            "--rollout-work-dir",
+            rollout_work_dir,
+            "--rollout-job-id",
+            job_id,
+        ]
+        if orch_token:
+            cmd.extend(["--orch-token-env", "ORCH_TOKEN"])
+            cmd_env = {"ORCH_TOKEN": orch_token}
+        else:
+            cmd.extend(["--orch-token-file", token_path])
+
+        download = _cluster_executor_exec_stream(
+            _cluster_executor_container(),
+            cmd,
+            env=cmd_env,
+            on_status=lambda status: _update_rollout_state(
+                job_id,
+                status=status,
+                detail=ROLLOUT_STATUS_DETAILS.get(status),
+            ),
+        )
+        download["stdout"] = _tail(download.get("stdout", ""))
+        download["stderr"] = _tail(download.get("stderr", ""))
+        download["ok"] = download.get("exit_code") == 0
+
+        if not download["ok"]:
+            _fail_rollout_state(
+                job_id,
+                "download/load failed",
+                download=download,
+                download_exit_code=download.get("exit_code"),
+                download_stdout_tail=download.get("stdout"),
+                download_stderr_tail=download.get("stderr"),
+            )
+            return
+
+        loaded_image_id = _docker_image_id(game_image)
+        _update_rollout_state(
+            job_id,
+            status="staged",
+            detail=ROLLOUT_STATUS_DETAILS["staged"],
+            staged_at=datetime.now(timezone.utc).isoformat(),
+            loaded_image_id=loaded_image_id,
+            download=download,
+            download_exit_code=download.get("exit_code"),
+            download_stdout_tail=download.get("stdout"),
+            download_stderr_tail=download.get("stderr"),
+        )
+
+        if not recreate_stopped:
+            return
+
+        _update_rollout_state(
+            job_id,
+            status="applying",
+            detail=ROLLOUT_STATUS_DETAILS["applying"],
+            apply_requested_at=datetime.now(timezone.utc).isoformat(),
+            loaded_image_id=loaded_image_id,
+        )
+        recreate = _recreate_stopped_game_projects(project_dir=project_dir)
+        failed_projects = sorted(
+            {
+                str(item.get("project") or "<unknown>")
+                for item in recreate
+                if (not item.get("ok", False)) and (not item.get("skipped", False))
+            }
+        )
+        if failed_projects:
+            _fail_rollout_state(
+                job_id,
+                f"failed to apply staged rollout: {', '.join(failed_projects)}",
+                recreate=recreate,
+                loaded_image_id=_docker_image_id(game_image),
+            )
+            return
+
+        _update_rollout_state(
+            job_id,
+            status="applied",
+            detail=ROLLOUT_STATUS_DETAILS["applied"],
+            recreate=recreate,
+            applied_at=datetime.now(timezone.utc).isoformat(),
+            loaded_image_id=_docker_image_id(game_image),
+        )
+    except HTTPException as exc:
+        _fail_rollout_state(job_id, str(exc.detail), error_status_code=exc.status_code)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Rollout job %s failed", job_id)
+        _fail_rollout_state(job_id, f"unexpected rollout failure: {exc}", error_type=exc.__class__.__name__)
+    finally:
+        with _ROLLOUT_JOB_LOCK:
+            global _ROLLOUT_JOB_THREAD, _ROLLOUT_JOB_ID
+            if _ROLLOUT_JOB_ID == job_id:
+                _ROLLOUT_JOB_THREAD = None
+                _ROLLOUT_JOB_ID = None
+
+
+@app.post("/ops/rollout", status_code=202)
 def ops_rollout(
     payload: OpsRolloutRequest,
     request: Request,
@@ -2252,8 +2845,8 @@ def ops_rollout(
 ) -> dict[str, Any]:
     """EXPERIMENTAL: load a new encrypted game image via a Payments lease.
 
-    By default this only loads the image (cluster-safe; no restarts). Optionally, it can force-recreate stopped
-    game containers so the next wake/start uses the updated image.
+    By default this queues an async rollout job and persists progress so callers can observe status via /meta.
+    Optionally, it can force-recreate stopped game containers so the next wake/start uses the updated image.
     """
     project_dir = _cluster_project_dir()
     if not project_dir:
@@ -2294,6 +2887,7 @@ def ops_rollout(
 
     executor = _cluster_executor_container()
     game_image = _detect_game_image_ref()
+    mode = "stage" if payload.stage_only else ("apply" if payload.recreate_stopped else "load")
 
     free_bytes = None
     if (not payload.skip_download) and payload.min_free_gb > 0:
@@ -2309,77 +2903,90 @@ def ops_rollout(
                     ),
                 )
 
-    out: dict[str, Any] = {
-        "ok": True,
-        "mode": "stage" if payload.stage_only else ("apply" if payload.recreate_stopped else "load"),
-        "disk_free_bytes": free_bytes,
-        "game_image": game_image,
-    }
-
-    state: dict[str, Any] = {
-        "status": "unknown",
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "image_ref": image_ref,
-        "payments_api_url": payments_url,
-        "game_image": game_image,
-    }
-
+    loaded_image_id = None
+    resume_state = _rollout_resume_fields(_read_json_file(ROLLOUT_STATE_FILE), image_ref=image_ref)
     if payload.skip_download:
         existing = _read_json_file(ROLLOUT_STATE_FILE)
         if not existing or existing.get("status") not in ("staged", "applied"):
             raise HTTPException(status_code=409, detail="no staged rollout found (run /ops/rollout with stage_only first)")
         if (existing.get("image_ref") or "").strip() and (existing.get("image_ref") or "").strip() != image_ref:
             raise HTTPException(status_code=409, detail="staged rollout image_ref does not match request image_ref")
-        state = existing
-        state["updated_at"] = datetime.now(timezone.utc).isoformat()
-        state["loaded_image_id"] = _docker_image_id(game_image)
-        _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
-    else:
-        token_path = "/root/.embody/orch-license-token.txt"
-        cmd_env = None
-        cmd = [
-            "bash",
-            f"{project_dir}/tools/encrypted-game-image/consume.sh",
-            "--payments-api-url",
-            payments_url,
-            "--image-ref",
-            image_ref,
-        ]
-        if payload.orch_token:
-            cmd.extend(["--orch-token-env", "ORCH_TOKEN"])
-            cmd_env = {"ORCH_TOKEN": payload.orch_token}
-        else:
-            cmd.extend(["--orch-token-file", token_path])
-        download = _cluster_executor_exec(executor, cmd, env=cmd_env)
-        download["stdout"] = _tail(download.get("stdout", ""))
-        download["stderr"] = _tail(download.get("stderr", ""))
-        download["ok"] = download.get("exit_code") == 0
-        out["download"] = download
-        if not download["ok"]:
-            out["ok"] = False
-            state["status"] = "error"
-            state["detail"] = "download/load failed"
-            state["download_exit_code"] = download.get("exit_code")
-            state["download_stdout_tail"] = download.get("stdout")
-            state["download_stderr_tail"] = download.get("stderr")
-            _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
-            return out
+        loaded_image_id = str(existing.get("loaded_image_id") or "").strip() or _docker_image_id(game_image)
 
-        state["status"] = "staged"
-        state["loaded_image_id"] = _docker_image_id(game_image)
-        _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
+    job_id = uuid.uuid4().hex
+    state = _init_rollout_state(
+        job_id=job_id,
+        mode=mode,
+        image_ref=image_ref,
+        payments_url=payments_url,
+        game_image=game_image,
+        disk_free_bytes=free_bytes,
+        stage_only=payload.stage_only,
+        skip_download=payload.skip_download,
+        recreate_stopped=payload.recreate_stopped,
+        no_verify=payload.no_verify,
+        loaded_image_id=loaded_image_id,
+        resume_state=resume_state,
+    )
 
-    if payload.recreate_stopped:
-        state = _read_json_file(ROLLOUT_STATE_FILE) or state
-        state["apply_requested_at"] = datetime.now(timezone.utc).isoformat()
-        recreate = _recreate_stopped_game_projects(project_dir=project_dir)
-        out["recreate"] = recreate
-        state["status"] = "applied"
-        state["applied_at"] = datetime.now(timezone.utc).isoformat()
-        state["loaded_image_id"] = _docker_image_id(game_image)
-        _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
+    rollout_work_dir = _rollout_work_dir(job_id)
+    worker_kwargs = {
+        "job_id": job_id,
+        "project_dir": project_dir,
+        "payments_url": payments_url,
+        "image_ref": image_ref,
+        "game_image": game_image,
+        "skip_download": payload.skip_download,
+        "recreate_stopped": payload.recreate_stopped,
+        "orch_token": payload.orch_token,
+        "rollout_state_file": str(ROLLOUT_STATE_FILE),
+        "rollout_work_dir": str(rollout_work_dir),
+    }
 
-    return out
+    with _ROLLOUT_JOB_LOCK:
+        global _ROLLOUT_JOB_THREAD, _ROLLOUT_JOB_ID
+        if _ROLLOUT_JOB_THREAD is not None:
+            current = _read_json_file(ROLLOUT_STATE_FILE)
+            current_status = str((current or {}).get("status") or "").strip() or "queued"
+            active_for_current = bool(
+                _ROLLOUT_JOB_THREAD.is_alive()
+                or (
+                    current
+                    and _ROLLOUT_JOB_ID
+                    and current.get("job_id") == _ROLLOUT_JOB_ID
+                    and _rollout_is_active_status(current_status)
+                )
+            )
+            if active_for_current:
+                raise HTTPException(status_code=409, detail=f"rollout already in progress ({current_status})")
+            _ROLLOUT_JOB_THREAD = None
+            _ROLLOUT_JOB_ID = None
+
+        _write_json_file_atomic(ROLLOUT_STATE_FILE, state)
+        thread = _make_rollout_thread(**worker_kwargs)
+        _ROLLOUT_JOB_THREAD = thread
+        _ROLLOUT_JOB_ID = job_id
+
+    try:
+        thread.start()
+    except Exception as exc:  # pragma: no cover - defensive
+        with _ROLLOUT_JOB_LOCK:
+            if _ROLLOUT_JOB_ID == job_id:
+                _ROLLOUT_JOB_THREAD = None
+                _ROLLOUT_JOB_ID = None
+        _fail_rollout_state(job_id, f"failed to start rollout worker: {exc}")
+        raise HTTPException(status_code=500, detail="failed to start rollout worker") from exc
+
+    return {
+        "ok": True,
+        "accepted": True,
+        "job_id": job_id,
+        "status": "queued",
+        "mode": mode,
+        "disk_free_bytes": free_bytes,
+        "game_image": game_image,
+        "rollout": _read_rollout_state_with_runtime(),
+    }
 
 
 @app.post("/ops/pull-image")

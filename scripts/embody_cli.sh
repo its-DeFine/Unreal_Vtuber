@@ -1117,7 +1117,7 @@ PY
       out="$(curl -sS --max-time 60 -X POST -H "Content-Type: application/json" -d "$payload" -w $'\n%{http_code}' http://127.0.0.1:9090/ops/rollout 2>/dev/null || true)"
       http_code="${out##*$'\n'}"
       body="${out%$'\n'*}"
-      if [[ "$http_code" != "200" ]]; then
+      if [[ "$http_code" != "200" && "$http_code" != "202" ]]; then
         echo "rollout: apply-staged failed (HTTP ${http_code})" >&2
         if [[ -n "$body" ]]; then
           echo "$body" >&2
