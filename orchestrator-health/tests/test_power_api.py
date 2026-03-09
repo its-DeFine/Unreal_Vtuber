@@ -1368,6 +1368,7 @@ def test_ops_rollout_passes_stream_no_cache_to_consume(ops_app, monkeypatch):
     svc._run_rollout_job(**captured["kwargs"])
 
     assert "--stream-no-cache" in observed["cmd"]
+    assert observed["cmd"].count("--stream-no-cache") == 1
     assert observed["environment"] is None
 
 
@@ -1458,6 +1459,13 @@ def test_ops_rollout_validates_cleanup_stopped_game_flag(ops_app, monkeypatch):
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "cleanup_stopped_game cannot be combined with skip_download"
+
+
+def test_ops_rollout_rejects_stream_no_cache_with_skip_download(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
 
     resp = client.post(
         "/ops/rollout",
