@@ -325,6 +325,13 @@ class OpsRolloutRequest(BaseModel):
         default=False,
         description="If true, force-recreate stopped game containers after the image is loaded (keeps them stopped).",
     )
+    cleanup_stopped_game: bool = Field(
+        default=False,
+        description=(
+            "If true, and recreate_stopped=true, remove stopped unreal-game containers and the current game image "
+            "before loading the next encrypted image."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_rollout_args(self) -> "OpsRolloutRequest":
@@ -1019,6 +1026,7 @@ def _init_rollout_state(
     stage_only: bool,
     skip_download: bool,
     recreate_stopped: bool,
+    cleanup_stopped_game: bool,
     no_verify: bool,
     loaded_image_id: Optional[str] = None,
     resume_state: Optional[dict[str, Any]] = None,
@@ -1036,6 +1044,7 @@ def _init_rollout_state(
         "stage_only": stage_only,
         "skip_download": skip_download,
         "recreate_stopped": recreate_stopped,
+        "cleanup_stopped_game": cleanup_stopped_game,
         "no_verify": no_verify,
         "requested_at": now,
         "updated_at": now,
@@ -1961,6 +1970,38 @@ def _project_running_containers(project: str) -> list[str]:
     return running
 
 
+def _container_compose_project(container: Any) -> str:
+    labels = ((container.attrs or {}).get("Config") or {}).get("Labels") or {}
+    return str(labels.get("com.docker.compose.project") or "").strip()
+
+
+def _stopped_unreal_game_containers() -> list[Any]:
+    try:
+        containers = docker_client.containers.list(all=True, filters={"label": ["com.docker.compose.service=unreal-game"]})
+    except Exception:  # pragma: no cover - defensive
+        return []
+
+    stopped: list[Any] = []
+    for container in containers:
+        try:
+            container.reload()
+        except Exception:  # pragma: no cover - defensive
+            continue
+        if getattr(container, "status", "") == "running":
+            continue
+        stopped.append(container)
+    return stopped
+
+
+def _stopped_unreal_game_projects(*, containers: Optional[list[Any]] = None) -> list[str]:
+    projects: set[str] = set()
+    for container in containers if containers is not None else _stopped_unreal_game_containers():
+        project = _container_compose_project(container)
+        if project:
+            projects.add(project)
+    return sorted(projects)
+
+
 def _derive_cluster_recreate_env(*, project: str, project_dir: str) -> dict[str, str]:
     slug = project.removeprefix("vtuber-").strip()
     if not slug:
@@ -2036,29 +2077,20 @@ def _derive_cluster_recreate_env(*, project: str, project_dir: str) -> dict[str,
     return out
 
 
-def _recreate_stopped_game_projects(*, project_dir: str) -> list[dict[str, Any]]:
+def _recreate_stopped_game_projects(
+    *,
+    project_dir: str,
+    project_names: Optional[list[str]] = None,
+    project_envs: Optional[dict[str, dict[str, str]]] = None,
+) -> list[dict[str, Any]]:
     _detect_compose_identity()
     host_project = (POWER_PROJECT_NAME or os.environ.get("COMPOSE_PROJECT_NAME") or "").strip()
-
-    projects: set[str] = set()
-    try:
-        for container in docker_client.containers.list(all=True, filters={"label": ["com.docker.compose.service=unreal-game"]}):
-            try:
-                container.reload()
-            except Exception:  # pragma: no cover - defensive
-                continue
-            if getattr(container, "status", "") == "running":
-                continue
-            labels = ((container.attrs or {}).get("Config") or {}).get("Labels") or {}
-            project = (labels.get("com.docker.compose.project") or "").strip()
-            if project:
-                projects.add(project)
-    except Exception:  # pragma: no cover - defensive
-        projects = set()
+    projects = sorted(set(project_names or _stopped_unreal_game_projects()))
+    project_envs = project_envs or {}
 
     results: list[dict[str, Any]] = []
 
-    for project in sorted(projects):
+    for project in projects:
         if host_project and project == host_project:
             out = _host_compose_exec(
                 project=project,
@@ -2077,7 +2109,7 @@ def _recreate_stopped_game_projects(*, project_dir: str) -> list[dict[str, Any]]
             continue
 
         try:
-            env = _derive_cluster_recreate_env(project=project, project_dir=project_dir)
+            env = project_envs.get(project) or _derive_cluster_recreate_env(project=project, project_dir=project_dir)
         except HTTPException as exc:
             results.append({"project": project, "ok": False, "skipped": True, "detail": str(exc.detail)})
             continue
@@ -2101,6 +2133,61 @@ def _recreate_stopped_game_projects(*, project_dir: str) -> list[dict[str, Any]]
         results.append(out)
 
     return results
+
+
+def _cleanup_stopped_game_rollout_targets(*, project_dir: str, game_image: str) -> dict[str, Any]:
+    _detect_compose_identity()
+    host_project = (POWER_PROJECT_NAME or os.environ.get("COMPOSE_PROJECT_NAME") or "").strip()
+    stopped_containers = _stopped_unreal_game_containers()
+    project_names = _stopped_unreal_game_projects(containers=stopped_containers)
+
+    removable_projects: set[str] = set()
+    project_envs: dict[str, dict[str, str]] = {}
+    skipped_projects: list[dict[str, str]] = []
+
+    for project in project_names:
+        if host_project and project == host_project:
+            removable_projects.add(project)
+            continue
+        try:
+            project_envs[project] = _derive_cluster_recreate_env(project=project, project_dir=project_dir)
+            removable_projects.add(project)
+        except HTTPException as exc:
+            skipped_projects.append({"project": project, "detail": str(exc.detail)})
+
+    removed_containers: list[dict[str, Any]] = []
+    for container in stopped_containers:
+        project = _container_compose_project(container)
+        if not project or project not in removable_projects:
+            continue
+        name = str(getattr(container, "name", "") or "")
+        try:
+            container.remove(v=True)
+            removed_containers.append({"project": project, "container": name, "removed": True})
+        except Exception as exc:  # pragma: no cover - best-effort cleanup
+            removed_containers.append({"project": project, "container": name, "removed": False, "detail": str(exc)})
+
+    current_image_id = _docker_image_id(game_image)
+    image_cleanup: dict[str, Any] = {
+        "requested_ref": game_image,
+        "requested_id": current_image_id,
+        "target": current_image_id or game_image,
+        "removed": False,
+    }
+    if image_cleanup["target"]:
+        try:
+            docker_client.images.remove(image_cleanup["target"], force=True, noprune=False)
+            image_cleanup["removed"] = True
+        except Exception as exc:  # pragma: no cover - best-effort cleanup
+            image_cleanup["detail"] = str(exc)
+
+    return {
+        "project_names": project_names,
+        "project_envs": project_envs,
+        "removed_containers": removed_containers,
+        "skipped_projects": skipped_projects,
+        "image": image_cleanup,
+    }
 
 
 def _find_container(
@@ -2999,6 +3086,7 @@ def _run_rollout_job(
     game_image: str,
     skip_download: bool,
     recreate_stopped: bool,
+    cleanup_stopped_game: bool,
     orch_token: Optional[str],
     rollout_state_file: str,
     rollout_work_dir: str,
@@ -3006,6 +3094,8 @@ def _run_rollout_job(
     started_at = datetime.now(timezone.utc).isoformat()
     try:
         loaded_image_id = _docker_image_id(game_image)
+        recreate_project_names: Optional[list[str]] = None
+        recreate_project_envs: Optional[dict[str, dict[str, str]]] = None
 
         if skip_download:
             _update_rollout_state(
@@ -3049,6 +3139,28 @@ def _run_rollout_job(
             detail=ROLLOUT_STATUS_DETAILS["downloading"],
             started_at=started_at,
         )
+
+        if cleanup_stopped_game:
+            cleanup = _cleanup_stopped_game_rollout_targets(project_dir=project_dir, game_image=game_image)
+            recreate_project_names = list(cleanup.get("project_names") or [])
+            raw_project_envs = cleanup.get("project_envs") or {}
+            if isinstance(raw_project_envs, dict):
+                recreate_project_envs = {
+                    str(project): env
+                    for project, env in raw_project_envs.items()
+                    if isinstance(project, str) and isinstance(env, dict)
+                }
+            _update_rollout_state(
+                job_id,
+                cleanup={
+                    "project_names": recreate_project_names,
+                    "removed_containers": cleanup.get("removed_containers") or [],
+                    "skipped_projects": cleanup.get("skipped_projects") or [],
+                    "image": cleanup.get("image") or {},
+                },
+                cleanup_requested_at=datetime.now(timezone.utc).isoformat(),
+                cleanup_completed_at=datetime.now(timezone.utc).isoformat(),
+            )
 
         token_path = "/root/.embody/orch-license-token.txt"
         cmd_env = None
@@ -3121,7 +3233,11 @@ def _run_rollout_job(
             apply_requested_at=datetime.now(timezone.utc).isoformat(),
             loaded_image_id=loaded_image_id,
         )
-        recreate = _recreate_stopped_game_projects(project_dir=project_dir)
+        recreate = _recreate_stopped_game_projects(
+            project_dir=project_dir,
+            project_names=recreate_project_names,
+            project_envs=recreate_project_envs,
+        )
         failed_projects = sorted(
             {
                 str(item.get("project") or "<unknown>")
@@ -3174,6 +3290,12 @@ def ops_rollout(
     if not project_dir:
         raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
 
+    if payload.cleanup_stopped_game and not payload.recreate_stopped:
+        raise HTTPException(status_code=400, detail="cleanup_stopped_game requires recreate_stopped=true")
+    if payload.cleanup_stopped_game and payload.stage_only:
+        raise HTTPException(status_code=400, detail="cleanup_stopped_game cannot be combined with stage_only")
+    if payload.cleanup_stopped_game and payload.skip_download:
+        raise HTTPException(status_code=400, detail="cleanup_stopped_game cannot be combined with skip_download")
     if payload.stage_only and payload.recreate_stopped:
         raise HTTPException(status_code=400, detail="stage_only cannot be combined with recreate_stopped")
     if payload.skip_download and payload.stage_only:
@@ -3246,6 +3368,7 @@ def ops_rollout(
         stage_only=payload.stage_only,
         skip_download=payload.skip_download,
         recreate_stopped=payload.recreate_stopped,
+        cleanup_stopped_game=payload.cleanup_stopped_game,
         no_verify=payload.no_verify,
         loaded_image_id=loaded_image_id,
         resume_state=resume_state,
@@ -3260,6 +3383,7 @@ def ops_rollout(
         "game_image": game_image,
         "skip_download": payload.skip_download,
         "recreate_stopped": payload.recreate_stopped,
+        "cleanup_stopped_game": payload.cleanup_stopped_game,
         "orch_token": payload.orch_token,
         "rollout_state_file": str(ROLLOUT_STATE_FILE),
         "rollout_work_dir": str(rollout_work_dir),

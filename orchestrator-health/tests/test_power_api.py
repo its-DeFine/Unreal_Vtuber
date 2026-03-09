@@ -1330,6 +1330,115 @@ def test_ops_rollout_persists_download_error_tails(ops_app, monkeypatch):
     ]
 
 
+def test_ops_rollout_validates_cleanup_stopped_game_flag(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+
+    resp = client.post("/ops/rollout", json={"cleanup_stopped_game": True})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "cleanup_stopped_game requires recreate_stopped=true"
+
+    resp = client.post(
+        "/ops/rollout",
+        json={
+            "payments_api_url": "http://payments:8081",
+            "recreate_stopped": True,
+            "cleanup_stopped_game": True,
+            "stage_only": True,
+        },
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "cleanup_stopped_game cannot be combined with stage_only"
+
+    resp = client.post(
+        "/ops/rollout",
+        json={
+            "payments_api_url": "http://payments:8081",
+            "recreate_stopped": True,
+            "cleanup_stopped_game": True,
+            "skip_download": True,
+        },
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "cleanup_stopped_game cannot be combined with skip_download"
+
+
+def test_ops_rollout_cleanup_preserves_recreate_project_names(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
+    monkeypatch.setattr(
+        svc,
+        "docker_client",
+        type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})(),
+    )
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: object())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+    monkeypatch.setattr(svc, "_detect_game_image_ref", lambda: "ghcr.io/example/game:enc-v1")
+    monkeypatch.setattr(svc, "_docker_image_id", lambda _image: "sha256:new-image")
+    captured = _capture_rollout_thread(monkeypatch, svc)
+
+    resp = client.post(
+        "/ops/rollout",
+        json={
+            "payments_api_url": "http://payments:8081",
+            "recreate_stopped": True,
+            "cleanup_stopped_game": True,
+        },
+    )
+    assert resp.status_code == 202
+    assert resp.json()["ok"] is True
+    assert captured["kwargs"]["cleanup_stopped_game"] is True
+
+    cleanup_result = {
+        "project_names": ["vtuber-chief", "vtuber-demo-1"],
+        "project_envs": {
+            "vtuber-demo-1": {
+                "VTUBER_AVATAR_SLUG": "demo-1",
+                "VTUBER_INSTANCE_PROJECT_NAME": "vtuber-demo-1",
+            }
+        },
+        "removed_containers": [{"project": "vtuber-demo-1", "container": "vtuber-demo-1-unreal-game", "removed": True}],
+        "skipped_projects": [],
+        "image": {"requested_ref": "ghcr.io/example/game:enc-v1", "requested_id": "sha256:old", "removed": True},
+    }
+    recreate_calls: dict[str, object] = {}
+
+    monkeypatch.setattr(svc, "_cleanup_stopped_game_rollout_targets", lambda **_kwargs: cleanup_result)
+
+    def fake_exec_stream(_executor, cmd, *, env=None, on_status=None):
+        assert cmd[0] == "bash"
+        assert env is None
+        assert on_status is not None
+        on_status("downloading")
+        on_status("loading")
+        return {"exit_code": 0, "stdout": "loaded\n", "stderr": "", "cmd": cmd}
+
+    def fake_recreate(*, project_dir, project_names=None, project_envs=None):
+        recreate_calls["project_dir"] = project_dir
+        recreate_calls["project_names"] = project_names
+        recreate_calls["project_envs"] = project_envs
+        return [{"project": project, "ok": True, "skipped": False} for project in (project_names or [])]
+
+    monkeypatch.setattr(svc, "_cluster_executor_exec_stream", fake_exec_stream)
+    monkeypatch.setattr(svc, "_recreate_stopped_game_projects", fake_recreate)
+
+    svc._run_rollout_job(**captured["kwargs"])
+
+    assert recreate_calls["project_dir"] == "/tmp/repo"
+    assert recreate_calls["project_names"] == cleanup_result["project_names"]
+    assert recreate_calls["project_envs"] == cleanup_result["project_envs"]
+
+    state = json.loads(svc.ROLLOUT_STATE_FILE.read_text())
+    assert state["status"] == "applied"
+    assert state["cleanup"]["project_names"] == cleanup_result["project_names"]
+    assert state["cleanup"]["image"]["removed"] is True
+
+
 def test_ops_rollout_rejects_orch_token_control_chars(ops_app):
     app, _svc = ops_app
     client = TestClient(app)
