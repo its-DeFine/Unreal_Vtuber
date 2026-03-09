@@ -1340,6 +1340,10 @@ def test_ops_rollout_validates_cleanup_stopped_game_flag(ops_app, monkeypatch):
     assert resp.status_code == 400
     assert resp.json()["detail"] == "cleanup_stopped_game requires recreate_stopped=true"
 
+    resp = client.post("/ops/rollout", json={"prune_unused_docker": True})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "prune_unused_docker requires cleanup_stopped_game=true"
+
     resp = client.post(
         "/ops/rollout",
         json={
@@ -1405,6 +1409,11 @@ def test_ops_rollout_cleanup_preserves_recreate_project_names(ops_app, monkeypat
         "removed_containers": [{"project": "vtuber-demo-1", "container": "vtuber-demo-1-unreal-game", "removed": True}],
         "skipped_projects": [],
         "image": {"requested_ref": "ghcr.io/example/game:enc-v1", "requested_id": "sha256:old", "removed": True},
+        "prune": {
+            "before": {"ok": True, "images_count": 12},
+            "images": {"ImagesDeleted": ["sha256:deadbeef"], "SpaceReclaimed": 1024},
+            "after": {"ok": True, "images_count": 6},
+        },
     }
     recreate_calls: dict[str, object] = {}
 
@@ -1437,6 +1446,7 @@ def test_ops_rollout_cleanup_preserves_recreate_project_names(ops_app, monkeypat
     assert state["status"] == "applied"
     assert state["cleanup"]["project_names"] == cleanup_result["project_names"]
     assert state["cleanup"]["image"]["removed"] is True
+    assert state["cleanup"]["prune"]["after"]["images_count"] == 6
 
 
 def test_ops_rollout_rejects_orch_token_control_chars(ops_app):

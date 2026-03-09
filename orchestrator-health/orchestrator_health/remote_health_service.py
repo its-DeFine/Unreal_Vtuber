@@ -332,6 +332,13 @@ class OpsRolloutRequest(BaseModel):
             "before loading the next encrypted image."
         ),
     )
+    prune_unused_docker: bool = Field(
+        default=False,
+        description=(
+            "If true, and cleanup_stopped_game=true, prune stopped containers and unused images before loading "
+            "the next encrypted image."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_rollout_args(self) -> "OpsRolloutRequest":
@@ -1027,6 +1034,7 @@ def _init_rollout_state(
     skip_download: bool,
     recreate_stopped: bool,
     cleanup_stopped_game: bool,
+    prune_unused_docker: bool,
     no_verify: bool,
     loaded_image_id: Optional[str] = None,
     resume_state: Optional[dict[str, Any]] = None,
@@ -1045,6 +1053,7 @@ def _init_rollout_state(
         "skip_download": skip_download,
         "recreate_stopped": recreate_stopped,
         "cleanup_stopped_game": cleanup_stopped_game,
+        "prune_unused_docker": prune_unused_docker,
         "no_verify": no_verify,
         "requested_at": now,
         "updated_at": now,
@@ -2190,6 +2199,43 @@ def _cleanup_stopped_game_rollout_targets(*, project_dir: str, game_image: str) 
     }
 
 
+def _docker_storage_report() -> dict[str, Any]:
+    try:
+        raw = docker_client.api.df()
+    except Exception as exc:  # pragma: no cover - best-effort diagnostics
+        return {"ok": False, "detail": str(exc)}
+
+    images = raw.get("Images") or []
+    containers = raw.get("Containers") or []
+    volumes = raw.get("Volumes") or []
+    build_cache = raw.get("BuildCache") or []
+    return {
+        "ok": True,
+        "layers_size": raw.get("LayersSize"),
+        "images_count": len(images),
+        "containers_count": len(containers),
+        "volumes_count": len(volumes),
+        "build_cache_count": len(build_cache),
+        "images_bytes": sum(int(item.get("Size") or 0) for item in images if isinstance(item, dict)),
+        "containers_bytes": sum(int(item.get("SizeRootFs") or 0) for item in containers if isinstance(item, dict)),
+        "build_cache_bytes": sum(int(item.get("Size") or 0) for item in build_cache if isinstance(item, dict)),
+    }
+
+
+def _prune_unused_docker_state() -> dict[str, Any]:
+    result: dict[str, Any] = {"before": _docker_storage_report()}
+    try:
+        result["containers"] = docker_client.containers.prune()
+    except Exception as exc:  # pragma: no cover - best-effort diagnostics
+        result["containers"] = {"ok": False, "detail": str(exc)}
+    try:
+        result["images"] = docker_client.images.prune(filters={"dangling": False})
+    except Exception as exc:  # pragma: no cover - best-effort diagnostics
+        result["images"] = {"ok": False, "detail": str(exc)}
+    result["after"] = _docker_storage_report()
+    return result
+
+
 def _find_container(
     service_name: str,
     explicit_name: str | None = None,
@@ -3087,6 +3133,7 @@ def _run_rollout_job(
     skip_download: bool,
     recreate_stopped: bool,
     cleanup_stopped_game: bool,
+    prune_unused_docker: bool,
     orch_token: Optional[str],
     rollout_state_file: str,
     rollout_work_dir: str,
@@ -3142,6 +3189,8 @@ def _run_rollout_job(
 
         if cleanup_stopped_game:
             cleanup = _cleanup_stopped_game_rollout_targets(project_dir=project_dir, game_image=game_image)
+            if prune_unused_docker:
+                cleanup["prune"] = _prune_unused_docker_state()
             recreate_project_names = list(cleanup.get("project_names") or [])
             raw_project_envs = cleanup.get("project_envs") or {}
             if isinstance(raw_project_envs, dict):
@@ -3157,6 +3206,7 @@ def _run_rollout_job(
                     "removed_containers": cleanup.get("removed_containers") or [],
                     "skipped_projects": cleanup.get("skipped_projects") or [],
                     "image": cleanup.get("image") or {},
+                    "prune": cleanup.get("prune") or {},
                 },
                 cleanup_requested_at=datetime.now(timezone.utc).isoformat(),
                 cleanup_completed_at=datetime.now(timezone.utc).isoformat(),
@@ -3292,6 +3342,8 @@ def ops_rollout(
 
     if payload.cleanup_stopped_game and not payload.recreate_stopped:
         raise HTTPException(status_code=400, detail="cleanup_stopped_game requires recreate_stopped=true")
+    if payload.prune_unused_docker and not payload.cleanup_stopped_game:
+        raise HTTPException(status_code=400, detail="prune_unused_docker requires cleanup_stopped_game=true")
     if payload.cleanup_stopped_game and payload.stage_only:
         raise HTTPException(status_code=400, detail="cleanup_stopped_game cannot be combined with stage_only")
     if payload.cleanup_stopped_game and payload.skip_download:
@@ -3369,6 +3421,7 @@ def ops_rollout(
         skip_download=payload.skip_download,
         recreate_stopped=payload.recreate_stopped,
         cleanup_stopped_game=payload.cleanup_stopped_game,
+        prune_unused_docker=payload.prune_unused_docker,
         no_verify=payload.no_verify,
         loaded_image_id=loaded_image_id,
         resume_state=resume_state,
@@ -3384,6 +3437,7 @@ def ops_rollout(
         "skip_download": payload.skip_download,
         "recreate_stopped": payload.recreate_stopped,
         "cleanup_stopped_game": payload.cleanup_stopped_game,
+        "prune_unused_docker": payload.prune_unused_docker,
         "orch_token": payload.orch_token,
         "rollout_state_file": str(ROLLOUT_STATE_FILE),
         "rollout_work_dir": str(rollout_work_dir),
