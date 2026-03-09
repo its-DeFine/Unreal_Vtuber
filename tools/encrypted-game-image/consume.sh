@@ -1493,17 +1493,16 @@ if [[ "$stream_no_cache" == "1" ]]; then
     --retry-connrefused \
     -sS \
     "$artifact_url" 2>"$curl_err" \
-    | progress_pipe "download" \
     | age --decrypt -i "$identity_file" 2>"$age_err" \
     | zstd -d -c 2>"$zstd_err" \
     | docker_load_with_meter "LOADING"
-  pipeline_rc=$? curl_rc="${PIPESTATUS[0]:-}" meter_rc="${PIPESTATUS[1]:-}" age_rc="${PIPESTATUS[2]:-}" zstd_rc="${PIPESTATUS[3]:-}" docker_rc="${PIPESTATUS[4]:-}"
+  pipeline_rc=$? curl_rc="${PIPESTATUS[0]:-}" age_rc="${PIPESTATUS[1]:-}" zstd_rc="${PIPESTATUS[2]:-}" docker_rc="${PIPESTATUS[3]:-}"
   set -e
 
   if [[ "$pipeline_rc" -ne 0 ]]; then
     write_rollout_state "error" "loading" "streaming decrypt/decompress/load failed"
     echo "" >&2
-    echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} image load pipeline failed (curl=${curl_rc:-?} meter=${meter_rc:-?} age=${age_rc:-?} zstd=${zstd_rc:-?} docker=${docker_rc:-?})." >&2
+    echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} image load pipeline failed (curl=${curl_rc:-?} age=${age_rc:-?} zstd=${zstd_rc:-?} docker=${docker_rc:-?})." >&2
     print_err_tail "curl stderr:" "$curl_err"
     print_err_tail "age stderr:" "$age_err"
     print_err_tail "zstd stderr:" "$zstd_err"
