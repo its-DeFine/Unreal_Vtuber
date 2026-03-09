@@ -306,6 +306,13 @@ class OpsRolloutRequest(BaseModel):
         default=None,
         description="Optional ephemeral orchestrator token override injected into the executor environment.",
     )
+    stream_no_cache: bool = Field(
+        default=False,
+        description=(
+            "If true, request the encrypted artifact stream/no-cache consume path. "
+            "Disables cached-artifact resume seeding for this rollout."
+        ),
+    )
     no_verify: bool = Field(default=False, description="Skip post-rollout health verification.")
     stage_only: bool = Field(
         default=False,
@@ -977,18 +984,24 @@ def _normalize_rollout_progress(state: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _rollout_resume_fields(existing: Optional[dict[str, Any]], *, image_ref: str) -> dict[str, Any]:
+def _rollout_resume_fields(
+    existing: Optional[dict[str, Any]],
+    *,
+    image_ref: str,
+    stream_no_cache: bool = False,
+) -> dict[str, Any]:
     if not existing:
         return {}
     if str(existing.get("image_ref") or "").strip() != image_ref:
         return {}
 
     seeded: dict[str, Any] = {}
-    normalized = _normalize_rollout_progress(existing)
-    for key in _ROLLOUT_RESUME_FIELDS:
-        value = normalized.get(key)
-        if value is not None:
-            seeded[key] = value
+    if not stream_no_cache:
+        normalized = _normalize_rollout_progress(existing)
+        for key in _ROLLOUT_RESUME_FIELDS:
+            value = normalized.get(key)
+            if value is not None:
+                seeded[key] = value
 
     previous_job_id = str(existing.get("job_id") or "").strip()
     if previous_job_id:
@@ -1032,6 +1045,7 @@ def _init_rollout_state(
     disk_free_bytes: Optional[int],
     stage_only: bool,
     skip_download: bool,
+    stream_no_cache: bool,
     recreate_stopped: bool,
     cleanup_stopped_game: bool,
     prune_unused_docker: bool,
@@ -1051,6 +1065,7 @@ def _init_rollout_state(
         "disk_free_bytes": disk_free_bytes,
         "stage_only": stage_only,
         "skip_download": skip_download,
+        "stream_no_cache": stream_no_cache,
         "recreate_stopped": recreate_stopped,
         "cleanup_stopped_game": cleanup_stopped_game,
         "prune_unused_docker": prune_unused_docker,
@@ -3131,6 +3146,7 @@ def _run_rollout_job(
     image_ref: str,
     game_image: str,
     skip_download: bool,
+    stream_no_cache: bool,
     recreate_stopped: bool,
     cleanup_stopped_game: bool,
     prune_unused_docker: bool,
@@ -3234,6 +3250,8 @@ def _run_rollout_job(
             cmd_env = {"ORCH_TOKEN": orch_token}
         else:
             cmd.extend(["--orch-token-file", token_path])
+        if stream_no_cache:
+            cmd.append("--stream-no-cache")
 
         download = _cluster_executor_exec_stream(
             _cluster_executor_container(),
@@ -3354,6 +3372,8 @@ def ops_rollout(
         raise HTTPException(status_code=400, detail="skip_download and stage_only are mutually exclusive")
     if payload.skip_download and not payload.recreate_stopped:
         raise HTTPException(status_code=400, detail="skip_download requires recreate_stopped=true")
+    if payload.stream_no_cache and payload.skip_download:
+        raise HTTPException(status_code=400, detail="stream_no_cache cannot be combined with skip_download")
 
     payments_url = (payload.payments_api_url or os.environ.get("PAYMENTS_API_URL") or "").strip()
     if not payments_url:
@@ -3400,7 +3420,11 @@ def ops_rollout(
                 )
 
     loaded_image_id = None
-    resume_state = _rollout_resume_fields(_read_json_file(ROLLOUT_STATE_FILE), image_ref=image_ref)
+    resume_state = _rollout_resume_fields(
+        _read_json_file(ROLLOUT_STATE_FILE),
+        image_ref=image_ref,
+        stream_no_cache=payload.stream_no_cache,
+    )
     if payload.skip_download:
         existing = _read_json_file(ROLLOUT_STATE_FILE)
         if not existing or existing.get("status") not in ("staged", "applied"):
@@ -3419,6 +3443,7 @@ def ops_rollout(
         disk_free_bytes=free_bytes,
         stage_only=payload.stage_only,
         skip_download=payload.skip_download,
+        stream_no_cache=payload.stream_no_cache,
         recreate_stopped=payload.recreate_stopped,
         cleanup_stopped_game=payload.cleanup_stopped_game,
         prune_unused_docker=payload.prune_unused_docker,
@@ -3435,6 +3460,7 @@ def ops_rollout(
         "image_ref": image_ref,
         "game_image": game_image,
         "skip_download": payload.skip_download,
+        "stream_no_cache": payload.stream_no_cache,
         "recreate_stopped": payload.recreate_stopped,
         "cleanup_stopped_game": payload.cleanup_stopped_game,
         "prune_unused_docker": payload.prune_unused_docker,

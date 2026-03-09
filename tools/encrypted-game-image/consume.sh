@@ -34,6 +34,9 @@ artifact_download_percent=""
 artifact_resumed="0"
 artifact_resume_from_bytes="0"
 artifact_download_action=""
+artifact_cache_mode="cache_resume"
+artifact_can_resume=""
+stream_no_cache="0"
 
 usage() {
   cat <<'EOF'
@@ -59,6 +62,7 @@ Options:
   --rollout-state-fallback Optional fallback rollout state path if primary is not writable
   --rollout-work-dir     Explicit working directory for rollout logs/probe artifacts
   --rollout-job-id       Rollout job id to persist in rollout state
+  --stream-no-cache      Stream from the lease URL into age -> zstd -> docker load without caching the full .age artifact locally
   --no-heartbeat         Do not heartbeat the lease while loading
   --debug                Keep detailed stderr logs on disk (prints path on failure/success)
   --no-color             Disable ANSI colors
@@ -234,6 +238,8 @@ def resume_possible(data: dict, downloaded_bytes: int, total_bytes: int | None) 
 
 now = datetime.now(timezone.utc).isoformat()
 existing = read_existing(clean("ROLLOUT_STATE_FILE_PRIMARY"), clean("ROLLOUT_STATE_FILE_FALLBACK"))
+artifact_cache_mode = clean("ARTIFACT_CACHE_MODE") or (str(existing.get("artifact_cache_mode") or "").strip() or None)
+artifact_can_resume = value_bool_or_none(clean("ARTIFACT_CAN_RESUME"))
 
 status = clean("STATUS") or None
 phase = clean("PHASE") or None
@@ -288,6 +294,7 @@ updates = {
     "artifact_partial_path": clean("ARTIFACT_PARTIAL_PATH") or None,
     "artifact_cache_dir": clean("ARTIFACT_CACHE_DIR") or None,
     "artifact_download_action": clean("ARTIFACT_DOWNLOAD_ACTION") or None,
+    "artifact_cache_mode": artifact_cache_mode,
     "artifact_total_bytes": artifact_total_bytes,
     "artifact_downloaded_bytes": artifact_downloaded_bytes,
     "artifact_download_percent": artifact_download_percent,
@@ -303,7 +310,17 @@ for key, value in updates.items():
 data["history"] = history[-32:]
 data["downloaded_bytes"] = artifact_downloaded_bytes
 data["progress_percent"] = artifact_download_percent
-data["can_resume"] = resume_possible(data, artifact_downloaded_bytes, artifact_total_bytes)
+if artifact_cache_mode == "stream_no_cache":
+    for key in ("artifact_local_path", "artifact_partial_path", "artifact_cache_dir"):
+        data.pop(key, None)
+    data["artifact_resumed"] = False
+    data["artifact_resume_from_bytes"] = 0
+    data["can_resume"] = False
+else:
+    if artifact_can_resume is not None:
+        data["can_resume"] = artifact_can_resume
+    else:
+        data["can_resume"] = resume_possible(data, artifact_downloaded_bytes, artifact_total_bytes)
 if status:
     data["active"] = status in ACTIVE_STATUSES
     data["terminal"] = status in TERMINAL_STATUSES
@@ -343,6 +360,8 @@ write_rollout_state() {
     ARTIFACT_PARTIAL_PATH="$artifact_partial_path" \
     ARTIFACT_CACHE_DIR="$artifact_cache_dir" \
     ARTIFACT_DOWNLOAD_ACTION="$artifact_download_action" \
+    ARTIFACT_CACHE_MODE="$artifact_cache_mode" \
+    ARTIFACT_CAN_RESUME="$artifact_can_resume" \
     ARTIFACT_TOTAL_BYTES="$artifact_total_bytes" \
     ARTIFACT_DOWNLOADED_BYTES="$artifact_downloaded_bytes" \
     ARTIFACT_DOWNLOAD_PERCENT="$artifact_download_percent" \
@@ -923,6 +942,10 @@ while [[ $# -gt 0 ]]; do
       rollout_job_id="${2:-}"
       shift 2
       ;;
+    --stream-no-cache)
+      stream_no_cache="1"
+      shift 1
+      ;;
     --no-heartbeat)
       heartbeat="0"
       shift 1
@@ -948,6 +971,12 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$stream_no_cache" == "1" ]]; then
+  artifact_cache_mode="stream_no_cache"
+  artifact_can_resume="0"
+  artifact_download_action="stream_no_cache"
+fi
 
 if [[ -z "$payments_api_url" ]] && is_tty; then
   payments_api_url="$(prompt_input "Payments API URL" "${PAYMENTS_API_URL:-http://<payments-host>:8081}")"
@@ -1030,7 +1059,9 @@ if [[ -z "$rollout_work_dir" ]] && [[ -n "$rollout_job_id" ]]; then
   rollout_work_dir="$(dirname "$rollout_state_file_primary")/rollout-work/${rollout_job_id}"
 fi
 download_helper="${SCRIPT_DIR}/resume_download.py"
-[[ -f "$download_helper" ]] || die "missing helper: $download_helper"
+if [[ "$stream_no_cache" != "1" ]]; then
+  [[ -f "$download_helper" ]] || die "missing helper: $download_helper"
+fi
 
 # Auto-load a cached token if nothing was provided explicitly.
 default_token_file="$target_home/.embody/orch-license-token.txt"
@@ -1240,7 +1271,11 @@ if ! grep -q '^AGE-SECRET-KEY-1' "$identity_file" 2>/dev/null; then
   die "Payments returned an invalid decryption identity (secret_b64 decoded but no AGE-SECRET-KEY-1 line found)"
 fi
 
-note "Downloading encrypted artifact to local cache (resume-safe) → decrypt → decompress → load game image (this can take a while)"
+if [[ "$stream_no_cache" == "1" ]]; then
+  note "Streaming encrypted artifact from the lease URL → decrypt → decompress → load game image (no local cache or resume)"
+else
+  note "Downloading encrypted artifact to local cache (resume-safe) → decrypt → decompress → load game image (this can take a while)"
+fi
 if [[ -n "$rollout_work_dir" ]]; then
   log_dir="${rollout_work_dir}/logs"
   mkdir -p "$log_dir"
@@ -1265,99 +1300,323 @@ print_err_tail() {
   fi
 }
 
-note "Validating artifact header and downloading with resume support"
-download_cmd=(
-  python3 "$download_helper"
-  --url "$artifact_url"
-  --image-ref "$image_ref"
-  --payments-api-url "$payments_api_url"
-  --lease-id "$lease_id"
-  --state-file "$rollout_state_file_primary"
-  --state-fallback "$rollout_state_file_fallback"
-  --cache-root-primary "$cache_root_primary"
-  --cache-root-fallback "$cache_root_fallback"
-  --probe-prefix-path "$curl_head_prefix"
-  --probe-headers-path "$curl_head_headers"
-  --probe-stderr-path "$curl_head_err"
-  --download-stderr-path "$curl_err"
-)
-if [[ -n "$rollout_job_id" ]]; then
-  download_cmd+=(--job-id "$rollout_job_id")
-fi
-if [[ -n "$rollout_work_dir" ]]; then
-  download_cmd+=(--work-dir "$rollout_work_dir")
-fi
-set +e
-download_json="$("${download_cmd[@]}")"
-download_rc="$?"
-set -e
-if [[ "$download_rc" -ne 0 ]]; then
-  write_rollout_state "error" "downloading" "artifact download failed"
-  print_err_tail "curl (header) stderr:" "$curl_head_err"
-  print_err_tail "curl stderr:" "$curl_err"
-  echo "" >&2
-  if [[ "$debug" == "1" ]]; then
-    note "Debug logs kept at: $log_dir"
-  else
-    note "Debug logs saved at: $log_dir"
-    debug="1"
+extract_total_bytes_from_headers() {
+  local headers_path="$1"
+  python3 - "$headers_path" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+content_range_re = re.compile(r"bytes\s+\d+-\d+/(\d+|\*)", re.IGNORECASE)
+try:
+    raw = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+except Exception:
+    print("", end="")
+    raise SystemExit(0)
+
+blocks = []
+current = []
+for line in raw.splitlines():
+    if line.startswith("HTTP/"):
+        if current:
+            blocks.append(current)
+        current = [line]
+        continue
+    current.append(line)
+if current:
+    blocks.append(current)
+
+headers = {}
+if blocks:
+    for line in blocks[-1][1:]:
+        if ":" not in line:
+            continue
+        name, value = line.split(":", 1)
+        headers[name.strip().lower()] = value.strip()
+
+content_range = headers.get("content-range", "")
+match = content_range_re.search(content_range)
+if match and match.group(1) != "*":
+    print(match.group(1), end="")
+else:
+    content_length = headers.get("content-length", "")
+    if content_length.isdigit():
+        print(content_length, end="")
+PY
+}
+
+probe_artifact_prefix_preview() {
+  local prefix_path="$1"
+  python3 - "$prefix_path" <<'PY'
+import sys
+from pathlib import Path
+
+try:
+    prefix = Path(sys.argv[1]).read_bytes()
+except Exception:
+    print("<unreadable>", end="")
+    raise SystemExit(0)
+
+line = prefix.splitlines()[0].decode("utf-8", errors="replace") if prefix else "<empty>"
+print(line, end="")
+PY
+}
+
+probe_artifact_header() {
+  local url="$1"
+  local prefix_path="$2"
+  local headers_path="$3"
+  local stderr_path="$4"
+
+  mkdir -p "$(dirname "$prefix_path")" "$(dirname "$headers_path")" "$(dirname "$stderr_path")"
+
+  if ! curl -fL \
+    --connect-timeout 10 \
+    --max-time 20 \
+    --retry 2 \
+    --retry-delay 1 \
+    --retry-connrefused \
+    --range 0-127 \
+    -D "$headers_path" \
+    -o "$prefix_path" \
+    -sS \
+    "$url" 2>"$stderr_path"; then
+    return 1
   fi
-  die "failed to download encrypted artifact; see errors above"
-fi
 
-artifact_local_path="$(printf '%s' "$download_json" | jq -r '.artifact_path // empty' 2>/dev/null || true)"
-artifact_partial_path="$(printf '%s' "$download_json" | jq -r '.artifact_partial_path // empty' 2>/dev/null || true)"
-artifact_cache_dir="$(printf '%s' "$download_json" | jq -r '.artifact_cache_dir // empty' 2>/dev/null || true)"
-artifact_total_bytes="$(printf '%s' "$download_json" | jq -r '.artifact_total_bytes // empty' 2>/dev/null || true)"
-artifact_downloaded_bytes="$(printf '%s' "$download_json" | jq -r '.artifact_downloaded_bytes // 0' 2>/dev/null || echo "0")"
-artifact_download_percent="$(printf '%s' "$download_json" | jq -r '.artifact_download_percent // empty' 2>/dev/null || true)"
-artifact_resume_from_bytes="$(printf '%s' "$download_json" | jq -r '.artifact_resume_from_bytes // 0' 2>/dev/null || echo "0")"
-artifact_download_action="$(printf '%s' "$download_json" | jq -r '.artifact_download_action // empty' 2>/dev/null || true)"
-artifact_resumed="$(printf '%s' "$download_json" | jq -r 'if .artifact_resumed then "1" else "0" end' 2>/dev/null || echo "0")"
+  python3 - "$prefix_path" <<'PY'
+import sys
+from pathlib import Path
 
-[[ -n "$artifact_local_path" ]] || die "download helper did not return an artifact path"
-[[ -f "$artifact_local_path" ]] || die "download helper reported a missing artifact path: $artifact_local_path"
+prefix = Path(sys.argv[1]).read_bytes()
+if not prefix.startswith(b"age-encryption.org/v1"):
+    raise SystemExit(1)
+PY
+}
 
-case "$artifact_download_action" in
-  reused_complete)
-    ok "Using cached complete encrypted artifact at $artifact_local_path"
-    ;;
-  resumed)
-    ok "Resumed encrypted artifact download from ${artifact_resume_from_bytes} bytes"
-    ;;
-  *)
-    ok "Encrypted artifact downloaded to $artifact_local_path"
-    ;;
-esac
+cache_dir_for_image_ref() {
+  local root="$1"
+  local ref="$2"
+  python3 - "$root" "$ref" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
 
-write_rollout_state "loading" "loading" "Decrypting cached artifact and streaming into docker load"
+root = Path(sys.argv[1])
+image_ref = sys.argv[2]
+slug = "".join(ch if ch.isalnum() else "-" for ch in image_ref.lower())
+while "--" in slug:
+    slug = slug.replace("--", "-")
+slug = slug.strip("-")[:48] or "artifact"
+digest = hashlib.sha256(image_ref.encode("utf-8")).hexdigest()[:16]
+print(root / f"{slug}-{digest}", end="")
+PY
+}
 
-set +e
-age --decrypt -i "$identity_file" "$artifact_local_path" 2>"$age_err" \
-  | zstd -d -c 2>"$zstd_err" \
-  | docker_load_with_meter "LOADING"
-pipeline_rc=$? age_rc="${PIPESTATUS[0]:-}" zstd_rc="${PIPESTATUS[1]:-}" docker_rc="${PIPESTATUS[2]:-}"
-set -e
+remove_stream_cache_for_image_ref() {
+  local ref="$1"
+  local root=""
+  local cache_dir=""
 
-if [[ "$pipeline_rc" -ne 0 ]]; then
-  write_rollout_state "error" "loading" "decrypt/decompress/load failed"
-  echo "" >&2
-  echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} image load pipeline failed (age=${age_rc:-?} zstd=${zstd_rc:-?} docker=${docker_rc:-?})." >&2
-  print_err_tail "age stderr:" "$age_err"
-  print_err_tail "zstd stderr:" "$zstd_err"
-  echo "" >&2
-  if [[ "$debug" == "1" ]]; then
-    note "Debug logs kept at: $log_dir"
-  else
-    note "Debug logs saved at: $log_dir"
-    debug="1"
+  for root in "$cache_root_primary" "$cache_root_fallback"; do
+    [[ -n "$root" ]] || continue
+    cache_dir="$(cache_dir_for_image_ref "$root" "$ref")"
+    case "$cache_dir" in
+      "$root"/*) ;;
+      *)
+        warn "Skipping unexpected cache cleanup target outside root: $cache_dir"
+        continue
+        ;;
+    esac
+    if [[ -e "$cache_dir" ]]; then
+      if rm -rf -- "$cache_dir"; then
+        ok "Removed cached encrypted artifact dir $cache_dir for stream/no-cache mode"
+      else
+        warn "Failed to remove cached encrypted artifact dir $cache_dir; continuing without cache cleanup"
+      fi
+    fi
+  done
+}
+
+if [[ "$stream_no_cache" == "1" ]]; then
+  note "Validating artifact header for stream/no-cache mode"
+  artifact_local_path=""
+  artifact_partial_path=""
+  artifact_cache_dir=""
+  artifact_total_bytes=""
+  artifact_downloaded_bytes="0"
+  artifact_download_percent="0"
+  artifact_resume_from_bytes="0"
+  artifact_resumed="0"
+  write_rollout_state "downloading" "downloading" "Validating artifact header for stream/no-cache mode"
+
+  set +e
+  probe_artifact_header "$artifact_url" "$curl_head_prefix" "$curl_head_headers" "$curl_head_err"
+  probe_rc="$?"
+  set -e
+  if [[ "$probe_rc" -ne 0 ]]; then
+    write_rollout_state "error" "downloading" "artifact header probe failed for stream/no-cache mode"
+    print_err_tail "curl (header) stderr:" "$curl_head_err"
+    if [[ "$probe_rc" -eq 1 ]]; then
+      echo "" >&2
+      echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} failed to fetch artifact header (URL expired or unreachable)." >&2
+    else
+      echo "" >&2
+      echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} artifact does not look age-encrypted (expected header age-encryption.org/v1, got: $(probe_artifact_prefix_preview "$curl_head_prefix"))." >&2
+    fi
+    echo "" >&2
+    if [[ "$debug" == "1" ]]; then
+      note "Debug logs kept at: $log_dir"
+    else
+      note "Debug logs saved at: $log_dir"
+      debug="1"
+    fi
+    die "failed to validate encrypted artifact for stream/no-cache mode; see errors above"
   fi
-  die "failed to load encrypted image; see errors above"
-fi
 
-artifact_downloaded_bytes="${artifact_total_bytes:-$artifact_downloaded_bytes}"
-artifact_download_percent="100"
-write_rollout_state "staged" "staged" "Encrypted artifact downloaded and image loaded into docker"
+  artifact_total_bytes="$(extract_total_bytes_from_headers "$curl_head_headers")"
+  if [[ -n "$artifact_total_bytes" ]]; then
+    ok "Validated encrypted artifact header (${artifact_total_bytes} bytes total)"
+  else
+    ok "Validated encrypted artifact header"
+  fi
+
+  remove_stream_cache_for_image_ref "$image_ref"
+  note "Streaming encrypted artifact directly into decrypt → decompress → docker load (no local cache or resume)"
+  write_rollout_state "loading" "loading" "Streaming encrypted artifact directly into docker load (no local cache)"
+
+  set +e
+  curl -fL \
+    --connect-timeout 10 \
+    --retry 2 \
+    --retry-delay 1 \
+    --retry-connrefused \
+    -sS \
+    "$artifact_url" 2>"$curl_err" \
+    | progress_pipe "download" \
+    | age --decrypt -i "$identity_file" 2>"$age_err" \
+    | zstd -d -c 2>"$zstd_err" \
+    | docker_load_with_meter "LOADING"
+  pipeline_rc=$? curl_rc="${PIPESTATUS[0]:-}" meter_rc="${PIPESTATUS[1]:-}" age_rc="${PIPESTATUS[2]:-}" zstd_rc="${PIPESTATUS[3]:-}" docker_rc="${PIPESTATUS[4]:-}"
+  set -e
+
+  if [[ "$pipeline_rc" -ne 0 ]]; then
+    write_rollout_state "error" "loading" "streaming decrypt/decompress/load failed"
+    echo "" >&2
+    echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} image load pipeline failed (curl=${curl_rc:-?} meter=${meter_rc:-?} age=${age_rc:-?} zstd=${zstd_rc:-?} docker=${docker_rc:-?})." >&2
+    print_err_tail "curl stderr:" "$curl_err"
+    print_err_tail "age stderr:" "$age_err"
+    print_err_tail "zstd stderr:" "$zstd_err"
+    echo "" >&2
+    if [[ "$debug" == "1" ]]; then
+      note "Debug logs kept at: $log_dir"
+    else
+      note "Debug logs saved at: $log_dir"
+      debug="1"
+    fi
+    die "failed to stream-load encrypted image; see errors above"
+  fi
+
+  if [[ -n "$artifact_total_bytes" ]]; then
+    artifact_downloaded_bytes="$artifact_total_bytes"
+  fi
+  artifact_download_percent="100"
+  write_rollout_state "staged" "staged" "Encrypted artifact streamed and image loaded into docker"
+else
+  note "Validating artifact header and downloading with resume support"
+  download_cmd=(
+    python3 "$download_helper"
+    --url "$artifact_url"
+    --image-ref "$image_ref"
+    --payments-api-url "$payments_api_url"
+    --lease-id "$lease_id"
+    --state-file "$rollout_state_file_primary"
+    --state-fallback "$rollout_state_file_fallback"
+    --cache-root-primary "$cache_root_primary"
+    --cache-root-fallback "$cache_root_fallback"
+    --probe-prefix-path "$curl_head_prefix"
+    --probe-headers-path "$curl_head_headers"
+    --probe-stderr-path "$curl_head_err"
+    --download-stderr-path "$curl_err"
+  )
+  if [[ -n "$rollout_job_id" ]]; then
+    download_cmd+=(--job-id "$rollout_job_id")
+  fi
+  if [[ -n "$rollout_work_dir" ]]; then
+    download_cmd+=(--work-dir "$rollout_work_dir")
+  fi
+  set +e
+  download_json="$("${download_cmd[@]}")"
+  download_rc="$?"
+  set -e
+  if [[ "$download_rc" -ne 0 ]]; then
+    write_rollout_state "error" "downloading" "artifact download failed"
+    print_err_tail "curl (header) stderr:" "$curl_head_err"
+    print_err_tail "curl stderr:" "$curl_err"
+    echo "" >&2
+    if [[ "$debug" == "1" ]]; then
+      note "Debug logs kept at: $log_dir"
+    else
+      note "Debug logs saved at: $log_dir"
+      debug="1"
+    fi
+    die "failed to download encrypted artifact; see errors above"
+  fi
+
+  artifact_local_path="$(printf '%s' "$download_json" | jq -r '.artifact_path // empty' 2>/dev/null || true)"
+  artifact_partial_path="$(printf '%s' "$download_json" | jq -r '.artifact_partial_path // empty' 2>/dev/null || true)"
+  artifact_cache_dir="$(printf '%s' "$download_json" | jq -r '.artifact_cache_dir // empty' 2>/dev/null || true)"
+  artifact_total_bytes="$(printf '%s' "$download_json" | jq -r '.artifact_total_bytes // empty' 2>/dev/null || true)"
+  artifact_downloaded_bytes="$(printf '%s' "$download_json" | jq -r '.artifact_downloaded_bytes // 0' 2>/dev/null || echo "0")"
+  artifact_download_percent="$(printf '%s' "$download_json" | jq -r '.artifact_download_percent // empty' 2>/dev/null || true)"
+  artifact_resume_from_bytes="$(printf '%s' "$download_json" | jq -r '.artifact_resume_from_bytes // 0' 2>/dev/null || echo "0")"
+  artifact_download_action="$(printf '%s' "$download_json" | jq -r '.artifact_download_action // empty' 2>/dev/null || true)"
+  artifact_resumed="$(printf '%s' "$download_json" | jq -r 'if .artifact_resumed then "1" else "0" end' 2>/dev/null || echo "0")"
+
+  [[ -n "$artifact_local_path" ]] || die "download helper did not return an artifact path"
+  [[ -f "$artifact_local_path" ]] || die "download helper reported a missing artifact path: $artifact_local_path"
+
+  case "$artifact_download_action" in
+    reused_complete)
+      ok "Using cached complete encrypted artifact at $artifact_local_path"
+      ;;
+    resumed)
+      ok "Resumed encrypted artifact download from ${artifact_resume_from_bytes} bytes"
+      ;;
+    *)
+      ok "Encrypted artifact downloaded to $artifact_local_path"
+      ;;
+  esac
+
+  write_rollout_state "loading" "loading" "Decrypting cached artifact and streaming into docker load"
+
+  set +e
+  age --decrypt -i "$identity_file" "$artifact_local_path" 2>"$age_err" \
+    | zstd -d -c 2>"$zstd_err" \
+    | docker_load_with_meter "LOADING"
+  pipeline_rc=$? age_rc="${PIPESTATUS[0]:-}" zstd_rc="${PIPESTATUS[1]:-}" docker_rc="${PIPESTATUS[2]:-}"
+  set -e
+
+  if [[ "$pipeline_rc" -ne 0 ]]; then
+    write_rollout_state "error" "loading" "decrypt/decompress/load failed"
+    echo "" >&2
+    echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} image load pipeline failed (age=${age_rc:-?} zstd=${zstd_rc:-?} docker=${docker_rc:-?})." >&2
+    print_err_tail "age stderr:" "$age_err"
+    print_err_tail "zstd stderr:" "$zstd_err"
+    echo "" >&2
+    if [[ "$debug" == "1" ]]; then
+      note "Debug logs kept at: $log_dir"
+    else
+      note "Debug logs saved at: $log_dir"
+      debug="1"
+    fi
+    die "failed to load encrypted image; see errors above"
+  fi
+
+  artifact_downloaded_bytes="${artifact_total_bytes:-$artifact_downloaded_bytes}"
+  artifact_download_percent="100"
+  write_rollout_state "staged" "staged" "Encrypted artifact downloaded and image loaded into docker"
+fi
 
 if [[ "$debug" == "1" ]]; then
   note "Debug logs kept at: $log_dir"

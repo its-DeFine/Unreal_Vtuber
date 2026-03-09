@@ -1192,6 +1192,59 @@ def test_ops_rollout_reuses_existing_progress_when_requeued(ops_app, monkeypatch
     assert captured["kwargs"]["job_id"] == body["job_id"]
 
 
+def test_ops_rollout_stream_no_cache_does_not_seed_cached_resume_state(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: object())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+    captured = _capture_rollout_thread(monkeypatch, svc)
+
+    partial_path = svc.ROLLOUT_STATE_FILE.parent / "resume-cache" / "artifact.age.part"
+    partial_path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path.write_bytes(b"age-encryption.org/v1\npartial")
+    svc._write_json_file_atomic(
+        svc.ROLLOUT_STATE_FILE,
+        {
+            "job_id": "old-job",
+            "status": "failed",
+            "image_ref": "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:enc-v1",
+            "artifact_partial_path": str(partial_path),
+            "artifact_cache_dir": str(partial_path.parent),
+            "artifact_downloaded_bytes": partial_path.stat().st_size,
+            "artifact_total_bytes": partial_path.stat().st_size + 1024,
+            "artifact_download_percent": 6.25,
+            "can_resume": True,
+            "history": [{"status": "failed", "at": "2026-03-07T10:00:00+00:00"}],
+        },
+    )
+
+    resp = client.post(
+        "/ops/rollout",
+        json={"no_verify": True, "payments_api_url": "http://payments:8081", "stream_no_cache": True},
+    )
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["rollout"]["job_id"] == body["job_id"]
+    assert body["rollout"]["downloaded_bytes"] == 0
+    assert body["rollout"]["progress_percent"] == 0.0
+    assert body["rollout"]["can_resume"] is False
+
+    state = json.loads(svc.ROLLOUT_STATE_FILE.read_text())
+    assert state["job_id"] == body["job_id"]
+    assert state["resume_from_job_id"] == "old-job"
+    assert state["stream_no_cache"] is True
+    assert "artifact_partial_path" not in state
+    assert "artifact_cache_dir" not in state
+    assert state["downloaded_bytes"] == 0
+    assert state["progress_percent"] == 0.0
+    assert state["can_resume"] is False
+    assert captured["kwargs"]["stream_no_cache"] is True
+
+
 def test_ops_rollout_defaults_to_token_file(ops_app, monkeypatch):
     app, svc = ops_app
     client = TestClient(app)
@@ -1224,6 +1277,7 @@ def test_ops_rollout_defaults_to_token_file(ops_app, monkeypatch):
 
     svc._run_rollout_job(**captured["kwargs"])
 
+    assert "--stream-no-cache" not in observed["cmd"]
     assert "--orch-token-env" not in observed["cmd"]
     idx = observed["cmd"].index("--orch-token-file")
     assert observed["cmd"][idx + 1] == "/root/.embody/orch-license-token.txt"
@@ -1278,6 +1332,43 @@ def test_ops_rollout_uses_orch_token_env_injection(ops_app, monkeypatch):
     assert observed["cmd"][idx + 1] == "ORCH_TOKEN"
     assert observed["environment"] == {"ORCH_TOKEN": "ephemeral-token"}
     assert "ephemeral-token" not in observed["cmd"]
+
+
+def test_ops_rollout_passes_stream_no_cache_to_consume(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
+    observed = {}
+    captured = _capture_rollout_thread(monkeypatch, svc)
+
+    class DummyResult:
+        exit_code = 0
+        output = (b"loaded\n", b"")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            observed["cmd"] = cmd
+            observed["environment"] = environment
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post(
+        "/ops/rollout",
+        json={"no_verify": True, "payments_api_url": "http://payments:8081", "stream_no_cache": True},
+    )
+    assert resp.status_code == 202
+    assert resp.json()["ok"] is True
+    assert captured["kwargs"]["stream_no_cache"] is True
+
+    svc._run_rollout_job(**captured["kwargs"])
+
+    assert "--stream-no-cache" in observed["cmd"]
+    assert observed["environment"] is None
 
 
 def test_ops_rollout_persists_download_error_tails(ops_app, monkeypatch):
@@ -1367,6 +1458,18 @@ def test_ops_rollout_validates_cleanup_stopped_game_flag(ops_app, monkeypatch):
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "cleanup_stopped_game cannot be combined with skip_download"
+
+    resp = client.post(
+        "/ops/rollout",
+        json={
+            "payments_api_url": "http://payments:8081",
+            "recreate_stopped": True,
+            "skip_download": True,
+            "stream_no_cache": True,
+        },
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "stream_no_cache cannot be combined with skip_download"
 
 
 def test_ops_rollout_cleanup_preserves_recreate_project_names(ops_app, monkeypatch):
