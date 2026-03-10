@@ -21,6 +21,15 @@ Recommended layout:
 
 `logs/` is already gitignored, so machine-generated evidence can stay local. Keep heavy binaries out of the repo.
 
+## Issue / PR Traceability
+
+For implementation work, traceability is part of proof-of-done:
+
+- use a real GitHub issue number
+- use branch naming `codex/issue-<number>-<slug>`
+- include `Closes #<number>` or `Refs #<number>` in the PR body
+- never use placeholder issue IDs such as `issue-0`
+
 ## Proof Rules
 
 - Docs-only change:
