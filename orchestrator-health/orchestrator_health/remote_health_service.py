@@ -110,6 +110,7 @@ _NVIDIA_SMI_STATS_QUERY = [
 _META_GPU_STATS_CACHE_LOCK = threading.Lock()
 _META_GPU_STATS_CACHE: Optional[dict[str, Any]] = None
 _META_GPU_STATS_CACHE_CAPTURED_MONO: Optional[float] = None
+_SECRETISH_ENV_NAME_RE = re.compile(r"(SECRET|TOKEN|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY)", re.IGNORECASE)
 
 
 def _meta_gpu_stats_ttl_seconds() -> float:
@@ -124,6 +125,32 @@ def _meta_gpu_stats_ttl_seconds() -> float:
     if ttl_s > 600:
         ttl_s = 600.0
     return ttl_s
+
+
+def _meta_unreal_game_log_tail_lines() -> int:
+    raw = (os.environ.get("META_UNREAL_GAME_LOG_TAIL_LINES", "80") or "").strip()
+    try:
+        value = int(raw)
+    except Exception:
+        value = 80
+    if value < 1:
+        value = 1
+    if value > 200:
+        value = 200
+    return value
+
+
+def _meta_unreal_game_log_tail_chars() -> int:
+    raw = (os.environ.get("META_UNREAL_GAME_LOG_TAIL_CHARS", "12000") or "").strip()
+    try:
+        value = int(raw)
+    except Exception:
+        value = 12_000
+    if value < 256:
+        value = 256
+    if value > 50_000:
+        value = 50_000
+    return value
 
 
 class PowerState(BaseModel):
@@ -762,6 +789,27 @@ def _tail(text: str, *, max_lines: int = 200, max_chars: int = 50_000) -> str:
     return out
 
 
+def _redact_sensitive_text(text: str) -> str:
+    if not text:
+        return ""
+    out = text
+    sensitive_values: list[str] = []
+    for key, value in os.environ.items():
+        if not value or len(value) < 6:
+            continue
+        if _SECRETISH_ENV_NAME_RE.search(key):
+            sensitive_values.append(value)
+    for value in sorted(set(sensitive_values), key=len, reverse=True):
+        out = out.replace(value, "[redacted]")
+    out = re.sub(r"(?im)\b(authorization\s*:\s*bearer\s+)[^\s]+", r"\1[redacted]", out)
+    out = re.sub(
+        r"(?im)\b((?:api[_-]?key|token|secret|password|passwd|access[_-]?key|private[_-]?key)\s*[=:]\s*)([^\s]+)",
+        r"\1[redacted]",
+        out,
+    )
+    return out
+
+
 def _meta_gpu_stats_cache_get() -> Optional[dict[str, Any]]:
     ttl_s = _meta_gpu_stats_ttl_seconds()
     if ttl_s <= 0:
@@ -1392,6 +1440,106 @@ def _find_container(
     return None
 
 
+def _container_log_tail(container: Any, *, tail_lines: int = 120, max_chars: int = 20_000) -> str:
+    try:
+        raw = container.logs(stdout=True, stderr=True, tail=tail_lines, timestamps=True)
+    except Exception:  # pragma: no cover - defensive
+        return ""
+    if isinstance(raw, (bytes, bytearray)):
+        text = raw.decode("utf-8", errors="replace")
+    else:
+        text = str(raw or "")
+    return _tail(_redact_sensitive_text(text), max_lines=tail_lines, max_chars=max_chars)
+
+
+def _container_diagnostics(container: Any) -> dict[str, Any]:
+    meta = _container_meta(container)
+    attrs = container.attrs or {}
+    state = (attrs.get("State") or {}) if isinstance(attrs, dict) else {}
+    health_payload = (state.get("Health") or {}) if isinstance(state, dict) else {}
+    return {
+        **meta,
+        "running": bool(state.get("Running", False)),
+        "restarting": bool(state.get("Restarting", False)),
+        "oom_killed": bool(state.get("OOMKilled", False)),
+        "dead": bool(state.get("Dead", False)),
+        "paused": bool(state.get("Paused", False)),
+        "exit_code": state.get("ExitCode"),
+        "error": (state.get("Error") or "").strip() or None,
+        "started_at": (state.get("StartedAt") or "").strip() or None,
+        "finished_at": (state.get("FinishedAt") or "").strip() or None,
+        "health_status": (health_payload.get("Status") or "").strip() or None,
+        "restart_count": attrs.get("RestartCount"),
+        "log_tail": _container_log_tail(container),
+    }
+
+
+def _unreal_game_diagnostics(*, project_name: str | None = None) -> dict[str, Any]:
+    container = _find_container(POWER_GAME_SERVICE, POWER_GAME_CONTAINER or None, project_name=project_name)
+    if container is None:
+        return {
+            "found": False,
+            "detail": f"{POWER_GAME_SERVICE} container not found",
+            "service": POWER_GAME_SERVICE,
+            "container_name": POWER_GAME_CONTAINER or None,
+            "logs_tail": "",
+        }
+
+    try:
+        container.reload()
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+    meta = _container_meta(container)
+    attrs = container.attrs or {}
+    state = (attrs.get("State") or {}) if isinstance(attrs, dict) else {}
+    health = (state.get("Health") or {}) if isinstance(state, dict) else {}
+    restart_count_raw = attrs.get("RestartCount", 0) if isinstance(attrs, dict) else 0
+    try:
+        restart_count = int(restart_count_raw or 0)
+    except Exception:
+        restart_count = 0
+
+    log_tail_lines = _meta_unreal_game_log_tail_lines()
+    log_tail_chars = _meta_unreal_game_log_tail_chars()
+    logs_tail = ""
+    logs_error: Optional[str] = None
+    try:
+        raw_logs = container.logs(stdout=True, stderr=True, tail=log_tail_lines, timestamps=True)
+        if isinstance(raw_logs, bytes):
+            logs_tail = raw_logs.decode("utf-8", errors="replace")
+        else:
+            logs_tail = str(raw_logs or "")
+        logs_tail = _tail(_redact_sensitive_text(logs_tail), max_lines=log_tail_lines, max_chars=log_tail_chars)
+    except Exception as exc:  # pragma: no cover - defensive
+        logs_error = str(exc)
+
+    return {
+        "found": True,
+        "service": POWER_GAME_SERVICE,
+        "container": {
+            **meta,
+            "restart_count": restart_count,
+            "state": {
+                "status": state.get("Status"),
+                "running": state.get("Running"),
+                "restarting": state.get("Restarting"),
+                "oom_killed": state.get("OOMKilled"),
+                "dead": state.get("Dead"),
+                "exit_code": state.get("ExitCode"),
+                "error": state.get("Error"),
+                "started_at": state.get("StartedAt"),
+                "finished_at": state.get("FinishedAt"),
+                "health_status": health.get("Status"),
+            },
+        },
+        "logs_tail": logs_tail,
+        "log_tail_lines": log_tail_lines,
+        "log_tail_chars": len(logs_tail),
+        "logs_error": logs_error,
+    }
+
+
 def _stop_container(container_name: str, service_name: str, timeout: int = 10, *, project_name: str | None = None) -> str:
     container = _find_container(service_name, container_name, project_name=project_name)
     if container is None:
@@ -1737,6 +1885,14 @@ def read_meta(request: Request) -> dict[str, Any]:
     except Exception:  # pragma: no cover - defensive
         containers = []
 
+    game_diagnostics = None
+    try:
+        game_container = _find_container("unreal-game", project_name=POWER_PROJECT_NAME or None)
+        if game_container is not None:
+            game_diagnostics = _container_diagnostics(game_container)
+    except Exception:  # pragma: no cover - defensive
+        game_diagnostics = None
+
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "env": {
@@ -1747,9 +1903,19 @@ def read_meta(request: Request) -> dict[str, Any]:
         "auth": _power_allowlist_diagnostics(),
         "git": git_info,
         "containers": containers,
+        "game_diagnostics": game_diagnostics,
         "rollout": _read_json_file(ROLLOUT_STATE_FILE),
         "verify_last": _read_json_file(VERIFY_LAST_FILE),
     }
+
+
+@app.get("/meta/unreal-game/diagnostics")
+def read_meta_unreal_game_diagnostics(request: Request) -> dict[str, Any]:
+    """Return bounded recent diagnostics for the host unreal-game container."""
+    _require_auth(request)
+    payload = _unreal_game_diagnostics(project_name=POWER_PROJECT_NAME or None)
+    payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+    return payload
 
 
 @app.get("/meta/gpu")
