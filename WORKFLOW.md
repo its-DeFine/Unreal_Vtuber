@@ -39,12 +39,13 @@ Then inspect the code surface you plan to touch. Common first stops:
 
 ## Default Execution Loop
 
-1. Name the exact surface you are changing.
-2. Pick the smallest wedge that satisfies the issue.
-3. Choose the closest verification command from `VERIFY.md` before editing.
-4. Make the smallest change that can pass that check.
-5. Capture proof in the evidence path defined in `VERIFY.md`.
-6. Stop when the requested acceptance check is met. Do not expand into adjacent cleanup.
+1. Confirm the real GitHub issue number before opening an implementation branch or PR.
+2. Name the exact surface you are changing.
+3. Pick the smallest wedge that satisfies the issue.
+4. Choose the closest verification command from `VERIFY.md` before editing.
+5. Make the smallest change that can pass that check.
+6. Capture proof in the evidence path defined in `VERIFY.md`.
+7. Stop when the requested acceptance check is met. Do not expand into adjacent cleanup.
 
 ## Proof Of Done
 
@@ -71,3 +72,7 @@ Stop and ask for a narrower packet if any of these become necessary:
 - relying on a runtime-only check when no host or credentials are available
 - treating harness work as permission to delete or redesign adjacent subsystems
 - broadening from one subsystem fix into a repo-wide refactor
+- opening an implementation branch or PR without a real GitHub issue number
+- using placeholder branch or PR metadata such as `issue-0`
+- branch naming that does not follow `codex/issue-<number>-<slug>`
+- PR body missing `Closes #<number>` or `Refs #<number>`

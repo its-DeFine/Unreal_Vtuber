@@ -17,6 +17,8 @@ Repo defaults:
 
 Execution rules:
 
-- Work from an issue-scoped branch and keep the change set surgical.
+- Do not start implementation work without a real GitHub issue number.
+- Never use placeholder issue IDs such as `issue-0`.
+- Work from `codex/issue-<number>-<slug>`, open a draft PR first, and include `Closes #<number>` or `Refs #<number>` in the PR body.
 - Prefer the smallest verification step that proves the touched surface.
 - Treat onboarding, rollout, power, upgrade, and remote ops as operator-only by default.
