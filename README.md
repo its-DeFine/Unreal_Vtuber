@@ -10,6 +10,20 @@ Key properties:
 - ⏱️ **Short-lived decryption leases** issued by the Payments backend
 - 🛡️ **Best-effort firewall automation** on EC2 (optional)
 
+## Agent Read Order
+
+If the task is implementation or verification work, read the repo in this order before editing:
+
+1. `AGENTS.md`
+2. `README.md`
+3. `WORKFLOW.md`
+4. `VERIFY.md`
+5. `docs/harness-engineering.md`
+
+Repo boundary:
+- This repo owns the runtime stack, operator CLI, recorder, and orchestrator-health surfaces.
+- Public client session allocation and `/api/sessions/*` control live in the Payments backend.
+
 ## Quickstart (one command)
 
 You’ll need:

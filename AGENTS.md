@@ -2,9 +2,10 @@
 
 Start here:
 
-1. `WORKFLOW.md` for read order, execution wedge, and stop conditions.
-2. `VERIFY.md` for the command matrix, evidence locations, and proof-of-done.
-3. `docs/harness-engineering.md` for the repo map and subsystem boundaries.
+1. `README.md` for the operator-facing runtime overview and top-level workflow.
+2. `WORKFLOW.md` for the canonical execution wedge, read order, and stop conditions.
+3. `VERIFY.md` for the command matrix, evidence locations, and proof-of-done.
+4. `docs/harness-engineering.md` for the repo map and subsystem boundaries.
 
 Repo defaults:
 

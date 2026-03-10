@@ -6,13 +6,15 @@ This file is the repo-owned execution contract for agents working in `Unreal_Vtu
 
 Read these in order before making a non-trivial change:
 
-1. `README.md`
-2. `docs/harness-engineering.md`
-3. `VERIFY.md`
-4. `docs/embody-cli.md`
-5. `docs/orchestrator-onboarding.md`
-6. `docs/pixel-streaming-architecture.md`
-7. `docs/unreal-integration.md`
+1. `AGENTS.md`
+2. `README.md`
+3. `WORKFLOW.md`
+4. `VERIFY.md`
+5. `docs/harness-engineering.md`
+6. `docs/embody-cli.md`
+7. `docs/orchestrator-onboarding.md`
+8. `docs/pixel-streaming-architecture.md`
+9. `docs/unreal-integration.md`
 
 Then inspect the code surface you plan to touch. Common first stops:
 
@@ -67,4 +69,5 @@ Stop and ask for a narrower packet if any of these become necessary:
 - changing encrypted image delivery or other production rollout plumbing
 - changing live infra or allowlist values without explicit operator approval
 - relying on a runtime-only check when no host or credentials are available
+- treating harness work as permission to delete or redesign adjacent subsystems
 - broadening from one subsystem fix into a repo-wide refactor

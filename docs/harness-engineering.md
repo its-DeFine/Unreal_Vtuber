@@ -18,13 +18,15 @@ This repo is the harness point for the Unreal VTuber runtime stack. The goal is 
 
 ## Read The Repo In This Shape
 
-1. `README.md` for the operator-facing top-level workflow.
-2. `WORKFLOW.md` for the execution contract.
-3. `VERIFY.md` for command buckets, evidence paths, and stop conditions.
-4. `docs/embody-cli.md` when the task touches the CLI surface.
-5. `docs/orchestrator-onboarding.md` when the task touches setup, registration, or ingress.
-6. `docs/pixel-streaming-architecture.md` when the task touches compose/runtime behavior.
-7. `docs/unreal-integration.md` when the task touches the BYOB Unreal pipeline.
+1. `AGENTS.md` for the short repo index and default boundaries.
+2. `README.md` for the operator-facing top-level workflow.
+3. `WORKFLOW.md` for the execution contract.
+4. `VERIFY.md` for command buckets, evidence paths, and stop conditions.
+5. `docs/harness-engineering.md` for the subsystem map and boundary summary.
+6. `docs/embody-cli.md` when the task touches the CLI surface.
+7. `docs/orchestrator-onboarding.md` when the task touches setup, registration, or ingress.
+8. `docs/pixel-streaming-architecture.md` when the task touches compose/runtime behavior.
+9. `docs/unreal-integration.md` when the task touches the BYOB Unreal pipeline.
 
 ## Verification Tiers
 
