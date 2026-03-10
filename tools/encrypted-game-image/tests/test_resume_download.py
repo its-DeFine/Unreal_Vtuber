@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 import socket
 import socketserver
 import subprocess
@@ -16,6 +17,16 @@ from typing import ClassVar
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HELPER = REPO_ROOT / "tools" / "encrypted-game-image" / "resume_download.py"
+
+
+def stable_ref_dir(root: Path, image_ref: str) -> Path:
+    cleaned = [ch if ch.isalnum() else "-" for ch in image_ref.lower()]
+    slug = "".join(cleaned)
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    slug = slug.strip("-")[:48] or "artifact"
+    digest = hashlib.sha256(image_ref.encode("utf-8")).hexdigest()[:16]
+    return root / f"{slug}-{digest}"
 
 
 @dataclass
@@ -91,6 +102,19 @@ class ArtifactHandler(BaseHTTPRequestHandler):
 
         self.wfile.write(blob)
         self.wfile.flush()
+
+    def log_message(self, _format: str, *_args) -> None:
+        return
+
+
+class FailingProbeHandler(BaseHTTPRequestHandler):
+    server_version = "ArtifactHTTP/1.0"
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self) -> None:  # noqa: N802
+        self.send_response(400)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def log_message(self, _format: str, *_args) -> None:
         return
@@ -215,6 +239,223 @@ class ResumeDownloadTest(unittest.TestCase):
                 self.assertEqual(final_state["history"][0]["status"], "queued")
                 self.assertEqual(final_state["history"][-1]["status"], "downloaded")
                 self.assertFalse(partial_path.exists())
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+    def test_probe_failure_still_fails_by_default_even_with_cached_artifact(self) -> None:
+        blob = b"age-encryption.org/v1\n" + os.urandom(4096)
+        image_ref = "ghcr.io/test/embody:enc-v1"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            rollout_state = tmp / "rollout_state.json"
+            fallback_state = tmp / "rollout_state_fallback.json"
+            cache_root = tmp / "cache"
+            cache_fallback = tmp / "cache-fallback"
+            probe_prefix = tmp / "probe.prefix"
+            probe_headers = tmp / "probe.headers"
+            probe_err = tmp / "probe.err"
+            download_err = tmp / "download.err"
+            cache_dir = stable_ref_dir(cache_root, image_ref)
+            cache_dir.mkdir(parents=True)
+            artifact_path = cache_dir / "artifact.age"
+            partial_path = cache_dir / "artifact.age.part"
+            metadata_path = cache_dir / "artifact.json"
+            artifact_path.write_bytes(blob)
+            metadata_path.write_text(
+                json.dumps(
+                    {
+                        "image_ref": image_ref,
+                        "artifact_total_bytes": len(blob),
+                        "download_complete": True,
+                    }
+                )
+            )
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), FailingProbeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                url = f"http://127.0.0.1:{server.server_address[1]}/artifact.age"
+                cmd = [
+                    "python3",
+                    str(HELPER),
+                    "--url",
+                    url,
+                    "--image-ref",
+                    image_ref,
+                    "--payments-api-url",
+                    "http://payments:8081",
+                    "--lease-id",
+                    "lease-test",
+                    "--state-file",
+                    str(rollout_state),
+                    "--state-fallback",
+                    str(fallback_state),
+                    "--cache-root-primary",
+                    str(cache_root),
+                    "--cache-root-fallback",
+                    str(cache_fallback),
+                    "--probe-prefix-path",
+                    str(probe_prefix),
+                    "--probe-headers-path",
+                    str(probe_headers),
+                    "--probe-stderr-path",
+                    str(probe_err),
+                    "--download-stderr-path",
+                    str(download_err),
+                ]
+                proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+                self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                self.assertFalse(partial_path.exists())
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+    def test_opt_in_rescue_reuses_complete_cached_artifact_when_probe_fails(self) -> None:
+        blob = b"age-encryption.org/v1\n" + os.urandom(4096)
+        image_ref = "ghcr.io/test/embody:enc-v1"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            rollout_state = tmp / "rollout_state.json"
+            fallback_state = tmp / "rollout_state_fallback.json"
+            cache_root = tmp / "cache"
+            cache_fallback = tmp / "cache-fallback"
+            probe_prefix = tmp / "probe.prefix"
+            probe_headers = tmp / "probe.headers"
+            probe_err = tmp / "probe.err"
+            download_err = tmp / "download.err"
+            cache_dir = stable_ref_dir(cache_root, image_ref)
+            cache_dir.mkdir(parents=True)
+            artifact_path = cache_dir / "artifact.age"
+            metadata_path = cache_dir / "artifact.json"
+            artifact_path.write_bytes(blob)
+            metadata_path.write_text(
+                json.dumps(
+                    {
+                        "image_ref": image_ref,
+                        "artifact_total_bytes": len(blob),
+                        "download_complete": True,
+                        "downloaded_bytes": len(blob),
+                    }
+                )
+            )
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), FailingProbeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                url = f"http://127.0.0.1:{server.server_address[1]}/artifact.age"
+                env = dict(os.environ)
+                env["RESUME_DOWNLOAD_ALLOW_STALE_COMPLETE_CACHE_ON_PROBE_FAILURE"] = "1"
+                cmd = [
+                    "python3",
+                    str(HELPER),
+                    "--url",
+                    url,
+                    "--image-ref",
+                    image_ref,
+                    "--payments-api-url",
+                    "http://payments:8081",
+                    "--lease-id",
+                    "lease-test",
+                    "--state-file",
+                    str(rollout_state),
+                    "--state-fallback",
+                    str(fallback_state),
+                    "--cache-root-primary",
+                    str(cache_root),
+                    "--cache-root-fallback",
+                    str(cache_fallback),
+                    "--probe-prefix-path",
+                    str(probe_prefix),
+                    "--probe-headers-path",
+                    str(probe_headers),
+                    "--probe-stderr-path",
+                    str(probe_err),
+                    "--download-stderr-path",
+                    str(download_err),
+                ]
+                proc = subprocess.run(cmd, check=False, capture_output=True, text=True, env=env)
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                payload = json.loads(proc.stdout)
+                self.assertEqual(payload["artifact_path"], str(artifact_path))
+                self.assertEqual(payload["artifact_download_action"], "reused_complete")
+                self.assertEqual(payload["artifact_total_bytes"], len(blob))
+                self.assertEqual(payload["artifact_downloaded_bytes"], len(blob))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+    def test_opt_in_rescue_rejects_invalid_cached_artifact(self) -> None:
+        bad_blob = b"not-age\n" + os.urandom(1024)
+        image_ref = "ghcr.io/test/embody:enc-v1"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            rollout_state = tmp / "rollout_state.json"
+            fallback_state = tmp / "rollout_state_fallback.json"
+            cache_root = tmp / "cache"
+            cache_fallback = tmp / "cache-fallback"
+            probe_prefix = tmp / "probe.prefix"
+            probe_headers = tmp / "probe.headers"
+            probe_err = tmp / "probe.err"
+            download_err = tmp / "download.err"
+            cache_dir = stable_ref_dir(cache_root, image_ref)
+            cache_dir.mkdir(parents=True)
+            artifact_path = cache_dir / "artifact.age"
+            metadata_path = cache_dir / "artifact.json"
+            artifact_path.write_bytes(bad_blob)
+            metadata_path.write_text(
+                json.dumps(
+                    {
+                        "image_ref": image_ref,
+                        "artifact_total_bytes": len(bad_blob),
+                        "download_complete": True,
+                        "downloaded_bytes": len(bad_blob),
+                    }
+                )
+            )
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), FailingProbeHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                url = f"http://127.0.0.1:{server.server_address[1]}/artifact.age"
+                env = dict(os.environ)
+                env["RESUME_DOWNLOAD_ALLOW_STALE_COMPLETE_CACHE_ON_PROBE_FAILURE"] = "1"
+                cmd = [
+                    "python3",
+                    str(HELPER),
+                    "--url",
+                    url,
+                    "--image-ref",
+                    image_ref,
+                    "--payments-api-url",
+                    "http://payments:8081",
+                    "--lease-id",
+                    "lease-test",
+                    "--state-file",
+                    str(rollout_state),
+                    "--state-fallback",
+                    str(fallback_state),
+                    "--cache-root-primary",
+                    str(cache_root),
+                    "--cache-root-fallback",
+                    str(cache_fallback),
+                    "--probe-prefix-path",
+                    str(probe_prefix),
+                    "--probe-headers-path",
+                    str(probe_headers),
+                    "--probe-stderr-path",
+                    str(probe_err),
+                    "--download-stderr-path",
+                    str(download_err),
+                ]
+                proc = subprocess.run(cmd, check=False, capture_output=True, text=True, env=env)
+                self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             finally:
                 server.shutdown()
                 server.server_close()

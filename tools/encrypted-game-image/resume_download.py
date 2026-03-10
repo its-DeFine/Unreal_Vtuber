@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 PROBE_BYTES = 128
+AGE_HEADER_PREFIX = b"age-encryption.org/v1"
+STALE_CACHE_RESCUE_ENV = "RESUME_DOWNLOAD_ALLOW_STALE_COMPLETE_CACHE_ON_PROBE_FAILURE"
 CONTENT_RANGE_RE = re.compile(r"bytes\s+\d+-\d+/(\d+|\*)", re.IGNORECASE)
 ACTIVE_STATUSES = frozenset({"queued", "downloading", "decrypting", "loading", "applying"})
 TERMINAL_STATUSES = frozenset({"downloaded", "staged", "applied", "error", "failed"})
@@ -312,10 +314,10 @@ def probe_remote(url: str, probe_prefix: Path, probe_headers: Path, probe_stderr
         prefix = probe_prefix.read_bytes()
     except Exception as exc:
         raise DownloadError(f"failed to read artifact header probe: {exc}") from exc
-    if not prefix.startswith(b"age-encryption.org/v1"):
+    if not prefix.startswith(AGE_HEADER_PREFIX):
         got = prefix.splitlines()[0].decode("utf-8", errors="replace") if prefix else "<empty>"
         raise DownloadError(
-            f"artifact does not look age-encrypted (expected header age-encryption.org/v1, got: {got})"
+            f"artifact does not look age-encrypted (expected header {AGE_HEADER_PREFIX.decode()}, got: {got})"
         )
 
     status_code, headers = parse_header_file(probe_headers)
@@ -377,6 +379,52 @@ def metadata_matches(meta: dict[str, Any] | None, image_ref: str, probe: ProbeRe
         return False
 
     return True
+
+
+def rescue_probe_failure_enabled(args: argparse.Namespace) -> bool:
+    if getattr(args, "allow_stale_complete_cache_on_probe_failure", False):
+        return True
+    return boolish(os.environ.get(STALE_CACHE_RESCUE_ENV)) is True
+
+
+def file_has_prefix(path: Path, prefix: bytes) -> bool:
+    try:
+        with path.open("rb") as fp:
+            current = fp.read(len(prefix))
+    except Exception:
+        return False
+    return current.startswith(prefix)
+
+
+def valid_complete_cached_artifact(
+    metadata_path: Path,
+    artifact_path: Path,
+    image_ref: str,
+) -> tuple[dict[str, Any], int] | None:
+    metadata = read_json(metadata_path)
+    if not metadata:
+        return None
+    if (metadata.get("image_ref") or "") != image_ref:
+        return None
+    if not boolish(metadata.get("download_complete")):
+        return None
+    if not artifact_path.exists():
+        return None
+
+    try:
+        artifact_size = artifact_path.stat().st_size
+    except Exception:
+        return None
+    if artifact_size <= 0:
+        return None
+
+    recorded_total = intish(metadata.get("artifact_total_bytes"))
+    if recorded_total is not None and recorded_total > 0 and artifact_size != recorded_total:
+        return None
+    if not file_has_prefix(artifact_path, AGE_HEADER_PREFIX):
+        return None
+
+    return metadata, (recorded_total if recorded_total is not None and recorded_total > 0 else artifact_size)
 
 
 def remove_if_exists(path: Path) -> None:
@@ -544,6 +592,7 @@ def main() -> int:
     parser.add_argument("--probe-headers-path", required=True)
     parser.add_argument("--probe-stderr-path", required=True)
     parser.add_argument("--download-stderr-path", required=True)
+    parser.add_argument("--allow-stale-complete-cache-on-probe-failure", action="store_true")
     parser.add_argument("--job-id", required=False)
     parser.add_argument("--work-dir", required=False)
     args = parser.parse_args()
@@ -576,11 +625,67 @@ def main() -> int:
             except BlockingIOError as exc:
                 raise DownloadError(f"another download already holds the lock for {cache_dir}") from exc
 
-            probe = probe_remote(args.url, probe_prefix_path, probe_headers_path, probe_stderr_path)
+            metadata = read_json(metadata_path)
+            try:
+                probe = probe_remote(args.url, probe_prefix_path, probe_headers_path, probe_stderr_path)
+            except DownloadError:
+                rescue_cache = None
+                if rescue_probe_failure_enabled(args):
+                    rescue_cache = valid_complete_cached_artifact(metadata_path, artifact_path, args.image_ref)
+                if rescue_cache is None:
+                    raise
+
+                metadata, total_bytes = rescue_cache
+                action = "reused_complete"
+                resumed = True
+                resume_from = int(metadata.get("downloaded_bytes") or total_bytes)
+                reporter = ProgressReporter("download", total_bytes, total_bytes, action)
+                reporter.note_start()
+                state = build_state(
+                    status="downloaded",
+                    phase="downloaded",
+                    image_ref=args.image_ref,
+                    payments_api_url=args.payments_api_url,
+                    lease_id=args.lease_id,
+                    cache_dir=cache_dir,
+                    artifact_path=artifact_path,
+                    partial_path=partial_path,
+                    total_bytes=total_bytes,
+                    downloaded_bytes=total_bytes,
+                    action=action,
+                    resumed=resumed,
+                    resume_from_bytes=resume_from,
+                    **state_context,
+                    detail=(
+                        "artifact header probe failed; reusing valid cached complete artifact "
+                        f"because {STALE_CACHE_RESCUE_ENV} is enabled"
+                    ),
+                )
+                write_state(state_primary, state_fallback, state)
+                payload = {
+                    "artifact_path": str(artifact_path),
+                    "artifact_partial_path": str(partial_path),
+                    "artifact_cache_dir": str(cache_dir),
+                    "artifact_total_bytes": total_bytes,
+                    "artifact_downloaded_bytes": total_bytes,
+                    "artifact_download_percent": 100.0,
+                    "artifact_resumed": bool(resumed),
+                    "artifact_resume_from_bytes": int(resume_from),
+                    "artifact_download_action": action,
+                    "downloaded_bytes": total_bytes,
+                    "progress_percent": 100.0,
+                    "can_resume": True,
+                    "human_total_bytes": human_bytes(total_bytes),
+                    "human_downloaded_bytes": human_bytes(total_bytes),
+                    "job_id": state_context["job_id"],
+                    "work_dir": str(work_dir) if work_dir is not None else None,
+                }
+                print(json.dumps(payload, sort_keys=True))
+                return 0
+
             if probe.total_bytes is None or probe.total_bytes <= 0:
                 raise DownloadError("artifact size unavailable from server; cannot compute resumable progress")
 
-            metadata = read_json(metadata_path)
             if not metadata_matches(metadata, args.image_ref, probe):
                 remove_if_exists(artifact_path)
                 remove_if_exists(partial_path)
