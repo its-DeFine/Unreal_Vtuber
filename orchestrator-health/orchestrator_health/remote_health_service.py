@@ -346,6 +346,13 @@ class OpsRolloutRequest(BaseModel):
             "the next encrypted image."
         ),
     )
+    allow_stale_complete_cache_on_probe_failure: bool = Field(
+        default=False,
+        description=(
+            "If true, and a fully downloaded encrypted artifact is already cached, allow the consume path to "
+            "reuse that cache if the fresh artifact header probe fails."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_rollout_args(self) -> "OpsRolloutRequest":
@@ -3150,6 +3157,7 @@ def _run_rollout_job(
     recreate_stopped: bool,
     cleanup_stopped_game: bool,
     prune_unused_docker: bool,
+    allow_stale_complete_cache_on_probe_failure: bool,
     orch_token: Optional[str],
     rollout_state_file: str,
     rollout_work_dir: str,
@@ -3250,6 +3258,10 @@ def _run_rollout_job(
             cmd_env = {"ORCH_TOKEN": orch_token}
         else:
             cmd.extend(["--orch-token-file", token_path])
+        if allow_stale_complete_cache_on_probe_failure:
+            if cmd_env is None:
+                cmd_env = {}
+            cmd_env["RESUME_DOWNLOAD_ALLOW_STALE_COMPLETE_CACHE_ON_PROBE_FAILURE"] = "1"
         if stream_no_cache:
             cmd.append("--stream-no-cache")
 
@@ -3464,6 +3476,7 @@ def ops_rollout(
         "recreate_stopped": payload.recreate_stopped,
         "cleanup_stopped_game": payload.cleanup_stopped_game,
         "prune_unused_docker": payload.prune_unused_docker,
+        "allow_stale_complete_cache_on_probe_failure": payload.allow_stale_complete_cache_on_probe_failure,
         "orch_token": payload.orch_token,
         "rollout_state_file": str(ROLLOUT_STATE_FILE),
         "rollout_work_dir": str(rollout_work_dir),

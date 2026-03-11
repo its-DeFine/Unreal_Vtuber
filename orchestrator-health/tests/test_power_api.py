@@ -1274,6 +1274,7 @@ def test_ops_rollout_defaults_to_token_file(ops_app, monkeypatch):
     assert resp.status_code == 202
     assert resp.json()["ok"] is True
     assert resp.json()["accepted"] is True
+    assert captured["kwargs"]["allow_stale_complete_cache_on_probe_failure"] is False
 
     svc._run_rollout_job(**captured["kwargs"])
 
@@ -1370,6 +1371,46 @@ def test_ops_rollout_passes_stream_no_cache_to_consume(ops_app, monkeypatch):
     assert "--stream-no-cache" in observed["cmd"]
     assert observed["cmd"].count("--stream-no-cache") == 1
     assert observed["environment"] is None
+
+
+def test_ops_rollout_allows_stale_complete_cache_rescue_env(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_executor_disk_free_bytes", lambda *_args, **_kwargs: 999 * 1024 * 1024 * 1024)
+    monkeypatch.setattr(svc, "docker_client", type("DummyDocker", (), {"containers": type("C", (), {"list": lambda *args, **kwargs: []})()})())
+    observed = {}
+    captured = _capture_rollout_thread(monkeypatch, svc)
+
+    class DummyResult:
+        exit_code = 0
+        output = (b"loaded\n", b"")
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            observed["cmd"] = cmd
+            observed["environment"] = environment
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post(
+        "/ops/rollout",
+        json={
+            "no_verify": True,
+            "payments_api_url": "http://payments:8081",
+            "allow_stale_complete_cache_on_probe_failure": True,
+        },
+    )
+    assert resp.status_code == 202
+    assert resp.json()["ok"] is True
+    assert captured["kwargs"]["allow_stale_complete_cache_on_probe_failure"] is True
+
+    svc._run_rollout_job(**captured["kwargs"])
+
+    assert observed["environment"] == {"RESUME_DOWNLOAD_ALLOW_STALE_COMPLETE_CACHE_ON_PROBE_FAILURE": "1"}
 
 
 def test_ops_rollout_persists_download_error_tails(ops_app, monkeypatch):
