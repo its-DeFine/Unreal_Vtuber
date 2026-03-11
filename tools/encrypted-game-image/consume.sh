@@ -1448,6 +1448,10 @@ if [[ "$stream_no_cache" == "1" ]]; then
   artifact_download_percent="0"
   artifact_resume_from_bytes="0"
   artifact_resumed="0"
+  allow_stream_no_cache_probe_rescue="0"
+  if [[ "${RESUME_DOWNLOAD_ALLOW_STALE_COMPLETE_CACHE_ON_PROBE_FAILURE:-}" == "1" ]]; then
+    allow_stream_no_cache_probe_rescue="1"
+  fi
   write_rollout_state "downloading" "downloading" "Validating artifact header for stream/no-cache mode"
 
   set +e
@@ -1455,30 +1459,40 @@ if [[ "$stream_no_cache" == "1" ]]; then
   probe_rc="$?"
   set -e
   if [[ "$probe_rc" -ne 0 ]]; then
-    write_rollout_state "error" "downloading" "artifact header probe failed for stream/no-cache mode"
-    print_err_tail "curl (header) stderr:" "$curl_head_err"
-    if [[ "$probe_rc" -eq 1 ]]; then
-      echo "" >&2
-      echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} failed to fetch artifact header (URL expired or unreachable)." >&2
+    if [[ "$probe_rc" -eq 1 && "$allow_stream_no_cache_probe_rescue" == "1" ]]; then
+      warn "Artifact header probe failed for stream/no-cache mode; continuing because RESUME_DOWNLOAD_ALLOW_STALE_COMPLETE_CACHE_ON_PROBE_FAILURE=1 is set"
+      print_err_tail "curl (header) stderr:" "$curl_head_err"
+      write_rollout_state "downloading" "downloading" "artifact header probe failed; continuing in stream/no-cache rescue mode"
     else
+      write_rollout_state "error" "downloading" "artifact header probe failed for stream/no-cache mode"
+      print_err_tail "curl (header) stderr:" "$curl_head_err"
+      if [[ "$probe_rc" -eq 1 ]]; then
+        echo "" >&2
+        echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} failed to fetch artifact header (URL expired or unreachable)." >&2
+      else
+        echo "" >&2
+        echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} artifact does not look age-encrypted (expected header age-encryption.org/v1, got: $(probe_artifact_prefix_preview "$curl_head_prefix"))." >&2
+      fi
       echo "" >&2
-      echo "${STYLE_RED}${STYLE_BOLD}error:${STYLE_RESET} artifact does not look age-encrypted (expected header age-encryption.org/v1, got: $(probe_artifact_prefix_preview "$curl_head_prefix"))." >&2
+      if [[ "$debug" == "1" ]]; then
+        note "Debug logs kept at: $log_dir"
+      else
+        note "Debug logs saved at: $log_dir"
+        debug="1"
+      fi
+      die "failed to validate encrypted artifact for stream/no-cache mode; see errors above"
     fi
-    echo "" >&2
-    if [[ "$debug" == "1" ]]; then
-      note "Debug logs kept at: $log_dir"
-    else
-      note "Debug logs saved at: $log_dir"
-      debug="1"
-    fi
-    die "failed to validate encrypted artifact for stream/no-cache mode; see errors above"
   fi
 
-  artifact_total_bytes="$(extract_total_bytes_from_headers "$curl_head_headers")"
-  if [[ -n "$artifact_total_bytes" ]]; then
-    ok "Validated encrypted artifact header (${artifact_total_bytes} bytes total)"
+  if [[ "$probe_rc" -eq 0 ]]; then
+    artifact_total_bytes="$(extract_total_bytes_from_headers "$curl_head_headers")"
+    if [[ -n "$artifact_total_bytes" ]]; then
+      ok "Validated encrypted artifact header (${artifact_total_bytes} bytes total)"
+    else
+      ok "Validated encrypted artifact header"
+    fi
   else
-    ok "Validated encrypted artifact header"
+    warn "Artifact size unavailable because the stream/no-cache header probe was bypassed"
   fi
 
   remove_stream_cache_for_image_ref "$image_ref"
