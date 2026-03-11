@@ -111,6 +111,9 @@ _META_GPU_STATS_CACHE_LOCK = threading.Lock()
 _META_GPU_STATS_CACHE: Optional[dict[str, Any]] = None
 _META_GPU_STATS_CACHE_CAPTURED_MONO: Optional[float] = None
 _SECRETISH_ENV_NAME_RE = re.compile(r"(SECRET|TOKEN|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY)", re.IGNORECASE)
+_DOCKER_LOG_LINE_RE = re.compile(r"^(?P<ts>\d{4}-\d{2}-\d{2}T[^\s]+)\s+(?P<body>.*)$")
+_PIXEL_STREAMING_CMD_RE = re.compile(r"LogPixelStreaming:\s*(?P<command>.+?)\s*$")
+_KOKORO_PREFIX_RE = re.compile(r"^TTS_Kokoro_", re.IGNORECASE)
 
 
 def _meta_gpu_stats_ttl_seconds() -> float:
@@ -151,6 +154,170 @@ def _meta_unreal_game_log_tail_chars() -> int:
     if value > 50_000:
         value = 50_000
     return value
+
+
+def _parse_log_line_timestamp(line: str) -> Optional[str]:
+    match = _DOCKER_LOG_LINE_RE.match(line.strip())
+    if not match:
+        return None
+    ts = match.group("ts").strip()
+    try:
+        datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    return ts
+
+
+def _log_line_body(line: str) -> str:
+    match = _DOCKER_LOG_LINE_RE.match(line.strip())
+    if not match:
+        return line.strip()
+    return match.group("body").strip()
+
+
+def _command_family(command: str) -> str:
+    upper = command.strip().upper()
+    if upper.startswith(("CAMSHOT.", "CAMSTREAM.", "VIEW.")):
+        return "camera"
+    if upper.startswith(("EMOTE", "CONVO.")):
+        return "emotion"
+    if upper.startswith(("PRS.", "SKC", "EYE", "MT", "MKUP", "HS", "HCR", "HCG", "HCB", "HAIR", "OF", "OFC", "OFCD")):
+        return "customization"
+    if upper.startswith(("BLOOM", "EXPO", "VIG", "CHROME", "GRAIN", "CG", "CGG")):
+        return "postfx"
+    if upper.startswith(("SPWN", "DL", "LIGHT.", "SCENE")):
+        return "scene"
+    if _KOKORO_PREFIX_RE.match(command.strip()):
+        return "kokoro"
+    return "other"
+
+
+def _safe_command_name(command: str) -> str:
+    stripped = command.strip()
+    if _KOKORO_PREFIX_RE.match(stripped):
+        return "TTS_Kokoro_"
+    return stripped
+
+
+def _append_runtime_event(
+    events: list[dict[str, Any]],
+    *,
+    ts: Optional[str],
+    kind: str,
+    command_family: Optional[str] = None,
+    command_name: Optional[str] = None,
+    source_hint: Optional[str] = None,
+    detail: Optional[str] = None,
+) -> None:
+    events.append(
+        {
+            "event_id": f"evt_{len(events) + 1:06d}",
+            "ts": ts,
+            "kind": kind,
+            "command_family": command_family,
+            "command_name": command_name,
+            "source_hint": source_hint,
+            "detail": detail,
+        }
+    )
+
+
+def _runtime_summary_from_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    families = ("camera", "emotion", "customization", "postfx", "scene", "kokoro", "other")
+    summary: dict[str, Any] = {
+        "window_started_at": None,
+        "window_ended_at": None,
+        "total_command_receipts": 0,
+        "kokoro_started_count": 0,
+        "kokoro_session_created_count": 0,
+        "kokoro_failed_count": 0,
+        "kokoro_cancelled_count": 0,
+        "lipsync_warning_count": 0,
+        "warning_count": 0,
+    }
+    for family in families:
+        summary[f"{family}_count"] = 0
+
+    timestamps = [event["ts"] for event in events if event.get("ts")]
+    if timestamps:
+        summary["window_started_at"] = timestamps[0]
+        summary["window_ended_at"] = timestamps[-1]
+
+    for event in events:
+        kind = event.get("kind")
+        family = event.get("command_family")
+        if kind == "command_received":
+            summary["total_command_receipts"] += 1
+            if family in families:
+                summary[f"{family}_count"] += 1
+        elif kind == "tts_started":
+            summary["kokoro_started_count"] += 1
+        elif kind == "tts_session_created":
+            summary["kokoro_session_created_count"] += 1
+        elif kind == "tts_failed":
+            summary["kokoro_failed_count"] += 1
+        elif kind == "tts_cancelled":
+            summary["kokoro_cancelled_count"] += 1
+        elif kind == "lipsync_warning":
+            summary["lipsync_warning_count"] += 1
+            summary["warning_count"] += 1
+        elif kind == "runtime_warning":
+            summary["warning_count"] += 1
+
+    return summary
+
+
+def _runtime_events_from_logs(logs_tail: str, *, container_state: Optional[dict[str, Any]] = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for raw_line in logs_tail.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        ts = _parse_log_line_timestamp(line)
+        body = _log_line_body(line)
+
+        command_match = _PIXEL_STREAMING_CMD_RE.search(body)
+        if command_match:
+            command = command_match.group("command").strip()
+            _append_runtime_event(
+                events,
+                ts=ts,
+                kind="command_received",
+                command_family=_command_family(command),
+                command_name=_safe_command_name(command),
+                source_hint="pixel_streaming",
+            )
+            continue
+
+        if "LogRuntimeTTS: Creating new Kokoro session" in body:
+            _append_runtime_event(events, ts=ts, kind="tts_started", command_family="kokoro", source_hint="runtime_tts")
+            continue
+        if "LogRuntimeTTS: Created Kokoro session" in body:
+            _append_runtime_event(events, ts=ts, kind="tts_session_created", command_family="kokoro", source_hint="runtime_tts")
+            continue
+        if "LogPiper: Kokoro synthesis cancelled" in body:
+            _append_runtime_event(events, ts=ts, kind="tts_cancelled", command_family="kokoro", source_hint="piper")
+            continue
+        if "LogRuntimeTTS: Error:" in body:
+            _append_runtime_event(events, ts=ts, kind="tts_failed", command_family="kokoro", source_hint="runtime_tts")
+            continue
+        if "LogRuntimeMetaHumanLipSync: Warning:" in body:
+            _append_runtime_event(events, ts=ts, kind="lipsync_warning", source_hint="metahuman_lipsync")
+            continue
+        if "Warning:" in body:
+            _append_runtime_event(events, ts=ts, kind="runtime_warning")
+
+    if container_state:
+        synthetic_ts = datetime.now(timezone.utc).isoformat()
+        if container_state.get("oom_killed"):
+            _append_runtime_event(events, ts=synthetic_ts, kind="runtime_warning", detail="oom_killed")
+        health_status = (container_state.get("health_status") or "").strip().lower()
+        if health_status and health_status not in {"healthy", "starting"}:
+            _append_runtime_event(events, ts=synthetic_ts, kind="runtime_warning", detail=f"health_status:{health_status}")
+        if container_state.get("restarting"):
+            _append_runtime_event(events, ts=synthetic_ts, kind="runtime_warning", detail="container_restarting")
+
+    return events, _runtime_summary_from_events(events)
 
 
 class PowerState(BaseModel):
@@ -1514,6 +1681,15 @@ def _unreal_game_diagnostics(*, project_name: str | None = None) -> dict[str, An
     except Exception as exc:  # pragma: no cover - defensive
         logs_error = str(exc)
 
+    runtime_events_tail, runtime_summary = _runtime_events_from_logs(
+        logs_tail,
+        container_state={
+            "health_status": health.get("Status"),
+            "oom_killed": state.get("OOMKilled"),
+            "restarting": state.get("Restarting"),
+        },
+    )
+
     return {
         "found": True,
         "service": POWER_GAME_SERVICE,
@@ -1534,6 +1710,8 @@ def _unreal_game_diagnostics(*, project_name: str | None = None) -> dict[str, An
             },
         },
         "logs_tail": logs_tail,
+        "runtime_events_tail": runtime_events_tail,
+        "runtime_summary": runtime_summary,
         "log_tail_lines": log_tail_lines,
         "log_tail_chars": len(logs_tail),
         "logs_error": logs_error,

@@ -1674,3 +1674,76 @@ def test_unreal_game_diagnostics_endpoint_returns_log_tail(power_app, monkeypatc
     assert data["container"]["state"]["health_status"] == "healthy"
     assert "CAMSHOT.ExtremeClose" in data["logs_tail"]
     assert "super-secret-token" not in data["logs_tail"]
+    assert data["runtime_summary"]["total_command_receipts"] == 1
+    assert data["runtime_summary"]["camera_count"] == 1
+    assert data["runtime_summary"]["warning_count"] == 0
+    assert data["runtime_events_tail"][0]["kind"] == "command_received"
+    assert data["runtime_events_tail"][0]["command_family"] == "camera"
+    assert data["runtime_events_tail"][0]["command_name"] == "CAMSHOT.ExtremeClose"
+
+
+def test_unreal_game_diagnostics_endpoint_structures_kokoro_runtime_events(power_app, monkeypatch):
+    app, svc = power_app
+    client = TestClient(app)
+
+    class DummyContainer:
+        name = "vtuber-unreal-game"
+        status = "running"
+        labels = {"com.docker.compose.service": "unreal-game"}
+
+        def __init__(self):
+            self.attrs = {
+                "State": {
+                    "Status": "running",
+                    "Running": True,
+                    "Restarting": False,
+                    "OOMKilled": False,
+                    "Dead": False,
+                    "ExitCode": 0,
+                    "Error": "",
+                    "StartedAt": "2026-03-10T18:00:00Z",
+                    "FinishedAt": "",
+                    "Health": {"Status": "healthy"},
+                },
+                "RestartCount": 0,
+            }
+
+            class _Image:
+                id = "sha256:def456"
+
+            self.image = _Image()
+
+        def reload(self) -> None:  # pragma: no cover - used by service code
+            return None
+
+        def logs(self, stdout=True, stderr=True, tail=0, timestamps=True):  # noqa: ARG002
+            return (
+                b"2026-03-10T18:00:01Z LogPixelStreaming: TTS_Kokoro_Bella_Happy_0.7_Hello from Kokoro\n"
+                b"2026-03-10T18:00:02Z LogRuntimeTTS: Creating new Kokoro session...\n"
+                b"2026-03-10T18:00:03Z LogRuntimeTTS: Created Kokoro session in 0.3 second(s)\n"
+                b"2026-03-10T18:00:04Z LogRuntimeMetaHumanLipSync: Warning: Audio buffer overflow\n"
+                b"2026-03-10T18:00:05Z LogRuntimeTTS: Error: Synthesis failed\n"
+                b"2026-03-10T18:00:06Z LogPiper: Kokoro synthesis cancelled after inference\n"
+                b"2026-03-10T18:00:07Z Warning: Renderer hitch\n"
+            )
+
+    monkeypatch.setattr(svc, "_find_container", lambda *args, **kwargs: DummyContainer())
+
+    resp = client.get("/meta/unreal-game/diagnostics")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["found"] is True
+    assert data["runtime_summary"]["total_command_receipts"] == 1
+    assert data["runtime_summary"]["kokoro_count"] == 1
+    assert data["runtime_summary"]["kokoro_started_count"] == 1
+    assert data["runtime_summary"]["kokoro_session_created_count"] == 1
+    assert data["runtime_summary"]["kokoro_failed_count"] == 1
+    assert data["runtime_summary"]["kokoro_cancelled_count"] == 1
+    assert data["runtime_summary"]["lipsync_warning_count"] == 1
+    assert data["runtime_summary"]["warning_count"] == 2
+    assert "Hello from Kokoro" not in json.dumps(data["runtime_events_tail"])
+    assert any(event["kind"] == "tts_started" for event in data["runtime_events_tail"])
+    assert any(event["kind"] == "tts_session_created" for event in data["runtime_events_tail"])
+    assert any(event["kind"] == "tts_failed" for event in data["runtime_events_tail"])
+    assert any(event["kind"] == "tts_cancelled" for event in data["runtime_events_tail"])
+    assert any(event["kind"] == "lipsync_warning" for event in data["runtime_events_tail"])
