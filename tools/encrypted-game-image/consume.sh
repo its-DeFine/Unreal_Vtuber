@@ -1459,7 +1459,7 @@ if [[ "$stream_no_cache" == "1" ]]; then
   probe_rc="$?"
   set -e
   if [[ "$probe_rc" -ne 0 ]]; then
-    if [[ "$probe_rc" -eq 1 && "$allow_stream_no_cache_probe_rescue" == "1" ]]; then
+    if [[ "$allow_stream_no_cache_probe_rescue" == "1" ]]; then
       warn "Artifact header probe failed for stream/no-cache mode; continuing because RESUME_DOWNLOAD_ALLOW_STALE_COMPLETE_CACHE_ON_PROBE_FAILURE=1 is set"
       print_err_tail "curl (header) stderr:" "$curl_head_err"
       write_rollout_state "downloading" "downloading" "artifact header probe failed; continuing in stream/no-cache rescue mode"
