@@ -56,13 +56,11 @@ Use these first when the touched surface matches.
 
 These require a configured host or running stack.
 
-On a clean/default runtime, `script-runner` is parked unless the operator intentionally enables the `script-runner` compose profile. Treat runner-specific checks as conditional in that default mode.
-
 | Command | Scope | Notes |
 | --- | --- | --- |
-| `./scripts/embody_cli.sh health` | quick local host status | Read-only health probes for signaling and orchestrator-health; runner state is only meaningful when `script-runner` is intentionally enabled |
+| `./scripts/embody_cli.sh health` | quick local host status | Read-only health probes for signaling, runner, and orchestrator-health |
 | `./scripts/embody_cli.sh overview` | operator dashboard | Read-only summary of power state, containers, and registration |
-| `./scripts/embody_cli.sh verify` | live host verification | Runtime check for stack readiness and record/download; runner TCP is conditional and should report `SKIP` when `script-runner` is parked from the default runtime |
+| `./scripts/embody_cli.sh verify` | live host verification | Runtime check for runner TCP, record/download, and stack readiness |
 
 ## Privileged Or Operator-Only Commands
 
