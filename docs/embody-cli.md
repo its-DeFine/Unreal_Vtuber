@@ -60,10 +60,9 @@ q) Quit
       --invite-code <code>
     ```
 - `overview` – compact dashboard (power state, containers, key config)
-- `verify` – health + consistency checks (record/download smoke tests when awake; runner TCP only when `script-runner` is intentionally enabled)
+- `verify` – health + consistency checks (runner TCP + record/download smoke tests when awake)
   - `--fix` recreates runner/recorder if allowlist env drift is detected and auto-fixes common Payments allowlist gaps
   - Also checks outbound HTTPS (needed for presigned uploads) and warns if allowlists look misconfigured
-- Default runtime note: `script-runner` is parked from the default compose path, not removed. Opt in only when needed by enabling the `script-runner` compose profile for a targeted run, then rerun `./scripts/embody_cli.sh verify` if you need the runner TCP check.
 - `payments` – Payments connectivity checks + viewer token helper (when a viewer token is available)
 - `allowlists` – check/fix allowlists needed for Payments-driven workloads (`/power`, runner, recorder)
 - `register` – register orchestrator in Payments (cached; skips when already registered)
@@ -98,7 +97,7 @@ q) Quit
 
 The orchestrator uses allowlists to protect control endpoints:
 
-- Script runner (9877): strict IP string match via `VTUBER_ALLOWED_ADDRESSES` (and optional `RUNNER_API_TOKEN`) when the `script-runner` compose profile is enabled; the clean/default runtime keeps this service parked
+- Script runner (9877): strict IP string match via `VTUBER_ALLOWED_ADDRESSES` (and optional `RUNNER_API_TOKEN`)
 - Recorder control (8889): strict IP string match via `VTUBER_ALLOWED_ADDRESSES` (and optional `RECORDINGS_API_TOKEN`)
 - Power API (9090): CIDR-aware allowlist via `POWER_ALLOWED_IPS` or `POWER_ALLOWED_IPS_FILE`
 
