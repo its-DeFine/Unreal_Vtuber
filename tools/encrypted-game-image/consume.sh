@@ -1009,6 +1009,13 @@ command -v docker >/dev/null 2>&1 || die "missing dependency: docker"
 command -v age >/dev/null 2>&1 || die "missing dependency: age"
 command -v python3 >/dev/null 2>&1 || die "missing dependency: python3"
 
+# Rescue-oriented transport hardening: some hosts are seeing mid-stream HTTP/2
+# INTERNAL_ERROR failures on large presigned artifact downloads. Keep this scoped
+# to artifact fetches by forcing HTTP/1.1 on the curl paths below.
+artifact_curl_transport_flags=(
+  --http1.1
+)
+
 init_ui
 banner
 
@@ -1371,6 +1378,7 @@ probe_artifact_header() {
   mkdir -p "$(dirname "$prefix_path")" "$(dirname "$headers_path")" "$(dirname "$stderr_path")"
 
   if ! curl -fL \
+    "${artifact_curl_transport_flags[@]}" \
     --connect-timeout 10 \
     --max-time 20 \
     --retry 2 \
@@ -1501,6 +1509,7 @@ if [[ "$stream_no_cache" == "1" ]]; then
 
   set +e
   curl -fL \
+    "${artifact_curl_transport_flags[@]}" \
     --connect-timeout 10 \
     --retry 2 \
     --retry-delay 1 \
