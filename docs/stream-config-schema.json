@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stream-config-schema.json",
+  "title": "PixelStreaming Stream Config",
+  "description": "Schema for PixelStreaming2 config keys used by the Unreal VTuber stack. Maps to values in pixel-streaming/config/*.ini.",
+  "type": "object",
+  "properties": {
+    "Codec": {
+      "type": "string",
+      "enum": ["H264", "VP8", "VP9", "AV1"],
+      "default": "H264",
+      "description": "Video codec for the PixelStreaming2 WebRTC stream. H264 is required for stable RTMP passthrough."
+    },
+    "LatencyMode": {
+      "type": "string",
+      "enum": ["UltraLowLatency", "LowLatency", "Default"],
+      "default": "LowLatency",
+      "description": "Encoder latency mode. LowLatency allows periodic keyframes while keeping lag low; UltraLowLatency can suppress IDR frames and degrade quality over long sessions."
+    },
+    "KeyframeInterval": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 60,
+      "description": "Frames between forced IDR keyframes. 60 ~= 2s at 30fps, matching Twitch ingest guidance. Ensures decoders and RTMP pipelines can recover from drift."
+    },
+    "H264Profile": {
+      "type": "string",
+      "enum": ["Baseline", "Main", "High"],
+      "default": "Baseline",
+      "description": "H.264 encoding profile. Baseline provides the broadest decoder compatibility."
+    },
+    "WebRTCNegotiateCodecs": {
+      "type": "boolean",
+      "default": true,
+      "description": "When true, PixelStreaming2 negotiates codec preferences with the peer. CodecPreferences constrains the negotiation result."
+    },
+    "TargetBitrate": {
+      "type": "integer",
+      "minimum": 1000000,
+      "default": 45000000,
+      "description": "Target encoder bitrate in bits/s. Set via PixelStreaming.Encoder.TargetBitrate console variable."
+    },
+    "MaxBitrate": {
+      "type": "integer",
+      "minimum": 1000000,
+      "default": 52000000,
+      "description": "Maximum encoder bitrate in bits/s. Caps the encoder ceiling for CBR mode."
+    },
+    "MinQP": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 51,
+      "default": 8,
+      "description": "Minimum quantization parameter (lower = higher quality). Controls the quality floor."
+    },
+    "MaxQP": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 51,
+      "default": 28,
+      "description": "Maximum quantization parameter (higher = more compression). Controls the quality ceiling."
+    },
+    "ResolutionSizeX": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1920,
+      "description": "Horizontal render resolution in pixels. Set in GameUserSettings.ini."
+    },
+    "ResolutionSizeY": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1080,
+      "description": "Vertical render resolution in pixels. Set in GameUserSettings.ini."
+    },
+    "MaxFPS": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 60,
+      "description": "Maximum framerate cap via t.MaxFPS console variable."
+    }
+  },
+  "required": ["Codec", "LatencyMode", "KeyframeInterval"]
+}

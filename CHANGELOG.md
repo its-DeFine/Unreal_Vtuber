@@ -4,6 +4,8 @@
 
 Changes merged after `v1.3.6` (current tagged release).
 
+- [TEST] Stream Config Schema: add JSON schema (`docs/stream-config-schema.json`) and reference doc (`docs/stream-config-schema.md`) for PixelStreaming2 config keys.
+
 - Fix: CLI overview no longer clobbers PATH when parsing rollout/verify state files (restores python3 detection in minimal hosts).
 - Ops: `/ops/upgrade` can optionally force-recreate `unreal-game` remotely (`recreate_game=true`) while sleeping.
 - Ops: `/ops/upgrade` can force-recreate the full compose stack (`recreate_all=true`) for clean restarts (ex: resolve container conflicts).
