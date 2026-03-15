@@ -94,6 +94,7 @@ _PROJECT_LAST_REASON: dict[str, str] = {}
 _PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _DOCKER_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
+_ENV_PATCH_ALLOWED_KEYS: frozenset[str] = frozenset({"EDGE_CONFIG_URL", "EDGE_CONFIG_TOKEN"})
 
 _NVIDIA_SMI_QUERY = [
     "nvidia-smi",
@@ -414,6 +415,14 @@ class OpsUpgradeRequest(BaseModel):
             "in the host .env. If apply=true, also auto-recreates orchestrator-health + edge-rotator."
         ),
     )
+    env_patch: Optional[dict[str, str]] = Field(
+        default=None,
+        description=(
+            "Optional key=value pairs to write/update in the host .env. "
+            f"Allowed keys: {', '.join(sorted(_ENV_PATCH_ALLOWED_KEYS))}. "
+            "If apply=true and a rotator-relevant key is patched, auto-recreates orchestrator-edge-rotator."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_upgrade_args(self) -> "OpsUpgradeRequest":
@@ -459,6 +468,18 @@ class OpsUpgradeRequest(BaseModel):
                 seen.add(canon)
                 normalized.append(canon)
             self.ops_allow_cidrs = normalized or None
+
+        if self.env_patch is not None:
+            for key, val in self.env_patch.items():
+                if key not in _ENV_PATCH_ALLOWED_KEYS:
+                    raise ValueError(
+                        f"env_patch key '{key}' is not allowed; permitted: {sorted(_ENV_PATCH_ALLOWED_KEYS)}"
+                    )
+                if not isinstance(val, str):
+                    raise ValueError(f"env_patch value for '{key}' must be a string")
+                if "\x00" in val or "\n" in val or "\r" in val:
+                    raise ValueError(f"env_patch value for '{key}' contains invalid characters")
+            self.env_patch = {k: v for k, v in self.env_patch.items()} or None
 
         return self
 
@@ -2309,9 +2330,53 @@ def ops_upgrade(
         if set_ops_allow["exit_code"] != 0:
             return {"ok": False, "exit_code": set_ops_allow["exit_code"], "steps": steps}
 
+    env_patch_requested = bool(payload.env_patch)
+    if env_patch_requested:
+        updates = json.dumps(payload.env_patch, separators=(",", ":"))
+        code = (
+            "import json,pathlib,sys\n"
+            "path=pathlib.Path(sys.argv[1])\n"
+            "updates=json.loads(sys.argv[2])\n"
+            "lines=path.read_text(encoding='utf-8').splitlines(True) if path.exists() else []\n"
+            "out=[]\n"
+            "seen=set()\n"
+            "for line in lines:\n"
+            "    replaced=False\n"
+            "    for key,val in updates.items():\n"
+            "        if line.startswith(f'{key}='):\n"
+            "            if key not in seen:\n"
+            "                out.append(f'{key}={val}\\n')\n"
+            "                seen.add(key)\n"
+            "            replaced=True\n"
+            "            break\n"
+            "    if not replaced:\n"
+            "        out.append(line)\n"
+            "for key,val in updates.items():\n"
+            "    if key in seen:\n"
+            "        continue\n"
+            "    if out and not out[-1].endswith('\\n'):\n"
+            "        out[-1]=out[-1]+'\\n'\n"
+            "    out.append(f'{key}={val}\\n')\n"
+            "path.parent.mkdir(parents=True, exist_ok=True)\n"
+            "path.write_text(''.join(out), encoding='utf-8')\n"
+        )
+        set_env_patch = run_step("set_env_patch", ["python3", "-c", code, env_file, updates])
+        if set_env_patch["exit_code"] != 0:
+            return {"ok": False, "exit_code": set_env_patch["exit_code"], "steps": steps}
+
+    # rotator-relevant keys changed → auto-recreate edge-rotator when apply=true
+    _ROTATOR_KEYS = {"EDGE_CONFIG_URL", "EDGE_CONFIG_TOKEN"}
+    env_patch_touches_rotator = env_patch_requested and bool(
+        _ROTATOR_KEYS & set(payload.env_patch or {})
+    )
+
     if payload.apply:
         recreate_orchestrator_health = payload.recreate_orchestrator_health or ops_allowlist_requested
-        recreate_orchestrator_edge_rotator = payload.recreate_orchestrator_edge_rotator or ops_allowlist_requested
+        recreate_orchestrator_edge_rotator = (
+            payload.recreate_orchestrator_edge_rotator
+            or ops_allowlist_requested
+            or env_patch_touches_rotator
+        )
         _detect_compose_identity()
         host_project = (POWER_PROJECT_NAME or os.environ.get("COMPOSE_PROJECT_NAME") or "unreal_vtuber").strip()
         host_project = _validate_compose_project_name(host_project)
