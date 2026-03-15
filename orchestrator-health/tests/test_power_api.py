@@ -1747,3 +1747,139 @@ def test_unreal_game_diagnostics_endpoint_structures_kokoro_runtime_events(power
     assert any(event["kind"] == "tts_failed" for event in data["runtime_events_tail"])
     assert any(event["kind"] == "tts_cancelled" for event in data["runtime_events_tail"])
     assert any(event["kind"] == "lipsync_warning" for event in data["runtime_events_tail"])
+
+
+# ---------------------------------------------------------------------------
+# env_patch validation
+# ---------------------------------------------------------------------------
+
+
+def test_ops_upgrade_rejects_unknown_env_patch_key(ops_app):
+    app, _svc = ops_app
+    client = TestClient(app)
+    resp = client.post("/ops/upgrade", json={"env_patch": {"DANGER_KEY": "val"}})
+    assert resp.status_code == 422
+
+
+def test_ops_upgrade_rejects_env_patch_newline_in_value(ops_app):
+    app, _svc = ops_app
+    client = TestClient(app)
+    resp = client.post("/ops/upgrade", json={"env_patch": {"EDGE_CONFIG_TOKEN": "val\nINJECTED=1"}})
+    assert resp.status_code == 422
+
+
+def test_ops_upgrade_rejects_env_patch_null_byte_in_value(ops_app):
+    app, _svc = ops_app
+    client = TestClient(app)
+    resp = client.post("/ops/upgrade", json={"env_patch": {"EDGE_CONFIG_TOKEN": "val\x00bad"}})
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# env_patch handler — step emitted, other .env lines preserved
+# ---------------------------------------------------------------------------
+
+
+def test_ops_upgrade_sets_env_patch(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+
+    class DummyResult:
+        def __init__(self, exit_code: int = 0, stdout: str = "", stderr: str = ""):
+            self.exit_code = exit_code
+            self.output = (stdout.encode("utf-8"), stderr.encode("utf-8"))
+
+    class DummyExecutor:
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            git_prefix = ["git", "-c", "safe.directory=/tmp/repo", "-C", "/tmp/repo"]
+            if cmd[: len(git_prefix)] == git_prefix:
+                git_cmd = cmd[len(git_prefix) :]
+                if git_cmd[:3] == ["rev-parse", "--is-inside-work-tree"]:
+                    return DummyResult(stdout="true\n")
+                if git_cmd[:2] == ["status", "--porcelain"]:
+                    return DummyResult(stdout="")
+                if git_cmd[:3] == ["rev-parse", "--short", "HEAD"]:
+                    return DummyResult(stdout="abc123\n")
+            return DummyResult(stdout="")
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post(
+        "/ops/upgrade",
+        json={"apply": False, "env_patch": {"EDGE_CONFIG_TOKEN": "newtoken123"}},
+    )
+    assert resp.status_code == 200
+    names = [step.get("name") for step in resp.json()["steps"]]
+    assert "set_env_patch" in names
+
+
+# ---------------------------------------------------------------------------
+# env_patch with rotator key + apply=True auto-recreates edge-rotator
+# ---------------------------------------------------------------------------
+
+
+def test_ops_upgrade_env_patch_rotator_key_auto_recreates_edge_rotator(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_detect_compose_identity", lambda: None)
+    monkeypatch.setattr(svc, "_read_power_state", lambda: svc.PowerState(state="sleeping"))
+
+    class DummyResult:
+        def __init__(self, exit_code: int = 0, stdout: str = "", stderr: str = ""):
+            self.exit_code = exit_code
+            self.output = (stdout.encode("utf-8"), stderr.encode("utf-8"))
+
+    class DummyContainer:
+        def __init__(self, service: str):
+            self.labels = {"com.docker.compose.service": service}
+
+    monkeypatch.setattr(
+        svc,
+        "_list_project_containers",
+        lambda _project=None: [  # noqa: ARG005
+            DummyContainer("turn-server"),
+            DummyContainer("orchestrator-health"),
+            DummyContainer("orchestrator-edge-rotator"),
+        ],
+    )
+
+    recreate_calls: list[list] = []
+
+    class DummyExecutor:
+        image = type("Img", (), {"id": "sha256:deadbeef"})()
+
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            git_prefix = ["git", "-c", "safe.directory=/tmp/repo", "-C", "/tmp/repo"]
+            if cmd[: len(git_prefix)] == git_prefix:
+                git_cmd = cmd[len(git_prefix) :]
+                if git_cmd[:3] == ["rev-parse", "--is-inside-work-tree"]:
+                    return DummyResult(stdout="true\n")
+                if git_cmd[:2] == ["status", "--porcelain"]:
+                    return DummyResult(stdout="")
+                if git_cmd[:3] == ["rev-parse", "--short", "HEAD"]:
+                    return DummyResult(stdout="abc123\n")
+                return DummyResult(stdout="")
+            if cmd[:2] == ["docker", "compose"]:
+                assert "orchestrator-edge-rotator" not in cmd
+                return DummyResult(stdout="")
+            if cmd[:3] == ["docker", "run", "-d"]:
+                recreate_calls.append(cmd)
+                return DummyResult(stdout="job123\n")
+            return DummyResult(stdout="")
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post(
+        "/ops/upgrade",
+        json={"apply": True, "env_patch": {"EDGE_CONFIG_TOKEN": "newtoken123"}},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    # auto-recreate of edge-rotator should have been scheduled
+    assert any("orchestrator-edge-rotator" in " ".join(str(x) for x in cmd) for cmd in recreate_calls)
