@@ -95,6 +95,8 @@ _PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _DOCKER_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 _ENV_PATCH_ALLOWED_KEYS: frozenset[str] = frozenset({"EDGE_CONFIG_URL", "EDGE_CONFIG_TOKEN"})
+# All currently allowed keys are rotator-relevant; keep in sync if new non-rotator keys are added.
+_ENV_PATCH_ROTATOR_KEYS: frozenset[str] = _ENV_PATCH_ALLOWED_KEYS
 
 _NVIDIA_SMI_QUERY = [
     "nvidia-smi",
@@ -475,11 +477,9 @@ class OpsUpgradeRequest(BaseModel):
                     raise ValueError(
                         f"env_patch key '{key}' is not allowed; permitted: {sorted(_ENV_PATCH_ALLOWED_KEYS)}"
                     )
-                if not isinstance(val, str):
-                    raise ValueError(f"env_patch value for '{key}' must be a string")
                 if "\x00" in val or "\n" in val or "\r" in val:
                     raise ValueError(f"env_patch value for '{key}' contains invalid characters")
-            self.env_patch = {k: v for k, v in self.env_patch.items()} or None
+            self.env_patch = self.env_patch or None
 
         return self
 
@@ -2365,9 +2365,8 @@ def ops_upgrade(
             return {"ok": False, "exit_code": set_env_patch["exit_code"], "steps": steps}
 
     # rotator-relevant keys changed → auto-recreate edge-rotator when apply=true
-    _ROTATOR_KEYS = {"EDGE_CONFIG_URL", "EDGE_CONFIG_TOKEN"}
     env_patch_touches_rotator = env_patch_requested and bool(
-        _ROTATOR_KEYS & set(payload.env_patch or {})
+        _ENV_PATCH_ROTATOR_KEYS & set(payload.env_patch or {})
     )
 
     if payload.apply:

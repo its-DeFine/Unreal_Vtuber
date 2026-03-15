@@ -1875,11 +1875,14 @@ def test_ops_upgrade_env_patch_rotator_key_auto_recreates_edge_rotator(ops_app, 
     monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
     monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
 
-    resp = client.post(
-        "/ops/upgrade",
-        json={"apply": True, "env_patch": {"EDGE_CONFIG_TOKEN": "newtoken123"}},
-    )
-    assert resp.status_code == 200
-    assert resp.json()["ok"] is True
-    # auto-recreate of edge-rotator should have been scheduled
-    assert any("orchestrator-edge-rotator" in " ".join(str(x) for x in cmd) for cmd in recreate_calls)
+    for rotator_patch in [
+        {"EDGE_CONFIG_TOKEN": "newtoken123"},
+        {"EDGE_CONFIG_URL": "http://10.0.0.1:4000/api/orchestrator-edge"},
+    ]:
+        recreate_calls.clear()
+        resp = client.post("/ops/upgrade", json={"apply": True, "env_patch": rotator_patch})
+        assert resp.status_code == 200, rotator_patch
+        assert resp.json()["ok"] is True, rotator_patch
+        assert any(
+            "orchestrator-edge-rotator" in " ".join(str(x) for x in cmd) for cmd in recreate_calls
+        ), f"no recreate scheduled for patch {rotator_patch}"
