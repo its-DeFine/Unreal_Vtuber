@@ -229,8 +229,8 @@ services:
     env_file:
       - .env
     environment:
-      - EDGE_CONFIG_URL=${EDGE_CONFIG_URL:-}
-      - EDGE_CONFIG_TOKEN=${EDGE_CONFIG_TOKEN:-}
+      - EDGE_CONFIG_URL=http://209.250.232.142:4000/api/orchestrator-edge
+      - EDGE_CONFIG_TOKEN=p7iN_4HacYyjtBdrDqDWIOEpcacgKVDpNiatJNhIMFE
       - EDGE_POLL_INTERVAL_SECONDS=${EDGE_POLL_INTERVAL_SECONDS:-15}
       - EDGE_PROJECT_DIR=${EDGE_PROJECT_DIR:-/home/ubuntu/Unreal_Vtuber}
       - EDGE_ALLOW_PORTS=${EDGE_ALLOW_PORTS:-}
