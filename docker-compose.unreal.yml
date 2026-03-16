@@ -95,7 +95,7 @@ services:
       - PIXEL_STREAMING_URL=ws://unreal-signaling:8888
       - HOST_ULIMIT_NOFILE=1040
       - ULIMIT_NOFILE=1040
-      - HOST_LIB_PATHS=/host-libs/usr/lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:/host-libs/lib64:/host-libs/usr/lib64:/host-libs/usr/lib/nvidia
+      - HOST_LIB_PATHS=${HOST_LIB_PATHS:-/host-libs/usr/lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:/host-libs/lib64:/host-libs/usr/lib64:/host-libs/usr/lib/nvidia}
       - EMBODY_EXTRA_ARGS=${EMBODY_EXTRA_ARGS:--ForceRes -ResX=1920 -ResY=1080 -PixelStreamingAutoStartStream=true -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9}
       - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
