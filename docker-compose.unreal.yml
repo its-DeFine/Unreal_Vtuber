@@ -95,19 +95,10 @@ services:
       - PIXEL_STREAMING_URL=ws://unreal-signaling:8888
       - HOST_ULIMIT_NOFILE=1040
       - ULIMIT_NOFILE=1040
-      - HOST_LIB_PATHS=/host-libs/usr/lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:/host-libs/lib64:/host-libs/usr/lib64:/host-libs/usr/lib/nvidia
       - EMBODY_EXTRA_ARGS=${EMBODY_EXTRA_ARGS:--ForceRes -ResX=1920 -ResY=1080 -PixelStreamingAutoStartStream=true -PixelStreamingAllowCodecNames=H264 -PixelStreamingDisableVP8 -PixelStreamingDisableVP9}
       - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
     volumes:
-      - /usr/lib/x86_64-linux-gnu:/host-libs/usr/lib/x86_64-linux-gnu:ro
-      - /lib/x86_64-linux-gnu:/host-libs/lib/x86_64-linux-gnu:ro
-      - /lib64:/host-libs/lib64:ro
-      - /usr/lib64:/host-libs/usr/lib64:ro
-      - /usr/lib/nvidia:/host-libs/usr/lib/nvidia:ro
-      - /usr/share/vulkan:/host-libs/usr/share/vulkan:ro
-      - /etc/vulkan:/host-libs/etc/vulkan:ro
-      - /usr/share/glvnd:/host-libs/usr/share/glvnd:ro
       - ${VTUBER_CONSOLE_VARIABLES_FILE:-./pixel-streaming/config/ConsoleVariables.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/ConsoleVariables.ini:ro
       # PixelStreaming2 codec control (UE5.4+/UE5.5+ ignores many legacy CLI flags).
       - ${VTUBER_ENGINE_INI_FILE:-./pixel-streaming/config/Engine.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/Engine.ini:ro
