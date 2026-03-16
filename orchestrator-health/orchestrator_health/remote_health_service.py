@@ -425,6 +425,14 @@ class OpsUpgradeRequest(BaseModel):
             "If apply=true and a rotator-relevant key is patched, auto-recreates orchestrator-edge-rotator."
         ),
     )
+    compose_down_up: bool = Field(
+        default=False,
+        description=(
+            "If true (and apply=true), use 'docker compose rm -f -s' + 'docker compose up' instead of "
+            "'docker compose up --force-recreate'. Required when volume mounts have changed, since "
+            "force-recreate does not update volumes on existing containers."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validate_upgrade_args(self) -> "OpsUpgradeRequest":
@@ -2187,6 +2195,8 @@ def ops_upgrade(
         raise HTTPException(status_code=400, detail="recreate_orchestrator_health requires apply=true")
     if payload.recreate_orchestrator_edge_rotator and (not payload.apply):
         raise HTTPException(status_code=400, detail="recreate_orchestrator_edge_rotator requires apply=true")
+    if payload.compose_down_up and (not payload.apply):
+        raise HTTPException(status_code=400, detail="compose_down_up requires apply=true")
     project_dir = _cluster_project_dir()
     if not project_dir:
         raise HTTPException(status_code=500, detail="invalid ORCHESTRATOR_PROJECT_DIR")
@@ -2504,7 +2514,7 @@ def ops_upgrade(
                 ],
             )
         if services_recreate:
-            recreate_args = [
+            compose_prefix = [
                 "docker",
                 "compose",
                 "-p",
@@ -2515,14 +2525,26 @@ def ops_upgrade(
                 env_file,
                 "-f",
                 compose_file,
-                "up",
             ]
-            if power_state.state == "sleeping":
-                recreate_args.append("--no-start")
+            if payload.compose_down_up:
+                # rm -f -s: stop + remove targeted containers (clears stale volume mounts)
+                run_step("compose_rm", [*compose_prefix, "rm", "-f", "-s", *services_recreate])
+                # up: recreate with fresh volume config
+                up_args = [*compose_prefix, "up"]
+                if power_state.state == "sleeping":
+                    up_args.append("--no-start")
+                else:
+                    up_args.append("-d")
+                up_args.extend(["--no-deps", *services_recreate])
+                run_step("compose_up", up_args)
             else:
-                recreate_args.append("-d")
-            recreate_args.extend(["--no-deps", "--force-recreate", *services_recreate])
-            run_step("compose_recreate", recreate_args)
+                recreate_args = [*compose_prefix, "up"]
+                if power_state.state == "sleeping":
+                    recreate_args.append("--no-start")
+                else:
+                    recreate_args.append("-d")
+                recreate_args.extend(["--no-deps", "--force-recreate", *services_recreate])
+                run_step("compose_recreate", recreate_args)
 
         compose_base = [
             "docker",
