@@ -94,7 +94,10 @@ _PROJECT_LAST_REASON: dict[str, str] = {}
 _PROJECT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _DOCKER_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
-_ENV_PATCH_ALLOWED_KEYS: frozenset[str] = frozenset({"EDGE_CONFIG_URL", "EDGE_CONFIG_TOKEN", "EDGE_UPDATE_TURN"})
+_ENV_PATCH_ALLOWED_KEYS: frozenset[str] = frozenset({
+    "EDGE_CONFIG_URL", "EDGE_CONFIG_TOKEN", "EDGE_UPDATE_TURN",
+    "CF_TURN_TOKEN_ID", "CF_TURN_API_TOKEN", "CF_TURN_TTL", "CF_TURN_RELAY_ONLY",
+})
 # Keys that trigger an edge-rotator recreate when changed.
 _ENV_PATCH_ROTATOR_KEYS: frozenset[str] = _ENV_PATCH_ALLOWED_KEYS
 
