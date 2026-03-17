@@ -97,9 +97,10 @@ _GIT_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 _ENV_PATCH_ALLOWED_KEYS: frozenset[str] = frozenset({
     "EDGE_CONFIG_URL", "EDGE_CONFIG_TOKEN", "EDGE_UPDATE_TURN",
     "CF_TURN_TOKEN_ID", "CF_TURN_API_TOKEN", "CF_TURN_TTL", "CF_TURN_RELAY_ONLY",
+    "SIGNALING_EXTRA_ARGS",
 })
-# Keys that trigger an edge-rotator recreate when changed.
-_ENV_PATCH_ROTATOR_KEYS: frozenset[str] = _ENV_PATCH_ALLOWED_KEYS
+# Keys that trigger an edge-rotator recreate when changed — excludes SIGNALING_EXTRA_ARGS.
+_ENV_PATCH_ROTATOR_KEYS: frozenset[str] = _ENV_PATCH_ALLOWED_KEYS - {"SIGNALING_EXTRA_ARGS"}
 
 _NVIDIA_SMI_QUERY = [
     "nvidia-smi",
