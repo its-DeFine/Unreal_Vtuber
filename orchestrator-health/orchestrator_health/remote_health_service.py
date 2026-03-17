@@ -536,6 +536,13 @@ class OpsExportImageRequest(BaseModel):
     zstd_level: int = Field(default=3, ge=1, le=19, description="Zstd compression level.")
 
 
+class OpsLoadImageRequest(BaseModel):
+    url: str = Field(description="URL to a .tar.zst compressed Docker image (supports S3 auth via credentials).")
+    tag: str = Field(default="latest", description="Tag to apply to the loaded image.")
+    minio_access_key: str = Field(default="", description="Minio/S3 access key (for authenticated URLs).")
+    minio_secret_key: str = Field(default="", description="Minio/S3 secret key.")
+
+
 def _env_truthy(key: str, default: bool = False) -> bool:
     raw = os.environ.get(key)
     if raw is None:
@@ -2920,6 +2927,73 @@ def ops_export_image(
         "image_id": image_id,
         "log_path": log_path,
         "note": "Export running in background. Check log_path for progress.",
+    }
+
+
+@app.post("/ops/load-image")
+def ops_load_image(
+    payload: OpsLoadImageRequest,
+    request: Request,
+    _: Any = Depends(_require_ops_action),
+) -> dict[str, Any]:
+    """EXPERIMENTAL: download a zstd-compressed Docker image from a URL and load it.
+
+    Spawns a background container that runs: curl <url> | zstd -d | docker load.
+    Optionally tags the loaded image as :latest.
+    """
+    url = payload.url.strip()
+    if not url or "\x00" in url or "\n" in url:
+        raise HTTPException(status_code=400, detail="invalid URL")
+
+    executor = _cluster_executor_container()
+    log_path = "/var/lib/vtuber/power-state/ops-load-image.log"
+    helper_name = f"vtuber-ops-load-image-{int(time.time())}"
+
+    helper_image = ""
+    try:
+        helper_image = (getattr(getattr(executor, "image", None), "id", "") or "").strip()
+    except Exception:
+        helper_image = ""
+    if not helper_image:
+        helper_image = (
+            "ghcr.io/its-define/unreal_vtuber/orchestrator-edge-rotator:"
+            f"{os.environ.get('EMBODY_SERVICE_IMAGE_TAG', 'latest')}"
+        )
+
+    curl_auth = ""
+    if payload.minio_access_key and payload.minio_secret_key:
+        curl_auth = f"-u {shlex.quote(payload.minio_access_key)}:{shlex.quote(payload.minio_secret_key)}"
+
+    tag_cmd = ""
+    if payload.tag:
+        tag_game = "ghcr.io/its-define/unreal_vtuber/embody-ue-ps"
+        tag_cmd = f" && docker tag {shlex.quote(tag_game)}:{shlex.quote(payload.tag)} {shlex.quote(tag_game)}:latest"
+
+    full_cmd = (
+        f"echo '[load] Downloading from {url[:80]}...' >> {shlex.quote(log_path)} 2>&1; "
+        f"curl -fsSL {curl_auth} {shlex.quote(url)} | zstd -d | docker load "
+        f">> {shlex.quote(log_path)} 2>&1; "
+        f"echo '[load] docker load exit=$?' >> {shlex.quote(log_path)} 2>&1"
+        f"{tag_cmd}"
+    )
+
+    run_cmd = [
+        "docker", "run", "-d", "--rm",
+        "--name", helper_name,
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
+        "-v", "/var/lib/vtuber/power-state:/var/lib/vtuber/power-state",
+        "--network", "host",
+        helper_image,
+        "sh", "-lc", full_cmd,
+    ]
+
+    run_out = _cluster_executor_exec(executor, run_cmd)
+    return {
+        "ok": run_out.get("exit_code") == 0,
+        "helper_container": helper_name,
+        "url": url[:80],
+        "log_path": log_path,
+        "note": "Download + load running in background. This will take several minutes for large images.",
     }
 
 
