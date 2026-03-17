@@ -2878,8 +2878,9 @@ def ops_export_image(
             f"{os.environ.get('EMBODY_SERVICE_IMAGE_TAG', 'latest')}"
         )
 
+    # Edge-rotator image is Alpine (docker:27-cli) with zstd already installed.
+    # Just need to download mc binary.
     setup_cmd = (
-        "apt-get update -qq && apt-get install -y -qq zstd > /dev/null 2>&1; "
         "curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc "
         "&& chmod +x /usr/local/bin/mc; "
     )
