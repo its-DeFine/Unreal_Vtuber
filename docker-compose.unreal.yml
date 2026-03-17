@@ -56,6 +56,12 @@ services:
       STREAMER_PORT: "8888"
       SFU_PORT: "8889"
       STUN_SERVER: ${STUN_SERVER:-stun.l.google.com:19302}
+      # Cloudflare TURN: set CF_TURN_TOKEN_ID + CF_TURN_API_TOKEN in .env to enable.
+      # When set, the signaling server fetches short-lived TURN credentials at startup.
+      CF_TURN_TOKEN_ID: ${CF_TURN_TOKEN_ID:-}
+      CF_TURN_API_TOKEN: ${CF_TURN_API_TOKEN:-}
+      CF_TURN_TTL: ${CF_TURN_TTL:-86400}
+      CF_TURN_RELAY_ONLY: ${CF_TURN_RELAY_ONLY:-1}
       # Optional additional Wilbur/start.sh CLI flags (example: matchmaker registration).
       SIGNALING_EXTRA_ARGS: "${SIGNALING_EXTRA_ARGS:-} ${SIGNALING_MATCHMAKER_ARGS:-}"
       ENABLE_REST_API: ${ENABLE_REST_API:-0}

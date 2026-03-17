@@ -20,20 +20,57 @@ TURN_USER="${SIGNALING_TURN_USER:-${TURN_USER:-}}"
 TURN_PASS="${SIGNALING_TURN_PASS:-${TURN_PASS:-}}"
 
 ICE_JSON=""
-declare -a ice_urls=()
-if [[ -n "${STUN_SERVER}" ]]; then
-  ice_urls+=("stun:${STUN_SERVER}")
-fi
-if [[ -n "${TURN_SERVER}" ]]; then
-  ice_urls+=("turn:${TURN_SERVER}")
-fi
-if ((${#ice_urls[@]} > 0)); then
-  json_urls=$(printf '"%s",' "${ice_urls[@]}")
-  json_urls="[${json_urls%,}]"
-  if [[ -n "${TURN_SERVER}" && -n "${TURN_USER}" ]]; then
-    ICE_JSON="{\"iceServers\":[{\"urls\":${json_urls},\"username\":\"${TURN_USER}\",\"credential\":\"${TURN_PASS}\"}]}"
+
+# Cloudflare TURN: generate short-lived credentials at startup
+if [[ -n "${CF_TURN_TOKEN_ID:-}" && -n "${CF_TURN_API_TOKEN:-}" ]]; then
+  CF_TTL="${CF_TURN_TTL:-86400}"
+  cf_response=$(curl -fsS --max-time 5 \
+    -H "Authorization: Bearer ${CF_TURN_API_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{\"ttl\": ${CF_TTL}}" \
+    "https://rtc.live.cloudflare.com/v1/turn/keys/${CF_TURN_TOKEN_ID}/credentials/generate" 2>/dev/null || true)
+
+  if [[ -n "${cf_response}" ]]; then
+    ICE_JSON=$(echo "${cf_response}" | node -e "
+      const chunks = [];
+      process.stdin.on('data', c => chunks.push(c));
+      process.stdin.on('end', () => {
+        try {
+          const data = JSON.parse(Buffer.concat(chunks).toString());
+          const ice = data.iceServers;
+          const config = {iceServers: Array.isArray(ice) ? ice : [ice]};
+          if (process.env.CF_TURN_RELAY_ONLY !== '0') config.iceTransportPolicy = 'relay';
+          process.stdout.write(JSON.stringify(config));
+        } catch(e) { process.exit(1); }
+      });" 2>/dev/null || true)
+
+    if [[ -n "${ICE_JSON}" ]]; then
+      echo "[pixel-streaming] Using Cloudflare TURN (TTL=${CF_TTL}s)" >&2
+    else
+      echo "[pixel-streaming] Warning: failed to parse Cloudflare TURN response" >&2
+    fi
   else
-    ICE_JSON="{\"iceServers\":[{\"urls\":${json_urls}}]}"
+    echo "[pixel-streaming] Warning: Cloudflare TURN API unreachable, falling back to static TURN config" >&2
+  fi
+fi
+
+# Static ICE config (skipped if Cloudflare TURN already set ICE_JSON above)
+if [[ -z "${ICE_JSON}" ]]; then
+  declare -a ice_urls=()
+  if [[ -n "${STUN_SERVER}" ]]; then
+    ice_urls+=("stun:${STUN_SERVER}")
+  fi
+  if [[ -n "${TURN_SERVER}" ]]; then
+    ice_urls+=("turn:${TURN_SERVER}")
+  fi
+  if ((${#ice_urls[@]} > 0)); then
+    json_urls=$(printf '"%s",' "${ice_urls[@]}")
+    json_urls="[${json_urls%,}]"
+    if [[ -n "${TURN_SERVER}" && -n "${TURN_USER}" ]]; then
+      ICE_JSON="{\"iceServers\":[{\"urls\":${json_urls},\"username\":\"${TURN_USER}\",\"credential\":\"${TURN_PASS}\"}]}"
+    else
+      ICE_JSON="{\"iceServers\":[{\"urls\":${json_urls}}]}"
+    fi
   fi
 fi
 
