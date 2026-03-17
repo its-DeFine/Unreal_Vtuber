@@ -39,21 +39,57 @@ npm link ../Signalling >/dev/null
 npm run build >/dev/null
 popd > /dev/null
 
-declare -a ICE_URLS=()
-if [[ -n "${STUN_SERVER}" ]]; then
-  ICE_URLS+=("stun:${STUN_SERVER}")
-fi
-if [[ -n "${TURN_SERVER}" ]]; then
-  ICE_URLS+=("turn:${TURN_SERVER}")
+# Cloudflare TURN: generate short-lived credentials at startup
+if [[ -z "${ICE_JSON}" && -n "${CF_TURN_TOKEN_ID:-}" && -n "${CF_TURN_API_TOKEN:-}" ]]; then
+  CF_TTL="${CF_TURN_TTL:-86400}"
+  cf_response=$(curl -fsS --max-time 5 \
+    -H "Authorization: Bearer ${CF_TURN_API_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{\"ttl\": ${CF_TTL}}" \
+    "https://rtc.live.cloudflare.com/v1/turn/keys/${CF_TURN_TOKEN_ID}/credentials/generate" 2>/dev/null || true)
+
+  if [[ -n "${cf_response}" ]]; then
+    ICE_JSON=$(echo "${cf_response}" | node -e "
+      const chunks = [];
+      process.stdin.on('data', c => chunks.push(c));
+      process.stdin.on('end', () => {
+        try {
+          const data = JSON.parse(Buffer.concat(chunks).toString());
+          const ice = data.iceServers;
+          const config = {iceServers: Array.isArray(ice) ? ice : [ice]};
+          if (process.env.CF_TURN_RELAY_ONLY !== '0') config.iceTransportPolicy = 'relay';
+          process.stdout.write(JSON.stringify(config));
+        } catch(e) { process.exit(1); }
+      });" 2>/dev/null || true)
+
+    if [[ -n "${ICE_JSON}" ]]; then
+      echo "[signaling] Using Cloudflare TURN (TTL=${CF_TTL}s)" >&2
+    else
+      echo "[signaling] Warning: failed to parse Cloudflare TURN response" >&2
+    fi
+  else
+    echo "[signaling] Warning: Cloudflare TURN API unreachable, falling back to static TURN config" >&2
+  fi
 fi
 
-if (( ${#ICE_URLS[@]} > 0 )); then
-  urls="$(printf '"%s",' "${ICE_URLS[@]}")"
-  urls="[${urls%,}]"
-  if [[ -n "${TURN_SERVER}" && -n "${TURN_USER}" ]]; then
-    ICE_JSON="{\"iceServers\":[{\"urls\":${urls},\"username\":\"${TURN_USER}\",\"credential\":\"${TURN_PASS}\"}]}"
-  else
-    ICE_JSON="{\"iceServers\":[{\"urls\":${urls}}]}"
+# Static ICE config (skipped if Cloudflare TURN already set ICE_JSON above)
+if [[ -z "${ICE_JSON}" ]]; then
+  declare -a ICE_URLS=()
+  if [[ -n "${STUN_SERVER}" ]]; then
+    ICE_URLS+=("stun:${STUN_SERVER}")
+  fi
+  if [[ -n "${TURN_SERVER}" ]]; then
+    ICE_URLS+=("turn:${TURN_SERVER}")
+  fi
+
+  if (( ${#ICE_URLS[@]} > 0 )); then
+    urls="$(printf '"%s",' "${ICE_URLS[@]}")"
+    urls="[${urls%,}]"
+    if [[ -n "${TURN_SERVER}" && -n "${TURN_USER}" ]]; then
+      ICE_JSON="{\"iceServers\":[{\"urls\":${urls},\"username\":\"${TURN_USER}\",\"credential\":\"${TURN_PASS}\"}]}"
+    else
+      ICE_JSON="{\"iceServers\":[{\"urls\":${urls}}]}"
+    fi
   fi
 fi
 
