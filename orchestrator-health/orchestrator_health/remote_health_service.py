@@ -524,6 +524,18 @@ class OpsPullImageRequest(BaseModel):
     image: str = Field(min_length=1, description="Docker image ref to pull (ex: ghcr.io/...:tag).")
 
 
+class OpsExportImageRequest(BaseModel):
+    image: str = Field(
+        default="ghcr.io/its-define/unreal_vtuber/embody-ue-ps:latest",
+        description="Docker image ref to export (must exist locally on the orch).",
+    )
+    minio_endpoint: str = Field(default="", description="Minio S3 endpoint URL.")
+    minio_bucket: str = Field(default="embody-game-images-local", description="Target Minio bucket.")
+    minio_access_key: str = Field(default="", description="Minio access key.")
+    minio_secret_key: str = Field(default="", description="Minio secret key.")
+    zstd_level: int = Field(default=3, ge=1, le=19, description="Zstd compression level.")
+
+
 def _env_truthy(key: str, default: bool = False) -> bool:
     raw = os.environ.get(key)
     if raw is None:
@@ -2813,6 +2825,101 @@ def ops_pull_image(
     out["stderr"] = _tail(out.get("stderr", ""))
     out["ok"] = out.get("exit_code") == 0
     return out
+
+
+@app.post("/ops/export-image")
+def ops_export_image(
+    payload: OpsExportImageRequest,
+    request: Request,
+    _: Any = Depends(_require_ops_action),
+) -> dict[str, Any]:
+    """EXPERIMENTAL: export a local Docker image to Minio (compressed with zstd).
+
+    Spawns a background container that runs: docker save | zstd | mc pipe to Minio.
+    Returns immediately with the job container name and expected artifact path.
+    """
+    image = payload.image.strip()
+    if not image or "\x00" in image or "\n" in image:
+        raise HTTPException(status_code=400, detail="invalid image ref")
+
+    minio_endpoint = (payload.minio_endpoint or os.environ.get("EXPORT_MINIO_ENDPOINT", "")).strip()
+    minio_bucket = payload.minio_bucket.strip()
+    minio_access_key = (payload.minio_access_key or os.environ.get("EXPORT_MINIO_ACCESS_KEY", "")).strip()
+    minio_secret_key = (payload.minio_secret_key or os.environ.get("EXPORT_MINIO_SECRET_KEY", "")).strip()
+
+    if not minio_endpoint or not minio_access_key or not minio_secret_key:
+        raise HTTPException(
+            status_code=400,
+            detail="minio_endpoint, minio_access_key, minio_secret_key required (or set EXPORT_MINIO_* env vars)",
+        )
+
+    executor = _cluster_executor_container()
+    inspect_out = _cluster_executor_exec(
+        executor, ["docker", "image", "inspect", image, "--format", "{{.Id}}"]
+    )
+    if inspect_out.get("exit_code") != 0:
+        raise HTTPException(status_code=404, detail=f"image not found locally: {image}")
+    image_id = (inspect_out.get("stdout") or "").strip().replace("sha256:", "")[:12]
+
+    orch_id = (os.environ.get("ORCHESTRATOR_ID") or "unknown").strip()
+    artifact_name = f"embody-ue-ps_{orch_id}_{image_id}_{int(time.time())}.tar.zst"
+    artifact_path = f"game-images/exports/{artifact_name}"
+    log_path = "/var/lib/vtuber/power-state/ops-export-image.log"
+
+    helper_name = f"vtuber-ops-export-image-{int(time.time())}"
+    helper_image = ""
+    try:
+        helper_image = (getattr(getattr(executor, "image", None), "id", "") or "").strip()
+    except Exception:
+        helper_image = ""
+    if not helper_image:
+        helper_image = (
+            "ghcr.io/its-define/unreal_vtuber/orchestrator-edge-rotator:"
+            f"{os.environ.get('EMBODY_SERVICE_IMAGE_TAG', 'latest')}"
+        )
+
+    setup_cmd = (
+        "apt-get update -qq && apt-get install -y -qq zstd > /dev/null 2>&1; "
+        "curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc "
+        "&& chmod +x /usr/local/bin/mc; "
+    )
+    mc_alias = (
+        f"mc alias set myminio {shlex.quote(minio_endpoint)} "
+        f"{shlex.quote(minio_access_key)} {shlex.quote(minio_secret_key)} --api S3v4"
+    )
+    pipeline = (
+        f"docker save {shlex.quote(image)} "
+        f"| zstd -{payload.zstd_level} -T0 "
+        f"| mc pipe myminio/{shlex.quote(minio_bucket)}/{shlex.quote(artifact_path)}"
+    )
+    full_cmd = (
+        f"{setup_cmd}{mc_alias} >> {shlex.quote(log_path)} 2>&1 && "
+        f"echo '[export] Starting: {image} ({image_id})' >> {shlex.quote(log_path)} 2>&1 && "
+        f"{pipeline} >> {shlex.quote(log_path)} 2>&1; "
+        f"echo '[export] Done: exit=$?' >> {shlex.quote(log_path)} 2>&1"
+    )
+
+    run_cmd = [
+        "docker", "run", "-d", "--rm",
+        "--name", helper_name,
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
+        "-v", "/var/lib/vtuber/power-state:/var/lib/vtuber/power-state",
+        "--network", "host",
+        helper_image,
+        "sh", "-lc", full_cmd,
+    ]
+
+    run_out = _cluster_executor_exec(executor, run_cmd)
+    return {
+        "ok": run_out.get("exit_code") == 0,
+        "helper_container": helper_name,
+        "artifact_path": f"{minio_bucket}/{artifact_path}",
+        "artifact_name": artifact_name,
+        "image": image,
+        "image_id": image_id,
+        "log_path": log_path,
+        "note": "Export running in background. Check log_path for progress.",
+    }
 
 
 @app.get("/power", response_model=PowerState)
