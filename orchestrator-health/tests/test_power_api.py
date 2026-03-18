@@ -1888,74 +1888,86 @@ def test_ops_upgrade_env_patch_rotator_key_auto_recreates_edge_rotator(ops_app, 
         ), f"no recreate scheduled for patch {rotator_patch}"
 
 
-# ── /ops/wormhole-receive tests ──────────────────────────────────────────
 
 
-async def _noop_async(_req):
-    pass
-
-
-def test_wormhole_receive_rejects_bad_codes(ops_app, monkeypatch):
+def test_ops_load_encrypted_image_spawns_helper(ops_app, monkeypatch):
+    """POST /ops/load-encrypted-image should spawn a background helper container."""
     app, svc = ops_app
     client = TestClient(app)
 
     monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
-    monkeypatch.setattr(svc, "_require_ops_hmac", _noop_async)
 
-    bad_codes = [
-        "",
-        "no-number-prefix",
-        "7-UPPERCASE",
-        "7-has space",
-        "7-semi;colon",
-        "$(evil)",
-        "7-ok && rm -rf /",
-    ]
-    for code in bad_codes:
-        resp = client.post("/ops/wormhole-receive", json={"code": code})
-        assert resp.status_code == 400, f"expected 400 for code={code!r}, got {resp.status_code}"
-
-
-def test_wormhole_receive_accepts_valid_code(ops_app, monkeypatch):
-    app, svc = ops_app
-    client = TestClient(app)
-
-    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
-    monkeypatch.setattr(svc, "_require_ops_hmac", _noop_async)
-
-    class DummyResult:
-        def __init__(self, exit_code=0, stdout="", stderr=""):
-            self.exit_code = exit_code
-            self.output = (stdout.encode(), stderr.encode())
+    captured_cmds = []
 
     class DummyImage:
-        id = "sha256:abc123"
+        id = "sha256:deadbeef"
+
+    class DummyResult:
+        exit_code = 0
+        output = (b"container-id\n", b"")
 
     class DummyExecutor:
         image = DummyImage()
-        status = "running"
-
-        def reload(self):
-            pass
 
         def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
-            if cmd[:3] == ["docker", "run", "-d"]:
-                return DummyResult(stdout="container-id-123\n")
-            return DummyResult(stdout="")
+            captured_cmds.append(cmd)
+            return DummyResult()
 
     monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
 
-    resp = client.post("/ops/wormhole-receive", json={"code": "7-guitarist-revenge"})
+    resp = client.post("/ops/load-encrypted-image", json={
+        "image_ref": "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:kokoro-v3-enc",
+        "tag": "kokoro-v3",
+        "key_file": "/var/lib/vtuber/power-state/age-key.txt",
+    })
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
-    assert "wh" in data["helper_container"]
+    assert "enc" in data["helper_container"]
+    assert data["image_ref"] == "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:kokoro-v3-enc"
     assert data["log_path"] == "/var/lib/vtuber/power-state/ops-load-image.log"
 
+    # Verify the docker run command was issued
+    assert len(captured_cmds) == 1
+    run_cmd = captured_cmds[0]
+    assert run_cmd[0] == "docker"
+    assert run_cmd[1] == "run"
+    assert "-d" in run_cmd
+    assert "--rm" in run_cmd
+    # Verify docker.sock is mounted (needed for docker pull/load inside helper)
+    assert "/var/run/docker.sock:/var/run/docker.sock" in run_cmd
+    # Verify the shell command references our image ref
+    shell_cmd = run_cmd[-1]
+    assert "kokoro-v3-enc" in shell_cmd
+    assert "age --decrypt" in shell_cmd
+    assert "docker load" in shell_cmd
+    assert "docker pull" in shell_cmd
 
-def test_wormhole_receive_requires_auth(ops_app):
-    """Wormhole endpoint must be rejected when accessed from a non-allowed IP."""
+
+def test_ops_load_encrypted_image_rejects_invalid_ref(ops_app, monkeypatch):
+    """POST /ops/load-encrypted-image should reject empty or malformed image_ref."""
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+
+    resp = client.post("/ops/load-encrypted-image", json={
+        "image_ref": "",
+    })
+    assert resp.status_code == 422  # pydantic min_length=1 validation
+
+    resp2 = client.post("/ops/load-encrypted-image", json={
+        "image_ref": "ghcr.io/bad\x00ref",
+    })
+    # Pydantic or our validation should reject this
+    assert resp2.status_code in (400, 422)
+
+
+def test_ops_load_encrypted_image_requires_auth(ops_app):
+    """Encrypted image endpoint must be rejected from a non-allowed IP."""
     app, _svc = ops_app
     client = TestClient(app, client=("198.51.100.99", 12345))
-    resp = client.post("/ops/wormhole-receive", json={"code": "7-guitarist-revenge"})
+    resp = client.post("/ops/load-encrypted-image", json={
+        "image_ref": "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:test-enc",
+    })
     assert resp.status_code == 403

@@ -548,10 +548,18 @@ class OpsExecRequest(BaseModel):
     timeout: int = Field(default=30, ge=1, le=120, description="Timeout in seconds (1-120).")
 
 
-class OpsWormholeReceiveRequest(BaseModel):
-    code: str = Field(description="Magic-wormhole code (e.g., '7-guitarist-revenge').")
-    tag: str = Field(default="latest", description="Tag to apply to loaded image after docker load.")
-    timeout: int = Field(default=3600, ge=60, le=7200, description="Max seconds to wait for transfer (default 1h).")
+
+
+class OpsLoadEncryptedImageRequest(BaseModel):
+    image_ref: str = Field(
+        description="GHCR image ref containing the encrypted blob (e.g., ghcr.io/its-define/unreal_vtuber/embody-ue-ps:kokoro-v3-enc).",
+        min_length=1,
+    )
+    tag: str = Field(default="latest", description="Tag to apply to the decrypted image after docker load.")
+    key_file: str = Field(
+        default="/var/lib/vtuber/power-state/age-key.txt",
+        description="Path to the age private key on the orchestrator.",
+    )
 
 
 def _env_truthy(key: str, default: bool = False) -> bool:
@@ -3088,39 +3096,40 @@ def ops_exec(
     }
 
 
-# ── wormhole-william binary (Go static binary, works on Alpine) ──────────
-_WORMHOLE_WILLIAM_URL = (
-    "https://github.com/psanford/wormhole-william/releases/download/"
-    "v1.0.7/wormhole-william-linux-amd64"
-)
-_WORMHOLE_CODE_RE = re.compile(r"^[0-9]+-[a-z-]+$")
 
 
-@app.post("/ops/wormhole-receive")
-def ops_wormhole_receive(
-    payload: OpsWormholeReceiveRequest,
+@app.post("/ops/load-encrypted-image")
+def ops_load_encrypted_image(
+    payload: OpsLoadEncryptedImageRequest,
     request: Request,
     _: Any = Depends(_require_ops_action),
 ) -> dict[str, Any]:
-    """Receive a Docker image via magic-wormhole and load it.
+    """Pull an encrypted game image from GHCR, decrypt with age, and docker load.
 
-    Spawns a background helper container that downloads wormhole-william,
-    receives the file, decompresses (zstd), and runs docker load.
+    The encrypted image is a FROM-scratch Docker image containing a single
+    /image.age file (a docker-save | zstd | age pipeline output). This
+    endpoint:
+      1. docker pull <image_ref>  (fast, CDN-cached, resumable)
+      2. Extract /image.age from the pulled image
+      3. Decrypt with age, decompress with zstd, docker load
+      4. Tag with the short-name fallback pattern
+      5. Clean up the encrypted carrier image
+
     Uses the same log file as /ops/load-image so /ops/load-image/status
     shows progress.
     """
-    code = payload.code.strip()
-    if not code or not _WORMHOLE_CODE_RE.match(code):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid wormhole code. Expected format: <number>-<words-separated-by-hyphens>",
-        )
+    image_ref = payload.image_ref.strip()
+    if not image_ref or "\x00" in image_ref or "\n" in image_ref or " " in image_ref:
+        raise HTTPException(status_code=400, detail="invalid image_ref")
+
+    key_file = payload.key_file.strip()
+    if not key_file or "\x00" in key_file or "\n" in key_file:
+        raise HTTPException(status_code=400, detail="invalid key_file path")
 
     executor = _cluster_executor_container()
     log_path = "/var/lib/vtuber/power-state/ops-load-image.log"
-    helper_name = f"vtuber-ops-load-image-wh-{int(time.time())}"
+    helper_name = f"vtuber-ops-load-image-enc-{int(time.time())}"
 
-    # Resolve helper image from the running executor container
     helper_image = ""
     try:
         helper_image = (getattr(getattr(executor, "image", None), "id", "") or "").strip()
@@ -3132,9 +3141,9 @@ def ops_wormhole_receive(
             f"{os.environ.get('EMBODY_SERVICE_IMAGE_TAG', 'latest')}"
         )
 
-    q_code = shlex.quote(code)
+    q_ref = shlex.quote(image_ref)
+    q_key = shlex.quote(key_file)
     q_log = shlex.quote(log_path)
-    q_timeout = str(int(payload.timeout))
 
     # Tag command: same logic as /ops/load-image
     tag_cmd = ""
@@ -3151,21 +3160,33 @@ def ops_wormhole_receive(
             f"; echo \"[tag] exit=$?\" >> {q_log} 2>&1"
         )
 
+    # Pipeline:
+    # 1. docker pull the encrypted carrier image
+    # 2. docker create a temp container from it to extract the blob
+    # 3. docker cp the /image.age out, decrypt, decompress, docker load
+    # 4. Clean up temp container + carrier image
     full_cmd = (
-        f"echo '[wormhole] Starting wormhole receive...' >> {q_log} 2>&1; "
-        f"apk add --no-cache gcompat >> {q_log} 2>&1 || true; "
-        f"curl -fsSL -o /usr/local/bin/wormhole-william {shlex.quote(_WORMHOLE_WILLIAM_URL)} "
-        f"&& chmod +x /usr/local/bin/wormhole-william "
-        f"|| {{ echo '[wormhole] ERROR: failed to download wormhole-william' >> {q_log} 2>&1; exit 1; }}; "
-        f"echo '[wormhole] Receiving with code {q_code}...' >> {q_log} 2>&1; "
-        f"cd /tmp && yes | timeout {q_timeout} /usr/local/bin/wormhole-william receive {q_code} "
-        f">> {q_log} 2>&1; "
-        f"echo \"[wormhole] receive exit=$?\" >> {q_log} 2>&1; "
-        f"echo '[load] Loading image via docker load...' >> {q_log} 2>&1; "
-        f"zstd -d /tmp/*.tar.zst | docker load >> {q_log} 2>&1; "
-        f"echo \"[load] docker load exit=$?\" >> {q_log} 2>&1"
-        f"{tag_cmd}; "
-        f"rm -f /tmp/image.tar.zst"
+        f"echo '[enc-pull] Pulling encrypted image: {q_ref}' >> {q_log} 2>&1; "
+        f"docker pull {q_ref} >> {q_log} 2>&1 || "
+        f"{{ echo '[enc-pull] ERROR: docker pull failed' >> {q_log} 2>&1; exit 1; }}; "
+        f"echo '[enc-pull] Pull complete' >> {q_log} 2>&1; "
+        # Create a temporary container to extract the blob
+        f"ENC_CONTAINER=$(docker create {q_ref}) || "
+        f"{{ echo '[enc-extract] ERROR: docker create failed' >> {q_log} 2>&1; exit 1; }}; "
+        f"echo \"[enc-extract] Extracting from container $ENC_CONTAINER\" >> {q_log} 2>&1; "
+        # Extract, decrypt, decompress, load -- all piped
+        f"docker cp \"$ENC_CONTAINER\":/image.age - 2>>{q_log} "
+        f"| tar xO image.age "
+        f"| age --decrypt -i {q_key} 2>>{q_log} "
+        f"| zstd -d 2>>{q_log} "
+        f"| docker load >> {q_log} 2>&1; "
+        f"LOAD_RC=$?; "
+        f"echo \"[load] docker load exit=$LOAD_RC\" >> {q_log} 2>&1; "
+        # Clean up temp container and carrier image
+        f"docker rm -f \"$ENC_CONTAINER\" >> {q_log} 2>&1 || true; "
+        f"docker rmi -f {q_ref} >> {q_log} 2>&1 || true; "
+        f"echo '[enc-cleanup] Cleaned up carrier image' >> {q_log} 2>&1"
+        f"{tag_cmd}"
     )
 
     run_cmd = [
@@ -3182,8 +3203,9 @@ def ops_wormhole_receive(
     return {
         "ok": run_out.get("exit_code") == 0,
         "helper_container": helper_name,
+        "image_ref": image_ref,
         "log_path": log_path,
-        "note": "Wormhole receive + docker load running in background. Monitor via /ops/load-image/status.",
+        "note": "Encrypted image pull + decrypt + load running in background. Monitor via /ops/load-image/status.",
     }
 
 
