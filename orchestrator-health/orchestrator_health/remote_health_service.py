@@ -2997,6 +2997,62 @@ def ops_load_image(
     }
 
 
+@app.get("/ops/load-image/status")
+def ops_load_image_status(request: Request) -> dict[str, Any]:
+    """Return status of the most recent /ops/load-image operation.
+
+    Reads the log file and checks for running helper containers.
+    Does NOT require HMAC auth (read-only, same as /meta).
+    """
+    _require_remote_ops_enabled()
+    _require_auth_strict(request)
+
+    log_path = "/var/lib/vtuber/power-state/ops-load-image.log"
+    log_tail = ""
+    log_lines: list[str] = []
+    try:
+        with open(log_path, "r") as f:
+            log_lines = f.readlines()
+            log_tail = "".join(log_lines[-30:])
+    except FileNotFoundError:
+        log_tail = "(no log file)"
+    except Exception as exc:
+        log_tail = f"(error reading log: {exc})"
+
+    # Find running load-image containers
+    executor = _cluster_executor_container()
+    running_containers: list[str] = []
+    try:
+        ls_out = _cluster_executor_exec(
+            executor,
+            ["docker", "ps", "--filter", "name=vtuber-ops-load-image", "--format", "{{.Names}} {{.Status}}"],
+        )
+        for line in (ls_out.get("stdout") or "").strip().splitlines():
+            if line.strip():
+                running_containers.append(line.strip())
+    except Exception:
+        pass
+
+    # Parse status from log
+    completed = any("[load] docker load exit=0" in line for line in log_lines)
+    failed = any("[load] docker load exit=" in line and "exit=0" not in line for line in log_lines)
+    status = "idle"
+    if running_containers:
+        status = "downloading"
+    elif completed:
+        status = "completed"
+    elif failed:
+        status = "failed"
+
+    return {
+        "status": status,
+        "running_containers": running_containers,
+        "log_tail": log_tail,
+        "log_lines_total": len(log_lines),
+        "log_path": log_path,
+    }
+
+
 @app.get("/power", response_model=PowerState)
 def read_power_state() -> PowerState:
     """Return the current power/sleep state."""
