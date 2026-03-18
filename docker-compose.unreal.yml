@@ -184,7 +184,9 @@ services:
     image: ghcr.io/its-define/unreal_vtuber/orchestrator-health:${EMBODY_SERVICE_IMAGE_TAG:-latest}
     container_name: vtuber-orchestrator-health
     labels:
-      - "com.centurylinklabs.watchtower.enable=true"
+      # CRITICAL: Watchtower DISABLED on orchestrator-health. This container serves the ops API.
+      # Update deliberately via /ops/upgrade with recreate_orchestrator_health only.
+      - "com.centurylinklabs.watchtower.enable=false"
     command: ["python", "-m", "orchestrator_health.remote_health_service"]
     env_file:
       - .env
@@ -219,7 +221,10 @@ services:
     container_name: vtuber-orchestrator-edge-rotator
     restart: unless-stopped
     labels:
-      - "com.centurylinklabs.watchtower.enable=true"
+      # CRITICAL: Watchtower DISABLED on edge-rotator. This container is the command executor
+      # for all /ops/ endpoints. If it fails to restart, we lose ALL remote management access.
+      # Update deliberately via /ops/upgrade only, never via auto-update.
+      - "com.centurylinklabs.watchtower.enable=false"
     network_mode: host
     cap_add:
       - NET_ADMIN
