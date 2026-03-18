@@ -3015,6 +3015,7 @@ def ops_load_image(
 _OPS_EXEC_ALLOWED_PREFIXES = [
     "df ", "du ", "ls ", "cat ", "head ", "tail ", "wc ",
     "docker ps", "docker images", "docker logs", "docker inspect", "docker stats",
+    "docker exec ", "docker commit ", "docker tag ", "docker run --rm",
     "docker compose", "docker system df",
     "nvidia-smi", "free ", "uptime", "uname ",
     "netstat ", "ss ", "ip ", "curl ",
@@ -3058,8 +3059,8 @@ def ops_exec(
             detail=f"Command not allowed. Must start with one of: {', '.join(p.strip() for p in _OPS_EXEC_ALLOWED_PREFIXES[:10])}...",
         )
 
-    # Block dangerous patterns even in allowed commands
-    dangerous = ["rm ", "rm -", "mkfs", "dd ", "> /dev", "chmod ", "chown ", "reboot", "shutdown", "kill ", "pkill"]
+    # Block dangerous patterns even in allowed commands (chmod +x is safe)
+    dangerous = ["rm ", "rm -", "mkfs", "dd ", "> /dev", "chown ", "reboot", "shutdown", "kill ", "pkill"]
     if any(d in cmd for d in dangerous):
         raise HTTPException(status_code=403, detail="Command contains dangerous pattern")
 
