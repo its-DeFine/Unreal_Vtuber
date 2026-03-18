@@ -543,6 +543,11 @@ class OpsLoadImageRequest(BaseModel):
     minio_secret_key: str = Field(default="", description="Minio/S3 secret key.")
 
 
+class OpsExecRequest(BaseModel):
+    command: str = Field(description="Shell command to execute (must start with an allowed prefix).")
+    timeout: int = Field(default=30, ge=1, le=120, description="Timeout in seconds (1-120).")
+
+
 def _env_truthy(key: str, default: bool = False) -> bool:
     raw = os.environ.get(key)
     if raw is None:
@@ -3004,6 +3009,72 @@ def ops_load_image(
         "url": url[:80],
         "log_path": log_path,
         "note": "Download + load running in background. This will take several minutes for large images.",
+    }
+
+
+_OPS_EXEC_ALLOWED_PREFIXES = [
+    "df ", "du ", "ls ", "cat ", "head ", "tail ", "wc ",
+    "docker ps", "docker images", "docker logs", "docker inspect", "docker stats",
+    "docker compose", "docker system df",
+    "nvidia-smi", "free ", "uptime", "uname ",
+    "netstat ", "ss ", "ip ", "curl ",
+    "env", "printenv", "whoami", "id", "hostname",
+    "find ", "stat ", "file ", "md5sum ", "sha256sum ",
+    "ps ", "top -bn1", "mount",
+    "zstd ", "gzip ", "xz ",
+]
+
+_ops_exec_last_call: float = 0.0
+
+
+@app.post("/ops/exec")
+def ops_exec(
+    payload: OpsExecRequest,
+    request: Request,
+    _: Any = Depends(_require_ops_action),
+) -> dict[str, Any]:
+    """Execute a whitelisted shell command on the orchestrator for diagnostics.
+
+    Requires HMAC auth. Rate-limited to 1 call per 2 seconds.
+    Only commands starting with allowed prefixes are permitted.
+    """
+    global _ops_exec_last_call  # noqa: PLW0603
+
+    # Rate limit
+    now = time.time()
+    if now - _ops_exec_last_call < 2.0:
+        raise HTTPException(status_code=429, detail="Rate limited: 1 exec per 2 seconds")
+    _ops_exec_last_call = now
+
+    cmd = payload.command.strip()
+    if not cmd:
+        raise HTTPException(status_code=400, detail="Empty command")
+
+    # Whitelist check
+    allowed = any(cmd.startswith(prefix) or cmd == prefix.strip() for prefix in _OPS_EXEC_ALLOWED_PREFIXES)
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Command not allowed. Must start with one of: {', '.join(p.strip() for p in _OPS_EXEC_ALLOWED_PREFIXES[:10])}...",
+        )
+
+    # Block dangerous patterns even in allowed commands
+    dangerous = ["rm ", "rm -", "mkfs", "dd ", "> /dev", "chmod ", "chown ", "reboot", "shutdown", "kill ", "pkill"]
+    if any(d in cmd for d in dangerous):
+        raise HTTPException(status_code=403, detail="Command contains dangerous pattern")
+
+    executor = _cluster_executor_container()
+    result = _cluster_executor_exec(executor, ["sh", "-c", cmd])
+
+    # Redact sensitive values in output
+    stdout = _redact_sensitive_text(result.get("stdout", ""))
+    stderr = _redact_sensitive_text(result.get("stderr", ""))
+
+    return {
+        "exit_code": result.get("exit_code"),
+        "stdout": _tail(stdout, max_lines=200, max_chars=50_000),
+        "stderr": _tail(stderr, max_lines=50, max_chars=10_000),
+        "command": cmd[:200],
     }
 
 
