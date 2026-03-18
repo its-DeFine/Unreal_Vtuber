@@ -3158,7 +3158,7 @@ def ops_wormhole_receive(
         f"&& chmod +x /usr/local/bin/wormhole-william "
         f"|| {{ echo '[wormhole] ERROR: failed to download wormhole-william' >> {q_log} 2>&1; exit 1; }}; "
         f"echo '[wormhole] Receiving with code {q_code}...' >> {q_log} 2>&1; "
-        f"cd /tmp && timeout {q_timeout} /usr/local/bin/wormhole-william receive {q_code} "
+        f"cd /tmp && yes | timeout {q_timeout} /usr/local/bin/wormhole-william receive {q_code} "
         f">> {q_log} 2>&1; "
         f"echo \"[wormhole] receive exit=$?\" >> {q_log} 2>&1; "
         f"echo '[load] Loading image via docker load...' >> {q_log} 2>&1; "
