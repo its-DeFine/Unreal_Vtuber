@@ -2967,13 +2967,21 @@ def ops_load_image(
     tag_cmd = ""
     if payload.tag:
         tag_game = "ghcr.io/its-define/unreal_vtuber/embody-ue-ps"
-        tag_cmd = f" && docker tag {shlex.quote(tag_game)}:{shlex.quote(payload.tag)} {shlex.quote(tag_game)}:latest"
+        short_game = "embody-ue-ps"
+        q_tag = shlex.quote(payload.tag)
+        q_full = shlex.quote(tag_game)
+        q_short = shlex.quote(short_game)
+        # Try GHCR-prefixed tag first, fall back to short name (docker save may use either)
+        tag_cmd = (
+            f" && (docker tag {q_full}:{q_tag} {q_full}:latest 2>/dev/null"
+            f" || docker tag {q_short}:{q_tag} {q_full}:latest)"
+        )
 
     full_cmd = (
         f"echo '[load] Downloading from {url[:80]}...' >> {shlex.quote(log_path)} 2>&1; "
         f"curl -fsSL {curl_auth} {shlex.quote(url)} | zstd -d | docker load "
         f">> {shlex.quote(log_path)} 2>&1; "
-        f"echo '[load] docker load exit=$?' >> {shlex.quote(log_path)} 2>&1"
+        f"echo \"[load] docker load exit=$?\" >> {shlex.quote(log_path)} 2>&1"
         f"{tag_cmd}"
     )
 
