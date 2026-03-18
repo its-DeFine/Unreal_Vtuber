@@ -3065,9 +3065,12 @@ def ops_exec(
             detail=f"Command not allowed. Must start with one of: {', '.join(p.strip() for p in _OPS_EXEC_ALLOWED_PREFIXES[:10])}...",
         )
 
-    # Block dangerous patterns even in allowed commands (chmod +x is safe)
-    dangerous = ["rm ", "rm -", "mkfs", "dd ", "> /dev", "chown ", "reboot", "shutdown", "kill ", "pkill"]
-    if any(d in cmd for d in dangerous):
+    # Block dangerous patterns even in allowed commands.
+    # Use word-boundary matching to avoid false positives (e.g., "rm " matching "--rm").
+    _dangerous_re = re.compile(
+        r"(?:^|\s)(?:rm\s|rm\b|mkfs|dd\s|>\s*/dev|chown\s|reboot|shutdown|(?<![p])kill\s|pkill)"
+    )
+    if _dangerous_re.search(cmd):
         raise HTTPException(status_code=403, detail="Command contains dangerous pattern")
 
     executor = _cluster_executor_container()
