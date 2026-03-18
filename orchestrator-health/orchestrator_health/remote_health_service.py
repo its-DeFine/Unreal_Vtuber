@@ -2973,8 +2973,10 @@ def ops_load_image(
         q_short = shlex.quote(short_game)
         # Try GHCR-prefixed tag first, fall back to short name (docker save may use either)
         tag_cmd = (
-            f" && (docker tag {q_full}:{q_tag} {q_full}:latest 2>/dev/null"
-            f" || docker tag {q_short}:{q_tag} {q_full}:latest)"
+            f"; echo '[tag] Tagging {q_tag} as latest...' >> {shlex.quote(log_path)} 2>&1"
+            f"; docker tag {q_full}:{q_tag} {q_full}:latest >> {shlex.quote(log_path)} 2>&1"
+            f" || docker tag {q_short}:{q_tag} {q_full}:latest >> {shlex.quote(log_path)} 2>&1"
+            f"; echo \"[tag] exit=$?\" >> {shlex.quote(log_path)} 2>&1"
         )
 
     full_cmd = (
