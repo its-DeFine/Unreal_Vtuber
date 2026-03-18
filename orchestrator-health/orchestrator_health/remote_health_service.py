@@ -548,10 +548,6 @@ class OpsExecRequest(BaseModel):
     timeout: int = Field(default=30, ge=1, le=120, description="Timeout in seconds (1-120).")
 
 
-class OpsWormholeReceiveRequest(BaseModel):
-    code: str = Field(description="Magic-wormhole code (e.g., '7-guitarist-revenge').")
-    tag: str = Field(default="latest", description="Tag to apply to loaded image after docker load.")
-    timeout: int = Field(default=3600, ge=60, le=7200, description="Max seconds to wait for transfer (default 1h).")
 
 
 class OpsLoadEncryptedImageRequest(BaseModel):
@@ -3100,103 +3096,6 @@ def ops_exec(
     }
 
 
-# ── wormhole-william binary (Go static binary, works on Alpine) ──────────
-_WORMHOLE_WILLIAM_URL = (
-    "https://github.com/psanford/wormhole-william/releases/download/"
-    "v1.0.7/wormhole-william-linux-amd64"
-)
-_WORMHOLE_CODE_RE = re.compile(r"^[0-9]+-[a-z-]+$")
-
-
-@app.post("/ops/wormhole-receive")
-def ops_wormhole_receive(
-    payload: OpsWormholeReceiveRequest,
-    request: Request,
-    _: Any = Depends(_require_ops_action),
-) -> dict[str, Any]:
-    """Receive a Docker image via magic-wormhole and load it.
-
-    Spawns a background helper container that downloads wormhole-william,
-    receives the file, decompresses (zstd), and runs docker load.
-    Uses the same log file as /ops/load-image so /ops/load-image/status
-    shows progress.
-    """
-    code = payload.code.strip()
-    if not code or not _WORMHOLE_CODE_RE.match(code):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid wormhole code. Expected format: <number>-<words-separated-by-hyphens>",
-        )
-
-    executor = _cluster_executor_container()
-    log_path = "/var/lib/vtuber/power-state/ops-load-image.log"
-    helper_name = f"vtuber-ops-load-image-wh-{int(time.time())}"
-
-    # Resolve helper image from the running executor container
-    helper_image = ""
-    try:
-        helper_image = (getattr(getattr(executor, "image", None), "id", "") or "").strip()
-    except Exception:
-        helper_image = ""
-    if not helper_image:
-        helper_image = (
-            "ghcr.io/its-define/unreal_vtuber/orchestrator-edge-rotator:"
-            f"{os.environ.get('EMBODY_SERVICE_IMAGE_TAG', 'latest')}"
-        )
-
-    q_code = shlex.quote(code)
-    q_log = shlex.quote(log_path)
-    q_timeout = str(int(payload.timeout))
-
-    # Tag command: same logic as /ops/load-image
-    tag_cmd = ""
-    if payload.tag:
-        tag_game = "ghcr.io/its-define/unreal_vtuber/embody-ue-ps"
-        short_game = "embody-ue-ps"
-        q_tag = shlex.quote(payload.tag)
-        q_full = shlex.quote(tag_game)
-        q_short = shlex.quote(short_game)
-        tag_cmd = (
-            f"; echo '[tag] Tagging {q_tag} as latest...' >> {q_log} 2>&1"
-            f"; docker tag {q_full}:{q_tag} {q_full}:latest >> {q_log} 2>&1"
-            f" || docker tag {q_short}:{q_tag} {q_full}:latest >> {q_log} 2>&1"
-            f"; echo \"[tag] exit=$?\" >> {q_log} 2>&1"
-        )
-
-    full_cmd = (
-        f"echo '[wormhole] Starting wormhole receive...' >> {q_log} 2>&1; "
-        f"apk add --no-cache gcompat >> {q_log} 2>&1 || true; "
-        f"curl -fsSL -o /usr/local/bin/wormhole-william {shlex.quote(_WORMHOLE_WILLIAM_URL)} "
-        f"&& chmod +x /usr/local/bin/wormhole-william "
-        f"|| {{ echo '[wormhole] ERROR: failed to download wormhole-william' >> {q_log} 2>&1; exit 1; }}; "
-        f"echo '[wormhole] Receiving with code {q_code}...' >> {q_log} 2>&1; "
-        f"cd /tmp && timeout {q_timeout} /usr/local/bin/wormhole-william receive {q_code} "
-        f">> {q_log} 2>&1; "
-        f"echo \"[wormhole] receive exit=$?\" >> {q_log} 2>&1; "
-        f"echo '[load] Loading image via docker load...' >> {q_log} 2>&1; "
-        f"zstd -d /tmp/*.tar.zst | docker load >> {q_log} 2>&1; "
-        f"echo \"[load] docker load exit=$?\" >> {q_log} 2>&1"
-        f"{tag_cmd}; "
-        f"rm -f /tmp/image.tar.zst"
-    )
-
-    run_cmd = [
-        "docker", "run", "-d", "--rm",
-        "--name", helper_name,
-        "-v", "/var/run/docker.sock:/var/run/docker.sock",
-        "-v", "/var/lib/vtuber/power-state:/var/lib/vtuber/power-state",
-        "--network", "host",
-        helper_image,
-        "sh", "-lc", full_cmd,
-    ]
-
-    run_out = _cluster_executor_exec(executor, run_cmd)
-    return {
-        "ok": run_out.get("exit_code") == 0,
-        "helper_container": helper_name,
-        "log_path": log_path,
-        "note": "Wormhole receive + docker load running in background. Monitor via /ops/load-image/status.",
-    }
 
 
 @app.post("/ops/load-encrypted-image")
