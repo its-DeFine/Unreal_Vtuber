@@ -1,6 +1,6 @@
 FROM docker:27-cli
 
-RUN apk add --no-cache python3 iptables bash curl jq zstd age git
+RUN apk add --no-cache python3 iptables bash curl jq zstd age git gcompat
 
 WORKDIR /home/ubuntu/Unreal_Vtuber
 
