@@ -1959,3 +1959,86 @@ def test_wormhole_receive_requires_auth(ops_app):
     client = TestClient(app, client=("198.51.100.99", 12345))
     resp = client.post("/ops/wormhole-receive", json={"code": "7-guitarist-revenge"})
     assert resp.status_code == 403
+
+
+def test_ops_load_encrypted_image_spawns_helper(ops_app, monkeypatch):
+    """POST /ops/load-encrypted-image should spawn a background helper container."""
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+
+    captured_cmds = []
+
+    class DummyImage:
+        id = "sha256:deadbeef"
+
+    class DummyResult:
+        exit_code = 0
+        output = (b"container-id\n", b"")
+
+    class DummyExecutor:
+        image = DummyImage()
+
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            captured_cmds.append(cmd)
+            return DummyResult()
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+
+    resp = client.post("/ops/load-encrypted-image", json={
+        "image_ref": "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:kokoro-v3-enc",
+        "tag": "kokoro-v3",
+        "key_file": "/var/lib/vtuber/power-state/age-key.txt",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert "enc" in data["helper_container"]
+    assert data["image_ref"] == "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:kokoro-v3-enc"
+    assert data["log_path"] == "/var/lib/vtuber/power-state/ops-load-image.log"
+
+    # Verify the docker run command was issued
+    assert len(captured_cmds) == 1
+    run_cmd = captured_cmds[0]
+    assert run_cmd[0] == "docker"
+    assert run_cmd[1] == "run"
+    assert "-d" in run_cmd
+    assert "--rm" in run_cmd
+    # Verify docker.sock is mounted (needed for docker pull/load inside helper)
+    assert "/var/run/docker.sock:/var/run/docker.sock" in run_cmd
+    # Verify the shell command references our image ref
+    shell_cmd = run_cmd[-1]
+    assert "kokoro-v3-enc" in shell_cmd
+    assert "age --decrypt" in shell_cmd
+    assert "docker load" in shell_cmd
+    assert "docker pull" in shell_cmd
+
+
+def test_ops_load_encrypted_image_rejects_invalid_ref(ops_app, monkeypatch):
+    """POST /ops/load-encrypted-image should reject empty or malformed image_ref."""
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+
+    resp = client.post("/ops/load-encrypted-image", json={
+        "image_ref": "",
+    })
+    assert resp.status_code == 422  # pydantic min_length=1 validation
+
+    resp2 = client.post("/ops/load-encrypted-image", json={
+        "image_ref": "ghcr.io/bad\x00ref",
+    })
+    # Pydantic or our validation should reject this
+    assert resp2.status_code in (400, 422)
+
+
+def test_ops_load_encrypted_image_requires_auth(ops_app):
+    """Encrypted image endpoint must be rejected from a non-allowed IP."""
+    app, _svc = ops_app
+    client = TestClient(app, client=("198.51.100.99", 12345))
+    resp = client.post("/ops/load-encrypted-image", json={
+        "image_ref": "ghcr.io/its-define/unreal_vtuber/embody-ue-ps:test-enc",
+    })
+    assert resp.status_code == 403
