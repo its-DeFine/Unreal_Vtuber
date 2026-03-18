@@ -3150,7 +3150,7 @@ def ops_wormhole_receive(
 
     full_cmd = (
         f"echo '[wormhole] Starting wormhole receive...' >> {q_log} 2>&1; "
-        f"wget -q -O /usr/local/bin/wormhole-william {shlex.quote(_WORMHOLE_WILLIAM_URL)} "
+        f"curl -fsSL -o /usr/local/bin/wormhole-william {shlex.quote(_WORMHOLE_WILLIAM_URL)} "
         f"&& chmod +x /usr/local/bin/wormhole-william "
         f"|| {{ echo '[wormhole] ERROR: failed to download wormhole-william' >> {q_log} 2>&1; exit 1; }}; "
         f"echo '[wormhole] Receiving with code {q_code}...' >> {q_log} 2>&1; "
