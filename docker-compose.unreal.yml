@@ -112,6 +112,9 @@ services:
       - ${VTUBER_GAME_INI_FILE:-./pixel-streaming/config/Game.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/Game.ini:ro
       - ${VTUBER_GAME_USER_SETTINGS_FILE:-./pixel-streaming/config/GameUserSettings.ini}:/opt/embody/Embody/Saved/Config/LinuxNoEditor/GameUserSettings.ini:ro
       - ${VTUBER_SESSION_DIR:-/home/ubuntu/vtuber_sessions}:/opt/embody/sessions
+      # Host runtime libraries (libgomp, Vulkan ICD, etc.) for UE5 binaries
+      - /usr/lib/x86_64-linux-gnu:/host-libs/usr/lib/x86_64-linux-gnu:ro
+      - /usr/share/vulkan:/host-libs/usr/share/vulkan:ro
     networks:
       - vtuber_network
     logging:
