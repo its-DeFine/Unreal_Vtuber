@@ -3181,18 +3181,43 @@ def ops_load_encrypted_image(
         f"{{ echo '[enc-extract] ERROR: docker create failed' >> {q_log} 2>&1; exit 1; }}; "
         f"echo \"[enc-extract] Extracting from container $ENC_CONTAINER\" >> {q_log} 2>&1; "
         # Auto-detect: chunked (/chunks/) or single-file (/image.age)
-        f"ENC_TMPDIR=/tmp/enc-chunks-$$; "
+        # Use a bind-mounted path (NOT /tmp inside the helper overlay) so that
+        # extracted chunks and the decrypted tar share the host filesystem.
+        # For large images, decrypt to a tar file first, then free the carrier +
+        # chunks space BEFORE docker load.  This avoids the peak usage of
+        # carrier-layers + chunks + loaded-image all being on disk at once.
+        f"ENC_TMPDIR=/var/lib/vtuber/power-state/enc-chunks-$$; "
+        f"GAME_TAR=/var/lib/vtuber/power-state/game-image-$$.tar; "
         f"mkdir -p \"$ENC_TMPDIR\"; "
         f"if docker cp \"$ENC_CONTAINER\":/chunks/. \"$ENC_TMPDIR/\" 2>/dev/null "
         f"&& ls \"$ENC_TMPDIR\"/chunk-* >/dev/null 2>&1; then "
         f"  CHUNK_COUNT=$(ls \"$ENC_TMPDIR\"/chunk-* | wc -l); "
         f"  echo \"[enc-extract] Chunked format detected ($CHUNK_COUNT chunks)\" >> {q_log} 2>&1; "
+        # Step A: Decrypt + decompress to a tar file on the host bind-mount
+        f"  echo '[decrypt] Decrypting to tar file...' >> {q_log} 2>&1; "
         f"  cat \"$ENC_TMPDIR\"/chunk-* "
         f"  | age --decrypt -i {q_key} 2>>{q_log} "
         f"  | zstd -d 2>>{q_log} "
-        f"  | docker load >> {q_log} 2>&1; "
-        f"  LOAD_RC=$?; "
+        f"  > \"$GAME_TAR\"; "
+        f"  DECRYPT_RC=$?; "
+        f"  echo \"[decrypt] exit=$DECRYPT_RC\" >> {q_log} 2>&1; "
+        f"  ls -lh \"$GAME_TAR\" >> {q_log} 2>&1; "
+        # Step B: Free space -- remove chunks, carrier container, carrier image
         f"  rm -rf \"$ENC_TMPDIR\"; "
+        f"  docker rm -f \"$ENC_CONTAINER\" >> {q_log} 2>&1 || true; "
+        f"  docker rmi -f {q_ref} >> {q_log} 2>&1 || true; "
+        f"  echo '[space] Freed carrier + chunks before load' >> {q_log} 2>&1; "
+        f"  df -h / >> {q_log} 2>&1 || true; "
+        # Step C: Docker load from file (carrier space is now free)
+        f"  if [ \"$DECRYPT_RC\" = \"0\" ]; then "
+        f"    echo '[load] Loading from tar file...' >> {q_log} 2>&1; "
+        f"    docker load < \"$GAME_TAR\" >> {q_log} 2>&1; "
+        f"    LOAD_RC=$?; "
+        f"  else "
+        f"    echo '[load] Skipped: decrypt failed' >> {q_log} 2>&1; "
+        f"    LOAD_RC=1; "
+        f"  fi; "
+        f"  rm -f \"$GAME_TAR\"; "
         f"else "
         f"  rm -rf \"$ENC_TMPDIR\"; "
         f"  echo '[enc-extract] Single-file format' >> {q_log} 2>&1; "
@@ -3202,11 +3227,11 @@ def ops_load_encrypted_image(
         f"  | zstd -d 2>>{q_log} "
         f"  | docker load >> {q_log} 2>&1; "
         f"  LOAD_RC=$?; "
+        # Clean up temp container and carrier image for single-file format
+        f"  docker rm -f \"$ENC_CONTAINER\" >> {q_log} 2>&1 || true; "
+        f"  docker rmi -f {q_ref} >> {q_log} 2>&1 || true; "
         f"fi; "
         f"echo \"[load] docker load exit=$LOAD_RC\" >> {q_log} 2>&1; "
-        # Clean up temp container and carrier image
-        f"docker rm -f \"$ENC_CONTAINER\" >> {q_log} 2>&1 || true; "
-        f"docker rmi -f {q_ref} >> {q_log} 2>&1 || true; "
         f"echo '[enc-cleanup] Cleaned up carrier image' >> {q_log} 2>&1"
         f"{tag_cmd}"
     )
