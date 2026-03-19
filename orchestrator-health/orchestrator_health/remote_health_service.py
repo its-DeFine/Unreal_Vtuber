@@ -3177,7 +3177,7 @@ def ops_load_encrypted_image(
         f"{{ echo '[enc-pull] ERROR: docker pull failed' >> {q_log} 2>&1; exit 1; }}; "
         f"echo '[enc-pull] Pull complete' >> {q_log} 2>&1; "
         # Create a temporary container to extract the blob
-        f"ENC_CONTAINER=$(docker create {q_ref}) || "
+        f"ENC_CONTAINER=$(docker create {q_ref} true) || "
         f"{{ echo '[enc-extract] ERROR: docker create failed' >> {q_log} 2>&1; exit 1; }}; "
         f"echo \"[enc-extract] Extracting from container $ENC_CONTAINER\" >> {q_log} 2>&1; "
         # Auto-detect: chunked (/chunks/) or single-file (/image.age)
