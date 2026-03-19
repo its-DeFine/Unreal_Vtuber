@@ -1942,6 +1942,11 @@ def test_ops_load_encrypted_image_spawns_helper(ops_app, monkeypatch):
     assert "age --decrypt" in shell_cmd
     assert "docker load" in shell_cmd
     assert "docker pull" in shell_cmd
+    # Verify chunked format auto-detection is present
+    assert "/chunks/" in shell_cmd
+    assert "chunk-*" in shell_cmd
+    # Verify single-file fallback is still present
+    assert "/image.age" in shell_cmd
 
 
 def test_ops_load_encrypted_image_rejects_invalid_ref(ops_app, monkeypatch):
