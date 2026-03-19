@@ -3106,11 +3106,16 @@ def ops_load_encrypted_image(
 ) -> dict[str, Any]:
     """Pull an encrypted game image from GHCR, decrypt with age, and docker load.
 
-    The encrypted image is a FROM-scratch Docker image containing a single
-    /image.age file (a docker-save | zstd | age pipeline output). This
-    endpoint:
+    Supports two carrier formats (auto-detected):
+      - **Single-file**: FROM scratch + COPY image.age /image.age (one layer)
+      - **Chunked**: FROM scratch + COPY chunk-NN /chunks/chunk-NN (many ~1 GB layers)
+
+    Chunked images are preferred for large images (20+ GB) because each layer
+    uploads/downloads independently and can resume on connection drops.
+
+    Pipeline:
       1. docker pull <image_ref>  (fast, CDN-cached, resumable)
-      2. Extract /image.age from the pulled image
+      2. Extract and reassemble the encrypted blob (auto-detect format)
       3. Decrypt with age, decompress with zstd, docker load
       4. Tag with the short-name fallback pattern
       5. Clean up the encrypted carrier image
@@ -3162,9 +3167,10 @@ def ops_load_encrypted_image(
 
     # Pipeline:
     # 1. docker pull the encrypted carrier image
-    # 2. docker create a temp container from it to extract the blob
-    # 3. docker cp the /image.age out, decrypt, decompress, docker load
-    # 4. Clean up temp container + carrier image
+    # 2. docker create a temp container to extract the blob
+    # 3. Auto-detect format: /chunks/ (multi-layer) or /image.age (single-layer)
+    # 4. Decrypt with age, decompress with zstd, docker load
+    # 5. Clean up temp container + carrier image
     full_cmd = (
         f"echo '[enc-pull] Pulling encrypted image: {q_ref}' >> {q_log} 2>&1; "
         f"docker pull {q_ref} >> {q_log} 2>&1 || "
@@ -3174,13 +3180,29 @@ def ops_load_encrypted_image(
         f"ENC_CONTAINER=$(docker create {q_ref}) || "
         f"{{ echo '[enc-extract] ERROR: docker create failed' >> {q_log} 2>&1; exit 1; }}; "
         f"echo \"[enc-extract] Extracting from container $ENC_CONTAINER\" >> {q_log} 2>&1; "
-        # Extract, decrypt, decompress, load -- all piped
-        f"docker cp \"$ENC_CONTAINER\":/image.age - 2>>{q_log} "
-        f"| tar xO image.age "
-        f"| age --decrypt -i {q_key} 2>>{q_log} "
-        f"| zstd -d 2>>{q_log} "
-        f"| docker load >> {q_log} 2>&1; "
-        f"LOAD_RC=$?; "
+        # Auto-detect: chunked (/chunks/) or single-file (/image.age)
+        f"ENC_TMPDIR=/tmp/enc-chunks-$$; "
+        f"mkdir -p \"$ENC_TMPDIR\"; "
+        f"if docker cp \"$ENC_CONTAINER\":/chunks/. \"$ENC_TMPDIR/\" 2>/dev/null "
+        f"&& ls \"$ENC_TMPDIR\"/chunk-* >/dev/null 2>&1; then "
+        f"  CHUNK_COUNT=$(ls \"$ENC_TMPDIR\"/chunk-* | wc -l); "
+        f"  echo \"[enc-extract] Chunked format detected ($CHUNK_COUNT chunks)\" >> {q_log} 2>&1; "
+        f"  cat \"$ENC_TMPDIR\"/chunk-* "
+        f"  | age --decrypt -i {q_key} 2>>{q_log} "
+        f"  | zstd -d 2>>{q_log} "
+        f"  | docker load >> {q_log} 2>&1; "
+        f"  LOAD_RC=$?; "
+        f"  rm -rf \"$ENC_TMPDIR\"; "
+        f"else "
+        f"  rm -rf \"$ENC_TMPDIR\"; "
+        f"  echo '[enc-extract] Single-file format' >> {q_log} 2>&1; "
+        f"  docker cp \"$ENC_CONTAINER\":/image.age - 2>>{q_log} "
+        f"  | tar xO image.age "
+        f"  | age --decrypt -i {q_key} 2>>{q_log} "
+        f"  | zstd -d 2>>{q_log} "
+        f"  | docker load >> {q_log} 2>&1; "
+        f"  LOAD_RC=$?; "
+        f"fi; "
         f"echo \"[load] docker load exit=$LOAD_RC\" >> {q_log} 2>&1; "
         # Clean up temp container and carrier image
         f"docker rm -f \"$ENC_CONTAINER\" >> {q_log} 2>&1 || true; "

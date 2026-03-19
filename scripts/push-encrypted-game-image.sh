@@ -7,6 +7,10 @@ set -euo pipefail
 # to host on a public/private GHCR repo. Orchestrators pull via standard
 # docker-pull (CDN-cached, resumable) and decrypt locally.
 #
+# By default, builds a CHUNKED multi-layer image (~1 GB per layer) so that
+# each layer uploads independently and can resume on connection drops.
+# Use --single-layer to force the old single-blob format.
+#
 # Prerequisites: docker, zstd, age, and GHCR auth (docker login ghcr.io).
 
 usage() {
@@ -22,6 +26,8 @@ Options:
   --tag           GHCR tag for the encrypted image (default: <date>-enc)
   --ghcr-repo     GHCR repo (default: ghcr.io/its-define/unreal_vtuber/embody-ue-ps)
   --zstd-level    Zstd compression level 1-19 (default: 3)
+  --chunk-size    Chunk size for multi-layer split (default: 1G)
+  --single-layer  Use single-layer format (not recommended for large images)
   --keep-tmp      Do not delete the temporary build directory on exit
 
 Example:
@@ -42,18 +48,22 @@ recipient=""
 tag=""
 ghcr_repo="ghcr.io/its-define/unreal_vtuber/embody-ue-ps"
 zstd_level="3"
+chunk_size="1G"
+single_layer="0"
 keep_tmp="0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --image)      image="${2:-}";      shift 2 ;;
-    --recipient)  recipient="${2:-}";  shift 2 ;;
-    --tag)        tag="${2:-}";        shift 2 ;;
-    --ghcr-repo)  ghcr_repo="${2:-}";  shift 2 ;;
-    --zstd-level) zstd_level="${2:-}"; shift 2 ;;
-    --keep-tmp)   keep_tmp="1";        shift 1 ;;
-    -h|--help)    usage; exit 0 ;;
-    *)            die "unknown arg: $1" ;;
+    --image)        image="${2:-}";      shift 2 ;;
+    --recipient)    recipient="${2:-}";  shift 2 ;;
+    --tag)          tag="${2:-}";        shift 2 ;;
+    --ghcr-repo)    ghcr_repo="${2:-}";  shift 2 ;;
+    --zstd-level)   zstd_level="${2:-}"; shift 2 ;;
+    --chunk-size)   chunk_size="${2:-}"; shift 2 ;;
+    --single-layer) single_layer="1";    shift 1 ;;
+    --keep-tmp)     keep_tmp="1";        shift 1 ;;
+    -h|--help)      usage; exit 0 ;;
+    *)              die "unknown arg: $1" ;;
   esac
 done
 
@@ -92,12 +102,31 @@ docker save "$image" \
 encrypted_size="$(stat -f%z "${tmpdir}/image.age" 2>/dev/null || stat -c%s "${tmpdir}/image.age" 2>/dev/null)"
 echo "==> Encrypted artifact: ${encrypted_size} bytes" >&2
 
-# Build a minimal FROM-scratch image containing only the encrypted blob.
-# This makes it pullable via standard docker pull (CDN, resumable, layer caching).
-cat > "${tmpdir}/Dockerfile" <<'DOCKERFILE'
+if [[ "$single_layer" == "1" ]]; then
+  # Single-layer format: one COPY with the entire blob
+  cat > "${tmpdir}/Dockerfile" <<'DOCKERFILE'
 FROM scratch
 COPY image.age /image.age
 DOCKERFILE
+else
+  # Chunked format: split into ~1 GB chunks, each as a separate Docker layer
+  echo "==> Splitting into ${chunk_size} chunks for multi-layer image" >&2
+  mkdir -p "${tmpdir}/chunks"
+  split -b "$chunk_size" -d -a 2 "${tmpdir}/image.age" "${tmpdir}/chunks/chunk-"
+  rm "${tmpdir}/image.age"
+
+  chunk_count=$(ls "${tmpdir}/chunks"/chunk-* | wc -l | tr -d ' ')
+  echo "==> Split into ${chunk_count} chunks" >&2
+
+  # Generate Dockerfile with one COPY per chunk (each = one Docker layer)
+  {
+    echo "FROM scratch"
+    for f in "${tmpdir}/chunks"/chunk-*; do
+      basename="$(basename "$f")"
+      echo "COPY chunks/${basename} /chunks/${basename}"
+    done
+  } > "${tmpdir}/Dockerfile"
+fi
 
 echo "==> Building GHCR image: $full_ref" >&2
 docker build -t "$full_ref" "$tmpdir"
