@@ -1,4 +1,7 @@
-"""Expose local Docker service health over HTTP for remote monitoring and power control."""
+"""Expose local Docker service health over HTTP for remote monitoring and power control.
+
+This module is the main entry point for the orchestrator-health service.
+"""
 from __future__ import annotations
 
 import json
