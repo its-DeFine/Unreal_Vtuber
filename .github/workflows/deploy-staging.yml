@@ -1,0 +1,46 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/watchdog/**"
+      - "orchestrator-edge-rotator/**"
+      - "orchestrator-health/**"
+      - "scripts/Dockerfile.orchestrator-registration"
+      - "unreal-script-runner/**"
+      - "tools/recorder/**"
+  workflow_dispatch: {}
+
+jobs:
+  deploy-staging:
+    runs-on: [self-hosted, staging-orch]
+    steps:
+      - name: Pull latest code
+        run: |
+          cd ~/Unreal_Vtuber
+          git pull origin main
+
+      - name: Pull latest service images
+        run: |
+          cd ~
+          docker compose -f docker-compose.staging.yml pull
+
+      - name: Deploy to staging
+        run: |
+          cd ~
+          docker compose -f docker-compose.staging.yml up -d --remove-orphans
+
+      - name: Wait for services
+        run: sleep 15
+
+      - name: Health check
+        run: |
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9090/health)
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Health check failed: HTTP $HTTP_CODE"
+            curl -s http://localhost:9090/health | python3 -m json.tool || true
+            exit 1
+          fi
+          echo "Staging health check passed (HTTP 200)"
+          curl -s http://localhost:9090/health | python3 -m json.tool
