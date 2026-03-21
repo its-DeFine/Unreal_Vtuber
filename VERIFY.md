@@ -25,10 +25,10 @@ Recommended layout:
 
 For implementation work, traceability is part of proof-of-done:
 
-- use a real GitHub issue number
-- use branch naming `codex/issue-<number>-<slug>`
-- include `Closes #<number>` or `Refs #<number>` in the PR body
-- never use placeholder issue IDs such as `issue-0`
+- use a real tracker key (Linear task key or GitHub issue number)
+- use branch naming `codex/<linear_key>-<slug>` or `codex/issue-<number>-<slug>`
+- include `Linear: <linear_key>`, `Closes #<number>`, or `Refs #<number>` in the PR body
+- never use placeholder tracker keys such as `issue-0` or `<linear-key>`
 
 ## Proof Rules
 
