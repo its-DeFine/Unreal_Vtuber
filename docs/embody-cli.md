@@ -65,7 +65,10 @@ q) Quit
   - Also checks outbound HTTPS (needed for presigned uploads) and warns if allowlists look misconfigured
 - `payments` – Payments connectivity checks + viewer token helper (when a viewer token is available)
 - `allowlists` – check/fix allowlists needed for Payments-driven workloads (`/power`, runner, recorder)
-- `register` – register orchestrator in Payments (cached; skips when already registered)
+- `register` – register or re-register the orchestrator in Payments
+  - `register --status` shows the current registration state without modifying it
+  - If the orchestrator is already registered and active, the CLI shows the current state and asks for confirmation before re-registering
+  - If the backend shows the orchestrator as inactive, the CLI attempts re-registration and then verifies fleet visibility
 - `license` / `license redeem` – view or redeem license token (invite code → token)
 - `rollout` – load encrypted game image (wrapper for `tools/encrypted-game-image/rollout.sh`)
 - `power` – sleep/wake the stack via `http://127.0.0.1:9090/power` (or a single compose project via `/power/projects/<project>`)

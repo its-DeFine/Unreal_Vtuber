@@ -283,6 +283,8 @@ def main() -> int:
     start = time.time()
     delay = max(args.retry_seconds, 0.5)
     attempt = 0
+    last_failure_kind = ""
+    last_failure_detail = ""
 
     while True:
         attempt += 1
@@ -306,12 +308,16 @@ def main() -> int:
                 return 0
             if status is None or status == 0:
                 detail = body.get("detail") or body
+                last_failure_kind = "network"
+                last_failure_detail = str(detail)
                 print(
                     f"[registrar] network/timeout on attempt {attempt}: {detail}",
                     file=sys.stderr,
                 )
             else:
                 detail = body.get("detail") or body
+                last_failure_kind = "backend"
+                last_failure_detail = str(detail)
                 print(
                     f"[registrar] backend rejected registration (status {status}): {detail}",
                     file=sys.stderr,
@@ -322,10 +328,27 @@ def main() -> int:
                     return 1
 
         if args.once:
+            if last_failure_kind == "network":
+                print(
+                    f"[registrar] Payments backend unreachable at {args.api_url.rstrip('/')}; "
+                    "check PAYMENTS_API_URL and outbound network access.",
+                    file=sys.stderr,
+                )
             return 0 if args.best_effort else 1
 
         elapsed = time.time() - start
         if elapsed >= args.max_retry_seconds:
+            if last_failure_kind == "network":
+                print(
+                    f"[registrar] Payments backend unreachable at {args.api_url.rstrip('/')}; "
+                    "check PAYMENTS_API_URL and outbound network access.",
+                    file=sys.stderr,
+                )
+            elif last_failure_kind == "backend" and last_failure_detail:
+                print(
+                    f"[registrar] last backend error before giving up: {last_failure_detail}",
+                    file=sys.stderr,
+                )
             print(
                 f"[registrar] giving up after {elapsed:.1f}s of retries; exiting",
                 file=sys.stderr,
