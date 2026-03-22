@@ -9,6 +9,7 @@ Changes merged after `v1.3.6` (current tagged release).
 - Ops: `/ops/upgrade` can optionally force-recreate `unreal-game` remotely (`recreate_game=true`) while sleeping.
 - Ops: `/ops/upgrade` can force-recreate the full compose stack (`recreate_all=true`) for clean restarts (ex: resolve container conflicts).
 - Ops: `/ops/upgrade` can schedule a force-recreate of `orchestrator-health` (`recreate_orchestrator_health=true`) so the control-plane container can be updated without SSH (brief blip expected).
+- Ops: `/ops/upgrade` `env_patch` now supports remote `OPS_HMAC_SECRET` rotation and auto-recreates `orchestrator-health` so the new secret is picked up without SSH. ([EMB-72](https://linear.app/embody-ai/issue/EMB-72/allow-ops-hmac-secret-in-env-patch-for-remote-rotation), [#277](https://github.com/its-DeFine/Unreal_Vtuber/pull/277))
 
 ## v1.3.6 (2026-02-09)
 

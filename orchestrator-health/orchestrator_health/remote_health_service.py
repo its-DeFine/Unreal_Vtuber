@@ -101,9 +101,11 @@ _ENV_PATCH_ALLOWED_KEYS: frozenset[str] = frozenset({
     "EDGE_CONFIG_URL", "EDGE_CONFIG_TOKEN", "EDGE_UPDATE_TURN",
     "CF_TURN_TOKEN_ID", "CF_TURN_API_TOKEN", "CF_TURN_TTL", "CF_TURN_RELAY_ONLY",
     "SIGNALING_EXTRA_ARGS",
+    "OPS_HMAC_SECRET",
 })
-# Keys that trigger an edge-rotator recreate when changed — excludes SIGNALING_EXTRA_ARGS.
-_ENV_PATCH_ROTATOR_KEYS: frozenset[str] = _ENV_PATCH_ALLOWED_KEYS - {"SIGNALING_EXTRA_ARGS"}
+# Keys that trigger an edge-rotator recreate when changed.
+_ENV_PATCH_ROTATOR_KEYS: frozenset[str] = _ENV_PATCH_ALLOWED_KEYS - {"SIGNALING_EXTRA_ARGS", "OPS_HMAC_SECRET"}
+_ENV_PATCH_HEALTH_KEYS: frozenset[str] = frozenset({"OPS_HMAC_SECRET"})
 
 _NVIDIA_SMI_QUERY = [
     "nvidia-smi",
@@ -255,11 +257,12 @@ def _runtime_summary_from_events(events: list[dict[str, Any]]) -> dict[str, Any]
 
     for event in events:
         kind = event.get("kind")
-        family = event.get("command_family")
+        family_raw = event.get("command_family")
+        command_family: str | None = family_raw if isinstance(family_raw, str) else None
         if kind == "command_received":
             summary["total_command_receipts"] += 1
-            if family in families:
-                summary[f"{family}_count"] += 1
+            if command_family is not None and command_family in families:
+                summary[f"{command_family}_count"] += 1
         elif kind == "tts_started":
             summary["kokoro_started_count"] += 1
         elif kind == "tts_session_created":
@@ -953,8 +956,10 @@ def _docker_port_conflicts(want_ports: set[int], *, ignore_project: str | None =
                 continue
             for binding in bindings:
                 host_port_raw = (binding or {}).get("HostPort")
+                if host_port_raw is None:
+                    continue
                 try:
-                    host_port = int(host_port_raw)
+                    host_port = int(str(host_port_raw))
                 except Exception:
                     continue
                 if host_port in want_ports and host_port not in conflicts:
@@ -1466,8 +1471,10 @@ def _container_host_port(container: Any, container_port: str) -> Optional[int]:
         return None
     for binding in bindings:
         host_port_raw = (binding or {}).get("HostPort")
+        if host_port_raw is None:
+            continue
         try:
-            return int(host_port_raw)
+            return int(str(host_port_raw))
         except Exception:
             continue
     return None
@@ -1945,11 +1952,13 @@ def _sleep_all_containers(*, reason: str | None = None, project_name: str | None
         if project_name:
             raise HTTPException(status_code=404, detail=f"compose project not found: {project_name}")
         # Fallback: preserve legacy behavior (game + runner) when project discovery fails.
-        results: dict[str, str] = {}
+        fallback_results: dict[str, str] = {}
         if POWER_STOP_RUNNER_ON_SLEEP:
-            results["runner"] = _stop_container(POWER_RUNNER_CONTAINER or "vtuber-script-runner", POWER_RUNNER_SERVICE)
-        results["game"] = _stop_container(POWER_GAME_CONTAINER, POWER_GAME_SERVICE)
-        return results
+            fallback_results["runner"] = _stop_container(
+                POWER_RUNNER_CONTAINER or "vtuber-script-runner", POWER_RUNNER_SERVICE
+            )
+        fallback_results["game"] = _stop_container(POWER_GAME_CONTAINER, POWER_GAME_SERVICE)
+        return fallback_results
 
     start_order = [
         "turn-server",
@@ -1993,12 +2002,12 @@ def _wake_all_containers(*, timeout_seconds: int = 90, project_name: str | None 
         if project_name:
             raise HTTPException(status_code=404, detail=f"compose project not found: {project_name}")
         # Fallback: legacy behavior (game + runner)
-        results: dict[str, str] = {}
-        results["game"] = _start_container(POWER_GAME_CONTAINER, POWER_GAME_SERVICE)
+        fallback_results: dict[str, str] = {}
+        fallback_results["game"] = _start_container(POWER_GAME_CONTAINER, POWER_GAME_SERVICE)
         _wait_for_running(POWER_GAME_CONTAINER, POWER_GAME_SERVICE, timeout_seconds=timeout_seconds)
         if POWER_RESTART_RUNNER_ON_WAKE:
-            results["runner"] = _restart_runner_if_present()
-        return results
+            fallback_results["runner"] = _restart_runner_if_present()
+        return fallback_results
 
     # Known compose services in dependency order.
     services = [
@@ -2423,9 +2432,14 @@ def ops_upgrade(
     env_patch_touches_rotator = env_patch_requested and bool(
         _ENV_PATCH_ROTATOR_KEYS & set(payload.env_patch or {})
     )
+    env_patch_touches_health = env_patch_requested and bool(
+        _ENV_PATCH_HEALTH_KEYS & set(payload.env_patch or {})
+    )
 
     if payload.apply:
-        recreate_orchestrator_health = payload.recreate_orchestrator_health or ops_allowlist_requested
+        recreate_orchestrator_health = (
+            payload.recreate_orchestrator_health or ops_allowlist_requested or env_patch_touches_health
+        )
         recreate_orchestrator_edge_rotator = (
             payload.recreate_orchestrator_edge_rotator
             or ops_allowlist_requested
@@ -2445,7 +2459,6 @@ def ops_upgrade(
 
         existing_services: set[str] = set()
         running_game: list[str] = []
-        base_game_running = False
         want_recreate_game = payload.recreate_game or payload.recreate_all
         for container in containers:
             labels = getattr(container, "labels", {}) or {}
@@ -2459,7 +2472,6 @@ def ops_upgrade(
                     pass
                 status = getattr(container, "status", "")
                 if status == "running":
-                    base_game_running = True
                     if want_recreate_game:
                         running_game.append(getattr(container, "name", "<unknown>"))
 
