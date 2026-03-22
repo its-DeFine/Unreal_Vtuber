@@ -5,6 +5,7 @@
 Changes merged after `v1.3.6` (current tagged release).
 
 - Fix: CLI overview no longer clobbers PATH when parsing rollout/verify state files (restores python3 detection in minimal hosts).
+- CLI: `register` now supports self-service re-registration, `--status`, and clearer Payments diagnostics for operators. ([EMB-67](https://linear.app/embody-ai/issue/EMB-67/improve-orchestrator-self-service-registration-via-cli), [#276](https://github.com/its-DeFine/Unreal_Vtuber/pull/276))
 - Ops: `/ops/upgrade` can optionally force-recreate `unreal-game` remotely (`recreate_game=true`) while sleeping.
 - Ops: `/ops/upgrade` can force-recreate the full compose stack (`recreate_all=true`) for clean restarts (ex: resolve container conflicts).
 - Ops: `/ops/upgrade` can schedule a force-recreate of `orchestrator-health` (`recreate_orchestrator_health=true`) so the control-plane container can be updated without SSH (brief blip expected).

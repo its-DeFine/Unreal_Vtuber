@@ -10,6 +10,7 @@ COMPOSE_FILE="${REPO_ROOT}/docker-compose.unreal.yml"
 INSTANCE_COMPOSE_FILE="${REPO_ROOT}/docker-compose.unreal.instance.yml"
 START_SCRIPT="${REPO_ROOT}/scripts/start_vtuber_unreal.sh"
 ONBOARD_SCRIPT="${REPO_ROOT}/scripts/embody_onboard.sh"
+REGISTER_SCRIPT="${REPO_ROOT}/scripts/register_orchestrator.py"
 
 TARGET_HOME="${HOME}"
 if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
@@ -62,7 +63,7 @@ Usage:
   ./scripts/embody_cli.sh license          # Show license token status
   ./scripts/embody_cli.sh license redeem   # Redeem invite code → store token
   ./scripts/embody_cli.sh rollout          # Rollout encrypted game image (wraps tools/encrypted-game-image/rollout.sh)
-  ./scripts/embody_cli.sh register         # Register orchestrator in Payments (cached; skip when already registered)
+  ./scripts/embody_cli.sh register         # Register or re-register orchestrator in Payments
   ./scripts/embody_cli.sh verify           # Full health/consistency checks (optionally auto-fix)
   ./scripts/embody_cli.sh power            # Sleep/wake via orchestrator-health /power
   ./scripts/embody_cli.sh cluster <cmd>    # Multi-instance cluster mode (plan/list/up/down/status/logs)
@@ -529,6 +530,359 @@ has_setup_state() {
 
 has_license_token() {
   [[ -s "$TOKEN_FILE_DEFAULT" ]]
+}
+
+print_register_script_missing_error() {
+  echo "This checkout is missing ${REGISTER_SCRIPT#${REPO_ROOT}/}." >&2
+  echo "Run \`git pull\` first, then retry ./scripts/embody_cli.sh register." >&2
+}
+
+require_register_script() {
+  if [[ ! -f "$REGISTER_SCRIPT" ]]; then
+    print_register_script_missing_error
+    return 1
+  fi
+  return 0
+}
+
+print_registration_config_error() {
+  local payments_url="$1" orch_id="$2" orch_addr="$3"
+  local missing=()
+
+  [[ -n "$payments_url" ]] || missing+=("PAYMENTS_API_URL")
+  [[ -n "$orch_id" ]] || missing+=("ORCHESTRATOR_ID")
+  [[ -n "$orch_addr" ]] || missing+=("ORCHESTRATOR_ADDRESS")
+
+  if [[ "${#missing[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  echo "Missing registration configuration:" >&2
+  if [[ ! -f "$ENV_FILE" ]]; then
+    echo "- .env not found at $ENV_FILE" >&2
+  fi
+  local item
+  for item in "${missing[@]}"; do
+    echo "- ${item}" >&2
+  done
+  echo "Set the missing values in .env or pass them explicitly:" >&2
+  echo "  ./scripts/embody_cli.sh register --payments-api-url <url> --orchestrator-id <id> --orchestrator-address <0x...>" >&2
+  return 1
+}
+
+print_registration_status_token_error() {
+  echo "Missing orchestrator token; cannot query registration status." >&2
+  echo "Redeem or restore ${TOKEN_FILE_DEFAULT}, then retry ./scripts/embody_cli.sh register --status." >&2
+}
+
+print_missing_payments_api_url_error() {
+  echo "Missing registration configuration:" >&2
+  if [[ ! -f "$ENV_FILE" ]]; then
+    echo "- .env not found at $ENV_FILE" >&2
+  fi
+  echo "- PAYMENTS_API_URL" >&2
+  echo "Set PAYMENTS_API_URL in .env or pass --payments-api-url <url>." >&2
+}
+
+REGISTRATION_STATUS_CLASS=""
+REGISTRATION_STATUS_REGISTERED="unknown"
+REGISTRATION_STATUS_ACTIVE="unknown"
+REGISTRATION_STATUS_LAST_SEEN=""
+REGISTRATION_STATUS_PAYMENT_ELIGIBLE="unknown"
+REGISTRATION_STATUS_SERVICES="unknown"
+REGISTRATION_STATUS_REASON=""
+REGISTRATION_STATUS_ORCH_ID=""
+REGISTRATION_STATUS_HTTP_CODE=""
+REGISTRATION_STATUS_HEALTH_HTTP_CODE=""
+
+reset_registration_probe() {
+  REGISTRATION_STATUS_CLASS=""
+  REGISTRATION_STATUS_REGISTERED="unknown"
+  REGISTRATION_STATUS_ACTIVE="unknown"
+  REGISTRATION_STATUS_LAST_SEEN=""
+  REGISTRATION_STATUS_PAYMENT_ELIGIBLE="unknown"
+  REGISTRATION_STATUS_SERVICES="unknown"
+  REGISTRATION_STATUS_REASON=""
+  REGISTRATION_STATUS_ORCH_ID=""
+  REGISTRATION_STATUS_HTTP_CODE=""
+  REGISTRATION_STATUS_HEALTH_HTTP_CODE=""
+}
+
+registration_probe() {
+  local payments_url="$1"
+  reset_registration_probe
+
+  command -v curl >/dev/null 2>&1 || {
+    REGISTRATION_STATUS_CLASS="missing_dependency"
+    REGISTRATION_STATUS_REASON="missing dependency: curl"
+    return 1
+  }
+  command -v python3 >/dev/null 2>&1 || {
+    REGISTRATION_STATUS_CLASS="missing_dependency"
+    REGISTRATION_STATUS_REASON="missing dependency: python3"
+    return 1
+  }
+
+  local token me_out me_code me_body health_out health_code health_body parsed line key value
+  token="$(read_orchestrator_token)"
+  if [[ -z "$token" ]]; then
+    REGISTRATION_STATUS_CLASS="missing_token"
+    REGISTRATION_STATUS_REASON="missing orchestrator token"
+  else
+    me_out="$(payments_self_me "$payments_url" 5 || true)"
+    me_code="$(printf '%s\n' "$me_out" | head -n 1 || true)"
+    me_body="$(printf '%s\n' "$me_out" | tail -n +2 || true)"
+    REGISTRATION_STATUS_HTTP_CODE="$me_code"
+  fi
+
+  health_out="$(curl -sS --max-time 2 -H "Accept: application/json" -w $'\n%{http_code}' http://127.0.0.1:9090/health 2>/dev/null || true)"
+  health_code="$(printf '%s\n' "$health_out" | tail -n 1 || true)"
+  health_body="$(printf '%s\n' "$health_out" | sed '$d' || true)"
+  REGISTRATION_STATUS_HEALTH_HTTP_CODE="$health_code"
+
+  case "${REGISTRATION_STATUS_CLASS}" in
+    missing_token)
+      if [[ "$health_code" == "200" && -n "$health_body" ]]; then
+        parsed="$(HEALTH_BODY="$health_body" python3 - <<'PY' || true
+import json
+import os
+
+raw = os.environ.get("HEALTH_BODY") or ""
+try:
+    data = json.loads(raw)
+except Exception:
+    data = {}
+
+summary = data.get("summary") or {}
+message = (summary.get("status_message") or "").strip()
+services_up = summary.get("services_up")
+total_services = summary.get("total_services")
+missing = summary.get("missing_services") or []
+
+parts = []
+if message:
+    parts.append(message)
+if services_up is not None and total_services is not None:
+    parts.append(f"{services_up}/{total_services} running")
+if missing:
+    parts.append("missing=" + ",".join(str(item) for item in missing if str(item).strip()))
+
+print("; ".join(part for part in parts if part))
+PY
+        )"
+        [[ -n "$parsed" ]] && REGISTRATION_STATUS_SERVICES="$parsed"
+      fi
+      return 1
+      ;;
+  esac
+
+  case "$me_code" in
+    200)
+      parsed="$(ME_BODY="$me_body" HEALTH_CODE="$health_code" HEALTH_BODY="$health_body" python3 - <<'PY' || true
+import json
+import os
+
+me_body = os.environ.get("ME_BODY") or ""
+health_code = (os.environ.get("HEALTH_CODE") or "").strip()
+health_body = os.environ.get("HEALTH_BODY") or ""
+
+try:
+    me = json.loads(me_body)
+except Exception:
+    me = {}
+
+try:
+    health = json.loads(health_body) if health_body else {}
+except Exception:
+    health = {}
+
+def first_nonempty(*values):
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                return text
+            continue
+        return value
+    return None
+
+def bool_word(value):
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return "unknown"
+
+active_value = first_nonempty(me.get("active"), me.get("isActive"))
+archived_value = first_nonempty(me.get("archived"), me.get("isArchived"))
+status_value = first_nonempty(me.get("status"), me.get("state"))
+
+active = None
+if isinstance(active_value, bool):
+    active = active_value
+elif isinstance(archived_value, bool):
+    active = not archived_value
+elif isinstance(status_value, str):
+    lowered = status_value.strip().lower()
+    if lowered in {"active", "ready", "online"}:
+        active = True
+    elif lowered in {"inactive", "archived", "disabled", "paused"}:
+        active = False
+
+if active is None:
+    active = True
+
+eligible = first_nonempty(
+    me.get("eligible_for_payments"),
+    me.get("eligibleForPayments"),
+    me.get("payment_eligible"),
+    me.get("paymentEligible"),
+    me.get("eligible"),
+)
+
+health_summary = health.get("summary") if isinstance(health, dict) else {}
+services_value = first_nonempty(
+    me.get("services_status"),
+    me.get("servicesStatus"),
+    me.get("service_status"),
+    me.get("serviceStatus"),
+)
+if not services_value and isinstance(health_summary, dict):
+    message = (health_summary.get("status_message") or "").strip()
+    services_up = health_summary.get("services_up")
+    total_services = health_summary.get("total_services")
+    missing = health_summary.get("missing_services") or []
+    parts = []
+    if message:
+        parts.append(message)
+    if services_up is not None and total_services is not None:
+        parts.append(f"{services_up}/{total_services} running")
+    if missing:
+        parts.append("missing=" + ",".join(str(item) for item in missing if str(item).strip()))
+    services_value = "; ".join(parts) if parts else None
+elif isinstance(services_value, dict):
+    parts = []
+    summary = services_value.get("summary")
+    if isinstance(summary, dict):
+        message = (summary.get("status_message") or "").strip()
+        services_up = summary.get("services_up")
+        total_services = summary.get("total_services")
+        if message:
+            parts.append(message)
+        if services_up is not None and total_services is not None:
+            parts.append(f"{services_up}/{total_services} running")
+    else:
+        running = []
+        missing = []
+        for name, item in services_value.items():
+            if not isinstance(item, dict):
+                continue
+            if item.get("running") is True:
+                running.append(str(name))
+            else:
+                missing.append(str(name))
+        if running or missing:
+            parts.append(f"{len(running)}/{len(running) + len(missing)} running")
+            if missing:
+                parts.append("missing=" + ",".join(missing))
+    services_value = "; ".join(parts) if parts else None
+
+reason = "registered and active" if active else "registered but inactive"
+klass = "registered_active" if active else "registered_inactive"
+
+items = {
+    "class": klass,
+    "registered": "yes",
+    "active": bool_word(active),
+    "last_seen": str(first_nonempty(me.get("last_seen"), me.get("lastSeen"), me.get("updated_at"), me.get("updatedAt")) or ""),
+    "payment_eligible": bool_word(eligible),
+    "services": str(services_value or ("local health unavailable" if health_code and health_code != "200" else "unknown")),
+    "reason": reason,
+    "orch_id": str(first_nonempty(me.get("orchestrator_id"), me.get("orchestratorId"), me.get("id")) or ""),
+}
+
+for key, value in items.items():
+    print(f"{key}={value}")
+PY
+      )"
+      while IFS='=' read -r key value; do
+        [[ -n "$key" ]] || continue
+        case "$key" in
+          class) REGISTRATION_STATUS_CLASS="$value" ;;
+          registered) REGISTRATION_STATUS_REGISTERED="$value" ;;
+          active) REGISTRATION_STATUS_ACTIVE="$value" ;;
+          last_seen) REGISTRATION_STATUS_LAST_SEEN="$value" ;;
+          payment_eligible) REGISTRATION_STATUS_PAYMENT_ELIGIBLE="$value" ;;
+          services) REGISTRATION_STATUS_SERVICES="$value" ;;
+          reason) REGISTRATION_STATUS_REASON="$value" ;;
+          orch_id) REGISTRATION_STATUS_ORCH_ID="$value" ;;
+        esac
+      done <<<"$parsed"
+      return 0
+      ;;
+    404)
+      REGISTRATION_STATUS_CLASS="not_registered"
+      REGISTRATION_STATUS_REGISTERED="no"
+      REGISTRATION_STATUS_ACTIVE="no"
+      REGISTRATION_STATUS_PAYMENT_ELIGIBLE="no"
+      REGISTRATION_STATUS_REASON="Payments does not have this orchestrator yet"
+      if [[ "$health_code" == "200" && -n "$health_body" ]]; then
+        parsed="$(HEALTH_BODY="$health_body" python3 - <<'PY' || true
+import json
+import os
+
+raw = os.environ.get("HEALTH_BODY") or ""
+try:
+    data = json.loads(raw)
+except Exception:
+    data = {}
+summary = data.get("summary") or {}
+message = (summary.get("status_message") or "").strip()
+services_up = summary.get("services_up")
+total_services = summary.get("total_services")
+missing = summary.get("missing_services") or []
+parts = []
+if message:
+    parts.append(message)
+if services_up is not None and total_services is not None:
+    parts.append(f"{services_up}/{total_services} running")
+if missing:
+    parts.append("missing=" + ",".join(str(item) for item in missing if str(item).strip()))
+print("; ".join(part for part in parts if part))
+PY
+        )"
+        [[ -n "$parsed" ]] && REGISTRATION_STATUS_SERVICES="$parsed"
+      fi
+      return 0
+      ;;
+    401)
+      REGISTRATION_STATUS_CLASS="invalid_token"
+      REGISTRATION_STATUS_REASON="invalid orchestrator token"
+      return 1
+      ;;
+    ""|000|0)
+      REGISTRATION_STATUS_CLASS="unreachable"
+      REGISTRATION_STATUS_REASON="Payments backend unreachable"
+      return 1
+      ;;
+    *)
+      REGISTRATION_STATUS_CLASS="backend_error"
+      REGISTRATION_STATUS_REASON="Payments request failed with HTTP ${me_code}"
+      return 1
+      ;;
+  esac
+}
+
+show_registration_status() {
+  ui_section "Registration status"
+  ui_kv "Registered" "${REGISTRATION_STATUS_REGISTERED:-unknown}"
+  ui_kv "Active" "${REGISTRATION_STATUS_ACTIVE:-unknown}"
+  ui_kv "Last seen" "${REGISTRATION_STATUS_LAST_SEEN:-unknown}"
+  ui_kv "Services" "${REGISTRATION_STATUS_SERVICES:-unknown}"
+  ui_kv "Payment eligible" "${REGISTRATION_STATUS_PAYMENT_ELIGIBLE:-unknown}"
+  if [[ -n "${REGISTRATION_STATUS_REASON:-}" ]]; then
+    ui_kv "Detail" "${REGISTRATION_STATUS_REASON}"
+  fi
 }
 
 detect_game_image_from_compose() {
@@ -1206,6 +1560,7 @@ cmd_health() {
 
 ensure_registered_best_effort() {
   has_setup_state || return 0
+  [[ -f "$REGISTER_SCRIPT" ]] || return 0
 
   local payments_url orch_id orch_addr
   payments_url="$(get_payments_api_url)"
@@ -1221,7 +1576,7 @@ ensure_registered_best_effort() {
 
   command -v python3 >/dev/null 2>&1 || return 0
 
-  python3 "$REPO_ROOT/scripts/register_orchestrator.py" \
+  python3 "$REGISTER_SCRIPT" \
     --api-url "$payments_url" \
     --orchestrator-id "$orch_id" \
     --orchestrator-address "$orch_addr" \
@@ -3010,6 +3365,7 @@ EOF
 
 cmd_register() {
   local force="0"
+  local status_only="0"
   local payments_url orch_id orch_addr
   payments_url=""
   orch_id=""
@@ -3019,6 +3375,10 @@ cmd_register() {
     case "$1" in
       --force)
         force="1"
+        shift 1
+        ;;
+      --status)
+        status_only="1"
         shift 1
         ;;
       --payments-api-url)
@@ -3039,10 +3399,11 @@ Usage:
   ./scripts/embody_cli.sh register [options]
 
 Options:
+  --status                          Show current registration state without modifying it
   --payments-api-url <url>         Payments backend base URL (default: PAYMENTS_API_URL from .env)
   --orchestrator-id <id>           Orchestrator ID (defaults from .env)
   --orchestrator-address <0x...>   Payout wallet address (defaults from .env)
-  --force                          Force registration even if cached state exists
+  --force                          Force re-registration even if cached state exists
 EOF
         return 0
         ;;
@@ -3065,11 +3426,88 @@ EOF
     orch_addr="$(get_orchestrator_address)"
   fi
 
-  [[ -n "$payments_url" ]] || { echo "Missing payments API URL" >&2; return 1; }
-  [[ -n "$orch_id" ]] || { echo "Missing orchestrator ID (set ORCHESTRATOR_ID in .env or pass --orchestrator-id)" >&2; return 1; }
-  [[ -n "$orch_addr" ]] || { echo "Missing orchestrator address (set ORCHESTRATOR_ADDRESS in .env or pass --orchestrator-address)" >&2; return 1; }
+  if [[ "$status_only" == "1" ]]; then
+    [[ -n "$payments_url" ]] || { print_missing_payments_api_url_error; return 1; }
+    if ! registration_probe "$payments_url"; then
+      case "$REGISTRATION_STATUS_CLASS" in
+        missing_token)
+          print_registration_status_token_error
+          show_registration_status
+          return 1
+          ;;
+        invalid_token)
+          echo "Invalid orchestrator token; re-run ./scripts/embody_cli.sh license redeem, then retry --status." >&2
+          return 1
+          ;;
+        unreachable)
+          echo "Payments backend unreachable at ${payments_url%/}; check PAYMENTS_API_URL and outbound network access." >&2
+          return 1
+          ;;
+        backend_error)
+          echo "${REGISTRATION_STATUS_REASON}" >&2
+          return 1
+          ;;
+        missing_dependency)
+          echo "${REGISTRATION_STATUS_REASON}" >&2
+          return 1
+          ;;
+      esac
+    fi
+    show_registration_status
+    return 0
+  fi
+
+  require_register_script || return 1
+  print_registration_config_error "$payments_url" "$orch_id" "$orch_addr" || return 1
 
   command -v python3 >/dev/null 2>&1 || { echo "Missing dependency: python3" >&2; return 1; }
+
+  local should_skip_state="1"
+  local visibility_rc=0
+  if registration_probe "$payments_url"; then
+    case "$REGISTRATION_STATUS_CLASS" in
+      registered_active)
+        show_registration_status
+        if [[ "$force" == "1" ]]; then
+          echo "Proceeding with explicit re-registration request."
+          should_skip_state="0"
+        elif is_tty && prompt_yes_no "Already registered and active. Re-register anyway?" "n"; then
+          force="1"
+          should_skip_state="0"
+          echo "Attempting re-registration."
+        else
+          echo "Already registered and active. Use --force to re-register." >&2
+          return 0
+        fi
+        ;;
+      registered_inactive)
+        show_registration_status
+        echo "Payments shows this orchestrator as registered but inactive; attempting re-registration." >&2
+        force="1"
+        should_skip_state="0"
+        ;;
+      not_registered)
+        echo "Payments does not have this orchestrator yet. Registering now..."
+        ;;
+    esac
+  else
+    case "$REGISTRATION_STATUS_CLASS" in
+      missing_token)
+        echo "Orchestrator token missing; proceeding without a preflight status check." >&2
+        ;;
+      invalid_token)
+        echo "Orchestrator token is invalid; proceeding with registration, but status checks may fail until you redeem a new token." >&2
+        ;;
+      unreachable)
+        echo "Payments backend unreachable at ${payments_url%/}; check PAYMENTS_API_URL and outbound network access." >&2
+        return 1
+        ;;
+      backend_error|missing_dependency)
+        echo "${REGISTRATION_STATUS_REASON}" >&2
+        return 1
+        ;;
+    esac
+  fi
 
   local args=(
     --api-url "$payments_url"
@@ -3077,16 +3515,56 @@ EOF
     --orchestrator-address "$orch_addr"
     --max-retry-seconds 120
     --state-file "$REGISTRATION_STATE_FILE_DEFAULT"
-    --skip-if-state-matches
   )
+  if [[ "$should_skip_state" == "1" ]]; then
+    args+=(--skip-if-state-matches)
+  fi
   if [[ "$force" == "1" ]]; then
     args+=(--force)
   fi
 
-  python3 "$REPO_ROOT/scripts/register_orchestrator.py" "${args[@]}"
+  python3 "$REGISTER_SCRIPT" "${args[@]}"
   if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" && -f "$REGISTRATION_STATE_FILE_DEFAULT" ]]; then
     chown "$SUDO_USER":"$SUDO_USER" "$REGISTRATION_STATE_FILE_DEFAULT" 2>/dev/null || true
   fi
+
+  if registration_probe "$payments_url"; then
+    case "$REGISTRATION_STATUS_CLASS" in
+      registered_active)
+        ui_check "fleet visibility" "OK" "(Payments can see this orchestrator)"
+        show_registration_status
+        ;;
+      registered_inactive)
+        ui_check "fleet visibility" "WARN" "(Payments can see this orchestrator, but it is still inactive)"
+        show_registration_status
+        visibility_rc=1
+        ;;
+      not_registered)
+        ui_check "fleet visibility" "WARN" "(Payments still does not list this orchestrator)"
+        visibility_rc=1
+        ;;
+    esac
+  else
+    case "$REGISTRATION_STATUS_CLASS" in
+      missing_token)
+        ui_check "fleet visibility" "WARN" "(registration sent, but status could not be verified without ${TOKEN_FILE_DEFAULT})"
+        ;;
+      invalid_token)
+        ui_check "fleet visibility" "WARN" "(registration sent, but the orchestrator token is invalid)"
+        visibility_rc=1
+        ;;
+      unreachable)
+        ui_check "fleet visibility" "WARN" "(registration sent, but Payments is unreachable for verification)"
+        visibility_rc=1
+        ;;
+      backend_error|missing_dependency)
+        ui_check "fleet visibility" "WARN" "(${REGISTRATION_STATUS_REASON})"
+        visibility_rc=1
+        ;;
+    esac
+  fi
+
+  return "$visibility_rc"
 }
 
 cmd_power() {
