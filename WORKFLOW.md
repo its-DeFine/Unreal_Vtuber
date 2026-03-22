@@ -39,7 +39,7 @@ Then inspect the code surface you plan to touch. Common first stops:
 
 ## Default Execution Loop
 
-1. Confirm the real GitHub issue number before opening an implementation branch or PR.
+1. Confirm the real tracker key (Linear task key or GitHub issue number) before opening an implementation branch or PR.
 2. Name the exact surface you are changing.
 3. Pick the smallest wedge that satisfies the issue.
 4. Choose the closest verification command from `VERIFY.md` before editing.
@@ -72,7 +72,7 @@ Stop and ask for a narrower packet if any of these become necessary:
 - relying on a runtime-only check when no host or credentials are available
 - treating harness work as permission to delete or redesign adjacent subsystems
 - broadening from one subsystem fix into a repo-wide refactor
-- opening an implementation branch or PR without a real GitHub issue number
-- using placeholder branch or PR metadata such as `issue-0`
-- branch naming that does not follow `codex/issue-<number>-<slug>`
-- PR body missing `Closes #<number>` or `Refs #<number>`
+- opening an implementation branch or PR without a real tracker key (Linear task key or GitHub issue number)
+- using placeholder branch or PR metadata such as `issue-0` or `<linear-key>`
+- branch naming that does not follow `codex/<linear_key>-<slug>` or `codex/issue-<number>-<slug>`
+- PR body missing `Linear: <linear_key>`, `Closes #<number>`, or `Refs #<number>`

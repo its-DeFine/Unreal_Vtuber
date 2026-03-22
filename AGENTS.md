@@ -1,5 +1,7 @@
 # Agent Index
 
+This repo uses Linear tasks as the internal unit of work and PRs as the execution artifact. GitHub issues are optional external/public intake, not a prerequisite for internal repo work.
+
 Start here:
 
 1. `README.md` for the operator-facing runtime overview and top-level workflow.
@@ -17,8 +19,7 @@ Repo defaults:
 
 Execution rules:
 
-- Do not start implementation work without a real GitHub issue number.
-- Never use placeholder issue IDs such as `issue-0`.
-- Work from `codex/issue-<number>-<slug>`, open a draft PR first, and include `Closes #<number>` or `Refs #<number>` in the PR body.
+- If no real Linear task key is supplied, stop before opening an implementation branch or PR. Never use placeholder keys such as `<linear-key>`.
+- Work from `codex/<linear_key>-<slug>`, open a draft PR first, and include `Linear: <linear_key>` in the PR body.
 - Prefer the smallest verification step that proves the touched surface.
 - Treat onboarding, rollout, power, upgrade, and remote ops as operator-only by default.
