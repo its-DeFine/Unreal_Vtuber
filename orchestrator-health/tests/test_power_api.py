@@ -2,7 +2,6 @@ import json
 import hashlib
 import hmac
 import importlib
-import os
 import time
 
 import pytest
@@ -128,7 +127,7 @@ def test_project_power_roundtrip(power_app, monkeypatch):
             self.name = name
             self.status = status
             self.labels = labels
-            self.attrs = {"State": {}}
+            self.attrs: dict[str, dict[str, str]] = {"State": {}}
 
         def reload(self) -> None:  # pragma: no cover - used by service code
             return None
@@ -1886,6 +1885,72 @@ def test_ops_upgrade_env_patch_rotator_key_auto_recreates_edge_rotator(ops_app, 
         assert any(
             "orchestrator-edge-rotator" in " ".join(str(x) for x in cmd) for cmd in recreate_calls
         ), f"no recreate scheduled for patch {rotator_patch}"
+
+
+def test_ops_upgrade_env_patch_hmac_key_auto_recreates_health(ops_app, monkeypatch):
+    app, svc = ops_app
+    client = TestClient(app)
+
+    monkeypatch.setattr(svc, "_require_auth_strict", lambda _req: None)
+    monkeypatch.setattr(svc, "_detect_compose_identity", lambda: None)
+    monkeypatch.setattr(svc, "_read_power_state", lambda: svc.PowerState(state="sleeping"))
+
+    class DummyResult:
+        def __init__(self, exit_code: int = 0, stdout: str = "", stderr: str = ""):
+            self.exit_code = exit_code
+            self.output = (stdout.encode("utf-8"), stderr.encode("utf-8"))
+
+    class DummyContainer:
+        def __init__(self, service: str):
+            self.labels = {"com.docker.compose.service": service}
+
+    monkeypatch.setattr(
+        svc,
+        "_list_project_containers",
+        lambda _project=None: [  # noqa: ARG005
+            DummyContainer("turn-server"),
+            DummyContainer("orchestrator-health"),
+            DummyContainer("orchestrator-edge-rotator"),
+        ],
+    )
+
+    recreate_calls: list[list] = []
+
+    class DummyExecutor:
+        image = type("Img", (), {"id": "sha256:deadbeef"})()
+
+        def exec_run(self, cmd, environment=None, demux=False):  # noqa: ARG002
+            git_prefix = ["git", "-c", "safe.directory=/tmp/repo", "-C", "/tmp/repo"]
+            if cmd[: len(git_prefix)] == git_prefix:
+                git_cmd = cmd[len(git_prefix) :]
+                if git_cmd[:3] == ["rev-parse", "--is-inside-work-tree"]:
+                    return DummyResult(stdout="true\n")
+                if git_cmd[:2] == ["status", "--porcelain"]:
+                    return DummyResult(stdout="")
+                if git_cmd[:3] == ["rev-parse", "--short", "HEAD"]:
+                    return DummyResult(stdout="abc123\n")
+                return DummyResult(stdout="")
+            if cmd[:2] == ["docker", "compose"]:
+                assert "orchestrator-health" not in cmd
+                assert "orchestrator-edge-rotator" not in cmd
+                return DummyResult(stdout="")
+            if cmd[:3] == ["docker", "run", "-d"]:
+                recreate_calls.append(cmd)
+                return DummyResult(stdout="job123\n")
+            return DummyResult(stdout="")
+
+    monkeypatch.setattr(svc, "_cluster_executor_container", lambda: DummyExecutor())
+    monkeypatch.setattr(svc, "_cluster_project_dir", lambda: "/tmp/repo")
+
+    resp = client.post("/ops/upgrade", json={"apply": True, "env_patch": {"OPS_HMAC_SECRET": "rotated-secret"}})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert any(
+        "orchestrator-health" in " ".join(str(x) for x in cmd) for cmd in recreate_calls
+    ), "no orchestrator-health recreate scheduled"
+    assert not any(
+        "orchestrator-edge-rotator" in " ".join(str(x) for x in cmd) for cmd in recreate_calls
+    ), "unexpected orchestrator-edge-rotator recreate scheduled"
 
 
 

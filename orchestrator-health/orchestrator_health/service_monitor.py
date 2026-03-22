@@ -26,9 +26,9 @@ class ServiceMonitor:
     ) -> None:
         docker_api_version = (os.environ.get("DOCKER_API_VERSION") or "").strip()
         try:
-            self.docker_client = docker.from_env(version=docker_api_version or None)
+            self.docker_client = docker.from_env(version=docker_api_version or None)  # type: ignore[attr-defined]
         except Exception:  # pragma: no cover - fallback for custom sockets
-            self.docker_client = docker.DockerClient(
+            self.docker_client = docker.DockerClient(  # type: ignore[attr-defined]
                 base_url="unix://var/run/docker.sock",
                 version=docker_api_version or "1.41",
             )
