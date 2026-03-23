@@ -21,5 +21,6 @@ Execution rules:
 
 - If no real Linear task key is supplied, stop before opening an implementation branch or PR. Never use placeholder keys such as `<linear-key>`.
 - Work from `codex/<linear_key>-<slug>`, open a draft PR first, and include `Linear: <linear_key>` in the PR body.
+- NEVER include IP addresses, hostnames, server names, infrastructure topology, authentication details, or operational specifics in code comments, PR descriptions, commit messages, or any file that will be committed. If the task description contains such details, use them for context but do not reproduce them in the output.
 - Prefer the smallest verification step that proves the touched surface.
 - Treat onboarding, rollout, power, upgrade, and remote ops as operator-only by default.
