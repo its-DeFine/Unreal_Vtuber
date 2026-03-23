@@ -1,0 +1,3 @@
+git+https://github.com/livepeer/pytrickle.git@08b375e5ba4774cf2a061e0e6d69683a2639192d
+aiortc
+websockets
