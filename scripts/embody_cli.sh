@@ -10,6 +10,7 @@ COMPOSE_FILE="${REPO_ROOT}/docker-compose.unreal.yml"
 INSTANCE_COMPOSE_FILE="${REPO_ROOT}/docker-compose.unreal.instance.yml"
 START_SCRIPT="${REPO_ROOT}/scripts/start_vtuber_unreal.sh"
 ONBOARD_SCRIPT="${REPO_ROOT}/scripts/embody_onboard.sh"
+BROADCAST_SCRIPT="${REPO_ROOT}/tools/broadcast/operator.sh"
 
 TARGET_HOME="${HOME}"
 if [[ "$(id -u)" == "0" && -n "${SUDO_USER:-}" ]]; then
@@ -66,6 +67,7 @@ Usage:
   ./scripts/embody_cli.sh verify           # Full health/consistency checks (optionally auto-fix)
   ./scripts/embody_cli.sh power            # Sleep/wake via orchestrator-health /power
   ./scripts/embody_cli.sh cluster <cmd>    # Multi-instance cluster mode (plan/list/up/down/status/logs)
+  ./scripts/embody_cli.sh broadcast <cmd>  # Optional WebRTC → RTMP broadcast (configure/start/stop/status/recover)
 
 Day-to-day commands:
   ./scripts/embody_cli.sh start [--gpu <id|all|none>]   # Start stack (defaults to detached)
@@ -716,6 +718,14 @@ run_stack() {
     exit 1
   fi
   exec "$START_SCRIPT" "$@"
+}
+
+run_broadcast() {
+  if [[ ! -x "$BROADCAST_SCRIPT" ]]; then
+    echo "Broadcast operator script not found: $BROADCAST_SCRIPT" >&2
+    exit 1
+  fi
+  exec "$BROADCAST_SCRIPT" "$@"
 }
 
 is_valid_eth_address() {
@@ -4544,6 +4554,7 @@ menu() {
     ui_menu_item "v" "Verify (end-to-end)"
     ui_menu_item "m" "Payments status"
     ui_menu_item "p" "Power (sleep/wake)"
+    ui_menu_item "b" "Optional RTMP broadcast"
     ui_menu_item "s" "Setup / reconfigure"
     ui_menu_item "q" "Quit"
     printf '> '
@@ -4572,6 +4583,7 @@ menu() {
       u|U) cmd_upgrade || true ;;
       v|V) cmd_verify || true ;;
       m|M) cmd_payments status || true ;;
+      b|B) "$BROADCAST_SCRIPT" menu || true ;;
       p|P)
         echo -n "Power action (status|sleep|wake): "
         local act
@@ -4715,6 +4727,10 @@ main() {
     cluster)
       shift || true
       cmd_cluster "$@"
+      ;;
+    broadcast)
+      shift || true
+      run_broadcast "$@"
       ;;
     capacity)
       cmd_capacity

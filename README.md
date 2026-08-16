@@ -9,6 +9,7 @@ Key properties:
 - 🔒 **Encrypted game delivery** (no registry credentials on the orchestrator)
 - ⏱️ **Short-lived decryption leases** issued by the Payments backend
 - 🛡️ **Best-effort firewall automation** on EC2 (optional)
+- 📡 **Opt-in unattended RTMP broadcast** alongside WebRTC viewing/recording
 
 ## Quickstart (one command)
 
@@ -49,6 +50,23 @@ Day-to-day operations are also done via the CLI (no file edits needed):
 - `./scripts/embody_cli.sh rollout --stage` – prefetch the next encrypted game image **without** stopping a live stack (writes “pending rollout” state)
 - `./scripts/embody_cli.sh rollout --apply-staged` – apply a staged rollout during an idle window (after sleep, switches the next wake to the staged image)
 - `./scripts/embody_cli.sh upgrade` – pull/recreate service containers (repo auto-updates on launch; recommended after updates)
+- `./scripts/embody_cli.sh broadcast status` – inspect the independent, optional WebRTC → RTMP bridge
+
+Optional broadcast is disabled by default and does not add a service to normal stack startup. Configure it with an echo-free credential flow, then start it independently:
+```bash
+./scripts/embody_cli.sh broadcast configure
+./scripts/embody_cli.sh broadcast start
+./scripts/embody_cli.sh broadcast status
+```
+Account-free lifecycle test (no Unreal image/GPU/source required):
+```bash
+./scripts/embody_cli.sh broadcast configure --test
+./scripts/embody_cli.sh broadcast start
+./scripts/embody_cli.sh broadcast recover
+./scripts/embody_cli.sh broadcast stop
+./scripts/embody_cli.sh broadcast configure --disable
+```
+See `docs/broadcast.md` for credential storage, automation-safe configuration, status, logs, and recovery.
 
 Important: the Unreal game image is delivered **encrypted** (not anonymously pullable from GHCR).
 If you see `denied` pulling `ghcr.io/.../embody-ue-ps:*`, run:
@@ -171,6 +189,7 @@ Default allowlisted IPs depend on setup mode:
 ## What’s inside
 
 - `docker-compose.unreal.yml` – the Pixel Streaming + orchestration stack
+- `docker-compose.broadcast.yml` – separately launched optional WebRTC → RTMP bridge
 - `scripts/embody_cli.sh` – onboarding + day-to-day CLI entrypoint
 - `scripts/onboard_orchestrator.sh` – deprecated alias for onboarding (calls `embody_cli.sh setup`)
 - `tools/encrypted-game-image/` – encrypted artifact consume/rollout helpers
@@ -189,6 +208,7 @@ Program terms, eligibility, and payout rules are governed by the legal docs belo
 - CLI reference: `docs/embody-cli.md`
 - Architecture: `docs/pixel-streaming-architecture.md`
 - Recorder control: `docs/recorder-control.md`
+- Optional RTMP broadcast: `docs/broadcast.md`
 - Staging environment: `docs/staging.md`
 - Sleep/wake: `docs/sleep-wake.md`
 - Unreal integration notes: `docs/unreal-integration.md`

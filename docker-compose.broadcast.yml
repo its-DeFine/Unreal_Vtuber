@@ -1,0 +1,56 @@
+services:
+  broadcast-bridge:
+    # Reuse the recorder runtime because it already contains Python, GStreamer,
+    # WebRTC, H.264/AAC, and aiohttp. The broadcast implementation is mounted
+    # read-only from this checkout, so no game image is needed.
+    image: ${EMBODY_BROADCAST_IMAGE_REPOSITORY:-ghcr.io/its-define/unreal_vtuber/recorder-control}:${EMBODY_SERVICE_IMAGE_TAG:-latest}
+    container_name: vtuber-broadcast-bridge
+    restart: unless-stopped
+    init: true
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      GST_DEBUG: "0"
+      GST_REGISTRY: /tmp/gstreamer-registry.bin
+      BROADCAST_MODE: ${EMBODY_BROADCAST_MODE:-test}
+      BROADCAST_SIGNALING_URL: ${EMBODY_BROADCAST_SIGNALING_URL:-ws://vtuber-unreal-signaling:80}
+      BROADCAST_STREAMER_ID: ${EMBODY_BROADCAST_STREAMER_ID:-}
+      BROADCAST_RTMP_URL_FILE: /run/embody-broadcast/destination
+      BROADCAST_STATE_FILE: /var/lib/embody-broadcast/state.json
+      BROADCAST_RETRY_INITIAL_SECONDS: ${EMBODY_BROADCAST_RETRY_INITIAL_SECONDS:-2}
+      BROADCAST_RETRY_MAX_SECONDS: ${EMBODY_BROADCAST_RETRY_MAX_SECONDS:-30}
+      BROADCAST_STREAMER_WAIT_SECONDS: ${EMBODY_BROADCAST_STREAMER_WAIT_SECONDS:-0}
+      BROADCAST_STREAMER_POLL_SECONDS: ${EMBODY_BROADCAST_STREAMER_POLL_SECONDS:-2}
+      BROADCAST_AV_WAIT_SECONDS: ${EMBODY_BROADCAST_AV_WAIT_SECONDS:-3}
+      BROADCAST_VIDEO_BITRATE_KBPS: ${EMBODY_BROADCAST_VIDEO_BITRATE_KBPS:-6000}
+      BROADCAST_AUDIO_BITRATE_BPS: ${EMBODY_BROADCAST_AUDIO_BITRATE_BPS:-128000}
+    command: ["python3", "/opt/embody/broadcast/broadcast_bridge.py"]
+    volumes:
+      - ./tools/broadcast:/opt/embody/broadcast:ro
+      # In RTMP mode this is a private host file. In test mode the CLI mounts
+      # /dev/null. The destination value never enters Compose interpolation.
+      - ${EMBODY_BROADCAST_RTMP_URL_FILE:-/dev/null}:/run/embody-broadcast/destination:ro
+      - ${EMBODY_BROADCAST_STATE_DIR:?EMBODY_BROADCAST_STATE_DIR is required}:/var/lib/embody-broadcast
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python3", "/opt/embody/broadcast/healthcheck.py", "--state-file", "/var/lib/embody-broadcast/state.json"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    stop_grace_period: 10s
+    networks:
+      - vtuber_network
+
+networks:
+  vtuber_network:
+    external: true
+    name: vtuber_network

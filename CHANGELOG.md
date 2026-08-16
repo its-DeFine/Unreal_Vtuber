@@ -4,7 +4,7 @@
 
 Changes merged after `v1.3.1` (current tagged release).
 
-- (none yet)
+- Add an opt-in unattended WebRTC → RTMP broadcast bridge with secure local destination storage, independent CLI lifecycle/recovery commands, sanitized status, and an account-free fake test mode.
 
 ## v1.3.1 (2026-01-25)
 

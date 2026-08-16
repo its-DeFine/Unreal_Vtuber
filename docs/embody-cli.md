@@ -32,6 +32,7 @@ u) Upgrade (pull/recreate containers)
 v) Verify (end-to-end)
 m) Payments status
 p) Power (sleep/wake)
+b) Optional RTMP broadcast
 s) Setup / reconfigure
 q) Quit
 >
@@ -73,6 +74,13 @@ q) Quit
   - `power wake --ttl <seconds>` sets an auto-sleep TTL on wake
 - Day-to-day stack control:
   - `start`, `stop`, `restart`, `status`, `logs [service]`, `health`
+- `broadcast` – manage the independent, opt-in WebRTC → RTMP bridge
+  - `broadcast configure` – securely prompt for and store a destination outside the repo
+  - `broadcast configure --url-file <path>` / `--url-stdin` – automation-safe destination input
+  - `broadcast configure --test` – fake source/sink lifecycle mode (no account, game image, or GPU)
+  - `broadcast start|stop|status|logs|recover` – operate and recover only the broadcast Compose project
+  - `broadcast configure --disable` – stop it and remove the stored destination
+  - `broadcast status --json` – sanitized machine-readable state
 - `upgrade` – pull/recreate service containers (safe to run while sleeping; won’t wake the game)
   - Repo auto-updates to latest `origin/main` on CLI launch (ff-only, best-effort; skipped when the checkout is dirty or detached HEAD)
   - Opt-out of repo auto-update: `EMBODY_CLI_NO_AUTO_UPDATE=1 ./scripts/embody_cli.sh`
@@ -120,6 +128,7 @@ If you use Payments-driven recording jobs:
 - The orchestrator must have **outbound HTTPS** access so it can `PUT` to presigned URLs.
 
 See also:
+- Optional RTMP broadcast: `docs/broadcast.md`
 - Recorder control docs: `docs/recorder-control.md`
 - Onboarding guide: `docs/orchestrator-onboarding.md`
 
